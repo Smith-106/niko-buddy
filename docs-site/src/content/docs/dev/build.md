@@ -7,7 +7,7 @@ description: 从源码构建桌面版与发布版
 
 ## 前置依赖
 
-- **Node.js** 20+
+- **Node.js** 22.18+
 - **Rust** (stable)
 - [Tauri 2 开发环境](https://v2.tauri.app/start/prerequisites/)
 

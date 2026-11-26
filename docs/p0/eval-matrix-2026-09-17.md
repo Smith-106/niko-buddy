@@ -32,7 +32,7 @@
 | 角色 | **回归网**：任何检索链改动（路由/分词/融合/重排/回退）都不得使其降级 |
 | 阈值 | `minHitRate 0.9` / `minHitsPerQuery 1` / `minTop20Rate 0.9` / `minTop3Rate 0.7` |
 | 现役 | top3 34/34、top20 34/34、命中率 34/34（全绿） |
-| 明确禁止 | 用作「收敛结论 / 已收敛」的证据——同源集只证非劣化（反目标 #3 豁免标记见 `consensus-antigoals.ts` 的 `CONVERGENCE_CLAIM_PATTERNS`）；跨系统结论必须走非同源集（§3） |
+| 明确禁止 | 用作「收敛结论 / 已收敛」的证据——同源集只证非劣化（反目标 #3 豁免标记见 `consensus-antigoals.ts` 的 `CONVERGENCE_CLAIM_PATTERN`）；跨系统结论必须走非同源集（§3） |
 | 回归触发 | 任何 PR 触及 `src/lib/novel/` 检索面 → 必跑 `golden-retrieval.spec.ts`；`kb-shadow-harness.spec.ts` 同列必跑集 |
 
 ## 3. 非同源多集裁决矩阵（目标态；第三方集仍缺席）
@@ -68,7 +68,7 @@
 | HEAD（r2 波） | `da1a6c6b`（R-1 门禁进仓前重核） | `edb4cfe6`（R-1→R3 全波收口）→ `98fcb7b2`（收口行补齐） |
 | HEAD（r3 波：B1–B5） | `98fcb7b2` | 本行 commit sha（见下「r3 收口验证」） |
 | 规模计数 | `corpus 6 / craft 12 / lexicon 38 / world_ref 8`（R1 前） | `corpus 6 / craft 12 / lexicon 53 / world_ref 27`（B5 后，builtFrom `sha256:df39ecbc9a177c41`） |
-| flag 默认值 | `dual false / hardInject true / usefulness false` | **不变**（`src/stores/wiki-store.ts:435/440/441`） |
+| flag 默认值 | `dual false / hardInject true / usefulness false` | **不变**（`src/stores/wiki-store-config.ts:497/502/503`） |
 | 会话状态文件 | `.novel/status.json`（唯一） | 同前，无第二状态文件 |
 | λ / R2 阈值 | λ=25 ms/pp `calibrated=false`；1000/1e4/30/0pp | **不变**（B2 只产出证据，未翻位） |
 | ANN / pricing 门控 | `ANN_PLAN.implemented=false`；`pricing.status=pending` | **不变**（B3-b 仅接口+精确参考；B4 仅骨架）——唯一描述性例外：`SHARD_PLAN_PLACEHOLDER.implemented false→true`（分片已实做；无门控/配置消费者） |
@@ -76,3 +76,5 @@
 > 收口验证（2026-09-17，QMAI `edb4cfe6`）：vitest scoped 16 文件 424 passed / 1 skipped（含回归必跑集 golden-retrieval、kb-shadow-harness）；typecheck 0 错；`eslint src` clean；boundaries 4/4；antigoals ALL PASS(6/6)；anchors ALL PASS(9/9)；生成器 `--check` 三链一致（`sync-kb-view-to-niko-buddy.mjs`（含策展债分门禁）/ `snapshot-kb-view-content.mjs` / `extract-weknora-snapshot.mjs`）。收口后 `master...smith/master` 一致性与本行 commit sha 的对应关系由推送记录核验。
 >
 > flag 默认值变更：**无**（本次未翻任何默认值，故无 `git revert` 对象需注明）；数据填充（R1 内容包）与任何默认值变更均未同 commit（后者不存在）。
+>
+> **2026-11 基线演进注记**：2026-11-08 参考池再重建后，现役产物 `builtFrom=sha256:9e1928e35f2c89ac`，四写作面规模演进为 `corpus 7 / craft 14 / lexicon 53 / world_ref 27`（合计 101 条；`corpus` 经批准一次性扩容 6→7、`craft` 12→14，AG6 所需证据面 `rerank-trigger-evidence-*.md` 与 `same-scale-*.md` 均齐备）；检索三 flag 默认值定义已由 `src/stores/wiki-store.ts` 迁移至 `src/stores/wiki-store-config.ts:497/502/503`（`dualKbRoutingEnabled=false / hardInjectEnabled=true / usefulnessRerankEnabled=false` 默认值均未变更）；内部非同源集（`internal-eval-queries.json` / `internal-eval-set.generated.json`，N=343）已同步对齐 `sha256:9e1928e35f2c89ac`（仍属内部非同源一致性口径，不可作收敛结论，W 面保持未达裁决）。

@@ -15,16 +15,32 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.27.2-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.28.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
 > 版本摘要口径：本文件按版本摘选要点，并非逐版完整记录 —— v2.26.5、v2.27.0 等条目未在此逐版列出；完整逐版历史见 [CHANGELOG.md](CHANGELOG.md) 与 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-## v2.27.2（装配 P1 路由归一修复与两项既有交付，正式稳定版 — 当前 GitHub Latest）
+## v2.28.1（检索并发去重与上下文检查异步轮询，当前稳定版）
 
-**当前稳定版（GitHub Latest，2026-11-12 JST 发布）**：tag `v2.27.2` 指向 `59cfb725`，Release CI（run 43036064065，attempt 1）success，四资产齐全（`latest.json` + NSIS 安装包 + `.sig` + 便携版）；`prerelease=false`，公开 updater alias 真网络回读的 `latest.json` 的 `version` 为 2.27.2（URL tag-pinned，signature 与真实 `.sig` 匹配）。
+**当前稳定版（2026-11-22 登记）**：版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源，实际发布产物与下载资产见 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
+
+本版重点优化大型长篇项目的上下文检索并发性能与只读检查稳定性：
+
+- **检索并发去重**：`searchWiki` 对同路径的目录枚举与文件内容读取增加并发去重与缓存失效守卫，避免大型项目并行组装上下文包时重复触发全量 IPC 读取。
+- **`context.inspect` 异步轮询**：对需要构建或查找上下文包的只读检查请求改用异步启动与 250ms 有界轮询，在保持默认状态桥超时与外部契约不变的前提下避免真实检索超时。
+
+**v2.27.3–v2.28.0 累计面向用户演进：**
+
+- **v2.28.0（2026-11-21）**：新增只读 MCP 工具 `context.inspect`（回读章节公开配置、精确正文来源、审查窗口、上下文包与六维审稿基座提示词，正文或配置变化时自动拒绝过期快照）；升级 Zod 4.6.7 与 KaTeX 0.18.2 安全依赖；修复故事推演共享提示的过期计时归属。
+- **v2.27.6（2026-11-20）**：章节摄取提交前重新读取并校验同一正式章节，遇到正文变更、不可读或取消时返回明确原因；采纳后回传正文来源、标准化快照与 Canon 更新结果，摄取失败时保留已完成的草稿采纳并明确提示。
+- **v2.27.5（2026-11-19）**：按正式章节身份读取前情与上一章结尾，统一卷纲与细纲来源选择；修复故事推演、访谈记录与草稿的错误提示归属，并为历史分析恢复补齐取消判定。
+- **v2.27.3（2026-11-15）**：修复采纳章节草稿覆盖当前打开章节后编辑区不刷新的问题，并在读取失败或面板重挂边界保护未保存的正文与标题输入。
+
+## v2.27.2（装配 P1 路由归一修复与两项既有交付，历史稳定版 — 已被后续版本接任）
+
+**历史稳定版（2026-11-12 JST 发布，已被后续稳定版接任）**：tag `v2.27.2` 指向 `59cfb725`，Release CI（run 43036064065，attempt 1）success，四资产齐全（`latest.json` + NSIS 安装包 + `.sig` + 便携版）；`prerelease=false`，发布时公开 updater alias 真网络回读的 `latest.json` 的 `version` 为 2.27.2（URL tag-pinned，signature 与真实 `.sig` 匹配）。
 
 本版把三项**已交付**的内容装进真包，不含新功能：
 
@@ -241,7 +257,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 
 ### 冗余 A 级精简
 
-删掉 `token-estimator.ts`（只被自己的 spec 引用的别名，唯一估算口径本就是 `context-compact.estimateCompactTokens`）。`mod.ts` 保留：它是 ADR-34 防火墙使用的主链 barrel，误删会被 `persona-sidecar-runner.spec.ts` 与发版 CI 门禁拦下。
+删掉 `token-estimator.ts`（只被自己的 spec 引用的别名，唯一估算口径本就是 `context-compact.estimateCompactTokens`）。公开模块出口现已收敛至唯一顶层 barrel `src/lib/novel/index.ts`（历史上过渡保留的 `src/lib/novel/mod.ts` 已在 Round 3 退役；外部层统一经 `@/lib/novel` 或 `eslint.config.js` 受控 `novel-deferred` 白名单导入）。
 
 ## v2.17.1 历史能力
 
@@ -671,19 +687,24 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 ```mermaid
 sequenceDiagram
     participant U as 用户
-    participant FE as 前端 React
+    participant FE as 前端 React / TS 业务层
+    participant DR as "Draft-first 草稿沙箱 (.qm-drafts / .novel/drafts)"
     participant IP as Tauri IPC
     participant RS as Rust 后端
     participant DB as 本地存储 LanceDB JSON MD
     U->>FE: 输入写作指令
-    FE->>IP: invoke 生成上下文包
-    IP->>RS: 组装上下文包 记忆 图谱 检索
-    RS->>DB: 读取章节 向量 状态
-    RS-->>FE: 返回上下文包
-    FE->>FE: 调用 LLM 生成草稿
-    U->>FE: 确认保存
-    FE->>FE: 调用 chapter_ingest (TypeScript)
-    RS->>DB: 写入记忆 图谱边 向量
+    FE->>IP: context-engine.ts 发起章节/向量/状态读取
+    IP->>RS: 分发文件系统、LanceDB 与 Canon 命令
+    RS->>DB: 读取章节、向量、Canon 与状态
+    DB-->>RS: 返回原始数据与检索命中
+    RS-->>FE: 返回读取结果
+    FE->>DR: 组装上下文包、生成草稿并写入 pending/ready 沙箱（未采纳不污染正式层）
+    Note over FE,DR: "固定门控优先级：Consistency (P0) > Anti-AI (P1) > Quality (P2)"
+    U->>DR: 审阅并显式确认采纳草稿 (accept)
+    DR->>FE: 释放已采纳正文进入正式回填链
+    FE->>IP: chapter-ingest.ts 提取记忆并提交回写请求
+    IP->>RS: 分发原子写盘、图谱与向量更新命令
+    RS->>DB: 回写正式正文、记忆快照、Canon 与向量
 ```
 
 ---
@@ -714,11 +735,11 @@ sequenceDiagram
 
 | 变量 | 说明 | 来源 |
 |------|------|------|
-| `ANTHROPIC_API_KEY` | Claude 直连场景的 Anthropic API key | `src/components/settings/preset-resolver.ts:120` |
-| `NOVEL_LOG_JSON` | 启用 JSON 结构化日志（替代纯文本日志输出） | `src/lib/utils.ts:77` |
-| `QMAI_CLAUDE_STARTUP_TIMEOUT_SECS` | Claude CLI 启动超时（秒） | `src-tauri/src/commands/claude_cli.rs:45-57` |
-| `PDFIUM_DYNAMIC_LIB_PATH` | PDF 引擎动态库路径（四级回退定位 PDFium） | `src-tauri/src/commands/fs.rs:395-407` |
-| `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` | 代理配置（网络请求走系统代理） | `src-tauri/src/proxy.rs:191` |
+| `ANTHROPIC_API_KEY` | Claude 直连场景的 Anthropic API key | `src/lib/llm-config/preset-resolver.ts:179` |
+| `NOVEL_LOG_JSON` | 启用 JSON 结构化日志（替代纯文本日志输出） | `src/lib/utils.ts:120` |
+| `QMAI_CLAUDE_STARTUP_TIMEOUT_SECS` | Claude CLI 启动超时（秒） | `src-tauri/src/commands/claude_cli_launch.rs:33-45` |
+| `PDFIUM_DYNAMIC_LIB_PATH` | PDF 引擎动态库路径（四级回退定位 PDFium） | `src-tauri/src/commands/fs_pdf.rs:106-108` |
+| `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` | 代理配置（网络请求走系统代理） | `src-tauri/src/proxy.rs:109-119` |
 
 ### 离线模式（v2.7.4 起，39 号 G10）
 
@@ -729,7 +750,7 @@ sequenceDiagram
 > 注：v2.7.8 是 v2.7 系列收官（notes-only，安装包沿用 v2.7.7），属历史记录，不代表当前版本。
 > 注：CI 发布构建当前只有 Windows x64 一个活跃 matrix 目标（[build.yml](.github/workflows/build.yml) 的 `matrix.include` 仅 `windows-x64` / `windows-latest`；2026-10-14 用户指令锁定 Windows-only，macOS/Linux 条目已移除，条件步骤不等于活跃目标）；macOS/Linux 是否正式发版以 Releases 实际资产为准。
 > 当前版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源；**本段不硬编码版本三元组**，本文件其余段落出现的版本编号均为叙述性摘选（顶部徽章/版本摘要不构成版本权威）。
-> 源码 tip ≠ 已发布安装包：`smith/master` 上的 P1 角色行为路由归一修复（提交 `0cf0815c`，atlas `5f71a7fe`）已随 v2.27.2 真包装载（v2.27.1 及更早的安装包里没有），同版还装入 README 交付口径 `0eaecdb4` 与公开质量门/平台声明 `13b37dc5`；源码层与发行包仍是不同层，版本权威仍以三份 manifest 为准。当前发布状态与交付资产以上方 v2.27.2 节与 [Releases](https://github.com/Smith-106/niko-buddy/releases) 为准。
+> 源码 tip ≠ 已发布安装包：当前主干版本为 v2.28.1（含 `searchWiki` 检索并发去重、`context.inspect` 异步轮询以及 v2.27.3–v2.28.0 累计修复与功能）；源码层与发行包仍是不同层，版本权威仍以三份 manifest 为准，当前发布状态与交付资产以上方 v2.28.1 节与 [Releases](https://github.com/Smith-106/niko-buddy/releases) 为准。
 
 ### 安装方式
 
@@ -748,7 +769,7 @@ sequenceDiagram
 
 ### 基本使用流程
 
-1. **新建小说项目**：指定项目名称、题材、目标字数
+1. **新建小说项目**：指定项目名称、项目模板与存放目录（可先点「立即配置」配置模型，或暂不配置直接建项）
 2. **导入或生成大纲**：导入已有大纲，或通过 AI 生成；也可从拆书库提取文风作为风格约束
 3. **配置模型**：在设置中配置 LLM API 地址和密钥；可设置「默认模型」统筹后台任务
 4. **开始写作**：在 AI 对话区输入写作指令（如"继续写第 30 章"）
@@ -826,7 +847,7 @@ QMAI/
 
 ### 前置依赖
 
-- Node.js 20+
+- Node.js `>=22.18`（本地最低要求，真源见 `package.json` `engines.node`；CI 主门禁运行于 Node `24`，`analytics-worker` 独立工作区运行于 Node `22`）
 - Rust (stable)
 - [Tauri 2 开发环境](https://v2.tauri.app/start/prerequisites/)
 

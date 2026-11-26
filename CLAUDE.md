@@ -44,6 +44,10 @@
 | 大纲多智能体编排 | `src/lib/novel/outline-multi-agent-orchestrator.ts` + `outline-dynamic-agent-planner.ts` + `outline-result-protocol.ts` + `outline-agent-context.ts` + `outline-workflow-state.ts`（纯逻辑，自 v3 提取模式）+ `outline-multi-agent-adapter.ts`（v2 接线：streamChat + deep-outline 降级） |
 | 大纲结构化真源（P0） | `src/lib/novel/outline-model.ts` + `outline-model-parse.ts` + `outline-model-render.ts`（P0 登记：类型/校验/digest；md→model 三级识别解析；model→md 确定性幂等渲染。sidecar JSON 为真源，md 为投影；命名避让 `src-tauri/src/canon/*` 三表） |
 | UI 闭环 | `src/components/chat/chat-panel.tsx` + `chat-message.tsx` + `chat-resume.ts` |
+| 公开 Barrel 与依赖边界 | `src/lib/novel/index.ts`（唯一公开顶层 barrel，原 `mod.ts` 已退役；外部层仅经 `@/lib/novel` 或 `eslint.config.js` 受控 `novel-deferred` 21 模块白名单导入）+ `eslint.config.js`（Tier 1 `error` + Tier 2 `warn` + `boundaries/dependencies`） |
+| 测试脚手架目录 | `src/test-helpers/`（`chat-panel/chat-panel-test-setup.tsx` + `chat-panel-test-fixtures.ts` + `stage-output-journal-test-helpers.ts` + `component-test-utils.tsx`；与生产源码隔离，由 `gen-module-atlas.mjs` 与 `check-consistency.mjs` 自动排除） |
+| 书稿导出中心（P1-04） | `src/lib/novel/export.ts`（TXT/DOCX/EPUB/PDF 全格式导出 + 章节范围/含草稿选项）+ `src/lib/export/pdf-export-gate.ts`（`.novel/export-history.json` 持久导出历史）+ `src/components/novel/export-center-view.tsx` |
+| 批量提取与整本导入（P1-03） | `src/lib/novel/snapshot-scanner.ts`（60 章批量上限 + 起止章区间筛选 + 同号冲突路径定位）+ `src/lib/novel/chapter-import.ts`（整本 TXT 拆章导入，严禁自动触发 `ingestChapter`） |
 | 主控·配置视图（G1） | `src/lib/novel/main-control-settings.ts`（登记：`MainControlSettingsView` / `projectMainControlSettings` / `clampChapterTargetChars` / `MAIN_CONTROL_CHAPTER_TARGET_{MIN,MAX,FALLBACK}`；`writingModel` 不在此视图内 —— D2=C 死字段） |
 | 主控·配置落盘（G1） | `src/lib/novel/novel-config-persist.ts`（登记：`persistNovelConfigPatch` 唯一写入口；设置页与主控设置块共用，内存态 `setNovelConfig` 不算真源） |
 | 主控·采纳+记忆回填（G2） | `src/lib/novel/accept-draft-with-ingest.ts`（登记：`acceptDraftAndIngest` 顺序=先 accept 后 ingest，失败分类 `AcceptDraftIngestStatus` 四值；`buildIngestActivity` 把结果转 `AgentActivityEvent`）+ `main-control-draft-actions.ts`（登记：`createMainControlAcceptSeam` / `resolveMainControlDraftTarget` / `adoptMainControlDraft`，accept seam 复用 `draft-manager.acceptChapterDraft`） |
@@ -83,7 +87,7 @@
 | **T18 硬门：stage-output-journal** | `src/lib/novel/stage-output-journal.ts`（T18，编排面 LLM 工件缓存，复用 T07 digest，.novel/journal/{digest}.jsonl TTL 过期，崩溃后命中跳过重调 LLM） |
 | **T18 硬门：故障注入矩阵** | `src/lib/novel/fault-injection.spec.ts`（T18，6 类种子化 SIGKILL/部分写/磁盘满/文件锁/OOM/时钟偏移，LCG seed 确定性续跑一致） |
 | **T18 硬门：端到端切片** | `src/lib/novel/e2e-chapter-hardgate.spec.ts`（T18，6 阶段垂直切片 canon→审计→门控→accept→双写→reconcile 零差异，含×5 崩溃/×2 重放） |
-| ESLint boundaries 门禁 | `eslint.config.js`（T18 前置，eslint-plugin-boundaries 依赖方向门禁，novel/ 窄接口白名单，0 errors） |
+| ESLint 分层与 boundaries 门禁 | `eslint.config.js`（`boundaries/dependencies` 窄接口依赖方向门禁 + Tier 1 `error`：`react-hooks/rules-of-hooks`、`no-unsanitized/{method,property}`、`@typescript-eslint/ban-ts-comment`、`no-debugger` + Tier 2 `warn`：`react-hooks/exhaustive-deps`、`@typescript-eslint/no-explicit-any`；`src/**/*.generated.ts` 豁免 `ban-ts-comment`；`src/**/*.spec.*` / `src/test-helpers/**` 豁免 `no-explicit-any`；0 errors） |
 | decision-log 工作区 | `docs/decision-log/`（T06，`_TEMPLATE.md` + 按日条目，A-34 强制） |
 
 ## v2.6 Tier1 新增锚点（F-001/F-002/F-006/F-009 已落地，2026-08-21 同步）
@@ -149,9 +153,9 @@
 | 评测集 G1 骨架（离线评测建集 F1） | `src/lib/novel/eval/`（13 文件 + fixtures/：eval-schema/eval-adapters/eval-metrics/eval-harness/eval-report/eval-gates/eval-corpus-synth/eval-l3-replay/index + A 门 spec×2 + C 门占位 `eval-harness.real-llm.test.ts`；硬共识阈值 L2≥0.99 > L1≥0.95 > L3<0.01 + digest 锁复用 computeCheckpointDigestOf；合成语料先行，真实基线门待 snapshot 语料到位） |
 | 评测脚本（真实基线门 + 快照修复） | `scripts/eval-baseline.mjs`（`npm run eval:baseline`，真实基线门入口）、`scripts/eval-extract-real.mjs`（真实评测抽取）、`scripts/repair-snapshot-object-string.mjs`（快照 object-string 修复）+ 入口 `npm run eval:l3`（REAL_LLM=1 vitest 跑 `eval-harness.real-llm.test.ts`） |
 
-## G4/G6 编辑影响 + Plateau 停止新增锈点（51 号报告 P1 补齐，2026-09-03 同步）
+## G4/G6 编辑影响 + Plateau 停止新增锚点（51 号报告 P1 补齐，2026-09-03 同步）
 
-| 能力 | 锈点 |
+| 能力 | 锚点 |
 |------|------|
 | G1 确定性检测器扩展 | `src/lib/novel/deterministic-continuity-engine.ts`（新增 4 类检测器 barrier_state critical / presence_path / container_state / set_count_drift warning，additive 可选切片 barrierEvents/presenceEvents/containerEvents/setCountSnapshots 缺失返回 []，注册入 detectors 数组；SUGGESTION_BY_TYPE 补 4 键） + `deterministic-continuity-engine-g1.spec.ts`（7 绿） |
 | G2 声纹对齐闭环 | `src/lib/novel/voiceprint-alignment.ts`（G2，纯函数 checkVoiceprintConvergence 双向测量 driftVsBaseline + driftVsBefore，阈值 0.3，recommendation accept/revise/manual） + `voiceprint-alignment.spec.ts`（7 绿） |
@@ -210,7 +214,8 @@
 
 ## 当前执行视图
 
-按 Stage 推进（旧 Phase 仅作历史来源）：`1 Authority Realignment → 2 Release Readiness → 3 Core Stabilization → 4 High-ROI Enhancements → 5 Optional Sidecar`。Stage 2 已 strict PASS（b51ab03，v2.2.24）；Stage 3/4/5 + 加固层 v2.3.2 + Post-v2.3.2 演进（连续性引擎 + ARCH-1 拆分 + ISS-001/002/011）已落地，v2.4.1 已发布 GitHub 2026-07-21，v2.4.2 patch 已发布 2026-07-25（updater endpoint 修复 + 文档站上线 + LICENSE + 09 文档同步，tsc 0 + vitest 985/985）。详见 `@../.workflow/project.md` 与 `@../docs/niko-buddy-codex-delivery/09-implementation-plan.md`。
+- **当前主干版本**：`v2.28.1`（`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 三处 manifest 与 `src/lib/changelog.ts`、`CHANGELOG.md` 保持单源一致，由 `npm run consistency` 机械校验）。近期主干演进覆盖应用内 MCP 控制面与 `context.inspect` 只读回读、主控三档权能闭环、草稿采纳与编辑区刷新协调、章节摄取源校验、`searchWiki` 并发去重与异步状态桥轮询修复；工程治理层完成 `src/lib/novel/index.ts` 单一公开 barrel 收敛（`mod.ts` 退役）、`src/test-helpers/` 测试脚手架隔离、ESLint Tier 1/Tier 2 分层门禁、前后端一致门禁词法加固（含 `invokeFs`/`invokeCanon` 别名与必填形参漏传拦截）、Module Atlas barrel 符号级消费归因及 CI `rust-clippy` 强门接入。
+- **历史 Stage 脉络**：早期按 `1 Authority Realignment → 2 Release Readiness → 3 Core Stabilization → 4 High-ROI Enhancements → 5 Optional Sidecar` 推进（Stage 2 在 `b51ab03` / v2.2.24 strict PASS，Stage 3/4/5 与 v2.3.2–v2.4.2 加固、Wave-0/Wave-1/W1、v2.7–v2.28 系列均已归档落入主干）。历史路线与交付归档见 `@../.workflow/project.md` 与 `@../docs/niko-buddy-codex-delivery/09-implementation-plan.md`。
 
 ## 验收与证据
 

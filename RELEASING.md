@@ -14,7 +14,7 @@
 
 - 版本号三处一致：`package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`。
 - **单写者红线（P0-2f）与 commit 纪律（P0-2g）**：版本号/CHANGELOG/generated 写入权限与 commit 拆分规则以 `.workflow/PARALLEL-PACT.md` 地盘表「单写者红线」+ P16 为准。
-- **禁止跳号**：每个 tag 必须对应一次真实构建；构建失败不发布（删除失败 tag 后重发）。
+- **禁止跳号**：每个 tag 必须对应一次真实构建；构建失败不发布、不移动或删除已公开的 tag。
 
 ## 发布节奏
 
@@ -23,7 +23,7 @@
 - **fix-forward 豁免（2026-09-07 第二轮 9 票共识，decision-record-20260907b 决策 3）**：资产补齐/断链修复类补救性发布（如 v2.7.9 补 v2.7.8 的 0 资产缺口）可豁免「每周 ≤1」与「近 30 天 ≤4」硬检，条件：① 发布目的为修复更新链路（notes-only 资产补齐/错版本资产处置）；② 用户明确批准（含渠道=stable 决策记录）；③ 发布后承诺窗口内（至 10/2）不再发 stable；④ 豁免登记写入 release body。豁免不改变「同日重复 tag = 0」与「主干校验」硬检。
 - 同日重复 tag：无 CI 自动门禁，靠人工纪律执行（重复 tag 一律拒绝；候选版如需走 `prerelease`，由发布者手动加 `--prerelease` 标记）。
 - 发布前检查：
-  - **typecheck 唯一口径（硬检，68 号 P1-9）**：`npm run typecheck`（= `tsc --build --pretty`）必须 0 错误；**禁止裸 `npx tsc --noEmit`**——根 tsconfig `files:[]` 纯 references 结构下为空操作假阴性（66 号 §3 实锤）。typecheck 红主干禁止发版（v2.7.5/2.7.7/2.7.8 门失败仍发布先例不得重演）。
+  - **typecheck 唯一口径（硬检，68 号 P1-9）**：`npm run typecheck`（= `tsc --build --force --pretty`）必须 0 错误；**禁止裸 `npx tsc --noEmit`**——根 tsconfig `files:[]` 纯 references 结构下为空操作假阴性（66 号 §3 实锤）。typecheck 红主干禁止发版（v2.7.5/2.7.7/2.7.8 门失败仍发布先例不得重演）。
   - `npm run lint`（硬检，= `eslint . && node scripts/check-boundaries.mjs`；eslint 0 error，warning 容忍）
   - `npm run test:mocks` 全绿（与 CI `.github/workflows/checks.yml` 同口径：character-aura lint + vitest mock 套件，排除 real-llm/bench）+ 真机冒烟（安装/更新/重启）。
 
@@ -52,6 +52,15 @@ latest.json
 - **当前活跃目标：仅 Windows x64**（nsis 安装包 + portable）——`.github/workflows/build.yml` 的 `matrix.include` 只有 `windows-x64` / `windows-latest`（2026-10-14 用户指令锁定 Windows-only）。
 - 每个**活跃**目标资产齐全才发布；活跃目标缺失或未补齐须在正文标注原因，未成为活跃目标的平台不计入发布门槛。
 - 注：上方 macOS（AppleSilicon + Intel）/ Linux（AppImage + deb）命名仅为潜在平台的命名约定，**不代表已交付支持**；恢复需先在 build.yml 恢复对应 matrix 条目，是否正式发版以 Releases 实际资产为准。
+
+## 草稿晋升
+
+- 手动触发（`workflow_dispatch`）走独立的 `build-unsigned` job，仅上传未签名的 Windows 安装包。该 job 不进入签名环境，不使用正式 updater 私钥，也不创建发布草稿。
+- 只有 `Smith-106/niko-buddy` 的 tag push 通过同提交 CI、`v<version>` 匹配及 `master` 祖先校验后才使用正式 updater 私钥。签名 job 绑定 `windows-release-signing`，从该环境读取 `WINDOWS_RELEASE_TAURI_KEY` 和 `WINDOWS_RELEASE_TAURI_PASSWORD`；不要将这两个密钥设为仓库级或组织级 secrets。
+- 签名环境只允许 `v*` tag，配置独立审批并阻止自审；tag 规则仅允许发布维护者创建、禁止更新或删除。首发前须单独核实这些保护，迁走旧仓库级签名密钥，并确认已获准的提交绑定同一次 CI 与草稿。源码声明不代表远端配置已生效。
+- 旧 tag 跑旧 workflow——历史 tag 上的旧流水线无法被当前代码约束，晋升前须按本文件重新核验：远端 tag 剥皮 SHA 精确匹配、草稿四资产 sha256/digest 与签名校验复跑、同 commit CI 绿、release cadence 通过，之后才走外部授权晋升。
+- 核验任何一环存疑即不晋升，保留旧 Latest。草稿创建后若核验失败，保持未公开，交由维护者人工检查，不自动清理。
+- 草稿节奏检查使用 `npm run release:cadence -- --tag vX.Y.Z --draft-promotion`，相当于以运行时刻模拟晋升；使用鉴权发布 API 按 release ID 读取草稿资产并检查上传状态和摘要元数据；该检查不会发布，也不替代签名、SHA 实值、远端绑定与同提交 CI 核验。
 
 ## 发布后检查清单
 
