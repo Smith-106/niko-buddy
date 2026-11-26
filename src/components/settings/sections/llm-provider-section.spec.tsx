@@ -39,13 +39,21 @@ function lookupZhLocale(key: string): string | undefined {
 
 const mocks = vi.hoisted(() => {
   const state: {
+    project: { id: string; name: string; path: string } | null
     providerConfigs: Record<string, any>
     activePresetId: string | null
     llmConfig: Record<string, unknown>
+    aiChatModel: string
+    defaultLlmModel: string
     setProviderConfigs: (c: Record<string, any>) => void
     setActivePresetId: (id: string | null) => void
     setLlmConfig: ReturnType<typeof vi.fn>
+    setAiChatModel: ReturnType<typeof vi.fn>
+    setDefaultLlmModel: ReturnType<typeof vi.fn>
+    setActiveView: ReturnType<typeof vi.fn>
+    setActiveSettingsCategory: ReturnType<typeof vi.fn>
   } = {
+    project: { id: "proj-demo", name: "Demo Novel", path: "C:\\books\\demo" },
     providerConfigs: {},
     activePresetId: null,
     llmConfig: {
@@ -58,6 +66,8 @@ const mocks = vi.hoisted(() => {
       reasoning: { mode: "auto" },
       localCliIsolation: false,
     },
+    aiChatModel: "",
+    defaultLlmModel: "",
     setProviderConfigs: (configs) => {
       state.providerConfigs = configs
     },
@@ -65,6 +75,14 @@ const mocks = vi.hoisted(() => {
       state.activePresetId = id
     },
     setLlmConfig: vi.fn(),
+    setAiChatModel: vi.fn((m: string) => {
+      state.aiChatModel = m
+    }),
+    setDefaultLlmModel: vi.fn((m: string) => {
+      state.defaultLlmModel = m
+    }),
+    setActiveView: vi.fn(),
+    setActiveSettingsCategory: vi.fn(),
   }
   const store = {
     data: {} as Record<string, unknown>,
@@ -330,8 +348,23 @@ function modelInput(card: HTMLElement): HTMLInputElement {
 
 beforeEach(() => {
   setupDomGlobals()
+  mocks.state.project = { id: "proj-demo", name: "Demo Novel", path: "C:\\books\\demo" }
   mocks.state.providerConfigs = {}
   mocks.state.activePresetId = null
+  mocks.state.aiChatModel = ""
+  mocks.state.defaultLlmModel = ""
+  mocks.state.llmConfig = {
+    provider: "openai",
+    apiKey: "",
+    model: "",
+    ollamaUrl: "http://localhost:11434",
+    customEndpoint: "",
+    maxContextSize: 204800,
+    reasoning: { mode: "auto" },
+    localCliIsolation: false,
+  }
+  mocks.state.setAiChatModel.mockClear()
+  mocks.state.setDefaultLlmModel.mockClear()
   // The vi.mock factory captured the ORIGINAL array reference at import
   // time, so mutate in place rather than reassign.
   mocks.LLM_PRESETS.splice(0, mocks.LLM_PRESETS.length, ...DEFAULT_PRESETS.map((p) => ({ ...p })))
@@ -1249,5 +1282,121 @@ describe("HttpTimeoutControls 超时三档", () => {
     // 全空回显
     rerender(<HttpTimeoutControls value={{}} onChange={onChange} />)
     expect((screen.getByLabelText(connectLabel()) as HTMLInputElement).value).toBe("")
+  })
+})
+
+describe("LlmProviderSection Antigravity 合规迁移引导", () => {
+  it("检测到旧版 antigravity-cli 配置时展示迁移横幅并彻底清除旧模型引用", async () => {
+    mocks.state.activePresetId = "antigravity-cli"
+    mocks.state.providerConfigs = {
+      "antigravity-cli": { enabled: true, savedModels: [{ id: "m1", model: "gemini-3-pro" }] },
+    }
+    mocks.state.llmConfig = {
+      ...mocks.state.llmConfig,
+      provider: "antigravity-cli",
+    }
+    mocks.state.aiChatModel = "antigravity-cli/gemini-3-pro"
+    mocks.state.defaultLlmModel = "antigravity-cli/claude-sonnet-4-6"
+    mocks.state.setActiveView.mockReset()
+    mocks.state.setActiveSettingsCategory.mockReset()
+    mocks.state.setLlmConfig.mockReset()
+
+    render(<LlmProviderSection />)
+    const banner = screen.getByTestId("antigravity-legacy-migration-banner")
+    expect(banner).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId("antigravity-migration-open-acp"))
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("antigravityAcp")
+
+    fireEvent.click(screen.getByTestId("antigravity-migration-open-mcp"))
+    expect(mocks.state.setActiveSettingsCategory).toHaveBeenCalledWith("external-control")
+
+    fireEvent.click(screen.getByTestId("antigravity-migration-clear"))
+    await waitFor(() => {
+      expect(mocks.state.activePresetId).toBeNull()
+      expect(mocks.state.providerConfigs["antigravity-cli"]).toBeUndefined()
+      expect(mocks.state.aiChatModel).toBe("")
+      expect(mocks.state.defaultLlmModel).toBe("")
+      expect(mocks.state.setLlmConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: "openai", apiKey: "", model: "" }),
+      )
+      expect(mocks.store.data.aiChatModel).toBe("")
+      expect(mocks.store.data.defaultLlmModel).toBe("")
+    })
+  })
+
+  it("存在其他合法活跃预设时，清除旧版 antigravity-cli 不得把已保存的合法凭据覆盖为空", async () => {
+    mocks.state.activePresetId = "openai-main"
+    mocks.state.providerConfigs = {
+      "openai-main": { enabled: true, apiKey: "sk-real-key", model: "gpt-4o" },
+      "antigravity-cli": { enabled: true },
+    }
+    mocks.state.llmConfig = {
+      ...mocks.state.llmConfig,
+      provider: "antigravity-cli",
+    }
+    mocks.resolveConfig.mockReturnValue({
+      provider: "openai",
+      apiKey: "sk-real-key",
+      model: "gpt-4o",
+      ollamaUrl: "http://localhost:11434",
+      customEndpoint: "",
+      maxContextSize: 128000,
+      reasoning: { mode: "auto" },
+      localCliIsolation: false,
+    })
+
+    render(<LlmProviderSection />)
+    expect(screen.getByTestId("antigravity-legacy-migration-banner")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId("antigravity-migration-clear"))
+    await waitFor(() => {
+      expect(mocks.state.activePresetId).toBe("openai-main")
+      expect(mocks.state.providerConfigs["antigravity-cli"]).toBeUndefined()
+      expect(mocks.state.setLlmConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: "openai", apiKey: "sk-real-key", model: "gpt-4o" }),
+      )
+      expect(mocks.store.data.llmConfig).toEqual(
+        expect.objectContaining({
+          provider: "openai",
+          apiKey: expect.stringMatching(/^enc::v1::/),
+          model: "gpt-4o",
+        }),
+      )
+    })
+  })
+
+  it("无旧版 antigravity-cli 配置时展示合规官方订阅引导卡，支持跳转 ACP 与官方 MCP", () => {
+    mocks.state.setActiveView.mockReset()
+    mocks.state.setActiveSettingsCategory.mockReset()
+
+    render(<LlmProviderSection />)
+    expect(screen.queryByTestId("antigravity-legacy-migration-banner")).toBeNull()
+    expect(screen.getByTestId("antigravity-subscription-info-card")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId("antigravity-guide-open-acp"))
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("antigravityAcp")
+
+    fireEvent.click(screen.getByTestId("antigravity-guide-open-mcp"))
+    expect(mocks.state.setActiveSettingsCategory).toHaveBeenCalledWith("external-control")
+  })
+
+  it("project 为 null 时禁用官方引导卡与迁移横幅的跳转按钮并给出清晰提示（清除旧配置仍可用）", () => {
+    mocks.state.project = null
+    mocks.state.setActiveView.mockReset()
+    mocks.state.setActiveSettingsCategory.mockReset()
+
+    const { rerender } = render(<LlmProviderSection />)
+    expect(screen.getByTestId("antigravity-guide-open-acp")).toBeDisabled()
+    expect(screen.getByTestId("antigravity-guide-open-mcp")).toBeDisabled()
+    expect(screen.getByTestId("antigravity-guide-requires-project-hint")).toBeInTheDocument()
+
+    // 切换到存在旧版配置的状态：迁移横幅跳转按钮同样禁用，但清除按钮保持可用
+    mocks.state.activePresetId = "antigravity-cli"
+    rerender(<LlmProviderSection />)
+    expect(screen.getByTestId("antigravity-migration-open-acp")).toBeDisabled()
+    expect(screen.getByTestId("antigravity-migration-open-mcp")).toBeDisabled()
+    expect(screen.getByTestId("antigravity-migration-clear")).not.toBeDisabled()
+    expect(screen.getByTestId("antigravity-migration-requires-project-hint")).toBeInTheDocument()
   })
 })

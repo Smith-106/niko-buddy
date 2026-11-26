@@ -11,12 +11,70 @@ import { toErrorMessage } from "@/lib/utils"
 
 export function LlmProviderSection() {
   const { t } = useTranslation()
+  const project = useWikiStore((s) => s.project)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const setProviderConfigs = useWikiStore((s) => s.setProviderConfigs)
   const activePresetId = useWikiStore((s) => s.activePresetId)
   const setActivePresetId = useWikiStore((s) => s.setActivePresetId)
   const setLlmConfig = useWikiStore((s) => s.setLlmConfig)
   const llmConfig = useWikiStore((s) => s.llmConfig)
+  const aiChatModel = useWikiStore((s) => s.aiChatModel)
+  const setAiChatModel = useWikiStore((s) => s.setAiChatModel)
+  const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel)
+  const setDefaultLlmModel = useWikiStore((s) => s.setDefaultLlmModel)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
+  const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
+
+  const legacyAntigravityOverride = providerConfigs["antigravity-cli"]
+  const hasLegacyAntigravityConfig =
+    llmConfig.provider === "antigravity-cli" ||
+    activePresetId === "antigravity-cli" ||
+    legacyAntigravityOverride?.enabled === true ||
+    (legacyAntigravityOverride?.savedModels?.length ?? 0) > 0 ||
+    (typeof aiChatModel === "string" && aiChatModel.startsWith("antigravity-cli/")) ||
+    (typeof defaultLlmModel === "string" && defaultLlmModel.startsWith("antigravity-cli/"))
+
+  function dismissLegacyAntigravityConfig() {
+    const nextConfigs = { ...providerConfigs }
+    delete nextConfigs["antigravity-cli"]
+    const nextActive = activePresetId === "antigravity-cli" ? null : activePresetId
+    const hasValidActivePreset =
+      nextActive !== null && LLM_PRESETS.some((preset) => preset.id === nextActive)
+    const shouldClearLlmConfig = llmConfig.provider === "antigravity-cli" && !hasValidActivePreset
+    const clearedLlm = shouldClearLlmConfig
+      ? { ...llmConfig, provider: "openai" as const, apiKey: "", model: "" }
+      : null
+    const shouldClearChatModel =
+      typeof aiChatModel === "string" && aiChatModel.startsWith("antigravity-cli/")
+    const shouldClearDefaultModel =
+      typeof defaultLlmModel === "string" && defaultLlmModel.startsWith("antigravity-cli/")
+
+    setProviderConfigs(nextConfigs)
+    setActivePresetId(nextActive)
+    if (clearedLlm) {
+      setLlmConfig(clearedLlm)
+    }
+    if (shouldClearChatModel) {
+      setAiChatModel("")
+    }
+    if (shouldClearDefaultModel) {
+      setDefaultLlmModel("")
+    }
+    persist(nextConfigs, nextActive)
+      .then(async () => {
+        if (clearedLlm || shouldClearChatModel || shouldClearDefaultModel) {
+          const { saveLlmConfig, saveAiChatModel, saveDefaultLlmModel } = await import(
+            "@/lib/project-store"
+          )
+          if (clearedLlm) await saveLlmConfig(clearedLlm)
+          if (shouldClearChatModel) await saveAiChatModel("")
+          if (shouldClearDefaultModel) await saveDefaultLlmModel("")
+        }
+      })
+      .catch((err) => {
+        toast.error(t("settings.sections.llm.saveFailed", { message: toErrorMessage(err) }))
+      })
+  }
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [savedId, setSavedId] = useState<string | null>(null)
@@ -99,6 +157,104 @@ export function LlmProviderSection() {
           {t("settings.sections.llm.description")}
         </p>
       </div>
+
+      {/* 合规迁移引导：检测到旧版 antigravity-cli 配置时显式提示，不静默失败 */}
+      {hasLegacyAntigravityConfig ? (
+        <div
+          role="status"
+          data-testid="antigravity-legacy-migration-banner"
+          className="rounded-lg border border-warning/50 bg-warning/10 p-4 space-y-2"
+        >
+          <div className="text-sm font-semibold">
+            {t("settings.sections.llm.antigravityMigration.title")}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t("settings.sections.llm.antigravityMigration.description")}
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              disabled={!project}
+              title={!project ? t("settings.sections.llm.antigravityGuide.requiresProject") : undefined}
+              data-testid="antigravity-migration-open-acp"
+              onClick={() => setActiveView("antigravityAcp")}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("settings.sections.llm.antigravityMigration.openAcp")}
+            </button>
+            <button
+              type="button"
+              disabled={!project}
+              title={!project ? t("settings.sections.llm.antigravityGuide.requiresProject") : undefined}
+              data-testid="antigravity-migration-open-mcp"
+              onClick={() => setActiveSettingsCategory("external-control")}
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("settings.sections.llm.antigravityMigration.openMcp")}
+            </button>
+            <button
+              type="button"
+              data-testid="antigravity-migration-clear"
+              onClick={() => dismissLegacyAntigravityConfig()}
+              className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
+            >
+              {t("settings.sections.llm.antigravityMigration.clearLegacy")}
+            </button>
+          </div>
+          {!project && (
+            <p
+              data-testid="antigravity-migration-requires-project-hint"
+              className="text-xs text-muted-foreground"
+            >
+              {t("settings.sections.llm.antigravityGuide.requiresProject")}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div
+          role="region"
+          aria-label={t("settings.sections.llm.antigravityGuide.title")}
+          data-testid="antigravity-subscription-info-card"
+          className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-2"
+        >
+          <div className="text-sm font-semibold">
+            {t("settings.sections.llm.antigravityGuide.title")}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t("settings.sections.llm.antigravityGuide.description")}
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              disabled={!project}
+              title={!project ? t("settings.sections.llm.antigravityGuide.requiresProject") : undefined}
+              data-testid="antigravity-guide-open-acp"
+              onClick={() => setActiveView("antigravityAcp")}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("settings.sections.llm.antigravityGuide.openAcp")}
+            </button>
+            <button
+              type="button"
+              disabled={!project}
+              title={!project ? t("settings.sections.llm.antigravityGuide.requiresProject") : undefined}
+              data-testid="antigravity-guide-open-mcp"
+              onClick={() => setActiveSettingsCategory("external-control")}
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("settings.sections.llm.antigravityGuide.openMcp")}
+            </button>
+          </div>
+          {!project && (
+            <p
+              data-testid="antigravity-guide-requires-project-hint"
+              className="text-xs text-muted-foreground"
+            >
+              {t("settings.sections.llm.antigravityGuide.requiresProject")}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Custom Provider Cards - 放在顶部 */}
       <CustomProviderCards />

@@ -56,8 +56,10 @@ export function hasUsableLlm(
       return isNonEmpty(cfg.apiKey) && isNonEmpty(cfg.model) && isNonEmpty(cfg.customEndpoint)
     case "claude-code":
     case "codex-cli":
-    case "antigravity-cli":
       return true
+    case "antigravity-cli":
+      // Retired for Google Antigravity ToS compliance (use official ACP panel, MCP, or Gemini API key).
+      return false
     case "openai":
     case "anthropic":
     case "google":

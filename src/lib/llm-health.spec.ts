@@ -58,4 +58,43 @@ describe("assessLlmHealth — J01-T01 模型服务状态机", () => {
     const h = assessLlmHealth({ provider: "custom", apiKey: "", model: "m", customEndpoint: "" })
     expect(h.status).toBe("incomplete")
   })
+
+  it("缺省配置（undefined / null）→ unconfigured 且不抛错", () => {
+    const h = assessLlmHealth(undefined)
+    expect(h.status).toBe("unconfigured")
+    expect(h.canWrite).toBe(false)
+    expect(h.nextStep).toContain("AI 写作")
+  })
+
+  it("已退役 antigravity-cli 无论字段是否填写或探针返回 ok 都返回 canWrite=false，且引导官方 Antigravity ACP", () => {
+    const emptyLegacy = assessLlmHealth({
+      provider: "antigravity-cli",
+      apiKey: "",
+      model: "",
+    })
+    expect(emptyLegacy.canWrite).toBe(false)
+    expect(emptyLegacy.status).toBe("unconfigured")
+    expect(emptyLegacy.nextStep).toContain("AI 写作")
+    expect(emptyLegacy.nextStep).toContain("Antigravity")
+
+    const filledLegacy = assessLlmHealth({
+      provider: "antigravity-cli",
+      apiKey: "sk-legacy",
+      model: "gemini-3-pro",
+    })
+    expect(filledLegacy.canWrite).toBe(false)
+    expect(filledLegacy.status).toBe("unconfigured")
+
+    const probedOkLegacy = assessLlmHealth(
+      {
+        provider: "antigravity-cli",
+        apiKey: "sk-legacy",
+        model: "gemini-3-pro",
+      },
+      "ok",
+    )
+    expect(probedOkLegacy.canWrite).toBe(false)
+    expect(probedOkLegacy.status).toBe("unconfigured")
+    expect(probedOkLegacy.nextStep).toContain("Antigravity")
+  })
 })

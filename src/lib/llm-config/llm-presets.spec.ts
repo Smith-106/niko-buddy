@@ -28,6 +28,8 @@ describe("LLM_PRESETS", () => {
     ]) {
       expect(ids).toContain(expected)
     }
+    // Google Antigravity ToS 合规守卫：不再把消费订阅 CLI 包装暴露为内置自动 LLM 通道
+    expect(ids).not.toContain("antigravity-cli")
   })
 })
 

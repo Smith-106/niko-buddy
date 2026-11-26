@@ -1,34 +1,29 @@
 /**
- * Antigravity CLI subprocess transport for streaming chat completions.
+ * Legacy Antigravity CLI subprocess transport — RETIRED for Google ToS compliance.
  *
- * 与 codex-cli-transport 同型：经 Rust `antigravity_cli_spawn` spawn 本地
- * `antigravity`（或 gemini fallback）headless，stdout JSONL → onToken。
- * 本地 Google 账号订阅，不走 API key。
+ * Per Google Antigravity Additional Terms of Service (https://antigravity.google/terms)
+ * and official FAQ (https://antigravity.google/docs/faq): wrapping `agy -p` or consumer
+ * Antigravity OAuth inside a third-party application as an automated LLM backend is not
+ * supported under consumer plans and may result in account suspension.
  *
- * 输出协议：Antigravity/Gemini stream-json 的 agent 文本行解析
- * （parseAntigravityCliLine）容错多种事件形态；未识别行缓存用于错误报告。
+ * Compliant alternatives built into Niko Buddy:
+ *  1. Interactive Antigravity ACP Panel (official `agy acp` v1 protocol),
+ *  2. External Control (connect official Antigravity App/CLI via MCP Streamable HTTP),
+ *  3. Google Gemini API key (`provider: "google"`) for automated writing pipelines.
  *
  * @license MIT © Niko Buddy
  */
 
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { z } from "zod"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage, ContentBlock, RequestOverrides } from "./llm-providers"
 import type { StreamCallbacks } from "./llm-client"
 
-/**
- * 从一条 stream-json 行提取 agent 文本。容错 Gemini/Antigravity 多种事件形态：
- * - {type:"item.completed", item:{type:"agent_message", text}}（codex 风）
- * - {type:"message"/"content"/"text", content|text|delta}
- * - {role:"assistant"/"model", content|parts}
- * - {candidates:[{content:{parts:[{text}]}}]}（Gemini generateContent 风）
- */
-/**
- * 四-14：JSON 边界 zod 窄化。`as` 断言改为 safeParse 守卫——上游加层时
- * 返回 null 走容错路径，不再因断言错位而崩。
- */
+export const ANTIGRAVITY_CLI_RETIRED_ERROR =
+  "Antigravity CLI consumer subscription wrapping has been retired to comply with Google Antigravity Terms of Service. " +
+  "Please use the interactive Antigravity Panel (official ACP), connect official Antigravity via External Control (MCP), " +
+  "or switch your automated writing model to Google (Gemini API key)."
+
 const cliRecordSchema = z.record(z.string(), z.unknown())
 
 function asCliRecord(value: unknown): Record<string, unknown> | null {
@@ -49,17 +44,14 @@ export function parseAntigravityCliLine(rawLine: string): string | null {
   const obj = asCliRecord(evt)
   if (!obj) return null
 
-  // codex 风
   if (obj.type === "item.completed") {
     const item = asCliRecord(obj.item)
     if (item?.type === "agent_message" && typeof item.text === "string") return item.text
   }
-  // 直出 text/content/delta
   for (const key of ["text", "content", "delta", "message"] as const) {
     const v = obj[key]
     if (typeof v === "string" && v.length > 0) return v
   }
-  // parts 数组
   const parts = obj.parts ?? asCliRecord(obj.content)?.parts
   if (Array.isArray(parts)) {
     const text = parts
@@ -68,7 +60,6 @@ export function parseAntigravityCliLine(rawLine: string): string | null {
       .join("")
     if (text) return text
   }
-  // Gemini candidates
   const candidates = obj.candidates
   if (Array.isArray(candidates) && candidates.length > 0) {
     const content = asCliRecord(asCliRecord(candidates[0])?.content)
@@ -84,7 +75,6 @@ export function parseAntigravityCliLine(rawLine: string): string | null {
   return null
 }
 
-/** 提取错误信息：优先结构化 error/message，回退原文。 */
 export function extractAntigravityCliError(rawOutput: string): string {
   let lastError = ""
   for (const line of rawOutput.split(/\r?\n/)) {
@@ -99,7 +89,7 @@ export function extractAntigravityCliError(rawOutput: string): string {
       if (parsed.type === "turn.failed" && message) return message
       if (parsed.type === "error" && message) lastError = message
     } catch {
-      // 保留原文作回退
+      // keep raw text fallback
     }
   }
   return lastError || rawOutput.trim()
@@ -128,125 +118,15 @@ export function buildPrompt(messages: ChatMessage[]): string {
 }
 
 /**
- * Stream chat completions via Antigravity CLI subprocess.
- * Workflow 同 codex-cli：streamId → listen data/done → spawn → onToken/onDone/onError。
+ * Fail-closed transport stub for legacy saved `antigravity-cli` configurations.
+ * Never spawns `agy -p` or touches consumer OAuth credentials.
  */
 export async function streamAntigravityCli(
-  config: LlmConfig,
-  messages: ChatMessage[],
+  _config: LlmConfig,
+  _messages: ChatMessage[],
   callbacks: StreamCallbacks,
-  signal?: AbortSignal,
-  overrides?: RequestOverrides,
+  _signal?: AbortSignal,
+  _overrides?: RequestOverrides,
 ): Promise<void> {
-  const { onToken, onDone, onError } = callbacks
-
-  if (import.meta.env?.DEV && overrides) {
-    for (const key of ["temperature", "top_p", "top_k", "max_tokens", "stop"] as const) {
-      if (overrides[key] !== undefined) {
-        console.warn(`[antigravity-cli] ignoring unsupported override "${key}": CLI has no equivalent flag`)
-      }
-    }
-  }
-
-  const streamId = crypto.randomUUID()
-  let unlistenData: UnlistenFn | (() => void) | undefined
-  let unlistenDone: UnlistenFn | (() => void) | undefined
-  let finished = false
-  let aborted = signal?.aborted ?? false
-  let emittedAgentMessage = false
-  let resolveCompletion: () => void = () => {}
-  const completion = new Promise<void>((resolve) => {
-    resolveCompletion = resolve
-  })
-
-  const unparsedLines: string[] = []
-  let unparsedSize = 0
-  const captureUnparsed = (line: string) => {
-    if (unparsedSize >= 4096) return
-    const trimmed = line.trim()
-    if (!trimmed) return
-    unparsedLines.push(line)
-    unparsedSize += line.length + 1
-  }
-
-  const cleanup = () => {
-    unlistenData?.()
-    unlistenDone?.()
-  }
-  const finishWith = (cb: () => void) => {
-    if (finished) return
-    finished = true
-    cleanup()
-    cb()
-    resolveCompletion()
-  }
-  const replayFromStdout = (stdout: string | undefined) => {
-    if (!stdout) return
-    for (const line of stdout.split(/\r?\n/)) {
-      const token = parseAntigravityCliLine(line)
-      if (token !== null) {
-        emittedAgentMessage = true
-        onToken(token)
-      }
-    }
-  }
-
-  const abortListener = () => {
-    aborted = true
-    void invoke("antigravity_cli_kill", { streamId }).catch(() => {})
-    finishWith(onDone)
-  }
-  if (aborted) {
-    finishWith(onDone)
-    return
-  }
-  signal?.addEventListener("abort", abortListener)
-
-  try {
-    unlistenData = await listen<string>(`antigravity-cli:${streamId}`, (event) => {
-      // P1-10：后端 24ms/8KB 聚合后单 payload 可含多行，逐行 parse（语义与逐行 emit 一致）。
-      for (const line of event.payload.split(/\r?\n/)) {
-        const token = parseAntigravityCliLine(line)
-        if (token !== null) {
-          emittedAgentMessage = true
-          onToken(token)
-        } else {
-          captureUnparsed(line)
-        }
-      }
-    })
-    if (aborted || finished) {
-      cleanup()
-      return
-    }
-
-    unlistenDone = await listen<{ code: number | null; stderr: string; stdout?: string }>(
-      `antigravity-cli:${streamId}:done`,
-      (event) => {
-        const code = event.payload?.code
-        const stderr = event.payload?.stderr?.trim() ?? ""
-        if (!emittedAgentMessage) replayFromStdout(event.payload?.stdout)
-        if (code === 0) {
-          finishWith(onDone)
-        } else {
-          const detail = stderr || extractAntigravityCliError(event.payload?.stdout ?? "") || "unknown error"
-          finishWith(() =>
-            onError(new Error(`Antigravity CLI exited with code ${code}: ${detail}`)),
-          )
-        }
-      },
-    )
-
-    const prompt = buildPrompt(messages)
-    await invoke("antigravity_cli_spawn", {
-      streamId,
-      model: config.model,
-      prompt,
-      timeoutMinutes: null,
-    })
-    await completion
-  } catch (e) {
-    signal?.removeEventListener("abort", abortListener)
-    finishWith(() => onError(e instanceof Error ? e : new Error(String(e))))
-  }
+  callbacks.onError(new Error(ANTIGRAVITY_CLI_RETIRED_ERROR))
 }

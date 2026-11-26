@@ -318,7 +318,7 @@ export function AntigravityCliStatusPill() {
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
                 <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-xs">
-                  antigravity / gemini
+                  agy
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.installSuffix")}
               </div>

@@ -32,18 +32,21 @@ function isBlank(s: string | undefined | null): boolean {
   return isBlankString(s)
 }
 
+const UNCONFIGURED_NEXT_STEP =
+  "内置 AI 写作功能需要模型服务——可立即配置，或先跳过并在建项后通过「Antigravity 面板 (ACP)」使用官方 Antigravity 订阅零 API Key 写作（或仅使用本地编辑）"
+
 /** CLI provider 两档：
- * - claude-code/codex-cli/antigravity-cli：二进制自带默认模型，零配置即可用（hasUsableLlm 恒 true）
+ * - claude-code/codex-cli：二进制自带默认模型，零配置即可用（hasUsableLlm 恒 true）
  * - cursor-cli：本地 proxy 通道，无需 apiKey 但需 model
- * 两者都「不需要 apiKey」——这与 hosted provider 的“未配置”判定标准不同。 */
+ * 两者都「不需要 apiKey」——这与 hosted provider 的“未配置”判定标准不同。
+ * 已退役的 `antigravity-cli` 不再视为可用直连 CLI，请改用官方 Antigravity ACP 面板或 Gemini API Key。 */
 function isCliProvider(provider: string): boolean {
-  return provider === "claude-code" || provider === "codex-cli"
-    || provider === "antigravity-cli" || provider === "cursor-cli"
+  return provider === "claude-code" || provider === "codex-cli" || provider === "cursor-cli"
 }
 
 /** 始终可用的 CLI（零字段即 hasUsableLlm=true）——对它们“unconfigured”无意义。 */
 function isAlwaysUsableCli(provider: string): boolean {
-  return provider === "claude-code" || provider === "codex-cli" || provider === "antigravity-cli"
+  return provider === "claude-code" || provider === "codex-cli"
 }
 
 /**
@@ -63,7 +66,16 @@ export function assessLlmHealth(
       status: "unconfigured",
       label: "尚未配置模型服务",
       canWrite: false,
-      nextStep: "AI 写作功能需要模型服务——可立即配置，或先跳过（仅本地编辑可用）",
+      nextStep: UNCONFIGURED_NEXT_STEP,
+    }
+  }
+  // 已退役的 antigravity-cli 绝对不可写（即使历史探针返回 ok），请改用官方 Antigravity ACP 面板或 Gemini API Key。
+  if (cfg.provider === "antigravity-cli") {
+    return {
+      status: "unconfigured",
+      label: "尚未配置模型服务",
+      canWrite: false,
+      nextStep: UNCONFIGURED_NEXT_STEP,
     }
   }
   // 探测结果优先（调用方联网探测过才传入）
@@ -104,7 +116,7 @@ export function assessLlmHealth(
       status: "unconfigured",
       label: "尚未配置模型服务",
       canWrite: false,
-      nextStep: "AI 写作功能需要模型服务——可立即配置，或先跳过（仅本地编辑可用）",
+      nextStep: UNCONFIGURED_NEXT_STEP,
     }
   }
 

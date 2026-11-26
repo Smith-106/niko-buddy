@@ -104,5 +104,12 @@ describe("hasUsableLlm", () => {
       apiKey: "",
       model: "",
     }))).toBe(true)
+
+    // Retired legacy antigravity-cli wrapper must never be treated as a usable internal pipeline provider.
+    expect(hasUsableLlm(makeConfig({
+      provider: "antigravity-cli",
+      apiKey: "",
+      model: "gemini-3-pro",
+    }))).toBe(false)
   })
 })
