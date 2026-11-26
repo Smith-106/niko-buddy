@@ -1178,4 +1178,316 @@ describe("AntigravityAcpView", () => {
     expect(errSpy).not.toHaveBeenCalledWith(expect.stringContaining("same key"), expect.anything())
     errSpy.mockRestore()
   })
+
+  it("supports MCP profile selector, pending hint, 1-click isolated read-only reviewer session, parent code repo warning, and Writer Plugin sync/global install with isolated status errors", async () => {
+    const basePluginStatus = {
+      pluginName: "niko-buddy-writer",
+      pluginVersion: "1.0.0",
+      declarativeOnly: true,
+      skillCount: 4,
+      agentCount: 5,
+      isolatedPluginPath: "C:\\Users\\demo\\AppData\\Local\\niko-buddy\\writer-plugin",
+      isolatedPluginUpToDate: true,
+      projectPath: "C:\\books\\demo",
+      projectState: "not_synced" as "synced" | "needs_update" | "not_synced",
+      projectVersion: null as string | null,
+      projectHasClaudeMd: false,
+      globalInstalled: false,
+      globalEnabled: false,
+      globalUpToDate: false,
+      globalPath: null as string | null,
+      parentCodeRepoWarning: null as string | null,
+    }
+    let currentPluginStatus = { ...basePluginStatus }
+    let failPluginSync = false
+
+    mocks.invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      switch (cmd) {
+        case "antigravity_cli_detect":
+          return { installed: true, version: "1.6.0", path: "agy.exe", error: null, acp_supported: true }
+        case "antigravity_acp_status":
+          return {
+            ...CONNECTED_STATUS,
+            httpMcpEnabled: true,
+            activeSessionId: "sess-writer-1",
+            attachedLocalMcp: true,
+            localMcpScope: "project",
+            localMcpProfile: "writer-sub",
+            parentCodeRepoWarning: "Detected .git in C:\\books",
+          }
+        case "mcp_server_status":
+          return {
+            running: true,
+            port: 45871,
+            tool_count: 17,
+            scope: "project",
+            endpoint: "http://127.0.0.1:45871/mcp",
+          }
+        case "antigravity_acp_new_session": {
+          const requestedProfile = (args?.mcpProfile as string | undefined) ?? "writer-sub"
+          return {
+            sessionId: requestedProfile === "reviewer" ? "sess-reviewer-9" : "sess-arch-2",
+            cwd: (args?.cwd as string) ?? "C:\\books\\demo",
+            attachedLocalMcp: true,
+            localMcpScope: "project",
+            localMcpProfile: requestedProfile,
+            parentCodeRepoWarning: requestedProfile === "reviewer" ? null : "Detected .git in C:\\books",
+            configOptions: [],
+            rawResult: {},
+          }
+        }
+        case "writer_plugin_status":
+          return currentPluginStatus
+        case "writer_plugin_sync_project": {
+          if (failPluginSync) throw new Error("disk read-only")
+          currentPluginStatus = {
+            ...currentPluginStatus,
+            projectState: "synced",
+            projectVersion: "1.0.0",
+            projectHasClaudeMd: Boolean(args?.includeClaudeMd),
+          }
+          return {
+            ok: true,
+            pluginName: "niko-buddy-writer",
+            pluginVersion: "1.0.0",
+            projectPath: "C:\\books\\demo",
+            includeClaudeMd: Boolean(args?.includeClaudeMd),
+            writtenFiles: ["AGENTS.md", ".agents/skills/draft/SKILL.md"],
+            unchangedFiles: [],
+            agentsMdPreservedUserContent: true,
+            parentCodeRepoWarning: null,
+            status: currentPluginStatus,
+          }
+        }
+        case "writer_plugin_install_global":
+          currentPluginStatus = {
+            ...currentPluginStatus,
+            globalInstalled: true,
+            globalEnabled: false,
+            globalUpToDate: true,
+            globalPath: "C:\\Users\\demo\\.gemini\\plugins\\niko-buddy-writer",
+          }
+          return {
+            ok: true,
+            pluginName: "niko-buddy-writer",
+            pluginVersion: "1.0.0",
+            installPath: "C:\\Users\\demo\\.gemini\\plugins\\niko-buddy-writer",
+            enabled: false,
+            disabled: true,
+            writtenFiles: ["plugin.json"],
+            unchangedFiles: [],
+            enableCommand: "agy plugin enable niko-buddy-writer",
+            disableCommand: "agy plugin disable niko-buddy-writer",
+          }
+        default:
+          return undefined
+      }
+    })
+
+    render(<AntigravityAcpView />)
+    await screen.findByTestId("acp-active-profile-badge")
+    expect(screen.getByTestId("acp-active-profile-badge")).toHaveTextContent("writer-sub")
+
+    // Parent code repo warning banner renders with role="status", outer MCP strip still has no role="status"
+    const repoBanner = screen.getByTestId("acp-parent-repo-warning-banner")
+    expect(repoBanner).toHaveAttribute("role", "status")
+    expect(repoBanner).toHaveTextContent("Detected .git in C:\\books")
+    expect(screen.getByTestId("acp-mcp-readiness-strip")).not.toHaveAttribute("role", "status")
+
+    // Changing profile mid-session surfaces pending hint and passes explicit mcpProfile on New Session
+    const profileSelect = screen.getByTestId("acp-mcp-profile-select") as HTMLSelectElement
+    expect(profileSelect.value).toBe("writer-sub")
+    fireEvent.change(profileSelect, { target: { value: "architect" } })
+    expect(screen.getByTestId("acp-profile-pending-hint")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId("acp-new-session-btn"))
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("antigravity_acp_new_session", {
+        cwd: "C:\\books\\demo",
+        attachLocalMcp: true,
+        mcpProfile: "architect",
+      })
+    })
+    expect(screen.getByTestId("acp-active-profile-badge")).toHaveTextContent("architect")
+    expect(screen.queryByTestId("acp-profile-pending-hint")).toBeNull()
+
+    // Populate composer input & prior transcript, then click 1-click Isolated Read-Only Review
+    fireEvent.change(screen.getByTestId("acp-prompt-input"), { target: { value: "Unsent writer note" } })
+    fireEvent.click(screen.getByTestId("acp-isolated-reviewer-btn"))
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("antigravity_acp_new_session", {
+        cwd: "C:\\books\\demo",
+        attachLocalMcp: true,
+        mcpProfile: "reviewer",
+      })
+    })
+    expect((screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement).value).toBe("")
+    expect(profileSelect.value).toBe("reviewer")
+    expect(screen.getByTestId("acp-active-profile-badge")).toHaveTextContent("reviewer")
+    // Explicit parentCodeRepoWarning: null cleared the stale banner
+    expect(screen.queryByTestId("acp-parent-repo-warning-banner")).toBeNull()
+
+    // Writer Plugin Card: check includeClaudeMd, sync project, then install disabled global plugin
+    expect(screen.getByTestId("acp-writer-plugin-state-badge")).toHaveTextContent(/未同步|Not synced/)
+    fireEvent.click(screen.getByTestId("acp-writer-plugin-include-claude-md"))
+    fireEvent.click(screen.getByTestId("acp-writer-plugin-sync-btn"))
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("writer_plugin_sync_project", {
+        projectPath: "C:\\books\\demo",
+        includeClaudeMd: true,
+      })
+    })
+    expect(screen.getByTestId("acp-writer-plugin-state-badge")).toHaveTextContent(/已同步|Synced/)
+    expect(screen.getByTestId("acp-writer-plugin-feedback")).toHaveAttribute("role", "status")
+
+    fireEvent.click(screen.getByTestId("acp-writer-plugin-install-global-btn"))
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("writer_plugin_install_global", {
+        enable: false,
+      })
+    })
+    const guidance = await screen.findByTestId("acp-writer-plugin-global-guidance")
+    expect(guidance).toHaveTextContent("agy plugin enable niko-buddy-writer")
+    expect(guidance).toHaveTextContent("agy plugin disable niko-buddy-writer")
+
+    // Plugin errors remain strictly inside acp-writer-plugin-error (role="status") and NEVER pollute acp-error-banner
+    failPluginSync = true
+    fireEvent.click(screen.getByTestId("acp-writer-plugin-sync-btn"))
+    const pluginErr = await screen.findByTestId("acp-writer-plugin-error")
+    expect(pluginErr).toHaveAttribute("role", "status")
+    expect(pluginErr).toHaveTextContent("disk read-only")
+    expect(screen.queryByTestId("acp-error-banner")).toBeNull()
+
+    // Strict compliance invariant: zero mcp_server_token invoke, zero full/auto scopes
+    expect(mocks.invoke).not.toHaveBeenCalledWith("mcp_server_token")
+    expect(mocks.invoke).not.toHaveBeenCalledWith("mcp_server_token", expect.anything())
+  })
+
+  it("disables Writer Plugin project sync with hint when no novel project is open", async () => {
+    mocks.storeState.project = null
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "antigravity_cli_detect") {
+        return { installed: true, version: "1.6.0", path: "agy.exe", error: null, acp_supported: true }
+      }
+      if (cmd === "antigravity_acp_status") return INITIAL_STATUS
+      return undefined
+    })
+
+    render(<AntigravityAcpView />)
+    await screen.findByTestId("acp-cli-ready")
+    expect(screen.getByTestId("acp-writer-plugin-sync-btn")).toBeDisabled()
+    expect(screen.getByTestId("acp-writer-plugin-no-project-hint")).toBeInTheDocument()
+  })
+
+  it("preserves unsent input, savedDraftMsgMap, and mcpProfile when isolated reviewer session creation fails", async () => {
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      switch (cmd) {
+        case "antigravity_cli_detect":
+          return { installed: true, version: "1.6.0", path: "agy.exe", error: null, acp_supported: true }
+        case "antigravity_acp_status":
+          return {
+            ...CONNECTED_STATUS,
+            httpMcpEnabled: true,
+            activeSessionId: "sess-writer-keep",
+            attachedLocalMcp: true,
+            localMcpScope: "project",
+            localMcpProfile: "architect",
+          }
+        case "antigravity_acp_new_session":
+          throw new Error("RPC timeout while creating reviewer session")
+        default:
+          return undefined
+      }
+    })
+
+    render(<AntigravityAcpView />)
+    await screen.findByTestId("acp-active-profile-badge")
+
+    // Emit an assistant message and save it as draft so savedDraftMsgMap is populated.
+    act(() => {
+      emitEvent?.({
+        kind: "session_update",
+        params: {
+          sessionId: "sess-writer-keep",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "# 第四章 暗夜潜行\n\n林川屏息贴近廊柱。" },
+          },
+        },
+      })
+    })
+    const saveBtn = (await waitFor(() => {
+      const btn = document.querySelector('[data-testid^="acp-save-draft-msg-"]') as HTMLButtonElement | null
+      expect(btn).toBeTruthy()
+      return btn!
+    }))
+    fireEvent.click(saveBtn)
+    await waitFor(() => {
+      expect(saveBtn).toHaveTextContent(/已存入草稿|Saved to drafts/)
+    })
+
+    // Type an unsent prompt and verify current profile is architect.
+    const promptInput = screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement
+    const profileSelect = screen.getByTestId("acp-mcp-profile-select") as HTMLSelectElement
+    fireEvent.change(promptInput, { target: { value: "Unsent ch04 revision note" } })
+    expect(profileSelect.value).toBe("architect")
+
+    // Click isolated reviewer -> RPC fails -> composer input, savedDraftMsgMap, and mcpProfile remain 100% intact!
+    fireEvent.click(screen.getByTestId("acp-isolated-reviewer-btn"))
+    await waitFor(() => {
+      expect(screen.getByTestId("acp-error-banner")).toHaveTextContent(
+        "RPC timeout while creating reviewer session",
+      )
+    })
+    expect(promptInput.value).toBe("Unsent ch04 revision note")
+    expect(profileSelect.value).toBe("architect")
+    expect(useAntigravityAcpStore.getState().mcpProfile).toBe("architect")
+    expect(saveBtn).toHaveTextContent(/已存入草稿|Saved to drafts/)
+  })
+
+  it("shows honest no-MCP system message when isolated reviewer session starts with attachedLocalMcp=false", async () => {
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      switch (cmd) {
+        case "antigravity_cli_detect":
+          return { installed: true, version: "1.6.0", path: "agy.exe", error: null, acp_supported: true }
+        case "antigravity_acp_status":
+          return {
+            ...CONNECTED_STATUS,
+            httpMcpEnabled: false,
+            activeSessionId: "sess-writer-nomcp",
+            attachedLocalMcp: false,
+          }
+        case "antigravity_acp_new_session":
+          return {
+            sessionId: "sess-rev-nomcp-7",
+            cwd: "C:\\books\\demo",
+            attachedLocalMcp: false,
+            localMcpScope: null,
+            localMcpProfile: null,
+            localMcpSkipReason: "http_mcp_disabled",
+            parentCodeRepoWarning: null,
+            configOptions: [],
+            rawResult: {},
+          }
+        default:
+          return undefined
+      }
+    })
+
+    render(<AntigravityAcpView />)
+    await screen.findByTestId("acp-connected-badge")
+
+    fireEvent.change(screen.getByTestId("acp-prompt-input"), { target: { value: "Old writer note" } })
+    fireEvent.click(screen.getByTestId("acp-isolated-reviewer-btn"))
+
+    const transcript = screen.getByTestId("acp-transcript")
+    await waitFor(() => {
+      expect(transcript.textContent).toContain("sess-rev")
+    })
+    // Honest wording: explicitly notes local read-only MCP tools were NOT attached, never claims they were attached!
+    expect(transcript.textContent).toMatch(/未挂载本地只读 MCP|local read-only MCP tools were not attached/)
+    expect(transcript.textContent).not.toContain("仅挂载只读审稿工具")
+    expect(transcript.textContent).not.toContain("with read-only review tools")
+    expect((screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement).value).toBe("")
+  })
 })

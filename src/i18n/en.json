@@ -2183,7 +2183,23 @@
         "antigravityMcpStoppedHint": "External Control is currently stopped. Enable Allow external control above before connecting Antigravity.",
         "antigravityCopyWarnMasked": "Copied snippet with placeholder <YOUR_BEARER_TOKEN> because the Bearer token is hidden. Reveal the token above and copy again, or replace it manually.",
         "antigravityCopyWarnStopped": "Copied snippet, but the External Control server is currently stopped. Enable Allow external control above before connecting from Antigravity.",
-        "antigravityCopyWarnStoppedAndMasked": "Copied snippet while the server is stopped and the Bearer token is hidden (<YOUR_BEARER_TOKEN>). Start the server and reveal the token above before connecting."
+        "antigravityCopyWarnStoppedAndMasked": "Copied snippet while the server is stopped and the Bearer token is hidden (<YOUR_BEARER_TOKEN>). Start the server and reveal the token above before connecting.",
+        "antigravityProfileLabel": "MCP tool profile (serverUrl profile)",
+        "antigravityProfileFullLegacy": "Full legacy (bare URL, no ?profile)",
+        "antigravityProfileWriterSub": "Recommended: Writer compact (?profile=writer-sub)",
+        "antigravityProfileReviewer": "Reviewer read-only (?profile=reviewer)",
+        "antigravityProfileArchitect": "Architect / outline (?profile=architect)",
+        "writerPluginTitle": "Declarative Writer Agent Plugin (Project Sync / Disabled Global)",
+        "writerPluginStateSynced": "Project synced",
+        "writerPluginStateNeedsUpdate": "Update available",
+        "writerPluginStateNotSynced": "Not synced",
+        "writerPluginSyncBtn": "Sync Project Writer Agent Config",
+        "writerPluginSyncing": "Syncing...",
+        "writerPluginNoProjectHint": "Open a novel project first to sync project-level writer agent config.",
+        "writerPluginSyncSuccess": "Synced project writer agent config ({{written}} written, {{unchanged}} unchanged).",
+        "writerPluginInstallGlobalBtn": "Install Global Plugin (Disabled)",
+        "writerPluginInstallingGlobal": "Installing...",
+        "writerPluginGlobalSuccess": "Installed disabled global plugin at {{path}}. Enable: {{enableCmd}}; disable: {{disableCmd}}."
       }
     },
     "feedback": {
@@ -5183,7 +5199,48 @@
       "reviewCurrent": "Review Current",
       "polishDraft": "Polish Draft",
       "canonAudit": "Canon Audit",
-      "bookSetup": "Book Setup / Outline"
+      "bookSetup": "Book Setup / Outline",
+      "roles": {
+        "writer": "Writer",
+        "editor": "Editor",
+        "polish": "Polish",
+        "canon": "Canon",
+        "architect": "Architect"
+      }
+    },
+    "isolatedReviewerBtn": "Isolated Read-Only Review",
+    "isolatedReviewerStarted": "Started isolated read-only reviewer session ({{sessionId}}) with read-only review tools, completely separated from the writer context.",
+    "isolatedReviewerStartedNoMcp": "Started fresh isolated review session ({{sessionId}}) with cleared writer context; local read-only MCP tools were not attached (enable and attach local MCP if you want server-side read-only review tools).",
+    "profiles": {
+      "label": "Writer Role / MCP Profile",
+      "activeBadge": "Active session profile: {{profile}}",
+      "pendingHint": "Switched to {{selected}} (active session still uses {{active}}). Start or rebuild a session to apply.",
+      "writer-sub": "Writer Compact (writer-sub · Recommended)",
+      "reviewer": "Reviewer Read-Only (reviewer)",
+      "architect": "Architect / Outline (architect)",
+      "full-legacy": "Full Legacy (full-legacy)"
+    },
+    "parentRepoWarning": {
+      "title": "Workspace is inside a parent code repository (may inherit code-repo rules)"
+    },
+    "writerPlugin": {
+      "title": "Official Writer Agent Plugin (Declarative, Zero Background Execution)",
+      "meta": "v{{version}} · {{skills}} skills · {{agents}} writer roles",
+      "state": {
+        "synced": "Synced",
+        "needs_update": "Needs update",
+        "not_synced": "Not synced",
+        "unknown": "Status unknown"
+      },
+      "includeClaudeMd": "Also write/update project CLAUDE.md mirror",
+      "syncBtn": "Sync Project Writer Agent Config",
+      "syncing": "Syncing...",
+      "noProjectHint": "Open a novel project first to sync project-level writer agent config.",
+      "syncSuccess": "Synced project writer agent config ({{written}} written, {{unchanged}} unchanged).",
+      "installGlobalBtn": "Install Global Plugin (Disabled)",
+      "installingGlobal": "Installing...",
+      "globalInstallSuccess": "Installed global plugin (disabled by default) at {{path}} to avoid affecting coding repositories.",
+      "globalGuidance": "Enable or disable the global plugin manually in terminal when needed:"
     },
     "draftHandoff": {
       "title": "Antigravity wrote a pending draft (Draft-first safe zone)",

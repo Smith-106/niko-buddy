@@ -1548,7 +1548,23 @@
         "antigravityMcpStoppedHint": "当前外部控制服务尚未开启。请先打开上方「允许外部控制」开关，再让 Antigravity 连接本端点。",
         "antigravityCopyWarnMasked": "已复制配置片段，但 Bearer Token 尚未展开（当前为占位符 <YOUR_BEARER_TOKEN>）。请点击上方「显示」后再复制，或手动替换占位符。",
         "antigravityCopyWarnStopped": "已复制配置片段，但外部控制服务当前未启动。请先开启上方「允许外部控制」开关后再在 Antigravity 中连接。",
-        "antigravityCopyWarnStoppedAndMasked": "已复制配置片段，但外部控制服务未启动且 Bearer Token 尚未展开（含占位符 <YOUR_BEARER_TOKEN>）。请先开启服务并点击「显示」后再复制。"
+        "antigravityCopyWarnStoppedAndMasked": "已复制配置片段，但外部控制服务未启动且 Bearer Token 尚未展开（含占位符 <YOUR_BEARER_TOKEN>）。请先开启服务并点击「显示」后再复制。",
+        "antigravityProfileLabel": "MCP 工具档位（serverUrl profile）",
+        "antigravityProfileFullLegacy": "默认完整兼容（不附带 ?profile）",
+        "antigravityProfileWriterSub": "推荐：主笔精简档 (?profile=writer-sub)",
+        "antigravityProfileReviewer": "责编只读档 (?profile=reviewer)",
+        "antigravityProfileArchitect": "策划大纲档 (?profile=architect)",
+        "writerPluginTitle": "写作 Agent 声明式插件（项目同步 / 全局禁用版）",
+        "writerPluginStateSynced": "本项目已同步",
+        "writerPluginStateNeedsUpdate": "本项目需更新",
+        "writerPluginStateNotSynced": "本项目未同步",
+        "writerPluginSyncBtn": "同步本项目写作 Agent 配置",
+        "writerPluginSyncing": "同步中…",
+        "writerPluginNoProjectHint": "请先打开一个小说项目，再同步项目级写作 Agent 配置。",
+        "writerPluginSyncSuccess": "已同步项目写作 Agent 配置（写入 {{written}} 个文件，未变更 {{unchanged}} 个文件）。",
+        "writerPluginInstallGlobalBtn": "安装全局禁用版插件",
+        "writerPluginInstallingGlobal": "安装中…",
+        "writerPluginGlobalSuccess": "已安装全局禁用版插件至 {{path}}。启用：{{enableCmd}}；停用：{{disableCmd}}。"
       }
     },
     "llm": "模型",
@@ -5183,7 +5199,48 @@
       "reviewCurrent": "审查当前章/草稿",
       "polishDraft": "精修待审草稿",
       "canonAudit": "设定与伏笔体检",
-      "bookSetup": "新书建档/大纲"
+      "bookSetup": "新书建档/大纲",
+      "roles": {
+        "writer": "主笔",
+        "editor": "责编",
+        "polish": "润色师",
+        "canon": "考据官",
+        "architect": "策划"
+      }
+    },
+    "isolatedReviewerBtn": "独立只读复核会话",
+    "isolatedReviewerStarted": "已创建独立只读复核会话（{{sessionId}}），仅挂载只读审稿工具，与主笔上下文完全隔离。",
+    "isolatedReviewerStartedNoMcp": "已创建独立复核会话（{{sessionId}}），已清空主笔上下文；本次未挂载本地只读 MCP 工具（如需服务端只读审稿工具，请先启用并挂载本地 MCP）。",
+    "profiles": {
+      "label": "写作角色 / MCP 档位",
+      "activeBadge": "当前会话档位：{{profile}}",
+      "pendingHint": "已切换为 {{selected}}（当前会话仍运行 {{active}}），新建或重建会话后生效。",
+      "writer-sub": "主笔精简档 (writer-sub · 推荐)",
+      "reviewer": "责编只读档 (reviewer)",
+      "architect": "策划大纲档 (architect)",
+      "full-legacy": "完整兼容档 (full-legacy)"
+    },
+    "parentRepoWarning": {
+      "title": "检测到工作区位于上级代码仓库内（可能误读代码仓规则）"
+    },
+    "writerPlugin": {
+      "title": "官方写作 Agent 插件配置（声明式，零后台执行）",
+      "meta": "v{{version}} · {{skills}} 个技能 · {{agents}} 个写作角色",
+      "state": {
+        "synced": "已同步",
+        "needs_update": "需更新",
+        "not_synced": "未同步",
+        "unknown": "状态未知"
+      },
+      "includeClaudeMd": "同时生成/更新项目 CLAUDE.md 镜像",
+      "syncBtn": "同步本项目写作 Agent 配置",
+      "syncing": "同步中…",
+      "noProjectHint": "请先打开一个小说项目，再同步项目级写作 Agent 配置。",
+      "syncSuccess": "已同步项目写作 Agent 配置（写入 {{written}} 个文件，未变更 {{unchanged}} 个文件）。",
+      "installGlobalBtn": "安装全局禁用版插件",
+      "installingGlobal": "安装中…",
+      "globalInstallSuccess": "已安装全局禁用版插件至 {{path}}（默认禁用，避免污染日常代码仓库）。",
+      "globalGuidance": "按需在终端手动启停全局插件："
     },
     "draftHandoff": {
       "title": "检测到 Antigravity 已写入待审草稿（Draft-first 安全区）",

@@ -443,4 +443,117 @@ describe("useAntigravityAcpStore", () => {
     expect(useAntigravityAcpStore.getState().hasRecentDraftWrite).toBe(false)
     expect(useAntigravityAcpStore.getState().recentDraftWriteSummary).toBeNull()
   })
+
+  it("tracks mcpProfile, localMcpProfile, and parentCodeRepoWarning in memory only, preserves choice while disconnected, clears stale warning on null, and resets on disconnect", () => {
+    const store = useAntigravityAcpStore.getState()
+    expect(store.mcpProfile).toBe("writer-sub")
+    expect(store.localMcpProfile).toBeNull()
+    expect(store.parentCodeRepoWarning).toBeNull()
+
+    // User selects architect while disconnected -> disconnected snapshot must NOT overwrite mcpProfile.
+    store.setMcpProfile("architect")
+    store.applyStatusSnapshot({
+      connected: false,
+      binaryPath: null,
+      agentName: null,
+      agentVersion: null,
+      protocolVersion: null,
+      authMethods: [],
+      activeSessionId: null,
+      cwd: null,
+      configOptions: [],
+      pendingPermissions: [],
+      httpMcpEnabled: false,
+      localMcpProfile: null,
+      parentCodeRepoWarning: null,
+    })
+    expect(useAntigravityAcpStore.getState().mcpProfile).toBe("architect")
+    expect(useAntigravityAcpStore.getState().localMcpProfile).toBeNull()
+
+    // Connected snapshot + session creation syncs localMcpProfile & parentCodeRepoWarning
+    store.applyStatusSnapshot({
+      connected: true,
+      binaryPath: "agy.exe",
+      agentName: "Antigravity",
+      agentVersion: "1.6.0",
+      protocolVersion: 1,
+      authMethods: [],
+      activeSessionId: "sess-w1",
+      cwd: "C:\\code-repo\\novel",
+      configOptions: [],
+      pendingPermissions: [
+        {
+          requestId: "req-writer-1",
+          sessionId: "sess-w1",
+          title: "Write draft",
+          options: [{ optionId: "allow_once", name: "Allow" }],
+        },
+      ],
+      httpMcpEnabled: true,
+      localMcpProfile: "writer-sub",
+      parentCodeRepoWarning: "Detected .git in C:\\code-repo",
+    })
+    store.beginPromptTurn("Draft ch01")
+    store.markRecentDraftWrite("已存入草稿（第1章）")
+
+    // Changing mcpProfile mid-session is NOT clobbered by same-session status refresh.
+    store.setMcpProfile("reviewer")
+    store.applyStatusSnapshot({
+      ...useAntigravityAcpStore.getState().status!,
+      localMcpProfile: "writer-sub",
+    })
+    expect(useAntigravityAcpStore.getState().mcpProfile).toBe("reviewer")
+    expect(useAntigravityAcpStore.getState().localMcpProfile).toBe("writer-sub")
+    expect(useAntigravityAcpStore.getState().parentCodeRepoWarning).toBe(
+      "Detected .git in C:\\code-repo",
+    )
+
+    // New isolated reviewer session with explicit parentCodeRepoWarning: null clears stale warning,
+    // prior transcript, draft handoff, and prior pending permissions!
+    store.applySessionCreated(
+      {
+        sessionId: "sess-rev-2",
+        cwd: "D:\\clean-novel",
+        configOptions: [],
+        attachedLocalMcp: true,
+        localMcpScope: "project",
+        localMcpProfile: "reviewer",
+        parentCodeRepoWarning: null,
+        rawResult: {},
+      },
+      "Isolated reviewer ready",
+    )
+    const afterRev = useAntigravityAcpStore.getState()
+    expect(afterRev.localMcpProfile).toBe("reviewer")
+    expect(afterRev.status?.localMcpProfile).toBe("reviewer")
+    expect(afterRev.parentCodeRepoWarning).toBeNull()
+    expect(afterRev.status?.parentCodeRepoWarning).toBeNull()
+    expect(afterRev.hasRecentDraftWrite).toBe(false)
+    expect(afterRev.pendingPermissions).toEqual([])
+    expect(afterRev.transcript).toHaveLength(1)
+    expect(afterRev.transcript[0]?.text).toBe("Isolated reviewer ready")
+
+    // Re-attach a warning then disconnect -> resets mcpProfile, localMcpProfile, and parentCodeRepoWarning
+    // both at top-level and inside status mirror.
+    store.applySessionCreated({
+      sessionId: "sess-warn-3",
+      cwd: "C:\\code-repo\\novel",
+      configOptions: [],
+      attachedLocalMcp: true,
+      localMcpProfile: "architect",
+      parentCodeRepoWarning: "Parent repo detected",
+      rawResult: {},
+    })
+    expect(useAntigravityAcpStore.getState().parentCodeRepoWarning).toBe("Parent repo detected")
+
+    store.handleAcpEvent({ kind: "disconnected", reason: "user_disconnect" })
+    const afterDisc = useAntigravityAcpStore.getState()
+    expect(afterDisc.mcpProfile).toBe("writer-sub")
+    expect(afterDisc.localMcpProfile).toBeNull()
+    expect(afterDisc.parentCodeRepoWarning).toBeNull()
+    expect(afterDisc.status?.localMcpProfile).toBeNull()
+    expect(afterDisc.status?.parentCodeRepoWarning).toBeNull()
+    // Strictly memory-only: zero localStorage writes.
+    expect(localStorage.length).toBe(0)
+  })
 })

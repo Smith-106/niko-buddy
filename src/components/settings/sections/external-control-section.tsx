@@ -4,11 +4,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, Copy, Eye, EyeOff, Loader2, RefreshCw } from "lucide-react"
+import { AlertTriangle, Copy, Download, Eye, EyeOff, Loader2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SettingsSwitch } from "../settings-widgets"
 import { toErrorMessage } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
+import {
+  getWriterPluginStatus,
+  installGlobalWriterPlugin,
+  isWriterPluginStatus,
+  syncProjectWriterPlugin,
+  type McpToolProfile,
+  type WriterPluginStatus,
+} from "@/lib/antigravity-acp-client"
 
 /** 与 `src-tauri/src/mcp_server/mod.rs::McpServerStatus` 一一对应。 */
 interface McpSession {
@@ -71,6 +79,18 @@ interface McpServerStatus {
   scope: McpScope
 }
 
+function buildProfiledEndpoint(baseEndpoint: string, profile: McpToolProfile): string {
+  if (profile === "full-legacy") return baseEndpoint
+  try {
+    const url = new URL(baseEndpoint)
+    url.searchParams.set("profile", profile)
+    return url.toString()
+  } catch {
+    const separator = baseEndpoint.includes("?") ? "&" : "?"
+    return `${baseEndpoint}${separator}profile=${encodeURIComponent(profile)}`
+  }
+}
+
 /**
  * 「外部控制」——让 Claude Code / PI 等外部 Agent 连进来控制本应用。
  *
@@ -90,9 +110,15 @@ export function ExternalControlSection() {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [copiedAntigravity, setCopiedAntigravity] = useState(false)
+  const [antigravityProfile, setAntigravityProfile] = useState<McpToolProfile>("full-legacy")
   const [antigravityCopyWarning, setAntigravityCopyWarning] = useState<
     "stopped_and_masked" | "stopped" | "masked" | null
   >(null)
+  const [writerPluginStatus, setWriterPluginStatus] = useState<WriterPluginStatus | null>(null)
+  const [pluginSyncBusy, setPluginSyncBusy] = useState(false)
+  const [pluginGlobalBusy, setPluginGlobalBusy] = useState(false)
+  const [pluginFeedback, setPluginFeedback] = useState<string | null>(null)
+  const [pluginError, setPluginError] = useState<string | null>(null)
   // 停止状态下先记住用户想要的权限域，下次启动时带上去。
   const [wantScope, setWantScope] = useState<McpScope>("read")
   const mountedRef = useRef(true)
@@ -101,6 +127,7 @@ export function ExternalControlSection() {
   const copiedAntigravityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const project = useWikiStore((s) => s.project)
   const setActiveView = useWikiStore((s) => s.setActiveView)
+  const projectPath = project?.path?.trim() || null
 
   useEffect(() => {
     mountedRef.current = true
@@ -152,6 +179,32 @@ export function ExternalControlSection() {
       cancelled = true
     }
   }, [])
+
+  // 仅当存在已打开小说项目时才查询写作插件状态，避免无项目场景发出额外 invoke。
+  useEffect(() => {
+    if (!projectPath) {
+      setWriterPluginStatus(null)
+      setPluginFeedback(null)
+      setPluginError(null)
+      return
+    }
+    let cancelled = false
+    setPluginFeedback(null)
+    setPluginError(null)
+    void getWriterPluginStatus(projectPath).then(
+      (raw) => {
+        if (cancelled || !mountedRef.current) return
+        setWriterPluginStatus(isWriterPluginStatus(raw) ? raw : null)
+      },
+      () => {
+        if (cancelled || !mountedRef.current) return
+        setWriterPluginStatus(null)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [projectPath])
 
   /**
    * 逐会话授予 / 吊销完整写入（`full`）。
@@ -319,7 +372,8 @@ export function ExternalControlSection() {
   }, [status])
 
   const antigravityMcpSnippet = useMemo(() => {
-    const endpoint = status?.endpoint ?? "http://127.0.0.1:45871/mcp"
+    const baseEndpoint = status?.endpoint ?? "http://127.0.0.1:45871/mcp"
+    const endpoint = buildProfiledEndpoint(baseEndpoint, antigravityProfile)
     const bearer = token && tokenVisible ? token : "<YOUR_BEARER_TOKEN>"
     return JSON.stringify(
       {
@@ -336,7 +390,85 @@ export function ExternalControlSection() {
       null,
       2,
     )
-  }, [status?.endpoint, token, tokenVisible])
+  }, [antigravityProfile, status?.endpoint, token, tokenVisible])
+
+  const handleSyncProjectWriterPlugin = useCallback(async () => {
+    if (!projectPath || pluginSyncBusy) return
+    setPluginSyncBusy(true)
+    setPluginFeedback(null)
+    setPluginError(null)
+    try {
+      const res = await syncProjectWriterPlugin(
+        projectPath,
+        writerPluginStatus?.projectHasClaudeMd ?? false,
+      )
+      if (!mountedRef.current) return
+      if (isWriterPluginStatus(res?.status)) {
+        setWriterPluginStatus(res.status)
+      } else {
+        try {
+          const next = await getWriterPluginStatus(projectPath)
+          if (mountedRef.current && isWriterPluginStatus(next)) {
+            setWriterPluginStatus(next)
+          }
+        } catch {
+          // 忽略状态刷新失败，保留项目同步成功反馈。
+        }
+      }
+      if (!mountedRef.current) return
+      setPluginFeedback(
+        t("settings.sections.externalControl.writerPluginSyncSuccess", {
+          defaultValue:
+            "Synced project writer agent config ({{written}} written, {{unchanged}} unchanged).",
+          written: res?.writtenFiles?.length ?? 0,
+          unchanged: res?.unchangedFiles?.length ?? 0,
+        }),
+      )
+    } catch (e) {
+      if (mountedRef.current) {
+        setPluginError(toErrorMessage(e))
+      }
+    } finally {
+      if (mountedRef.current) setPluginSyncBusy(false)
+    }
+  }, [pluginSyncBusy, projectPath, t, writerPluginStatus?.projectHasClaudeMd])
+
+  const handleInstallGlobalWriterPlugin = useCallback(async () => {
+    if (pluginGlobalBusy) return
+    setPluginGlobalBusy(true)
+    setPluginFeedback(null)
+    setPluginError(null)
+    try {
+      const res = await installGlobalWriterPlugin(false)
+      if (!mountedRef.current) return
+      if (projectPath) {
+        try {
+          const next = await getWriterPluginStatus(projectPath)
+          if (mountedRef.current && isWriterPluginStatus(next)) {
+            setWriterPluginStatus(next)
+          }
+        } catch {
+          // 忽略状态刷新失败，保留全局安装成功反馈。
+        }
+      }
+      if (!mountedRef.current) return
+      setPluginFeedback(
+        t("settings.sections.externalControl.writerPluginGlobalSuccess", {
+          defaultValue:
+            "Installed disabled global plugin at {{path}}. Enable: {{enableCmd}}; disable: {{disableCmd}}.",
+          path: res.installPath,
+          enableCmd: res.enableCommand || "agy plugin enable niko-buddy-writer",
+          disableCmd: res.disableCommand || "agy plugin disable niko-buddy-writer",
+        }),
+      )
+    } catch (e) {
+      if (mountedRef.current) {
+        setPluginError(toErrorMessage(e))
+      }
+    } finally {
+      if (mountedRef.current) setPluginGlobalBusy(false)
+    }
+  }, [pluginGlobalBusy, projectPath, t])
 
   const copyAntigravityConfig = useCallback(async () => {
     try {
@@ -634,6 +766,44 @@ export function ExternalControlSection() {
             })}
           </p>
         ) : null}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label
+            htmlFor="external-control-antigravity-profile"
+            className="font-medium text-muted-foreground"
+          >
+            {t("settings.sections.externalControl.antigravityProfileLabel", {
+              defaultValue: "MCP tool profile (serverUrl profile)",
+            })}
+          </label>
+          <select
+            id="external-control-antigravity-profile"
+            value={antigravityProfile}
+            onChange={(e) => setAntigravityProfile(e.target.value as McpToolProfile)}
+            data-testid="external-control-antigravity-profile"
+            className="rounded border border-border bg-background px-2 py-1 text-xs"
+          >
+            <option value="full-legacy">
+              {t("settings.sections.externalControl.antigravityProfileFullLegacy", {
+                defaultValue: "Full legacy (bare URL, no ?profile)",
+              })}
+            </option>
+            <option value="writer-sub">
+              {t("settings.sections.externalControl.antigravityProfileWriterSub", {
+                defaultValue: "Recommended: Writer compact (?profile=writer-sub)",
+              })}
+            </option>
+            <option value="reviewer">
+              {t("settings.sections.externalControl.antigravityProfileReviewer", {
+                defaultValue: "Reviewer read-only (?profile=reviewer)",
+              })}
+            </option>
+            <option value="architect">
+              {t("settings.sections.externalControl.antigravityProfileArchitect", {
+                defaultValue: "Architect / outline (?profile=architect)",
+              })}
+            </option>
+          </select>
+        </div>
         <pre
           className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs"
           data-testid="external-control-antigravity-snippet"
@@ -680,6 +850,147 @@ export function ExternalControlSection() {
               "Paste into %USERPROFILE%\\.gemini\\config\\mcp_config.json (Windows global), ~/.gemini/config/mcp_config.json (macOS/Linux global), or <workspace>/.agents/mcp_config.json (workspace). Reveal the Bearer token above first to pre-fill it. Never commit a workspace mcp_config.json containing a Bearer token to Git.",
           })}
         </p>
+
+        <div
+          data-testid="external-control-writer-plugin-row"
+          className="space-y-2 border-t border-border/60 pt-3 text-xs"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">
+                {t("settings.sections.externalControl.writerPluginTitle", {
+                  defaultValue: "Declarative Writer Agent Plugin (Project Sync / Disabled Global)",
+                })}
+              </span>
+              {writerPluginStatus ? (
+                <span
+                  role="status"
+                  data-testid="external-control-writer-plugin-state"
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ${
+                    writerPluginStatus.projectState === "synced"
+                      ? "bg-success/15 text-success-foreground"
+                      : writerPluginStatus.projectState === "needs_update"
+                        ? "border border-warning/50 bg-warning/15 text-warning-foreground"
+                        : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {writerPluginStatus.projectState === "synced"
+                    ? t("settings.sections.externalControl.writerPluginStateSynced", {
+                        defaultValue: "Project synced",
+                      })
+                    : writerPluginStatus.projectState === "needs_update"
+                      ? t("settings.sections.externalControl.writerPluginStateNeedsUpdate", {
+                          defaultValue: "Update available",
+                        })
+                      : t("settings.sections.externalControl.writerPluginStateNotSynced", {
+                          defaultValue: "Not synced",
+                        })}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={!projectPath || pluginSyncBusy}
+                title={
+                  !projectPath
+                    ? t("settings.sections.externalControl.writerPluginNoProjectHint", {
+                        defaultValue:
+                          "Open a novel project first to sync project-level writer agent config.",
+                      })
+                    : undefined
+                }
+                onClick={() => void handleSyncProjectWriterPlugin()}
+                data-testid="external-control-sync-writer-plugin"
+              >
+                {pluginSyncBusy ? (
+                  <>
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />
+                    {t("settings.sections.externalControl.writerPluginSyncing", {
+                      defaultValue: "Syncing...",
+                    })}
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-1 h-3 w-3" aria-hidden="true" />
+                    {t("settings.sections.externalControl.writerPluginSyncBtn", {
+                      defaultValue: "Sync Project Writer Agent Config",
+                    })}
+                  </>
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={pluginGlobalBusy}
+                onClick={() => void handleInstallGlobalWriterPlugin()}
+                data-testid="external-control-install-global-writer-plugin"
+              >
+                {pluginGlobalBusy ? (
+                  <>
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />
+                    {t("settings.sections.externalControl.writerPluginInstallingGlobal", {
+                      defaultValue: "Installing...",
+                    })}
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-1 h-3 w-3" aria-hidden="true" />
+                    {t("settings.sections.externalControl.writerPluginInstallGlobalBtn", {
+                      defaultValue: "Install Global Plugin (Disabled)",
+                    })}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+          {!projectPath ? (
+            <p
+              role="status"
+              data-testid="external-control-writer-plugin-no-project-hint"
+              className="text-xs text-muted-foreground"
+            >
+              {t("settings.sections.externalControl.writerPluginNoProjectHint", {
+                defaultValue:
+                  "Open a novel project first to sync project-level writer agent config.",
+              })}
+            </p>
+          ) : null}
+          {writerPluginStatus?.parentCodeRepoWarning ? (
+            <p
+              role="status"
+              data-testid="external-control-writer-plugin-repo-warning"
+              className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning-foreground"
+            >
+              {writerPluginStatus.parentCodeRepoWarning}
+            </p>
+          ) : null}
+          {pluginFeedback ? (
+            <p
+              role="status"
+              aria-live="polite"
+              data-testid="external-control-writer-plugin-feedback"
+              className="rounded-md border border-success/40 bg-success/10 px-2.5 py-1.5 text-xs text-success-foreground"
+            >
+              {pluginFeedback}
+            </p>
+          ) : null}
+          {pluginError ? (
+            <p
+              role="status"
+              aria-live="polite"
+              data-testid="external-control-writer-plugin-error"
+              className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning-foreground"
+            >
+              {pluginError}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <div className="space-y-2">

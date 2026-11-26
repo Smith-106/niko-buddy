@@ -22,6 +22,8 @@ import {
   Check,
   CheckCircle2,
   Copy,
+  Download,
+  Eye,
   FilePlus2,
   FileText,
   FolderOpen,
@@ -49,19 +51,27 @@ import { toErrorMessage } from "@/lib/utils"
 import { listChapterDrafts, parseChapterOrdinal, writeDraft } from "@/lib/novel"
 import { usePendingDraftCount } from "@/components/layout/writing-workspace-widgets"
 import {
+  MCP_TOOL_PROFILES,
   authenticateAntigravityAcp,
   cancelAntigravityAcpTurn,
   connectAntigravityAcp,
   createAntigravityAcpSession,
   disconnectAntigravityAcp,
   getAntigravityAcpStatus,
+  getWriterPluginStatus,
+  installGlobalWriterPlugin,
   isAcpAuthRequiredError,
+  isWriterPluginStatus,
   parseAcpConfigOptions,
   respondAntigravityAcpPermission,
   sendAntigravityAcpPrompt,
   setAntigravityAcpConfigOption,
+  syncProjectWriterPlugin,
   type AcpPendingPermission,
   type LocalMcpStaleReason,
+  type McpToolProfile,
+  type WriterPluginGlobalResult,
+  type WriterPluginStatus,
 } from "@/lib/antigravity-acp-client"
 import { setMainControlTabHandoff } from "./main-control-handoff"
 import {
@@ -195,6 +205,10 @@ function resolveStaleReasonI18nKey(reason: LocalMcpStaleReason | null | undefine
   return "antigravityAcp.mcpStrip.staleReasons.unknown"
 }
 
+function resolveSessionMcpProfileArg(profile: McpToolProfile): McpToolProfile | undefined {
+  return profile === "writer-sub" ? undefined : profile
+}
+
 export function AntigravityAcpView() {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
@@ -220,12 +234,16 @@ export function AntigravityAcpView() {
   const activeAssistantId = useAntigravityAcpStore((s) => s.activeAssistantId)
   const authRequired = useAntigravityAcpStore((s) => s.authRequired)
   const error = useAntigravityAcpStore((s) => s.error)
+  const mcpProfile = useAntigravityAcpStore((s) => s.mcpProfile)
+  const localMcpProfile = useAntigravityAcpStore((s) => s.localMcpProfile)
+  const parentCodeRepoWarning = useAntigravityAcpStore((s) => s.parentCodeRepoWarning)
 
   const applyStatusSnapshot = useAntigravityAcpStore((s) => s.applyStatusSnapshot)
   const applySessionCreated = useAntigravityAcpStore((s) => s.applySessionCreated)
   const beginPromptTurn = useAntigravityAcpStore((s) => s.beginPromptTurn)
   const finishPromptTurn = useAntigravityAcpStore((s) => s.finishPromptTurn)
   const setConfigOptions = useAntigravityAcpStore((s) => s.setConfigOptions)
+  const setMcpProfile = useAntigravityAcpStore((s) => s.setMcpProfile)
   const setAuthRequired = useAntigravityAcpStore((s) => s.setAuthRequired)
   const setError = useAntigravityAcpStore((s) => s.setError)
   const clearTranscript = useAntigravityAcpStore((s) => s.clearTranscript)
@@ -241,6 +259,14 @@ export function AntigravityAcpView() {
   const [detecting, setDetecting] = useState(false)
   const [mcpStatus, setMcpStatus] = useState<LocalMcpStatus | null>(null)
   const [mcpBusy, setMcpBusy] = useState(false)
+  const [writerPluginStatus, setWriterPluginStatus] = useState<WriterPluginStatus | null>(null)
+  const [includeClaudeMd, setIncludeClaudeMd] = useState(false)
+  const [pluginSyncBusy, setPluginSyncBusy] = useState(false)
+  const [pluginGlobalBusy, setPluginGlobalBusy] = useState(false)
+  const [pluginFeedback, setPluginFeedback] = useState<string | null>(null)
+  const [pluginError, setPluginError] = useState<string | null>(null)
+  const [globalInstallResult, setGlobalInstallResult] =
+    useState<WriterPluginGlobalResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [enableHttpMcp, setEnableHttpMcp] = useState(status?.httpMcpEnabled ?? false)
   const [attachContext, setAttachContext] = useState(false)
@@ -273,6 +299,35 @@ export function AntigravityAcpView() {
       return null
     }
   }, [])
+
+  const fetchWriterPluginStatus = useCallback(
+    async (syncClaudeMdDefault = false) => {
+      if (!isTauri()) return
+      try {
+        const raw = await getWriterPluginStatus(project?.path ?? null)
+        if (!mountedRef.current) return
+        if (isWriterPluginStatus(raw)) {
+          setWriterPluginStatus(raw)
+          if (syncClaudeMdDefault) {
+            setIncludeClaudeMd(raw.projectHasClaudeMd)
+          }
+        } else {
+          setWriterPluginStatus(null)
+        }
+      } catch {
+        if (mountedRef.current) {
+          setWriterPluginStatus(null)
+        }
+      }
+    },
+    [project?.path],
+  )
+
+  useEffect(() => {
+    setPluginFeedback(null)
+    setPluginError(null)
+    void fetchWriterPluginStatus(true)
+  }, [fetchWriterPluginStatus])
 
   const refreshState = useCallback(async () => {
     if (!isTauri()) return
@@ -421,7 +476,7 @@ export function AntigravityAcpView() {
         if (!mountedRef.current) return
         applyStatusSnapshot(nextStatus)
       }
-      const res = await createAntigravityAcpSession(cwd, true)
+      const res = await createAntigravityAcpSession(cwd, true, resolveSessionMcpProfileArg(mcpProfile))
       const [latestStatus, latestMcp] = await Promise.all([
         getAntigravityAcpStatus().catch(() => null),
         fetchMcpStatus(),
@@ -429,6 +484,7 @@ export function AntigravityAcpView() {
       if (!mountedRef.current) return
       if (latestStatus) applyStatusSnapshot(latestStatus)
       if (latestMcp) setMcpStatus(latestMcp)
+      setSavedDraftMsgMap({})
       const sysMsg = res.attachedLocalMcp
         ? t("antigravityAcp.sessionStartedWithMcp", { sessionId: res.sessionId.slice(0, 8) })
         : t("antigravityAcp.sessionStarted", { sessionId: res.sessionId.slice(0, 8) })
@@ -448,6 +504,7 @@ export function AntigravityAcpView() {
     busy,
     connected,
     fetchMcpStatus,
+    mcpProfile,
     prompting,
     setAuthRequired,
     setError,
@@ -480,7 +537,7 @@ export function AntigravityAcpView() {
         if (!mountedRef.current) return
         applyStatusSnapshot(nextStatus)
       }
-      const res = await createAntigravityAcpSession(cwd, true)
+      const res = await createAntigravityAcpSession(cwd, true, resolveSessionMcpProfileArg(mcpProfile))
       const [latestStatus, latestMcp] = await Promise.all([
         getAntigravityAcpStatus().catch(() => null),
         fetchMcpStatus(),
@@ -488,6 +545,7 @@ export function AntigravityAcpView() {
       if (!mountedRef.current) return
       if (latestStatus) applyStatusSnapshot(latestStatus)
       if (latestMcp) setMcpStatus(latestMcp)
+      setSavedDraftMsgMap({})
       const sysMsg = res.attachedLocalMcp
         ? t("antigravityAcp.sessionStartedWithMcp", { sessionId: res.sessionId.slice(0, 8) })
         : t("antigravityAcp.sessionStarted", { sessionId: res.sessionId.slice(0, 8) })
@@ -511,6 +569,7 @@ export function AntigravityAcpView() {
     connected,
     fetchMcpStatus,
     mcpBusy,
+    mcpProfile,
     prompting,
     setAuthRequired,
     setError,
@@ -579,10 +638,17 @@ export function AntigravityAcpView() {
     setBusy(true)
     setError(null)
     try {
-      const res = await createAntigravityAcpSession(cwd, enableHttpMcp)
+      const res = await createAntigravityAcpSession(
+        cwd,
+        enableHttpMcp,
+        resolveSessionMcpProfileArg(mcpProfile),
+      )
       const latestMcp = await fetchMcpStatus()
-      if (mountedRef.current && latestMcp) {
-        setMcpStatus(latestMcp)
+      if (mountedRef.current) {
+        if (latestMcp) {
+          setMcpStatus(latestMcp)
+        }
+        setSavedDraftMsgMap({})
       }
       const sysMsg = res.attachedLocalMcp
         ? t("antigravityAcp.sessionStartedWithMcp", { sessionId: res.sessionId.slice(0, 8) })
@@ -601,12 +667,120 @@ export function AntigravityAcpView() {
     applySessionCreated,
     enableHttpMcp,
     fetchMcpStatus,
+    mcpProfile,
     prompting,
     setAuthRequired,
     setError,
     t,
     workspacePath,
   ])
+
+  const handleStartIsolatedReviewerSession = useCallback(async () => {
+    if (!connected || prompting || busy) return
+    const cwd = workspacePath.trim()
+    if (!cwd) {
+      setError(t("antigravityAcp.workspaceRequired"))
+      return
+    }
+    const attachLocalMcp = status?.httpMcpEnabled ?? enableHttpMcp
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await createAntigravityAcpSession(cwd, attachLocalMcp, "reviewer")
+      const latestMcp = await fetchMcpStatus()
+      if (mountedRef.current) {
+        if (latestMcp) {
+          setMcpStatus(latestMcp)
+        }
+        setInput("")
+        setSavedDraftMsgMap({})
+      }
+      setMcpProfile("reviewer")
+      const sysMsg = res.attachedLocalMcp
+        ? t("antigravityAcp.isolatedReviewerStarted", {
+            sessionId: res.sessionId.slice(0, 8),
+          })
+        : t("antigravityAcp.isolatedReviewerStartedNoMcp", {
+            sessionId: res.sessionId.slice(0, 8),
+          })
+      applySessionCreated(res, sysMsg)
+    } catch (e) {
+      const msg = toErrorMessage(e)
+      if (isAcpAuthRequiredError(msg)) {
+        setAuthRequired(true)
+      }
+      if (mountedRef.current) setError(msg)
+    } finally {
+      if (mountedRef.current) setBusy(false)
+    }
+  }, [
+    applySessionCreated,
+    busy,
+    connected,
+    enableHttpMcp,
+    fetchMcpStatus,
+    prompting,
+    setAuthRequired,
+    setError,
+    setMcpProfile,
+    status?.httpMcpEnabled,
+    t,
+    workspacePath,
+  ])
+
+  const handleSyncProjectWriterPlugin = useCallback(async () => {
+    const projectPath = project?.path?.trim()
+    if (!isTauri() || !projectPath || pluginSyncBusy) return
+    setPluginSyncBusy(true)
+    setPluginError(null)
+    setPluginFeedback(null)
+    try {
+      const res = await syncProjectWriterPlugin(projectPath, includeClaudeMd)
+      if (!mountedRef.current) return
+      if (isWriterPluginStatus(res?.status)) {
+        setWriterPluginStatus(res.status)
+      } else {
+        await fetchWriterPluginStatus(false)
+      }
+      setPluginFeedback(
+        t("antigravityAcp.writerPlugin.syncSuccess", {
+          written: res?.writtenFiles?.length ?? 0,
+          unchanged: res?.unchangedFiles?.length ?? 0,
+        }),
+      )
+    } catch (e) {
+      if (mountedRef.current) {
+        setPluginError(toErrorMessage(e))
+      }
+    } finally {
+      if (mountedRef.current) setPluginSyncBusy(false)
+    }
+  }, [fetchWriterPluginStatus, includeClaudeMd, pluginSyncBusy, project?.path, t])
+
+  const handleInstallGlobalWriterPlugin = useCallback(async () => {
+    if (!isTauri() || pluginGlobalBusy) return
+    setPluginGlobalBusy(true)
+    setPluginError(null)
+    setPluginFeedback(null)
+    try {
+      const res = await installGlobalWriterPlugin(false)
+      if (!mountedRef.current) return
+      setGlobalInstallResult(res)
+      await fetchWriterPluginStatus(false)
+      if (!mountedRef.current) return
+      setPluginFeedback(
+        t("antigravityAcp.writerPlugin.globalInstallSuccess", {
+          path: res.installPath,
+        }),
+      )
+    } catch (e) {
+      if (mountedRef.current) {
+        setPluginError(toErrorMessage(e))
+      }
+    } finally {
+      if (mountedRef.current) setPluginGlobalBusy(false)
+    }
+  }, [fetchWriterPluginStatus, pluginGlobalBusy, t])
 
   const handleConnectAndStart = useCallback(async () => {
     if (!canConnect || prompting) return
@@ -625,10 +799,17 @@ export function AntigravityAcpView() {
       })
       applyStatusSnapshot(next)
 
-      const res = await createAntigravityAcpSession(cwd, enableHttpMcp)
+      const res = await createAntigravityAcpSession(
+        cwd,
+        enableHttpMcp,
+        resolveSessionMcpProfileArg(mcpProfile),
+      )
       const latestMcp = await fetchMcpStatus()
-      if (mountedRef.current && latestMcp) {
-        setMcpStatus(latestMcp)
+      if (mountedRef.current) {
+        if (latestMcp) {
+          setMcpStatus(latestMcp)
+        }
+        setSavedDraftMsgMap({})
       }
       const sysMsg = res.attachedLocalMcp
         ? t("antigravityAcp.sessionStartedWithMcp", { sessionId: res.sessionId.slice(0, 8) })
@@ -649,6 +830,7 @@ export function AntigravityAcpView() {
     canConnect,
     enableHttpMcp,
     fetchMcpStatus,
+    mcpProfile,
     prompting,
     setAuthRequired,
     setError,
@@ -895,6 +1077,18 @@ export function AntigravityAcpView() {
     return t("antigravityAcp.stopReason.label", { reason: lastStopReason })
   }, [lastStopReason, t])
 
+  const effectiveParentRepoWarning = activeSessionId
+    ? parentCodeRepoWarning?.trim() || null
+    : parentCodeRepoWarning?.trim() || writerPluginStatus?.parentCodeRepoWarning?.trim() || null
+
+  const profileChangePending =
+    connected && Boolean(activeSessionId) && Boolean(localMcpProfile) && mcpProfile !== localMcpProfile
+
+  const globalEnableCommand =
+    globalInstallResult?.enableCommand || "agy plugin enable niko-buddy-writer"
+  const globalDisableCommand =
+    globalInstallResult?.disableCommand || "agy plugin disable niko-buddy-writer"
+
   return (
     <div
       className="flex h-full flex-col gap-3 overflow-hidden p-4"
@@ -975,7 +1169,10 @@ export function AntigravityAcpView() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => void refreshState()}
+            onClick={() => {
+              void refreshState()
+              void fetchWriterPluginStatus(false)
+            }}
             disabled={detecting || busy}
             data-testid="acp-refresh-btn"
           >
@@ -1102,6 +1299,17 @@ export function AntigravityAcpView() {
             >
               {t("antigravityAcp.newSession")}
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!connected || busy || prompting || !workspacePath.trim()}
+              onClick={() => void handleStartIsolatedReviewerSession()}
+              data-testid="acp-isolated-reviewer-btn"
+            >
+              <Eye className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+              {t("antigravityAcp.isolatedReviewerBtn")}
+            </Button>
           </div>
           <label className="flex items-center gap-2 text-muted-foreground">
             <input
@@ -1188,6 +1396,48 @@ export function AntigravityAcpView() {
               </Button>
             )}
           </div>
+        </div>
+
+        {/* Role / MCP tool profile selector */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-1.5">
+          <label htmlFor="acp-mcp-profile-select" className="font-medium text-muted-foreground">
+            {t("antigravityAcp.profiles.label")}
+          </label>
+          <select
+            id="acp-mcp-profile-select"
+            value={mcpProfile}
+            disabled={busy || prompting}
+            onChange={(e) => setMcpProfile(e.target.value as McpToolProfile)}
+            data-testid="acp-mcp-profile-select"
+            className="rounded border border-border bg-background px-2 py-0.5 text-xs"
+          >
+            {MCP_TOOL_PROFILES.map((profile) => (
+              <option key={profile} value={profile}>
+                {t(`antigravityAcp.profiles.${profile}`)}
+              </option>
+            ))}
+          </select>
+          {connected && activeSessionId && localMcpProfile && (
+            <span
+              data-testid="acp-active-profile-badge"
+              className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+            >
+              {t("antigravityAcp.profiles.activeBadge", { profile: localMcpProfile })}
+            </span>
+          )}
+          {profileChangePending && localMcpProfile && (
+            <span
+              role="status"
+              aria-live="polite"
+              data-testid="acp-profile-pending-hint"
+              className="text-[11px] text-warning-foreground"
+            >
+              {t("antigravityAcp.profiles.pendingHint", {
+                selected: mcpProfile,
+                active: localMcpProfile,
+              })}
+            </span>
+          )}
         </div>
 
         {mcpStatus?.running && mcpStatus.scope !== "project" && (
@@ -1329,6 +1579,164 @@ export function AntigravityAcpView() {
                 {t("antigravityAcp.mcpStrip.reconnectWithMcp")}
               </Button>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Parent code repository warning banner (strictly role="status") */}
+      {effectiveParentRepoWarning && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="acp-parent-repo-warning-banner"
+          className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-xs text-warning-foreground"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div className="space-y-0.5">
+            <div className="font-medium">{t("antigravityAcp.parentRepoWarning.title")}</div>
+            <p className="break-words text-[11px]">{effectiveParentRepoWarning}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Declarative Writer Plugin sync & disabled-by-default global install card */}
+      <div
+        data-testid="acp-writer-plugin-card"
+        className="space-y-2 rounded-lg border border-border/60 bg-muted/15 px-3 py-2 text-xs"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{t("antigravityAcp.writerPlugin.title")}</span>
+            <span
+              role="status"
+              aria-live="polite"
+              data-testid="acp-writer-plugin-state-badge"
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ${
+                writerPluginStatus?.projectState === "synced"
+                  ? "bg-success/15 text-success-foreground"
+                  : writerPluginStatus?.projectState === "needs_update"
+                    ? "border border-warning/50 bg-warning/15 text-warning-foreground"
+                    : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {writerPluginStatus
+                ? t(`antigravityAcp.writerPlugin.state.${writerPluginStatus.projectState}`)
+                : t("antigravityAcp.writerPlugin.state.unknown")}
+            </span>
+            {writerPluginStatus && (
+              <span className="text-[11px] text-muted-foreground">
+                {t("antigravityAcp.writerPlugin.meta", {
+                  version: writerPluginStatus.pluginVersion,
+                  skills: writerPluginStatus.skillCount,
+                  agents: writerPluginStatus.agentCount,
+                })}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={!isTauri() || !project?.path?.trim() || pluginSyncBusy}
+              title={
+                !project?.path?.trim()
+                  ? t("antigravityAcp.writerPlugin.noProjectHint")
+                  : undefined
+              }
+              onClick={() => void handleSyncProjectWriterPlugin()}
+              data-testid="acp-writer-plugin-sync-btn"
+            >
+              {pluginSyncBusy ? (
+                <>
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />
+                  {t("antigravityAcp.writerPlugin.syncing")}
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-1 h-3 w-3" aria-hidden="true" />
+                  {t("antigravityAcp.writerPlugin.syncBtn")}
+                </>
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={!isTauri() || pluginGlobalBusy}
+              onClick={() => void handleInstallGlobalWriterPlugin()}
+              data-testid="acp-writer-plugin-install-global-btn"
+            >
+              {pluginGlobalBusy ? (
+                <>
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />
+                  {t("antigravityAcp.writerPlugin.installingGlobal")}
+                </>
+              ) : (
+                <>
+                  <Download className="mr-1 h-3 w-3" aria-hidden="true" />
+                  {t("antigravityAcp.writerPlugin.installGlobalBtn")}
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={includeClaudeMd}
+              disabled={pluginSyncBusy || !project?.path?.trim()}
+              onChange={(e) => setIncludeClaudeMd(e.target.checked)}
+              data-testid="acp-writer-plugin-include-claude-md"
+            />
+            <span>{t("antigravityAcp.writerPlugin.includeClaudeMd")}</span>
+          </label>
+          {!project?.path?.trim() && (
+            <span role="status" data-testid="acp-writer-plugin-no-project-hint">
+              {t("antigravityAcp.writerPlugin.noProjectHint")}
+            </span>
+          )}
+        </div>
+
+        {(globalInstallResult || writerPluginStatus?.globalInstalled) && (
+          <div
+            data-testid="acp-writer-plugin-global-guidance"
+            className="flex flex-wrap items-center gap-1.5 rounded border border-border/50 bg-background/60 px-2 py-1 text-[11px] text-muted-foreground"
+          >
+            <span>{t("antigravityAcp.writerPlugin.globalGuidance")}</span>
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-foreground">
+              {globalEnableCommand}
+            </code>
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-foreground">
+              {globalDisableCommand}
+            </code>
+          </div>
+        )}
+
+        {pluginFeedback && (
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid="acp-writer-plugin-feedback"
+            className="rounded border border-success/40 bg-success/10 px-2 py-1 text-[11px] text-success-foreground"
+          >
+            {pluginFeedback}
+          </div>
+        )}
+
+        {pluginError && (
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid="acp-writer-plugin-error"
+            className="rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning-foreground"
+          >
+            {pluginError}
           </div>
         )}
       </div>

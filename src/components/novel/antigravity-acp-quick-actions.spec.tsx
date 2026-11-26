@@ -124,4 +124,56 @@ describe("AntigravityAcpQuickActions", () => {
     expect(zhSetup).toContain("rules.get")
     expect(zhSetup).toContain("outline.write")
   })
+
+  it("enforces compact MCP schema args across all 5 templates (targetChapter, bookRules compact, draftId / quoted string chapter) and renders editorial role badges", () => {
+    const onSelectPrompt = vi.fn()
+    render(
+      <AntigravityAcpQuickActions
+        chapterContext={SAMPLE_CTX}
+        disabled={false}
+        onSelectPrompt={onSelectPrompt}
+      />,
+    )
+
+    // Compact editorial role badges on all 5 buttons
+    expect(screen.getByTestId("acp-quick-action-role-draft_next")).toHaveTextContent(/主笔|Writer/)
+    expect(screen.getByTestId("acp-quick-action-role-review_current")).toHaveTextContent(/责编|Editor/)
+    expect(screen.getByTestId("acp-quick-action-role-polish_draft")).toHaveTextContent(/润色师|Polish/)
+    expect(screen.getByTestId("acp-quick-action-role-canon_audit")).toHaveTextContent(/考据官|Canon/)
+    expect(screen.getByTestId("acp-quick-action-role-book_setup")).toHaveTextContent(/策划|Architect/)
+
+    for (const lang of ["zh", "en"]) {
+      const draft = buildWriterQuickActionPrompt("draft_next", SAMPLE_CTX, lang)
+      expect(draft).toContain('context.prepare_write({ targetChapter: 3, retrievalMode: "local_only" })')
+      expect(draft).toContain('rules.get({ sections: ["bookRules"], compact: true })')
+      expect(draft).toContain("chapter.write")
+      expect(draft).toContain('detailLevel: "compact"')
+      expect(draft).toContain("gate.check_mechanical({ draftId:")
+      expect(draft).not.toMatch(/\bchapter\s*:/i)
+
+      const polish = buildWriterQuickActionPrompt("polish_draft", SAMPLE_CTX, lang)
+      expect(polish).toContain('rules.get({ sections: ["bookRules"], compact: true })')
+      expect(polish).toContain("gate.check_mechanical({ draftId:")
+      expect(polish).toContain('detailLevel: "compact"')
+      expect(polish).not.toMatch(/\bchapter\s*:\s*\d+/)
+
+      const review = buildWriterQuickActionPrompt("review_current", SAMPLE_CTX, lang)
+      expect(review).toContain('rules.get({ sections: ["bookRules"], compact: true })')
+      expect(review).toContain("gate.check_mechanical({ draftId:")
+      expect(review).toContain('gate.check_mechanical({ chapter: "2", detailLevel: "compact" })')
+      expect(review).not.toMatch(/\bchapter\s*:\s*\d+/)
+
+      const canon = buildWriterQuickActionPrompt("canon_audit", SAMPLE_CTX, lang)
+      expect(canon).toContain('rules.get({ sections: ["bookRules"], compact: true })')
+
+      const setup = buildWriterQuickActionPrompt("book_setup", SAMPLE_CTX, lang)
+      expect(setup).toContain('rules.get({ sections: ["bookRules"], compact: true })')
+    }
+
+    // Specific ZH placeholder text in draft_next
+    const zhDraft = buildWriterQuickActionPrompt("draft_next", SAMPLE_CTX, "zh")
+    expect(zhDraft).toContain(
+      'gate.check_mechanical({ draftId: "<chapter.write 返回的 draftId>", detailLevel: "compact" })',
+    )
+  })
 })

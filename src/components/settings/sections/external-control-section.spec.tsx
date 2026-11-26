@@ -827,4 +827,235 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
       })
     }
   })
+
+  it("Antigravity profile 选择器默认保持裸 URL，切换后仅追加 ?profile= 且不影响上方裸端点", async () => {
+    const writeText = stubClipboard()
+    invokeMock.mockResolvedValue(RUNNING_STATUS)
+    render(<ExternalControlSection />)
+
+    const select = (await screen.findByTestId(
+      "external-control-antigravity-profile",
+    )) as HTMLSelectElement
+    expect(select.value).toBe("full-legacy")
+    expect(screen.getByTestId("external-control-antigravity-snippet")).toHaveTextContent(
+      '"serverUrl": "http://127.0.0.1:45871/mcp"',
+    )
+
+    for (const profile of ["writer-sub", "reviewer", "architect"] as const) {
+      fireEvent.change(select, { target: { value: profile } })
+      expect(screen.getByTestId("external-control-antigravity-snippet")).toHaveTextContent(
+        `"serverUrl": "http://127.0.0.1:45871/mcp?profile=${profile}"`,
+      )
+      // 上方裸端点绝不被污染
+      expect(screen.getByTestId("external-control-endpoint")).toHaveTextContent(
+        /^http:\/\/127\.0\.0\.1:45871\/mcp$/,
+      )
+    }
+
+    fireEvent.click(screen.getByTestId("external-control-copy-antigravity-mcp"))
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining('"serverUrl": "http://127.0.0.1:45871/mcp?profile=architect"'),
+      )
+    })
+  })
+
+  it("写作插件同步行：无项目时不调 writer_plugin_status 且禁用同步；打开项目后可同步/安装全局禁用版且错误仅走 role=\"status\"", async () => {
+    useWikiStore.setState({ project: null })
+    let pluginStatus = {
+      pluginName: "niko-buddy-writer",
+      pluginVersion: "1.0.0",
+      declarativeOnly: true,
+      skillCount: 4,
+      agentCount: 5,
+      isolatedPluginPath: "C:\\Users\\demo\\AppData\\Local\\niko-buddy\\writer-plugin",
+      isolatedPluginUpToDate: true,
+      projectPath: "C:\\books\\acp-novel",
+      projectState: "needs_update" as "synced" | "needs_update" | "not_synced",
+      projectVersion: "0.9.0",
+      projectHasClaudeMd: false,
+      globalInstalled: false,
+      globalEnabled: false,
+      globalUpToDate: false,
+      globalPath: null,
+      parentCodeRepoWarning: null,
+    }
+    let failSync = false
+
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_status") return Promise.resolve(RUNNING_STATUS)
+      if (cmd === "writer_plugin_status") return Promise.resolve(pluginStatus)
+      if (cmd === "writer_plugin_sync_project") {
+        if (failSync) return Promise.reject(new Error("sync denied"))
+        pluginStatus = { ...pluginStatus, projectState: "synced", projectVersion: "1.0.0" }
+        return Promise.resolve({
+          ok: true,
+          pluginName: "niko-buddy-writer",
+          pluginVersion: "1.0.0",
+          projectPath: "C:\\books\\acp-novel",
+          includeClaudeMd: false,
+          writtenFiles: ["AGENTS.md"],
+          unchangedFiles: [],
+          agentsMdPreservedUserContent: true,
+          parentCodeRepoWarning: null,
+          status: pluginStatus,
+        })
+      }
+      if (cmd === "writer_plugin_install_global") {
+        return Promise.resolve({
+          ok: true,
+          pluginName: "niko-buddy-writer",
+          pluginVersion: "1.0.0",
+          installPath: "C:\\Users\\demo\\.gemini\\plugins\\niko-buddy-writer",
+          enabled: false,
+          disabled: true,
+          writtenFiles: ["plugin.json"],
+          unchangedFiles: [],
+          enableCommand: "agy plugin enable niko-buddy-writer",
+          disableCommand: "agy plugin disable niko-buddy-writer",
+        })
+      }
+      return Promise.resolve(undefined)
+    })
+
+    try {
+      const { rerender } = render(<ExternalControlSection />)
+      await waitFor(() => {
+        expect(screen.getByTestId("external-control-endpoint")).toHaveTextContent("45871")
+      })
+
+      // 无项目时：零 writer_plugin_status 调用、同步按钮禁用并显示提示
+      expect(invokeMock).not.toHaveBeenCalledWith("writer_plugin_status", expect.anything())
+      expect(screen.getByTestId("external-control-sync-writer-plugin")).toBeDisabled()
+      expect(screen.getByTestId("external-control-writer-plugin-no-project-hint")).toHaveAttribute(
+        "role",
+        "status",
+      )
+
+      // 打开项目后：拉取插件状态、支持同步和全局禁用版安装
+      act(() => {
+        useWikiStore.setState({
+          project: { id: "p-sync", name: "Sync Novel", path: "C:\\books\\acp-novel" },
+        })
+      })
+      rerender(<ExternalControlSection />)
+
+      const stateBadge = await screen.findByTestId("external-control-writer-plugin-state")
+      expect(stateBadge).toHaveAttribute("role", "status")
+      expect(stateBadge).toHaveTextContent(/需更新|Update available/)
+
+      fireEvent.click(screen.getByTestId("external-control-sync-writer-plugin"))
+      await waitFor(() => {
+        expect(invokeMock).toHaveBeenCalledWith("writer_plugin_sync_project", {
+          projectPath: "C:\\books\\acp-novel",
+          includeClaudeMd: false,
+        })
+      })
+      expect(screen.getByTestId("external-control-writer-plugin-state")).toHaveTextContent(
+        /已同步|Project synced/,
+      )
+      expect(screen.getByTestId("external-control-writer-plugin-feedback")).toHaveAttribute(
+        "role",
+        "status",
+      )
+
+      fireEvent.click(screen.getByTestId("external-control-install-global-writer-plugin"))
+      await waitFor(() => {
+        expect(invokeMock).toHaveBeenCalledWith("writer_plugin_install_global", {
+          enable: false,
+        })
+      })
+      const globalFeedback = await screen.findByTestId("external-control-writer-plugin-feedback")
+      expect(globalFeedback).toHaveTextContent("agy plugin enable niko-buddy-writer")
+      expect(globalFeedback).toHaveTextContent("agy plugin disable niko-buddy-writer")
+
+      // 同步失败时仅在本地 role="status" 展示，绝不污染 role="alert"
+      failSync = true
+      fireEvent.click(screen.getByTestId("external-control-sync-writer-plugin"))
+      const pluginErr = await screen.findByTestId("external-control-writer-plugin-error")
+      expect(pluginErr).toHaveAttribute("role", "status")
+      expect(pluginErr).toHaveTextContent("sync denied")
+      expect(screen.queryByRole("alert")).toBeNull()
+    } finally {
+      act(() => {
+        useWikiStore.setState({ project: null })
+      })
+    }
+  })
+
+  it("同步返回缺少有效 status 时回退重读 writer_plugin_status，且 endpoint 已有 query 时用 URLSearchParams 覆盖 profile", async () => {
+    const syncedStatus = {
+      pluginName: "niko-buddy-writer",
+      pluginVersion: "1.0.0",
+      declarativeOnly: true,
+      skillCount: 4,
+      agentCount: 5,
+      isolatedPluginPath: "C:\\Users\\demo\\AppData\\Local\\niko-buddy\\writer-plugin",
+      isolatedPluginUpToDate: true,
+      projectPath: "C:\\books\\fallback-novel",
+      projectState: "synced" as const,
+      projectVersion: "1.0.0",
+      projectHasClaudeMd: false,
+      globalInstalled: false,
+      globalEnabled: false,
+      globalUpToDate: false,
+      globalPath: null,
+      parentCodeRepoWarning: null,
+    }
+    let statusCalls = 0
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_status") {
+        return Promise.resolve({
+          ...RUNNING_STATUS,
+          endpoint: "http://127.0.0.1:45871/mcp?profile=old&foo=1",
+        })
+      }
+      if (cmd === "writer_plugin_status") {
+        statusCalls += 1
+        return Promise.resolve(
+          statusCalls === 1 ? { ...syncedStatus, projectState: "not_synced" } : syncedStatus,
+        )
+      }
+      if (cmd === "writer_plugin_sync_project") {
+        // 刻意不返回合法 status，验证回退到 getWriterPluginStatus(projectPath)
+        return Promise.resolve({ ok: true, writtenFiles: ["AGENTS.md"], unchangedFiles: [] })
+      }
+      return Promise.resolve(undefined)
+    })
+
+    act(() => {
+      useWikiStore.setState({
+        project: { id: "p-fb", name: "Fallback Novel", path: "C:\\books\\fallback-novel" },
+      })
+    })
+    try {
+      render(<ExternalControlSection />)
+      await waitFor(() => {
+        expect(screen.getByTestId("external-control-writer-plugin-state")).toHaveTextContent(
+          /未同步|Not synced/,
+        )
+      })
+
+      // 切换 profile 应覆盖旧的 ?profile=old 而不是重复拼接
+      fireEvent.change(screen.getByTestId("external-control-antigravity-profile"), {
+        target: { value: "reviewer" },
+      })
+      const snippet = screen.getByTestId("external-control-antigravity-snippet").textContent ?? ""
+      expect(snippet).toContain("http://127.0.0.1:45871/mcp?profile=reviewer&foo=1")
+      expect(snippet).not.toContain("profile=old")
+
+      // 点击同步 -> res.status 无效 -> 回退重读 writer_plugin_status -> 徽标更新为已同步
+      fireEvent.click(screen.getByTestId("external-control-sync-writer-plugin"))
+      await waitFor(() => {
+        expect(statusCalls).toBeGreaterThanOrEqual(2)
+        expect(screen.getByTestId("external-control-writer-plugin-state")).toHaveTextContent(
+          /已同步|Project synced/,
+        )
+      })
+    } finally {
+      act(() => {
+        useWikiStore.setState({ project: null })
+      })
+    }
+  })
 })

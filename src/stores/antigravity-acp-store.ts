@@ -21,6 +21,7 @@ import {
   type AcpPendingPermission,
   type AcpSessionResult,
   type AcpStatusSnapshot,
+  type McpToolProfile,
 } from "@/lib/antigravity-acp-client"
 
 export const STDERR_LOG_LIMIT = 100
@@ -71,6 +72,9 @@ export interface AntigravityAcpStoreState {
   activeAssistantId: string | null
   authRequired: boolean
   error: string | null
+  mcpProfile: McpToolProfile
+  localMcpProfile: McpToolProfile | null
+  parentCodeRepoWarning: string | null
 
   handleAcpEvent: (evt: AcpEventPayload) => void
   applyStatusSnapshot: (st: AcpStatusSnapshot) => void
@@ -80,6 +84,7 @@ export interface AntigravityAcpStoreState {
   setConfigOptions: (
     options: AcpConfigOption[] | ((prev: AcpConfigOption[]) => AcpConfigOption[]),
   ) => void
+  setMcpProfile: (profile: McpToolProfile) => void
   setAuthRequired: (required: boolean) => void
   setError: (error: string | null) => void
   setPrompting: (prompting: boolean) => void
@@ -107,6 +112,9 @@ type AntigravityAcpDataState = Pick<
   | "activeAssistantId"
   | "authRequired"
   | "error"
+  | "mcpProfile"
+  | "localMcpProfile"
+  | "parentCodeRepoWarning"
 >
 
 function createInitialDataState(): AntigravityAcpDataState {
@@ -125,6 +133,9 @@ function createInitialDataState(): AntigravityAcpDataState {
     activeAssistantId: null,
     authRequired: false,
     error: null,
+    mcpProfile: "writer-sub",
+    localMcpProfile: null,
+    parentCodeRepoWarning: null,
   }
 }
 
@@ -158,10 +169,12 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
               inFlightPrompt: false,
               attachedLocalMcp: false,
               localMcpScope: null,
+              localMcpProfile: null,
               localMcpStale: false,
               localMcpStaleReason: null,
               supportsHttpMcp: undefined,
               supportsLoadSession: undefined,
+              parentCodeRepoWarning: null,
             }
           : state.status,
         pendingPermissions: [],
@@ -171,6 +184,9 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
         activeAssistantId: null,
         authRequired: false,
         lastLocalMcpSkipReason: null,
+        mcpProfile: "writer-sub",
+        localMcpProfile: null,
+        parentCodeRepoWarning: null,
       }))
       return
     }
@@ -288,48 +304,84 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
   },
 
   applyStatusSnapshot: (st) => {
-    set((state) => ({
-      status: st,
-      activeSessionId: st.activeSessionId ?? null,
-      activeAssistantId: st.connected ? state.activeAssistantId : null,
-      pendingPermissions: st.pendingPermissions ?? [],
-      configOptions: parseAcpConfigOptions(st.configOptions ?? []),
-      prompting:
-        typeof st.inFlightPrompt === "boolean"
-          ? st.inFlightPrompt
+    set((state) => {
+      const nextLocalMcpProfile = st.connected ? (st.localMcpProfile ?? null) : null
+      const nextParentWarning =
+        "parentCodeRepoWarning" in st
+          ? (st.parentCodeRepoWarning ?? null)
           : st.connected
-            ? state.prompting
-            : false,
-    }))
+            ? state.parentCodeRepoWarning
+            : null
+      // Never overwrite user's chosen mcpProfile while disconnected (or when
+      // refreshing an already-known active session mid-flight). Only adopt the
+      // server's active profile when attaching to a newly discovered session.
+      const nextMcpProfile =
+        st.connected &&
+        nextLocalMcpProfile &&
+        st.activeSessionId &&
+        st.activeSessionId !== state.activeSessionId
+          ? nextLocalMcpProfile
+          : state.mcpProfile
+
+      return {
+        status: st,
+        activeSessionId: st.activeSessionId ?? null,
+        activeAssistantId: st.connected ? state.activeAssistantId : null,
+        pendingPermissions: st.pendingPermissions ?? [],
+        configOptions: parseAcpConfigOptions(st.configOptions ?? []),
+        prompting:
+          typeof st.inFlightPrompt === "boolean"
+            ? st.inFlightPrompt
+            : st.connected
+              ? state.prompting
+              : false,
+        mcpProfile: nextMcpProfile,
+        localMcpProfile: nextLocalMcpProfile,
+        parentCodeRepoWarning: nextParentWarning,
+      }
+    })
   },
 
   applySessionCreated: (res, systemMessage) => {
-    set((state) => ({
-      status: state.status
-        ? {
-            ...state.status,
-            activeSessionId: res.sessionId,
-            cwd: res.cwd,
-            configOptions: res.configOptions,
-            attachedLocalMcp: res.attachedLocalMcp,
-            localMcpScope: res.localMcpScope ?? null,
-            localMcpStale: false,
-            localMcpStaleReason: null,
-          }
-        : state.status,
-      activeSessionId: res.sessionId,
-      activeAssistantId: null,
-      authRequired: false,
-      lastStopReason: null,
-      hasRecentDraftWrite: false,
-      recentDraftWriteSummary: null,
-      lastLocalMcpSkipReason: res.localMcpSkipReason ?? null,
-      pendingPermissions: state.pendingPermissions.filter((p) => p.sessionId === res.sessionId),
-      configOptions: parseAcpConfigOptions(res.configOptions ?? []),
-      transcript: systemMessage
-        ? [{ id: makeItemId("sys"), role: "system", text: systemMessage }]
-        : [],
-    }))
+    set((state) => {
+      const nextLocalMcpProfile = res.localMcpProfile ?? null
+      const nextParentWarning =
+        "parentCodeRepoWarning" in res
+          ? (res.parentCodeRepoWarning ?? null)
+          : state.parentCodeRepoWarning
+
+      return {
+        status: state.status
+          ? {
+              ...state.status,
+              activeSessionId: res.sessionId,
+              cwd: res.cwd,
+              configOptions: res.configOptions,
+              attachedLocalMcp: res.attachedLocalMcp,
+              localMcpScope: res.localMcpScope ?? null,
+              localMcpProfile: nextLocalMcpProfile,
+              localMcpStale: false,
+              localMcpStaleReason: null,
+              parentCodeRepoWarning: nextParentWarning,
+            }
+          : state.status,
+        activeSessionId: res.sessionId,
+        activeAssistantId: null,
+        authRequired: false,
+        lastStopReason: null,
+        hasRecentDraftWrite: false,
+        recentDraftWriteSummary: null,
+        lastLocalMcpSkipReason: res.localMcpSkipReason ?? null,
+        mcpProfile: nextLocalMcpProfile ?? state.mcpProfile,
+        localMcpProfile: nextLocalMcpProfile,
+        parentCodeRepoWarning: nextParentWarning,
+        pendingPermissions: state.pendingPermissions.filter((p) => p.sessionId === res.sessionId),
+        configOptions: parseAcpConfigOptions(res.configOptions ?? []),
+        transcript: systemMessage
+          ? [{ id: makeItemId("sys"), role: "system", text: systemMessage }]
+          : [],
+      }
+    })
   },
 
   beginPromptTurn: (userText) => {
@@ -357,6 +409,10 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
     set((state) => ({
       configOptions: typeof options === "function" ? options(state.configOptions) : options,
     }))
+  },
+
+  setMcpProfile: (profile) => {
+    set({ mcpProfile: profile })
   },
 
   setAuthRequired: (required) => {
