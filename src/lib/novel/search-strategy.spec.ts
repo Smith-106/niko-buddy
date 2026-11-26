@@ -518,6 +518,13 @@ describe("isAuthoritativeGenerationPath", () => {
     // canon 必须精确落在 wiki 根下：子目录 canon 不算
     expect(isAuthoritativeGenerationPath("wiki/sub/canon.mdx")).toBe(false)
   })
+
+  it("R3-M06: wiki/chapters 下的草稿文件（.draft.md / -去AI味稿.md / .tmp）一律不算权威路径", () => {
+    expect(isAuthoritativeGenerationPath("p/wiki/chapters/chapter-003.draft.md")).toBe(false)
+    expect(isAuthoritativeGenerationPath("p/wiki/chapters/vol-1/chapter-003-去AI味稿.md")).toBe(false)
+    expect(isAuthoritativeGenerationPath("p/wiki/chapters/chapter-003.md.tmp")).toBe(false)
+    expect(isAuthoritativeGenerationPath("p/wiki/chapters/vol-1/chapter-003.md")).toBe(true)
+  })
 })
 
 describe("isHistoricalProjectionSnippet", () => {
@@ -564,6 +571,16 @@ describe("filterAuthoritative", () => {
       "keep-snap",
       "keep-canon",
     ])
+  })
+
+  it("R3-M06: filterAuthoritative 剔除草稿文件（即使类型是 recent_chapter 以外的章节检索项）", () => {
+    const items = [
+      nr({ path: "p/wiki/chapters/chapter-003.md", title: "keep-final" }),
+      nr({ path: "p/wiki/chapters/chapter-003.draft.md", title: "drop-draft" }),
+      nr({ path: "p/wiki/chapters/vol-1/chapter-003-去AI味稿.md", title: "drop-antiai" }),
+      nr({ type: "recent_chapter", path: "p/wiki/chapters/chapter-003.draft.md", title: "drop-recent-draft" }),
+    ]
+    expect(filterAuthoritative(items).map((i) => i.title)).toEqual(["keep-final"])
   })
 })
 
@@ -1371,5 +1388,23 @@ describe("覆盖战役补齐：mmrRerank 精确平分决胜", () => {
     const ranked = mmrRerank([x, y, z], { k: 3, lambda: 0.5, similarity: sim })
     // 首轮 x（最高 relevance），次轮 z（平分但 relevance 高于 y），末轮 y
     expect(ranked.map((c) => (c as { id: string }).id)).toEqual(["x", "z", "y"])
+  })
+})
+
+describe("R2-M08 Windows 反斜杠路径归一", () => {
+  it("isAuthoritativeGenerationPath 与 isHistoricalProjectionSnippet 先将 \\\\ 归一为 /", () => {
+    expect(isAuthoritativeGenerationPath("C:\\proj\\wiki\\entities\\白砚.md")).toBe(true)
+    expect(isAuthoritativeGenerationPath("C:\\proj\\wiki\\memory\\summary.md")).toBe(true)
+    expect(isAuthoritativeGenerationPath("C:\\proj\\wiki\\canon.md")).toBe(true)
+    expect(isAuthoritativeGenerationPath("C:\\proj\\.novel\\snapshots\\001.snapshot.json")).toBe(true)
+    expect(isAuthoritativeGenerationPath("C:\\proj\\wiki\\sources\\raw.md")).toBe(false)
+    expect(isHistoricalProjectionSnippet("C:\\proj\\wiki\\history\\old.md", "正文")).toBe(true)
+    expect(
+      filterAuthoritative([
+        { type: "keyword", path: "C:\\proj\\wiki\\entities\\白砚.md", title: "白砚", snippet: "正文", relevance: 1 },
+        { type: "keyword", path: "C:\\proj\\wiki\\history\\old.md", title: "旧", snippet: "正文", relevance: 1 },
+        { type: "keyword", path: "C:\\proj\\wiki\\sources\\raw.md", title: "原", snippet: "正文", relevance: 1 },
+      ]).map((r) => r.title),
+    ).toEqual(["白砚"])
   })
 })

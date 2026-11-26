@@ -22,7 +22,9 @@
  */
 
 import { advanceDirectorToStall, buildStageJournalRuntime, loadDirectorPersisted, runDeepChapterGeneration, saveDirectorPersisted } from "@/lib/novel"
-import type { DeepChapterDecisionGates, DeepChapterGenerationResult } from "@/lib/novel"
+import type { DeepChapterDecisionGates } from "@/lib/novel"
+import { decideDraftAdoptionGate } from "@/lib/novel/deep-chapter-decision-gates"
+import type { DraftGateStatus } from "@/lib/novel/lifecycle-types"
 import { applyWorkflowModeDepth } from "@/lib/novel/workflow-mode-depth"
 import { generateOutlineFile, generateOutlineFileMultiAgent } from "@/lib/novel/outline-generation"
 import { refreshProjectState } from "@/lib/project-refresh"
@@ -61,6 +63,10 @@ export interface PipelineTaskSnapshot {
   manualReviewRequired?: boolean
   /** 是否被传输超时截断（必须走续写路径，不能当完成品）。 */
   partial?: boolean
+  adoptionGate?: DraftGateStatus
+  partialReason?: string | null
+  lastStage?: string
+  durationMs?: number
   /** 正文字符数，仅用于让调用方判断产出规模。 */
   contentChars?: number
   /** 任务自述的产出位置（大纲路径、导演阶段号等）。不含正文。 */
@@ -75,7 +81,6 @@ export interface PipelineTaskSnapshot {
 
 interface PipelineTaskRecord {
   snapshot: PipelineTaskSnapshot
-  result?: DeepChapterGenerationResult
 }
 
 /**
@@ -98,12 +103,13 @@ function registerTask(
   pruneIfNeeded()
 
   // 故意不 await：这是"起任务"而不是"跑任务"。任何同步等待都会撞上状态桥超时。
-  void runner(record)
+  void (async () => runner(record))()
     .then((patch) => {
       record.snapshot = {
         ...record.snapshot,
         ...patch,
         status: "done",
+        lastStage: record.snapshot.stage,
         stage: "done",
         finishedAt: Date.now(),
       }
@@ -112,9 +118,14 @@ function registerTask(
       record.snapshot = {
         ...record.snapshot,
         status: "failed",
+        lastStage: record.snapshot.stage,
         stage: "failed",
         finishedAt: Date.now(),
-        error: toErrorMessage(err),
+        error: err instanceof PipelineTaskError
+          ? err.message
+          : toErrorMessage(err) === "已停止生成"
+            ? "已停止生成"
+            : `任务在 ${record.snapshot.stage} 阶段失败，请在应用内查看详情。`,
       }
     })
 
@@ -126,6 +137,14 @@ function registerTask(
  * 定上限是为了让一个健忘的调用方不能把内存撑爆。
  */
 const MAX_TASKS = 32
+
+function hasRunningTaskCapacity(count = 1): boolean {
+  return [...tasks.values()].filter(task => task.snapshot.status === "running").length + count <= MAX_TASKS
+}
+const TASK_CAPACITY_ERROR = "在途管线任务已达上限，请等已有任务完成"
+
+/** 任务自产的安全错误文案；上游错误可能带正文/供应商细节，统一替换成安全描述。 */
+class PipelineTaskError extends Error {}
 
 const tasks = new Map<string, PipelineTaskRecord>()
 
@@ -172,9 +191,10 @@ function normalizeChapterParams(
 
   let chapterNumber: number | undefined
   if (params.chapterNumber !== undefined && params.chapterNumber !== null) {
-    const n = typeof params.chapterNumber === "number" ? params.chapterNumber : Number(params.chapterNumber)
-    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
-      return { ok: false, error: `chapterNumber 必须是正整数，收到 ${JSON.stringify(params.chapterNumber)}` }
+    const raw = params.chapterNumber
+    const n = typeof raw === "number" || typeof raw === "string" ? Number(raw) : NaN
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      return { ok: false, error: `chapterNumber 必须是安全正整数，收到 ${JSON.stringify(raw)}` }
     }
     chapterNumber = n
   }
@@ -229,6 +249,7 @@ export function startPipelineTask(
   // DEBT-20261108-01：档位落到管线真实在读的开关上（standard/未传：原配置引用，零变更）。
   const depthConfig = applyWorkflowModeDepth(novelConfig, workflowMode)
 
+  if (!hasRunningTaskCapacity()) return { ok: false, error: TASK_CAPACITY_ERROR }
   const { taskId, stage } = registerTask("chapter", "queued", (record) =>
     runDeepChapterGeneration(
       {
@@ -244,11 +265,11 @@ export function startPipelineTask(
         },
       },
     ).then(async (result) => {
-      record.result = result
       const base = {
         gates: result.decisionGates,
         manualReviewRequired: result.manualReviewRequired,
         partial: result.partial,
+        partialReason: result.partial === true ? "incomplete_output" : null,
         contentChars: result.finalContent.length,
       }
       // 先落老字段：草稿写失败时它们仍留在 failed 快照里（调用方据此判断产出规模与门控）。
@@ -257,14 +278,20 @@ export function startPipelineTask(
       // partial 的真实性由快照 partial + gates + manualReviewRequired 表达（需人工复核），
       // 并透传进草稿 frontmatter，否则采纳决策点看不到「这是截断稿」。
       if (result.finalContent.trim() === "") {
-        throw new Error("深章产出为空，未写草稿")
+        throw new PipelineTaskError("深章产出为空，未写草稿")
       }
+      record.snapshot.stage = "writing_draft"
+      const adoptionGate = decideDraftAdoptionGate(result.decisionGates, {
+        reviewed: Number.isSafeInteger(chapterNumber) && result.finalConsistencyReviewed === true,
+        manualReviewRequired: result.manualReviewRequired,
+        partial: result.partial,
+      })
       const draft = await writeChapterDraft(projectPath, {
         chapterName: draftChapterName(chapterNumber, userRequest),
         content: result.finalContent,
         partial: result.partial === true,
-      })
-      return { ...base, artifactPath: draft.path }
+      }, adoptionGate)
+      return { ...base, adoptionGate, artifactPath: draft.path }
     }),
   )
 
@@ -316,6 +343,7 @@ export function startPipelineBatch(
   const context = requireGenerationContext()
   if (!context.ok) return context
 
+  if (!hasRunningTaskCapacity(normalized.length)) return { ok: false, error: TASK_CAPACITY_ERROR }
   const tasks: { taskId: string; chapterNumber: number | null }[] = []
   for (const item of normalized) {
     const started = startPipelineTask(item)
@@ -368,7 +396,8 @@ export function startDirectorAdvanceTask(
     return { ok: false, error: "尚未配置模型（缺少 apiKey），无法推进导演管线。" }
   }
 
-  const { taskId, stage } = registerTask("director", "loading", async () => {
+  if (!hasRunningTaskCapacity()) return { ok: false, error: TASK_CAPACITY_ERROR }
+  const { taskId, stage } = registerTask("director", "loading", async (record) => {
     const persisted = await loadDirectorPersisted(projectPath)
     const journal = buildStageJournalRuntime(projectPath, true)
     const { state, steps } = await advanceDirectorToStall(
@@ -386,10 +415,12 @@ export function startDirectorAdvanceTask(
     await saveDirectorPersisted(projectPath, { ...persisted, state })
     const advancedCount = steps.filter((step) => step.advanced).length
     const last = steps[steps.length - 1]
-    if (advancedCount === 0 && last && !last.completed) {
-      throw new Error(last.error ?? last.blockedReason ?? last.gap ?? "阶段门未通过")
+    const progress = { phase: state.currentPhase, advanced: advancedCount > 0, advancedCount }
+    if (last && !last.completed && !last.advanced) {
+      record.snapshot = { ...record.snapshot, ...progress }
+      throw new PipelineTaskError("阶段门未通过，请在应用内查看原因。")
     }
-    return { phase: state.currentPhase, advanced: advancedCount > 0, advancedCount }
+    return progress
   })
 
   return { ok: true, taskId, stage }
@@ -419,6 +450,7 @@ export function startOutlineGenerationTask(
     return { ok: false, error: "尚未配置模型（缺少 apiKey），无法生成大纲。" }
   }
 
+  if (!hasRunningTaskCapacity()) return { ok: false, error: TASK_CAPACITY_ERROR }
   const { taskId, stage } = registerTask("outline", "generating", async () => {
     const generated = params.multiAgent
       ? await generateOutlineFileMultiAgent(projectPath, llmConfig, prompt, new AbortController().signal)
@@ -443,7 +475,9 @@ export interface OutlineGenerationTaskParams {
 
 /** 查任务快照。未知 id 返回 `null`（调用方据此报"未知 taskId"，不猜）。 */
 export function getPipelineTask(taskId: string): PipelineTaskSnapshot | null {
-  return tasks.get(taskId)?.snapshot ?? null
+  const snapshot = tasks.get(taskId)?.snapshot
+  if (!snapshot) return null
+  return { ...snapshot, durationMs: Math.max(0, (snapshot.finishedAt ?? Date.now()) - snapshot.startedAt) }
 }
 
 /** 清空登记表（测试用）。 */

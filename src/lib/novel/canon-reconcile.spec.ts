@@ -529,3 +529,84 @@ describe("twoPhaseReconcile × attemptDualWrite（真实 digest 派生联动）"
     expect(report.alerted).toBe(false)
   })
 })
+
+describe("M2-03 twoPhaseReconcile 即时重放豁免（同 now 一次自愈 + 防重试风暴）", () => {
+  it("首次入队（attempts=1, nextRetryAt > now）在同 now 下豁免退避并一次自愈", async () => {
+    const store = { contents: "" }
+    const now = 5000
+    const op: CanonDualWriteOp = { digest: "imm-1", legacyPayload: {}, canonPayload: episode("imm-1") }
+    const initialOutcome = outcome("imm-1", ok(), fail("transient"))
+    // 模拟 shadowWriteCanon 刚以同一 now 入队（nextRetryAt = 5000 + 1000 = 6000 > now）
+    const rec = buildPendingRecord(initialOutcome, op, now)
+    expect(rec.attempts).toBe(1)
+    expect(rec.nextRetryAt).toBeGreaterThan(now)
+    const seedDeps = memQueueDeps(store, ok(), ok())
+    await savePendingQueue(seedDeps, QPATH, [rec])
+
+    // 瞬态恢复：重放时 canon 写成功
+    const replayDeps = memQueueDeps(store, ok(), ok())
+    const report = await twoPhaseReconcile(replayDeps, "P", [initialOutcome], now)
+
+    expect(report.finalConsistent).toBe(true)
+    expect(report.alerted).toBe(false)
+    expect(report.replayedDigests).toEqual(["imm-1"])
+    expect(report.replayReport).toMatchObject({ total: 1, succeeded: 1, skipped: 0, remaining: 0 })
+    expect(store.contents).toBe("")
+  })
+
+  it("仅豁免本次初始差异 digest，队列中其他未到期历史记录仍跳过保留", async () => {
+    const store = { contents: "" }
+    const now = 5000
+    const curOp: CanonDualWriteOp = { digest: "cur", legacyPayload: {}, canonPayload: episode("cur") }
+    const curOutcome = outcome("cur", ok(), fail("transient"))
+    const curRec = buildPendingRecord(curOutcome, curOp, now)
+    const otherOp: CanonDualWriteOp = { digest: "other", legacyPayload: {}, canonPayload: episode("other") }
+    const otherRec = buildPendingRecord(outcome("other", ok(), fail("older")), otherOp, now)
+
+    const seedDeps = memQueueDeps(store, ok(), ok())
+    await savePendingQueue(seedDeps, QPATH, [curRec, otherRec])
+
+    const replayDeps = memQueueDeps(store, ok(), ok())
+    const report = await twoPhaseReconcile(replayDeps, "P", [curOutcome], now)
+
+    expect(report.finalConsistent).toBe(true)
+    expect(report.replayedDigests).toEqual(["cur"])
+    expect(report.replayReport).toMatchObject({ total: 2, succeeded: 1, skipped: 1, remaining: 1 })
+    expect(store.contents).toContain('"other"')
+    expect(store.contents).not.toContain('"cur"')
+  })
+
+  it("即时重放仍失败后 attempts 升至 2，退避期内再次 reconcile 不再豁免（防重试风暴）", async () => {
+    const store = { contents: "" }
+    const now = 5000
+    const op: CanonDualWriteOp = { digest: "storm", legacyPayload: {}, canonPayload: episode("storm") }
+    const failOutcomeItem = outcome("storm", ok(), fail("down"))
+    const rec = buildPendingRecord(failOutcomeItem, op, now)
+    await savePendingQueue(memQueueDeps(store, ok(), ok()), QPATH, [rec])
+
+    let writeCanonCalls = 0
+    const persistentFailDeps: CanonDualWriteDeps = {
+      writeLegacy: async () => ok(),
+      writeCanon: async () => {
+        writeCanonCalls += 1
+        return fail("still-down")
+      },
+      queueRead: async () => store.contents,
+      queueWrite: async (_p, c) => {
+        store.contents = c
+      },
+    }
+
+    // 第一次 reconcile：attempts=1 豁免退避，执行 1 次重放后 attempts 升至 2
+    const first = await twoPhaseReconcile(persistentFailDeps, "P", [failOutcomeItem], now)
+    expect(first.alerted).toBe(true)
+    expect(first.replayReport).toMatchObject({ total: 1, rescheduled: 1, skipped: 0, remaining: 1 })
+    expect(writeCanonCalls).toBe(1)
+
+    // 同一时间窗再次 reconcile：attempts=2 不再豁免，直接跳过
+    const second = await twoPhaseReconcile(persistentFailDeps, "P", [failOutcomeItem], now)
+    expect(second.alerted).toBe(true)
+    expect(second.replayReport).toMatchObject({ total: 1, rescheduled: 0, skipped: 1, remaining: 1 })
+    expect(writeCanonCalls).toBe(1)
+  })
+})

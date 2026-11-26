@@ -42,6 +42,9 @@ import {
   promotionAudit,
   promotionReplaySuccessRate,
   appendFoldConflictLog,
+  enqueuePromotionRetry,
+  replayPromotionRetryQueue,
+  resolveNextPromotionRevision,
   promotionEventsPath,
   foldConflictsPath,
   promotionRetryPath,
@@ -53,6 +56,9 @@ const PROJECT = "/tmp/proj"
 
 /** 状态化 fs mock：writeFileAtomic 落盘 → readFile 读回（模拟真实原子存储）。 */
 function installStatefulFs() {
+  fsMocks.readFile.mockClear()
+  fsMocks.writeFileAtomic.mockClear()
+  fsMocks.createDirectory.mockClear()
   const disk = new Map<string, string>()
   fsMocks.readFile.mockImplementation(async (path: string) => {
     const key = String(path)
@@ -250,7 +256,7 @@ describe("E-05 原子提交点（C-4：写失败旧文件完好 = 结构上无�
     expect(retry.length).toBeGreaterThan(0)
   })
 
-  it("门控 BLOCK → 零 record + ambiguity_block 事件 + 入重试队列（不默认放行）", async () => {
+  it("门控 BLOCK → 零 record + ambiguity_block 事件 + 严禁入重试队列（R3-M01 策略阻断绝不重试）", async () => {
     installStatefulFs()
     const result = await promote(makeInput({ gateContext: { draftStatus: "rejected", ambiguous: true } }))
     expect(result.blocked).toBeTruthy()
@@ -262,7 +268,181 @@ describe("E-05 原子提交点（C-4：写失败旧文件完好 = 结构上无�
     const retry = fsMocks.writeFileAtomic.mock.calls
       .map((c) => String(c[0]))
       .filter((p) => p.includes("promotion-retry"))
-    expect(retry.length).toBeGreaterThan(0)
+    expect(retry).toHaveLength(0)
+  })
+})
+
+describe("R3-M01 晋升桥 fail-closed、并发三段短锁、补写 sink 与重放闭环", () => {
+  it("promotions.json 损坏时 onCorrupt=throw fail-closed，绝不静默清空覆写", async () => {
+    const disk = installStatefulFs()
+    disk.set(`${PROJECT}/.novel/promotions.json`, "{corrupt-json")
+    await expect(promote(makeInput())).rejects.toThrow(/Failed to parse promotions\.json/)
+    expect(disk.get(`${PROJECT}/.novel/promotions.json`)).toBe("{corrupt-json")
+  })
+
+  it("appendJsonl 遇 EACCES fail-closed：不以空串覆写既有 JSONL 文件", async () => {
+    const disk = installStatefulFs()
+    const retryPath = promotionRetryPath(PROJECT)
+    disk.set(retryPath, '{"replayKey":"existing"}\n')
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (String(p) === retryPath) throw new Error("EACCES: permission denied")
+      const content = disk.get(String(p))
+      if (content === undefined) throw new Error(`ENOENT: ${p}`)
+      return content
+    })
+    await enqueuePromotionRetry(PROJECT, makeInput(), "transient-error")
+    // EACCES 阻止覆盖原文件（原内容保持不变）
+    expect(disk.get(retryPath)).toBe('{"replayKey":"existing"}\n')
+  })
+
+  it("并发 promote 三段短锁：两个不同 replayKey 在慢 sink 期间并发写入互不覆盖", async () => {
+    const disk = installStatefulFs()
+    let releaseFirst!: () => void
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let firstEntered!: () => void
+    const firstStarted = new Promise<void>((resolve) => {
+      firstEntered = resolve
+    })
+
+    const slowSink: CapabilitySink = {
+      async write(_pp, record) {
+        if (record.sourceRef.chapterNumber === 1) {
+          firstEntered()
+          await firstGate
+        }
+        return { entryId: `entry-${record.replayKey}`, hash: "h" }
+      },
+      async reset() {},
+      async fingerprint() {
+        return ""
+      },
+    }
+
+    const p1 = promote(makeInput({ chapterId: "chapter-1", chapterNumber: 1, entity: "ep-1" }), slowSink)
+    await firstStarted
+    const p2 = promote(makeInput({ chapterId: "chapter-2", chapterNumber: 2, entity: "ep-2" }), slowSink)
+    const r2 = await p2
+    expect(r2.record.targetRef.entryId).toBe("entry-formal-writeback:chapter-2:ep-2:2")
+
+    releaseFirst()
+    const r1 = await p1
+    expect(r1.record.targetRef.entryId).toBe("entry-formal-writeback:chapter-1:ep-1:2")
+
+    const stored = JSON.parse(disk.get(`${PROJECT}/.novel/promotions.json`)!) as { records: Record<string, PromotionRecord> }
+    expect(Object.keys(stored.records)).toHaveLength(2)
+    expect(stored.records["formal-writeback:chapter-1:ep-1:2"]?.targetRef.entryId).toBe("entry-formal-writeback:chapter-1:ep-1:2")
+    expect(stored.records["formal-writeback:chapter-2:ep-2:2"]?.targetRef.entryId).toBe("entry-formal-writeback:chapter-2:ep-2:2")
+  })
+
+  it("既有 record 缺 targetRef.entryId 时再次 promote 补写 sink 并恢复 promotionAudit 一致", async () => {
+    installStatefulFs()
+    const failingSink: CapabilitySink = {
+      async write() {
+        throw new Error("sink temp down")
+      },
+      async reset() {},
+      async fingerprint() {
+        return ""
+      },
+    }
+    const { sink: healthySink } = makeDrillSink()
+
+    const first = await promote(makeInput(), failingSink)
+    expect(first.record.targetRef.entryId).toBeUndefined()
+    expect((await promotionAudit(PROJECT)).consistent).toBe(false)
+
+    // 再次 promote：检测到缺 entryId → 补写 sink
+    const second = await promote(makeInput(), healthySink)
+    expect(second.replayed).toBe(true)
+    expect(second.record.targetRef.entryId).toBe("prom-formal-writeback:chapter-3:chapter-3:2")
+    expect((await promotionAudit(PROJECT)).consistent).toBe(true)
+  })
+
+  it("replayPromotionRetryQueue：重放到期项出队、保留未到期项、超 maxAttempts 转死信", async () => {
+    const disk = installStatefulFs()
+    const failingSink: CapabilitySink = {
+      async write() {
+        throw new Error("sink offline")
+      },
+      async reset() {},
+      async fingerprint() {
+        return ""
+      },
+    }
+    const { sink: healthySink } = makeDrillSink()
+
+    // 空队列（文件缺失）→ 空报告
+    expect(await replayPromotionRetryQueue(PROJECT, healthySink)).toEqual({
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      deferred: 0,
+      deadLettered: 0,
+      remaining: 0,
+    })
+
+    // 首次 sink 失败入队（完整 PromoteInput 持久化）
+    await promote(makeInput({ chapterId: "chapter-10", chapterNumber: 10, entity: "chapter-10" }), failingSink)
+    const rawRetry = disk.get(promotionRetryPath(PROJECT)) ?? ""
+    expect(rawRetry).toContain("acceptTimestamp")
+
+    // 未到 nextRetryAt → 延迟保留
+    const early = await replayPromotionRetryQueue(PROJECT, healthySink, { now: 1 })
+    expect(early).toEqual({
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      deferred: 1,
+      deadLettered: 0,
+      remaining: 1,
+    })
+
+    // 到期后重放成功 → 补齐 entryId 并出队
+    const dueNow = Date.now() + 120_000
+    const healed = await replayPromotionRetryQueue(PROJECT, healthySink, { now: dueNow })
+    expect(healed).toEqual({
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      deferred: 0,
+      deadLettered: 0,
+      remaining: 0,
+    })
+    expect((await promotionAudit(PROJECT)).consistent).toBe(true)
+
+    // 持续失败触发 maxAttempts=2 → 首次失败 attempts=1，重放失败 attempts=2 → deadLettered 出队
+    await promote(makeInput({ chapterId: "chapter-11", chapterNumber: 11, entity: "chapter-11" }), failingSink)
+    const dead = await replayPromotionRetryQueue(PROJECT, failingSink, {
+      now: Date.now() + 120_000,
+      maxAttempts: 2,
+    })
+    expect(dead).toEqual({
+      attempted: 1,
+      succeeded: 0,
+      failed: 1,
+      deferred: 0,
+      deadLettered: 1,
+      remaining: 0,
+    })
+  })
+
+  it("resolveNextPromotionRevision：同内容幂等复用 revision，内容变更单调 +1", async () => {
+    installStatefulFs()
+    expect(
+      await resolveNextPromotionRevision(PROJECT, "formal-writeback", "chapter-3", "chapter-3", "digest-v1"),
+    ).toBe(1)
+
+    await promote(makeInput({ revision: 1, contentDigestPrefix: "digest-v1" }))
+    // 同内容 → 复用 revision 1
+    expect(
+      await resolveNextPromotionRevision(PROJECT, "formal-writeback", "chapter-3", "chapter-3", "digest-v1"),
+    ).toBe(1)
+    // 内容变更 → 推进到 revision 2
+    expect(
+      await resolveNextPromotionRevision(PROJECT, "formal-writeback", "chapter-3", "chapter-3", "digest-v2"),
+    ).toBe(2)
   })
 })
 

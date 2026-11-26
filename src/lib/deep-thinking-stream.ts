@@ -11,6 +11,8 @@ export interface DeepThinkingStreamRenderer {
   updateThinking: (content: string) => string
   /** Append a chunk to the final (non-thinking) response body. */
   appendFinal: (content: string) => string
+  /** Replace the streamed body with the selected final result. */
+  replaceFinal: (content: string) => string
   /** Re-render and return the current combined output. */
   getContent: () => string
 }
@@ -76,6 +78,11 @@ export function createDeepThinkingStreamRenderer(): DeepThinkingStreamRenderer {
 
     appendFinal(content: string) {
       body += content
+      return render()
+    },
+
+    replaceFinal(content: string) {
+      body = content
       return render()
     },
 

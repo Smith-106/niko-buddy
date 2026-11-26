@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import { ensureSnapshotIdentity, normalizeChapterSnapshot } from "./chapter-snapshot-normalize"
 import { computeCheckpointDigest } from "./checkpoint-digest"
+import { addFact, emptyFactsFile, loadFactsFile, recordEpisode, saveFactsFile } from "./facts-store"
 import type { ShadowWriteReport } from "./canon-dual-write"
 import type {
   CommitIngestSnapshotParams,
@@ -27,6 +28,8 @@ const fsMocks = vi.hoisted(() => ({
 const ioMocks = vi.hoisted(() => ({
   saveSnapshot: vi.fn(),
   saveChapterIngestOutput: vi.fn(),
+  readSnapshotForReplacement: vi.fn(),
+  archiveSnapshotJson: vi.fn(),
 }))
 
 const validationMocks = vi.hoisted(() => ({
@@ -54,10 +57,17 @@ vi.mock("@/lib/utils", async (importOriginal) => {
   }
 })
 
-vi.mock("./chapter-ingest-snapshot-io", () => ({
-  saveSnapshot: ioMocks.saveSnapshot,
-  saveChapterIngestOutput: ioMocks.saveChapterIngestOutput,
-}))
+vi.mock("./chapter-ingest-snapshot-io", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./chapter-ingest-snapshot-io")>()
+  return {
+    ...actual,
+    saveSnapshot: ioMocks.saveSnapshot,
+    saveChapterIngestOutput: ioMocks.saveChapterIngestOutput,
+    readSnapshotForReplacement: ioMocks.readSnapshotForReplacement,
+    archiveSnapshotJson: ioMocks.archiveSnapshotJson,
+    withSnapshotWriteLock: <T>(_pp: string, _chapterNumber: number, fn: () => Promise<T>) => fn(),
+  }
+})
 
 vi.mock("./chapter-ingest-entity-validation", () => ({
   linkSnapshotEntities: validationMocks.linkSnapshotEntities,
@@ -147,6 +157,10 @@ beforeEach(() => {
   ioMocks.saveSnapshot.mockImplementation(async (_pp: string, snapshot: ChapterSnapshot) => normalizeAsSaver(snapshot))
   ioMocks.saveChapterIngestOutput.mockReset()
   ioMocks.saveChapterIngestOutput.mockResolvedValue(undefined)
+  ioMocks.readSnapshotForReplacement.mockReset()
+  ioMocks.readSnapshotForReplacement.mockResolvedValue(null)
+  ioMocks.archiveSnapshotJson.mockReset()
+  ioMocks.archiveSnapshotJson.mockResolvedValue("E:/Novel/.novel/snapshots/history/012/archived.snapshot.json")
   validationMocks.linkSnapshotEntities.mockReset()
   validationMocks.linkSnapshotEntities.mockResolvedValue([])
   validationMocks.validateEntityReferences.mockReset()
@@ -166,7 +180,7 @@ describe("commitIngestSnapshot — facts-store 段", () => {
         facts: [
           { id: "f1", subject: "林烬", predicate: "状态", object: "仍在旧城", valid_at: 3, source: "chapter-ingest newCanonFacts" },
         ],
-        episodes: [{ id: "e1", chapter: 3, factIds: ["f1"] }],
+        episodes: [{ chapter: 3, fact_ids: ["f1"] }],
         next_id: 2,
       }),
     )
@@ -187,7 +201,7 @@ describe("commitIngestSnapshot — facts-store 段", () => {
     // 未走「文件缺失 → 空表重建」的 warn 分支
     expect(loggerMocks.warn).not.toHaveBeenCalledWith(
       "Chapter Ingest",
-      "facts file missing or corrupt, rebuild empty (non-fatal)",
+      "facts file missing, rebuild empty (non-fatal)",
       expect.anything(),
     )
     expect(runCanonDualWriteHook).toHaveBeenCalledTimes(1)
@@ -200,7 +214,7 @@ describe("commitIngestSnapshot — facts-store 段", () => {
 
     expect(loggerMocks.warn).toHaveBeenCalledWith(
       "Chapter Ingest",
-      "facts file missing or corrupt, rebuild empty (non-fatal)",
+      "facts file missing, rebuild empty (non-fatal)",
       expect.objectContaining({ error: expect.stringContaining("ENOENT") }),
     )
     const raw = fsMocks.writeFileAtomic.mock.calls[0]![1] as string
@@ -225,6 +239,7 @@ describe("commitIngestSnapshot — facts-store 段", () => {
     // 吞错边界不得中断提交后链路：facts 写入失败后 Canon 钩子仍按原语义执行。
     expect(result.status).toBe("committed")
     if (result.status !== "committed") throw new Error("expected committed result")
+    expect(result.factsStoreFailed).toBe(true)
     expect(result.snapshot.revision).toBe(1)
     expect(result.snapshot.snapshotId).toBe("ch-0012-r1")
     expect(result.sourceBinding).toBeNull()
@@ -256,7 +271,14 @@ describe("commitIngestSnapshot — facts-store 段", () => {
   })
 
   it("sourceRead：校验后同路径严格相等才提交；output/Canon/receipt 共用 saver 返回的 normalized snapshot", async () => {
-    const snapshot = mkSnapshot({ newCanonFacts: [] })
+    const snapshot = mkSnapshot({
+      newCanonFacts: [],
+      revision: 7,
+      snapshotId: "ch-0012-r7",
+      supersedes: "ch-0012-r6",
+      memorySyncedAt: "2020-01-01T00:00:00.000Z",
+      isHistorical: true,
+    })
     const sourceRead = mkSourceRead()
     fsMocks.readFile.mockImplementation(async (path: string) => {
       if (String(path) === sourceRead.readPath) return CHAPTER_SOURCE
@@ -284,8 +306,18 @@ describe("commitIngestSnapshot — facts-store 段", () => {
 
     expect(result.status).toBe("committed")
     if (result.status !== "committed") throw new Error("expected committed result")
-    // saver 收到的仍是 pre-commit snapshot；output/Canon/receipt 用 saver 返回值。
-    expect(ioMocks.saveSnapshot.mock.calls[0]![1]).toBe(snapshot)
+    // 可信身份重置：saver 收到的是重置 revision/identity 的 candidate（非输入引用；
+    // 输入上伪造的 revision/snapshotId/supersedes/isHistorical/memorySyncedAt 一律不采信）。
+    // output/Canon/receipt 仍共用 saver 返回值。
+    const saverInput = ioMocks.saveSnapshot.mock.calls[0]![1]
+    expect(saverInput).not.toBe(snapshot)
+    expect(saverInput.revision).toBeUndefined()
+    expect(saverInput.snapshotId).toBeUndefined()
+    expect(saverInput.supersedes).toBeUndefined()
+    expect(saverInput.memorySyncedAt).toBeUndefined()
+    expect(saverInput.isHistorical).toBe(false)
+    expect(saverInput.sourceType).toBe("chapter")
+    expect(saverInput.sourceSequence).toBe(12)
     expect(result.snapshot).not.toBe(snapshot)
     expect(result.snapshot.snapshotId).toBe("ch-0012-r1")
     expect(ioMocks.saveChapterIngestOutput).toHaveBeenCalledTimes(1)
@@ -431,5 +463,81 @@ describe("commitIngestSnapshot — facts-store 段", () => {
     )
     expect(result.status).toBe("source_changed")
     expect(ioMocks.saveSnapshot).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { name: "读拒绝（权限类）", arrange: () => fsMocks.readFile.mockRejectedValue(new Error("EACCES: permission denied")) },
+    { name: "损坏 JSON", arrange: () => fsMocks.readFile.mockResolvedValue("{{{corrupt not json") },
+    { name: "facts 非数组", arrange: () => fsMocks.readFile.mockResolvedValue(JSON.stringify({ schema_version: "facts/1.0", facts: "not-array", episodes: [], next_id: 5 })) },
+    { name: "episodes 形状非法", arrange: () => fsMocks.readFile.mockResolvedValue(JSON.stringify({ schema_version: "facts/1.0", facts: [], episodes: [{ chapter: "x" }], next_id: 1 })) },
+    { name: "next_id 非法", arrange: () => fsMocks.readFile.mockResolvedValue(JSON.stringify({ schema_version: "facts/1.0", facts: [], episodes: [], next_id: 0 })) },
+  ])("facts.json $name → committed + factsStoreFailed，绝不以空表覆写旧表且 facts 零写", async ({ arrange }) => {
+    arrange()
+
+    const snapshot = mkSnapshot({ newCanonFacts: ["旧城被洪水淹没"] })
+    const { params, runCanonDualWriteHook } = mkParams(snapshot)
+
+    const result = await commitIngestSnapshot(params)
+
+    expect(result.status).toBe("committed")
+    if (result.status !== "committed") throw new Error("expected committed result")
+    expect(result.factsStoreFailed).toBe(true)
+    expect(loggerMocks.warn).toHaveBeenCalledWith(
+      "Chapter Ingest",
+      "facts-store write skipped",
+      expect.anything(),
+    )
+    // 损坏旧表绝不被当空表覆写：facts.json 一次都未写。
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(runCanonDualWriteHook).toHaveBeenCalledTimes(1)
+  })
+
+  it("真实 facts-store：同章精确重放复用 active+retired 行、不复活、episode 合并；完全重复第二次零写", async () => {
+    // 种表：fact-1 active 同章 / fact-2 retired 同章 / fact-3 异object 存留 /
+    // fact-4 同 wording 异章（valid_at 11）；episode(12) 已含 fact-1/fact-2。
+    let seeded = emptyFactsFile()
+    seeded = addFact(seeded, { subject: "林烬", predicate: "状态", object: "林烬：持剑", valid_at: 12, source: "chapter-ingest newCanonFacts" })
+    seeded = addFact(seeded, { subject: "旧城", predicate: "状态", object: "旧城：无恙", valid_at: 12, source: "chapter-ingest newCanonFacts" })
+    seeded = { ...seeded, facts: seeded.facts.map(f => f.id === "fact-2" ? { ...f, invalid_at: 12, expired_at: 12 } : f) }
+    seeded = addFact(seeded, { subject: "路人", predicate: "状态", object: "路人：旁观", valid_at: 12, source: "chapter-ingest newCanonFacts" })
+    seeded = addFact(seeded, { subject: "林烬", predicate: "状态", object: "林烬：持剑", valid_at: 11, source: "chapter-ingest newCanonFacts" })
+    seeded = recordEpisode(seeded, 12, ["fact-1", "fact-2"])
+    fsMocks.readFile.mockResolvedValue(saveFactsFile(seeded))
+
+    const snapshot = mkSnapshot({ newCanonFacts: ["林烬：持剑", "旧城：无恙", "林烬：新伤"] })
+    const { params, runCanonDualWriteHook } = mkParams(snapshot)
+    const r1 = await commitIngestSnapshot(params)
+    if (r1.status !== "committed") throw new Error("expected committed result")
+    expect(r1.factsStoreFailed).toBe(false)
+
+    // 仅新 object 追加 fact-5；active/retired 行复用（retired 不复活）、异章同 wording 行不动。
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const written1 = loadFactsFile(fsMocks.writeFileAtomic.mock.calls[0]![1] as string)
+    expect(written1.facts.map(f => f.id)).toEqual(["fact-1", "fact-2", "fact-3", "fact-4", "fact-5"])
+    expect(written1.next_id).toBe(6)
+    expect(written1.facts[1]!.expired_at).toBe(12)
+    expect(written1.facts[4]!.object).toBe("林烬：新伤")
+    expect(written1.facts[4]!.valid_at).toBe(12)
+    // episode(12) 合并既有 + 复用 + 新增 id。
+    const ep12 = written1.episodes.find(e => e.chapter === 12)
+    expect(ep12?.fact_ids).toEqual(["fact-1", "fact-2", "fact-5"])
+
+    // 完全重复第二次：以第一次落盘内容为输入重放 → 零追加零写盘。
+    fsMocks.readFile.mockResolvedValue(fsMocks.writeFileAtomic.mock.calls[0]![1] as string)
+    fsMocks.writeFileAtomic.mockClear()
+    const r2 = await commitIngestSnapshot(mkParams(mkSnapshot({ newCanonFacts: ["林烬：持剑", "旧城：无恙", "林烬：新伤"] })).params)
+    if (r2.status !== "committed") throw new Error("expected committed result")
+    expect(r2.factsStoreFailed).toBe(false)
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+
+    // 同 wording 异章：新 valid_at 不复用同章键，独立追加。
+    fsMocks.writeFileAtomic.mockClear()
+    const r3 = await commitIngestSnapshot(mkParams(mkSnapshot({ chapterNumber: 13, newCanonFacts: ["林烬：持剑"] })).params)
+    if (r3.status !== "committed") throw new Error("expected committed result")
+    const written3 = loadFactsFile(fsMocks.writeFileAtomic.mock.calls[0]![1] as string)
+    const ch13 = written3.facts.filter(f => f.object === "林烬：持剑" && f.valid_at === 13)
+    expect(ch13).toHaveLength(1)
+    expect(ch13[0]!.id).not.toBe("fact-1")
+    expect(runCanonDualWriteHook).toHaveBeenCalled()
   })
 })

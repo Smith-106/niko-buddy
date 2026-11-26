@@ -14,7 +14,7 @@
 import { createDirectory, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { logger, toErrorMessage } from "@/lib/utils"
-import { truthStoreHash } from "./projection-store"
+import { applyStoreArrayFieldCaps, truthStoreHash } from "./projection-store"
 import { decideDriftAlarmAfterRepair } from "./kb-observability"
 import {
   PROJECTION_REGISTRY,
@@ -55,7 +55,7 @@ export async function computeTruthFoldDrift(
   projectPath: string,
   now = "",
 ): Promise<TruthFoldDrift[]> {
-  const snapshots = await loadValidMemorySnapshots(projectPath)
+  const snapshots = await loadValidMemorySnapshots(projectPath, undefined, { failOnUnreadableChapter: true })
   const foldCtx: ProjectionFoldContext = { now }
   const results: TruthFoldDrift[] = []
 
@@ -71,7 +71,7 @@ export async function computeTruthFoldDrift(
   for (const [, entry] of Object.entries(PROJECTION_REGISTRY)) {
     if (!entry.file || !entry.load || !entry.foldFromSnapshot) continue
     const live = await entry.load(projectPath)
-    const replay = entry.foldFromSnapshot(snapshots, foldCtx)
+    const replay = applyStoreArrayFieldCaps(entry.file, entry.foldFromSnapshot(snapshots, foldCtx))
     await compare(entry.file, live, replay)
   }
 
@@ -182,8 +182,7 @@ export async function autoRepairTruthFoldDrift(
   let error: string | undefined
   if (driftedIds.size > 0) {
     try {
-      const snapshots = await loadValidMemorySnapshots(pp)
-      await rebuildRegistryProjections(pp, snapshots, { now }, driftedIds)
+      await rebuildRegistryProjections(pp, { now }, driftedIds)
     } catch (err) {
       error = toErrorMessage(err)
       logger.warn("Chapter Ingest", "drift 自动修复重建失败（转告警升级）", { error })

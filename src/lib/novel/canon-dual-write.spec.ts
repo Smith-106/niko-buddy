@@ -278,6 +278,47 @@ describe("snapshotLegacyWriter（真实 snapshot-derived 投影写入器，DEBT-
     })
     expect(res).toEqual({ ok: false, error: "perm denied" })
   })
+  it("M2-03：readFile 报非缺失权限错误（EACCES）→ fail-closed 返回 ok:false 且不覆写旧文件", async () => {
+    createDirectoryMock.mockResolvedValue(undefined)
+    readFileMock.mockRejectedValue(new Error("EACCES: permission denied"))
+    const res = await snapshotLegacyWriter("P", {
+      kind: "snapshot_fact",
+      chapterNumber: 2,
+      fact: "should not truncate",
+    })
+    expect(res).toEqual({ ok: false, error: "EACCES: permission denied" })
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+  })
+  it("M2-03：并发写入受 canon-legacy 锁保护，两行均保留不丢写", async () => {
+    let legacyContent: string | null = null
+    let releaseFirstRead!: () => void
+    const firstReadGate = new Promise<void>((resolve) => {
+      releaseFirstRead = resolve
+    })
+    let readCount = 0
+    readFileMock.mockImplementation(async () => {
+      readCount += 1
+      if (readCount === 1) {
+        await firstReadGate
+      }
+      if (legacyContent === null) throw new Error("ENOENT: missing")
+      return legacyContent
+    })
+    writeFileAtomicMock.mockImplementation(async (_p: string, content: string) => {
+      legacyContent = content
+    })
+
+    const p1 = snapshotLegacyWriter("P-lock", { kind: "snapshot_fact", chapterNumber: 1, fact: "fact-1" })
+    const p2 = snapshotLegacyWriter("P-lock", { kind: "snapshot_fact", chapterNumber: 2, fact: "fact-2" })
+    releaseFirstRead()
+    const [r1, r2] = await Promise.all([p1, p2])
+    expect(r1).toEqual({ ok: true })
+    expect(r2).toEqual({ ok: true })
+    const lines = (legacyContent ?? "").split("\n").filter(Boolean)
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toContain("fact-1")
+    expect(lines[1]).toContain("fact-2")
+  })
 })
 
 describe("defaultCanonDualWriteDeps（真实 fs/invoke 默认）", () => {
@@ -287,7 +328,17 @@ describe("defaultCanonDualWriteDeps（真实 fs/invoke 默认）", () => {
     const queue = await loadPendingQueue(deps, "E:/Novel/.novel/canon-pending.jsonl")
     expect(queue).toEqual([])
   })
+  it("loadPendingQueue 非缺失错误（EACCES）→ fail-closed 原样 rethrow", async () => {
+    readFileMock.mockRejectedValue(new Error("EACCES: permission denied"))
+    const deps = defaultCanonDualWriteDeps()
+    await expect(loadPendingQueue(deps, "E:/Novel/.novel/canon-pending.jsonl")).rejects.toThrow("EACCES")
+  })
   it("shadowWriteCanon 失败路径经默认 deps 落盘队列（createDirectory + writeFileAtomic）", async () => {
+    const files = new Map<string, string>()
+    readFileMock.mockImplementation(async (p: string) => files.get(p) ?? "")
+    writeFileAtomicMock.mockImplementation(async (p: string, content: string) => {
+      files.set(p, content)
+    })
     invokeMock.mockRejectedValue(new Error("canon boom"))
     const deps = defaultCanonDualWriteDeps()
     const report = await shadowWriteCanon(
@@ -302,6 +353,7 @@ describe("defaultCanonDualWriteDeps（真实 fs/invoke 默认）", () => {
     expect(writeFileAtomicMock.mock.calls.length).toBeGreaterThanOrEqual(2)
     const written = writeFileAtomicMock.mock.calls[0]![1]
     expect(written).toContain("x1")
+    expect(writeFileAtomicMock.mock.calls[1]![1]).toContain('"attempts":2')
   })
 })
 
@@ -439,10 +491,17 @@ describe("reconcileOutcomes（批量对账）", () => {
 // ──────────────────────────────────────────────────────────────────────────
 
 describe("loadPendingQueue（JSONL 容错解析）", () => {
-  it("queueRead 抛错 → 空队列", async () => {
+  it("queueRead 抛非缺失错误（如 perm）→ fail-closed 原样 rethrow", async () => {
     const deps = depsWith(okOutcome(), okOutcome())
     deps.queueRead = async () => {
       throw new Error("perm")
+    }
+    await expect(loadPendingQueue(deps, "p")).rejects.toThrow("perm")
+  })
+  it("queueRead 抛 ENOENT → 视为空队列返回 []", async () => {
+    const deps = depsWith(okOutcome(), okOutcome())
+    deps.queueRead = async () => {
+      throw new Error("ENOENT: no such file")
     }
     expect(await loadPendingQueue(deps, "p")).toEqual([])
   })
@@ -1013,6 +1072,471 @@ describe("W1 补强：shadowWriteCanon promoteChannel 晋升接线", () => {
       expect(report.written).toBe(1)
       expect(report.reconcile.consistent).toBe(true)
       expect(promoteSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      promoteSpy.mockRestore()
+    }
+  })
+})
+
+describe("M2-03 并发队列合并、即时重放一次自愈与 in-flight 去重", () => {
+  it("shadowWriteCanon 瞬态故障：首次失败入队后同 now 经 twoPhaseReconcile 立即重放自愈并清空队列", async () => {
+    let queueContents = ""
+    let canonCalls = 0
+    const deps: CanonDualWriteDeps = {
+      writeLegacy: async () => okOutcome(),
+      writeCanon: async () => {
+        canonCalls += 1
+        return canonCalls === 1 ? failOutcome("transient-net") : okOutcome()
+      },
+      queueRead: async () => queueContents,
+      queueWrite: async (_p, c) => {
+        queueContents = c
+      },
+    }
+
+    const report = await shadowWriteCanon(
+      deps,
+      "P-imm",
+      [{ digest: "imm-a", legacyPayload: { kind: "noop" }, canonPayload: episodePayload() }],
+      1000,
+    )
+    expect(canonCalls).toBe(2)
+    expect(report.queued).toBe(1)
+    expect(report.reconcile.consistent).toBe(true)
+    expect(report.reconcile.divergences).toEqual([])
+    expect(queueContents).toBe("")
+  })
+
+  it("replayPendingQueue immediateDigests 仅豁免 attempts<=1，attempts>=2 未到期时严格退避跳过", async () => {
+    let queueContents = [
+      epRec("a1", 9999, 1),
+      epRec("a2", 9999, 2),
+    ].map((r) => JSON.stringify(r)).join("\n") + "\n"
+    const deps: CanonDualWriteDeps = {
+      writeLegacy: async () => okOutcome(),
+      writeCanon: async () => okOutcome(),
+      queueRead: async () => queueContents,
+      queueWrite: async (_p, c) => {
+        queueContents = c
+      },
+    }
+
+    const r = await replayPendingQueue(deps, "P-imm-cap", 1000, {
+      immediateDigests: new Set(["a1", "a2"]),
+    })
+    expect(r).toEqual({ total: 2, succeeded: 1, rescheduled: 0, skipped: 1, remaining: 1 })
+    expect(queueContents).toContain('"a2"')
+    expect(queueContents).not.toContain('"a1"')
+  })
+
+  it("并发队列合并（新 digest）：replay Phase B 期间并发 shadowWriteCanon 写入新 digest 不丢失", async () => {
+    let queueContents = JSON.stringify(epRec("a", 500, 1)) + "\n"
+    let releaseReplayA!: () => void
+    const replayAGate = new Promise<void>((resolve) => {
+      releaseReplayA = resolve
+    })
+    let replayAEntered!: () => void
+    const replayAStarted = new Promise<void>((resolve) => {
+      replayAEntered = resolve
+    })
+
+    const replayDeps: CanonDualWriteDeps = {
+      writeLegacy: async () => okOutcome(),
+      writeCanon: async () => {
+        replayAEntered()
+        await replayAGate
+        return okOutcome()
+      },
+      queueRead: async () => queueContents,
+      queueWrite: async (_p, c) => {
+        queueContents = c
+      },
+    }
+
+    const concurrentWriteDeps: CanonDualWriteDeps = {
+      writeLegacy: async () => okOutcome(),
+      writeCanon: async () => failOutcome("b-down"),
+      queueRead: async () => queueContents,
+      queueWrite: async (_p, c) => {
+        queueContents = c
+      },
+    }
+
+    const replayPromise = replayPendingQueue(replayDeps, "P-conc-new", 1000)
+    await replayAStarted
+
+    // 在 Phase B 锁外执行期间，并发 shadowWriteCanon 写入新 digest "b"
+    await shadowWriteCanon(
+      concurrentWriteDeps,
+      "P-conc-new",
+      [{ digest: "b", legacyPayload: { tag: "b" }, canonPayload: episodePayload() }],
+      1000,
+    )
+    expect(queueContents).toContain('"b"')
+
+    releaseReplayA()
+    const report = await replayPromise
+    expect(report).toEqual({ total: 1, succeeded: 1, rescheduled: 0, skipped: 0, remaining: 1 })
+    const remaining = await loadPendingQueue(concurrentWriteDeps, "p")
+    expect(remaining.map((r) => r.digest)).toEqual(["b"])
+  })
+
+  it("并发队列合并（同 digest 新 payload 覆写）：replay Phase B 成功也不删除已被覆写的新 payload", async () => {
+    const oldRec = pendingRec({
+      digest: "same",
+      nextRetryAt: 500,
+      attempts: 1,
+      legacyPayload: { version: 1 },
+      canonPayload: episodePayload(),
+    })
+    let queueContents = JSON.stringify(oldRec) + "\n"
+    let releaseReplay!: () => void
+    const replayGate = new Promise<void>((resolve) => {
+      releaseReplay = resolve
+    })
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+
+    const replayDeps: CanonDualWriteDeps = {
+      writeLegacy: async () => okOutcome(),
+      writeCanon: async () => {
+        entered()
+        await replayGate
+        return okOutcome()
+      },
+      queueRead: async () => queueContents,
+      queueWrite: async (_p, c) => {
+        queueContents = c
+      },
+    }
+
+    const overwriteDeps: CanonDualWriteDeps = {
+      writeLegacy: async () => okOutcome(),
+      writeCanon: async () => failOutcome("v2-down"),
+      queueRead: async () => queueContents,
+      queueWrite: async (_p, c) => {
+        queueContents = c
+      },
+    }
+
+    const replayPromise = replayPendingQueue(replayDeps, "P-conc-overwrite", 1000)
+    await started
+
+    // 并发以同 digest 写入更新的 payload（version: 2）
+    await shadowWriteCanon(
+      overwriteDeps,
+      "P-conc-overwrite",
+      [{ digest: "same", legacyPayload: { version: 2 }, canonPayload: supersedePayload() }],
+      1000,
+    )
+
+    releaseReplay()
+    const report = await replayPromise
+    expect(report.succeeded).toBe(1)
+    expect(report.remaining).toBe(1)
+    const remaining = await loadPendingQueue(overwriteDeps, "p")
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0]!.legacyPayload).toEqual({ version: 2 })
+    expect(remaining[0]!.canonPayload.kind).toBe("supersede")
+  })
+
+  it("并发 replayPendingQueue 去重：in-flight 中的 digest 仅被执行 1 次，第二个调用跳过", async () => {
+    let queueContents = JSON.stringify(epRec("dup", 500, 1)) + "\n"
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let writeCanonCalls = 0
+    const deps: CanonDualWriteDeps = {
+      writeLegacy: async () => okOutcome(),
+      writeCanon: async () => {
+        writeCanonCalls += 1
+        entered()
+        await gate
+        return okOutcome()
+      },
+      queueRead: async () => queueContents,
+      queueWrite: async (_p, c) => {
+        queueContents = c
+      },
+    }
+
+    const r1Promise = replayPendingQueue(deps, "P-inflight", 1000)
+    await started
+    const r2 = await replayPendingQueue(deps, "P-inflight", 1000)
+    expect(r2).toEqual({ total: 1, succeeded: 0, rescheduled: 0, skipped: 1, remaining: 1 })
+
+    release()
+    const r1 = await r1Promise
+    expect(r1).toEqual({ total: 1, succeeded: 1, rescheduled: 0, skipped: 0, remaining: 0 })
+    expect(writeCanonCalls).toBe(1)
+    expect(queueContents).toBe("")
+  })
+})
+
+describe("R2-M01 / R2-M07 写前门五项修复与 twoPhaseReconcile 自愈补齐 promote", () => {
+  beforeEach(() => {
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: "warn" })
+    invokeMock.mockReset()
+  })
+  afterEach(() => {
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: "warn" })
+  })
+
+  it("block 模式下 queryAllEdges 读错 fail-closed 返回 ok:false 且不写库", async () => {
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: "block" })
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") throw new Error("lancedb read error")
+      if (cmd === "canon_supersede_edges") return { result: {}, max_revision: 11 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 5,
+        new_edges: [{ id: "n1", source_id: "A", target_id: "B", predicate: "p", valid_at: 5 }],
+      },
+    })
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("lancedb read error")
+    expect(res.gate).toBeUndefined()
+    expect(invokeMock).not.toHaveBeenCalledWith("canon_supersede_edges", expect.anything())
+  })
+
+  it("虚拟封顶 old_edge_ids 后合法 supersede [1,5) vs [5,+∞) 不再触发 BLOCK", async () => {
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: "block" })
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") {
+        return {
+          edges: [
+            { id: "e-old", source_id: "A", target_id: "C", predicate: "capital_of", valid_at: 1, invalid_at: null },
+          ],
+        }
+      }
+      if (cmd === "canon_supersede_edges") return { result: { capped: 1, inserted: 1 }, max_revision: 12 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: ["e-old"],
+        cap_chapter: 5,
+        new_edges: [{ id: "n-new", source_id: "A", target_id: "B", predicate: "capital_of", valid_at: 5 }],
+      },
+    })
+    expect(res).toEqual({ ok: true, revision: 12, gate: "pre_write_warn" })
+    expect(invokeMock).toHaveBeenCalledWith("canon_supersede_edges", expect.anything())
+  })
+
+  it("modality 透传：belief 新边或 belief 现存边在 block 模式下不触发 L1 硬冲突", async () => {
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: "block" })
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") {
+        return {
+          edges: [
+            { id: "e1", source_id: "A", target_id: "C", predicate: "capital_of", valid_at: 1, modality: "assertive" },
+          ],
+        }
+      }
+      if (cmd === "canon_supersede_edges") return { result: {}, max_revision: 13 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 2,
+        new_edges: [{ id: "n-mod", source_id: "A", target_id: "B", predicate: "capital_of", valid_at: 2, modality: "belief" }],
+      },
+    })
+    expect(res).toEqual({ ok: true, revision: 13 })
+  })
+
+  it("批内部分 DUPLICATE 仅剔除重复边，不丢其余合法新边与 old_edge_ids", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") {
+        return {
+          edges: [
+            { id: "e-dup", source_id: "A", target_id: "B", predicate: "p", digest: "dup-hash", valid_at: 1, invalid_at: null },
+          ],
+        }
+      }
+      if (cmd === "canon_supersede_edges") return { result: { capped: 1, inserted: 1 }, max_revision: 14 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: ["e-cap"],
+        cap_chapter: 5,
+        new_edges: [
+          { id: "n-dup", source_id: "A", target_id: "B", predicate: "p", digest: "dup-hash", valid_at: 2 },
+          { id: "n-ok", source_id: "X", target_id: "Y", predicate: "q", digest: "fresh-hash", valid_at: 2 },
+        ],
+      },
+    })
+    expect(res).toEqual({ ok: true, revision: 14, gate: "pre_write_duplicate" })
+    expect(invokeMock).toHaveBeenCalledWith("canon_supersede_edges", {
+      projectId: "P",
+      request: {
+        old_edge_ids: ["e-cap"],
+        cap_chapter: 5,
+        new_edges: [
+          { id: "n-ok", source_id: "X", target_id: "Y", predicate: "q", digest: "fresh-hash", valid_at: 2 },
+        ],
+      },
+    })
+  })
+
+  it("全批 DUPLICATE 但 old_edge_ids 非空时仍下发封顶请求（new_edges=[]）", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") {
+        return {
+          edges: [
+            { id: "e-dup", source_id: "A", target_id: "B", predicate: "p", digest: "dup-hash", valid_at: 1, invalid_at: null },
+          ],
+        }
+      }
+      if (cmd === "canon_supersede_edges") return { result: { capped: 1, inserted: 0 }, max_revision: 15 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: ["e-cap"],
+        cap_chapter: 5,
+        new_edges: [
+          { id: "n-dup", source_id: "A", target_id: "B", predicate: "p", digest: "dup-hash", valid_at: 2 },
+        ],
+      },
+    })
+    expect(res).toEqual({ ok: true, revision: 15, gate: "pre_write_duplicate" })
+    expect(invokeMock).toHaveBeenCalledWith("canon_supersede_edges", {
+      projectId: "P",
+      request: {
+        old_edge_ids: ["e-cap"],
+        cap_chapter: 5,
+        new_edges: [],
+      },
+    })
+  })
+
+  it("shadowWriteCanon 禁止将 gate === 'pre_write_block' 写入 .novel/canon-pending.jsonl", async () => {
+    let queueContents = ""
+    const queueWrite = vi.fn(async (_p: string, c: string) => {
+      queueContents = c
+    })
+    const deps: CanonDualWriteDeps = {
+      writeLegacy: async () => okOutcome(),
+      writeCanon: async () => ({
+        ok: false,
+        gate: "pre_write_block",
+        error: "写前一致性门控拦截（L1 硬冲突）",
+      }),
+      queueRead: async () => queueContents,
+      queueWrite,
+    }
+    const report = await shadowWriteCanon(
+      deps,
+      "P-block-no-queue",
+      [{ digest: "blk-1", legacyPayload: {}, canonPayload: supersedePayload() }],
+      1000,
+    )
+    expect(report.queued).toBe(0)
+    expect(report.reconcile.consistent).toBe(false)
+    expect(queueContents).toBe("")
+    expect(queueWrite).not.toHaveBeenCalled()
+  })
+
+  it("R2-M07 twoPhaseReconcile 自愈成功后对 replayedDigests 补齐 promote", async () => {
+    const promoteSpy = vi
+      .spyOn(promotionBridge, "promote")
+      .mockResolvedValue({ record: {} as never, replayed: false })
+    try {
+      let queueContents = ""
+      let canonCalls = 0
+      const deps: CanonDualWriteDeps = {
+        writeLegacy: async () => okOutcome(),
+        writeCanon: async () => {
+          canonCalls += 1
+          return canonCalls === 1 ? failOutcome("transient-boom") : okOutcome()
+        },
+        queueRead: async () => queueContents,
+        queueWrite: async (_p, c) => {
+          queueContents = c
+        },
+      }
+      const report = await shadowWriteCanon(
+        deps,
+        "P-heal-promote",
+        [
+          {
+            digest: "abcdef0123456789ffff",
+            legacyPayload: {},
+            canonPayload: { kind: "episode", episode: { chapter_number: 6, entity_id: "chapter-6", id: "ch6-ep-abcdef012345" } },
+          },
+        ],
+        1000,
+        "canon-dual-write",
+      )
+      expect(report.reconcile.consistent).toBe(true)
+      expect(promoteSpy).toHaveBeenCalledTimes(1)
+      expect(promoteSpy.mock.calls[0]![0]).toMatchObject({
+        channel: "canon-dual-write",
+        projectPath: "P-heal-promote",
+        chapterId: "chapter-6",
+        chapterNumber: 6,
+        entity: "ch6-ep-abcdef012345",
+        contentDigestPrefix: "abcdef0123456789",
+      })
+    } finally {
+      promoteSpy.mockRestore()
+    }
+  })
+
+  it("R3-M01: shadowWriteCanon 透传 snapshotRevision 并以 episode.id 作 entity 避免同章多事实 replayKey 碰撞", async () => {
+    const promoteSpy = vi
+      .spyOn(promotionBridge, "promote")
+      .mockResolvedValue({ record: {} as never, replayed: false })
+    try {
+      await shadowWriteCanon(
+        depsWith(okOutcome(), okOutcome()),
+        "P-rev",
+        [
+          {
+            digest: "1111111111111111aaaa",
+            legacyPayload: {},
+            canonPayload: { kind: "episode", episode: { chapter_number: 5, entity_id: "chapter-5", id: "ch5-ep-111111111111" } },
+          },
+          {
+            digest: "2222222222222222bbbb",
+            legacyPayload: {},
+            canonPayload: { kind: "episode", episode: { chapter_number: 5, entity_id: "chapter-5", id: "ch5-ep-222222222222" } },
+          },
+        ],
+        1000,
+        "canon-dual-write",
+        4,
+      )
+      expect(promoteSpy).toHaveBeenCalledTimes(2)
+      expect(promoteSpy.mock.calls[0]![0]).toMatchObject({
+        chapterId: "chapter-5",
+        revision: 4,
+        entity: "ch5-ep-111111111111",
+      })
+      expect(promoteSpy.mock.calls[1]![0]).toMatchObject({
+        chapterId: "chapter-5",
+        revision: 4,
+        entity: "ch5-ep-222222222222",
+      })
+      expect(promoteSpy.mock.calls[0]![0].entity).not.toBe(promoteSpy.mock.calls[1]![0].entity)
     } finally {
       promoteSpy.mockRestore()
     }

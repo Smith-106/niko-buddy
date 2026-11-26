@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
-  return { ...actual, listDirectory: vi.fn() }
+  return { ...actual, listDirectory: vi.fn(), getFileSize: vi.fn() }
 })
 
 const fsMod = await import("@/commands/fs")
@@ -15,6 +15,7 @@ const { listSnapshots } = await import("./chapter-ingest")
 describe("listSnapshots failLoud", () => {
   afterEach(() => {
     vi.mocked(fsMod.listDirectory).mockReset()
+    vi.mocked(fsMod.getFileSize).mockReset()
   })
 
   it("failLoud=true：权限类错误必须抛（不得谎报空目录）", async () => {
@@ -24,6 +25,15 @@ describe("listSnapshots failLoud", () => {
 
   it("failLoud=true：目录不存在 → 诚实空数组", async () => {
     vi.mocked(fsMod.listDirectory).mockRejectedValueOnce(new Error("No such file or directory"))
+    await expect(listSnapshots("C:/p", { failLoud: true })).resolves.toEqual([])
+  })
+
+  it("confirms a native missing-directory report before returning empty", async () => {
+    const reason = new Error("Path does not exist: 'C:/p/.novel/snapshots'")
+    vi.mocked(fsMod.listDirectory).mockRejectedValue(reason)
+    vi.mocked(fsMod.getFileSize).mockResolvedValueOnce(0)
+    await expect(listSnapshots("C:/p", { failLoud: true })).rejects.toBe(reason)
+    vi.mocked(fsMod.getFileSize).mockRejectedValueOnce(new Error("No such file or directory (os error 3)"))
     await expect(listSnapshots("C:/p", { failLoud: true })).resolves.toEqual([])
   })
 

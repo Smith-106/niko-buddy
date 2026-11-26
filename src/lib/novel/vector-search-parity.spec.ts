@@ -47,6 +47,8 @@ vi.mock("@/lib/embedding", async (importOriginal) => {
 
 import { runVectorSearch } from "./search-adapter"
 import { runVectorSearchForContext } from "./context-engine"
+import { VECTOR_WIKI_DIRS } from "./vector-search-core"
+import { ENTITY_SUBDIRS } from "./entity-subdir-resolver"
 import type { EmbeddingConfig } from "@/stores/wiki-store"
 
 const PP = "/proj"
@@ -146,9 +148,11 @@ describe("P1-IMP-14 向量孪生奇偶：公共面 deep-equal 且顺序一致", 
     filesExist({ [`${PP}/wiki/entities/evil.escape.md`]: "# Safe" })
     const { adapter, context } = await bothTwins("q", 1, embOn())
     const probed = mocks.readFile.mock.calls.map((c) => String(c[0]))
-    // 两侧各 probe 7 个候选（6 目录 + 根），共 14 次，且候选集完全相同。
-    expect(probed).toHaveLength(14)
-    expect(probed.slice(0, 7)).toEqual(probed.slice(7))
+    // 两侧各 probe VECTOR_WIKI_DIRS.length + 1 = 14 个候选（13 目录 + 根），共 28 次，且候选集完全相同。
+    const perTwin = VECTOR_WIKI_DIRS.length + 1
+    expect(perTwin).toBe(14)
+    expect(probed).toHaveLength(perTwin * 2)
+    expect(probed.slice(0, perTwin)).toEqual(probed.slice(perTwin))
     expect(probed[0]).toBe(`${PP}/wiki/entities/evil.escape.md`)
     expect(probed.every((p) => !p.includes("../"))).toBe(true)
     expect(adapter).toEqual(context)
@@ -245,7 +249,7 @@ describe("P1-IMP-14 向量孪生奇偶：公共面 deep-equal 且顺序一致", 
     const { adapter, context } = await bothTwins("q", 2, embOn())
     expect(adapter).toEqual([])
     expect(context).toEqual([])
-    expect(mocks.readFile).toHaveBeenCalledTimes(28) // 2 vr × 7 候选 × 2 侧
+    expect(mocks.readFile).toHaveBeenCalledTimes((VECTOR_WIKI_DIRS.length + 1) * 2 * 2) // 2 vr × 13 候选 × 2 侧
   })
 
   it("组 13 · relevance 口径：adapter relevance 恒等 vr.score（共享 vr 引用）", async () => {
@@ -308,6 +312,9 @@ describe("P1-IMP-14 向量孪生奇偶：唯一参数化差异面（IC-02 门控
     expect(first).toEqual(second)
     expect(first).toEqual([
       `${PP}/wiki/entities/solo.md`,
+      ...ENTITY_SUBDIRS.map((sub) => `${PP}/wiki/entities/${sub}/solo.md`),
+      `${PP}/wiki/chapters/solo.md`,
+      `${PP}/wiki/memory/solo.md`,
       `${PP}/wiki/concepts/solo.md`,
       `${PP}/wiki/sources/solo.md`,
       `${PP}/wiki/synthesis/solo.md`,
@@ -315,5 +322,23 @@ describe("P1-IMP-14 向量孪生奇偶：唯一参数化差异面（IC-02 门控
       `${PP}/wiki/queries/solo.md`,
       `${PP}/wiki/solo.md`,
     ])
+  })
+
+  it("组 17 · K-2 实体 5 子目录与 chapters 命中：两孪生奇偶一致", async () => {
+    const targets = [
+      ...ENTITY_SUBDIRS.map((sub) => ({ id: `ent-${sub}`, dir: `entities/${sub}` })),
+      { id: "chapter-003", dir: "chapters" },
+    ]
+    mocks.searchByEmbedding.mockResolvedValue(targets.map((t) => vr(t.id, 0.88)))
+    const map: Record<string, string> = {}
+    for (const t of targets) {
+      map[`${PP}/wiki/${t.dir}/${t.id}.md`] = `# 标题 ${t.id}\n正文 ${t.dir}`
+    }
+    filesExist(map)
+
+    const { adapter, context } = await bothTwins("q", targets.length, embOn())
+    expect(adapter).toHaveLength(targets.length)
+    expect(adapter.map((h) => h.path)).toEqual(targets.map((t) => `${PP}/wiki/${t.dir}/${t.id}.md`))
+    expect(adapter).toEqual(context)
   })
 })

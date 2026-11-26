@@ -3,6 +3,7 @@ import {
   loadChapterList,
   loadMetadata,
   splitNovelIntoChapters,
+  splitNovelTextToChapters,
 } from "./analysis-engine"
 
 const fsMocks = vi.hoisted(() => ({
@@ -33,6 +34,8 @@ import { findBookLibraryEntry, upsertBookLibraryEntry } from "./library-store"
 
 beforeEach(() => {
   for (const mock of Object.values(fsMocks)) mock.mockReset()
+  vi.mocked(findBookLibraryEntry).mockReset()
+  vi.mocked(upsertBookLibraryEntry).mockReset()
   vi.mocked(findBookLibraryEntry).mockResolvedValue(undefined)
   vi.mocked(upsertBookLibraryEntry).mockResolvedValue(undefined)
 })
@@ -306,5 +309,57 @@ describe("loadChapterList：单章解析异常不拖垮整表", () => {
     expect(chapters.map((c) => c.chapterId)).toEqual(["ch-0002"])
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
+  })
+})
+
+describe("P1-03 splitNovelTextToChapters（纯内存零 IO 拆章）", () => {
+  it("剥离 UTF-8 BOM 与 CRLF，识别中英文/全角/多分隔符章节标题，不误切正文内第X章", () => {
+    const raw = [
+      "\uFEFF前言文字，不形成章节。",
+      "",
+      "第一章：雾起长街",
+      "林深走进雨幕，心中默念第三章的线索，此处不应切章。",
+      "",
+      "第 02 回  暗涌",
+      "夜风拂过石阶。",
+      "",
+      "第十二节·旧誓",
+      "旧誓重提。",
+      "",
+      "第１３章 破局",
+      "全角数字章节。",
+      "",
+      "Chapter 14: Dawn",
+      "Final paragraph.",
+    ].join("\r\n")
+
+    const chapters = splitNovelTextToChapters(raw)
+
+    // 纯内存零 IO：绝不触碰 fs 或 library-store
+    expect(fsMocks.readFile).not.toHaveBeenCalled()
+    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(fsMocks.createDirectory).not.toHaveBeenCalled()
+    expect(findBookLibraryEntry).not.toHaveBeenCalled()
+    expect(upsertBookLibraryEntry).not.toHaveBeenCalled()
+
+    expect(chapters).toHaveLength(5)
+    expect(chapters.map((c) => ({ order: c.order, num: c.detectedChapterNumber, title: c.title }))).toEqual([
+      { order: 1, num: 1, title: "第一章：雾起长街" },
+      { order: 2, num: 2, title: "第 02 回  暗涌" },
+      { order: 3, num: 12, title: "第十二节·旧誓" },
+      { order: 4, num: 13, title: "第１３章 破局" },
+      { order: 5, num: 14, title: "Chapter 14: Dawn" },
+    ])
+    expect(chapters[0]!.body).toContain("第三章的线索")
+    expect(chapters[0]!.body).not.toContain("\r")
+    expect(chapters[0]!.wordCount).toBe(chapters[0]!.body.replace(/\s+/g, "").length)
+    expect(chapters[0]!.preview.length).toBeGreaterThan(0)
+    expect(chapters[0]!.preview.length).toBeLessThanOrEqual(120)
+  })
+
+  it("无章节标记或空白文本返回空数组", () => {
+    expect(splitNovelTextToChapters("")).toEqual([])
+    expect(splitNovelTextToChapters("   \r\n  ")).toEqual([])
+    expect(splitNovelTextToChapters("一段没有章节标题的普通散文。")).toEqual([])
   })
 })

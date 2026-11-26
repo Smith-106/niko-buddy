@@ -23,6 +23,8 @@ export interface ModuleAtlasEntry {
   o: boolean
   /** 仅测试引用（写好了没接线的典型） */
   x: boolean
+  /** 仅经 barrel 暴露、尚无解析到的非测试调用方 */
+  readonly b?: boolean
   /** 出边模块序号 */
   i: number[]
   /** 外部依赖包名 */

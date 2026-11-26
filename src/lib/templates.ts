@@ -715,7 +715,16 @@ updated: 2026-09-30
     },
     {
       path: "wiki/chapters/chapter-001.md",
-      content: `# 第 1 章 雾夜旧宅（演示样例）
+      content: `---
+type: chapter
+chapter_number: 1
+title: "雾夜旧宅（演示样例）"
+chapter_status: draft
+created: 2026-09-30
+updated: 2026-09-30
+---
+
+# 第 1 章 雾夜旧宅（演示样例）
 
 > 本章为演示样例正文（约 800 字），非 AI 生成。配置模型服务后可续写第 2 章。
 

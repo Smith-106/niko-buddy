@@ -53,8 +53,8 @@ interface RawProject {
   path: string
 }
 
-export async function readFile(path: string): Promise<string> {
-  return invokeFs<string>("read_file", { path })
+export async function readFile(path: string, options?: { exactUtf8?: boolean }): Promise<string> {
+  return invokeFs<string>("read_file", { path, ...(options?.exactUtf8 ? { exactUtf8: true } : {}) })
 }
 
 export async function writeFile(path: string, contents: string): Promise<void> {
@@ -66,15 +66,26 @@ export async function writeFileAtomic(path: string, contents: string): Promise<v
   return withFileLockRetry(() => invokeFs<void>("write_file_atomic", { path, contents }))
 }
 
-export async function listDirectory(path: string): Promise<FileNode[]> {
-  return invokeFs<FileNode[]>("list_directory", { path })
+export async function listDirectory(
+  path: string,
+  options?: { maxDepth?: number },
+): Promise<FileNode[]> {
+  return invokeFs<FileNode[]>("list_directory", {
+    path,
+    ...(options?.maxDepth === undefined ? {} : { maxDepth: options.maxDepth }),
+  })
 }
 
 export async function copyFile(
   source: string,
-  destination: string
+  destination: string,
+  options?: { exclusive?: boolean }
 ): Promise<void> {
-  return invokeFs("copy_file", { source, destination })
+  return invokeFs("copy_file", {
+    source,
+    destination,
+    ...(options?.exclusive ? { exclusive: true } : {}),
+  })
 }
 
 export async function copyDirectory(
@@ -88,8 +99,8 @@ export async function preprocessFile(path: string): Promise<string> {
   return invokeFs<string>("preprocess_file", { path })
 }
 
-export async function deleteFile(path: string): Promise<void> {
-  return invokeFs("delete_file", { path })
+export async function deleteFile(path: string, expectedContent?: string): Promise<void> {
+  return invokeFs("delete_file", { path, ...(expectedContent === undefined ? {} : { expectedContent }) })
 }
 
 export async function findRelatedWikiPages(
@@ -178,12 +189,14 @@ export async function getResourceDir(): Promise<string> {
 }
 
 /**
- * writeFilesAtomic — 多文件原子事务（64 号实施 M1，Rust `write_files_atomic`）。
- * files 为 [路径, 内容] 对：temp 写入 + 统一 rename + 失败回滚零 rename。
- * 空数组为 no-op 成功。
+ * 文件集写入：Rust 暂存后逐个替换、精确回读，失败时有条件地补偿已提交的文件。
+ * 不承诺跨进程或崩溃原子性。空数组为 no-op 成功。
  */
-export async function writeFilesAtomic(files: Array<[string, string]>): Promise<void> {
+export async function writeFilesAtomic(
+  files: Array<[string, string]>,
+  expectedContents?: readonly (string | null)[],
+): Promise<void> {
   if (files.length === 0) return
-  // Windows 并发 rename 瞬态错误（sharing violation/EBUSY）：TS 侧 choke point 重试。
-  return withFileLockRetry(() => invokeFs<void>("write_files_atomic", { files }))
+  // 不能自动重放：错误可能包含补偿冲突，重试会把之后的修改当成新基线。
+  return invokeFs<void>("write_files_atomic", { files, ...(expectedContents === undefined ? {} : { expectedContents }) })
 }

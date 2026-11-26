@@ -23,6 +23,7 @@
 import { normalizePath } from "@/lib/path-utils"
 import { DRAFTS_DIR, formalChapterPathForDraft, writeDraft } from "@/lib/novel"
 import type { ChapterDraft } from "@/lib/novel"
+import type { DraftGateStatus } from "@/lib/novel/lifecycle-types"
 
 export interface ChapterDraftResult {
   draftId: string
@@ -55,12 +56,14 @@ function sanitizeName(name: string): string {
 export async function writeChapterDraft(
   projectPath: string,
   params: { chapterName?: unknown; content?: unknown; partial?: unknown },
+  trustedAdoptionGate?: DraftGateStatus,
 ): Promise<ChapterDraftResult> {
   const chapterName = sanitizeName(requireText(params.chapterName, "chapterName"))
   const content = requireText(params.content, "content")
 
   const draft: ChapterDraft = await writeDraft(projectPath, chapterName, content, {
-    sourceConversationId: "mcp:external-agent",
+    sourceConversationId: trustedAdoptionGate ? "mcp:deep-chapter" : "mcp:chapter.write",
+    ...(trustedAdoptionGate && { adoptionGate: trustedAdoptionGate }),
     ...(params.partial === true ? { partial: true } : {}),
   })
 

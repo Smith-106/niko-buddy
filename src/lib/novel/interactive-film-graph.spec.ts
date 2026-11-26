@@ -80,30 +80,37 @@ describe("interactive-film-graph (64 号实施：P0-1 互动影游图模型)", (
     expect(a).toBe(b)
   })
 
-  it("html 导出：含 data 与选项按钮结构", () => {
+  it("html 导出：含严格 CSP、application/json 数据标签与纯 DOM API 结构", () => {
     const html = exportInteractiveHtml(graph())
     expect(html).toContain("<!DOCTYPE html>")
-    expect(html).toContain("decodeURIComponent")
-    expect(html).toContain("go(")
+    expect(html).toContain('http-equiv="Content-Security-Policy"')
+    expect(html).toContain('<script id="story-data" type="application/json">')
+    expect(html).toContain("document.createElement")
+    expect(html).toContain("addEventListener")
+    expect(html).toContain("replaceChildren")
+    expect(html).not.toMatch(/\.innerHTML\b|\.outerHTML\b|onclick=/i)
   })
 
-  it("html 导出：文本注入安全（render 时 esc 转义，非仅编码侥幸）", () => {
+  it("html 导出：纯 DOM API 渲染且 JSON 数据标签转义危险字符（零 innerHTML / onclick / script 闭合注入）", () => {
     const g = graph()
     const node = g.nodes.find((n) => n.id === "k1") as InteractiveNode
     node.title = "<img src=x onerror=alert(1)>"
-    node.text = "<script>alert(1)</script>"
+    node.text = "</script><script>alert(1)</script>&\u2028\u2029"
     const html = exportInteractiveHtml(g)
-    // 静态源码层：生成脚本必须对三类用户内容应用 esc()（encodeURIComponent 编码
-    // 只保护模版嵌入，运行时 decodeURIComponent 后拼接才是真实注入点）
-    expect(html).toContain("esc(node.title)")
-    expect(html).toContain("esc(node.text)")
-    expect(html).toContain("esc(e.choiceLabel")
-    expect(html).not.toContain("+ node.title")
-    expect(html).not.toContain("+ node.text")
-    // esc 函数存在且覆盖五个危险字符
-    expect(html).toContain('"&": "&amp;"')
-    expect(html).toContain('"<": "&lt;"')
-    expect(html).toContain('"\'": "&#39;"')
+    // 零 innerHTML / outerHTML / inline onclick
+    expect(html).not.toMatch(/\.innerHTML\b|\.outerHTML\b|onclick=/i)
+    // 原始尖括号与 </script> 绝不裸露出现在输出 HTML 中
+    expect(html).not.toContain("<img src=x")
+    expect(html).not.toContain("</script><script>alert(1)")
+    expect(html).toContain("\\u003cimg src=x onerror=alert(1)\\u003e")
+    expect(html).toContain("\\u003c/script\\u003e")
+    expect(html).toContain("\\u0026")
+    expect(html).toContain("\\u2028")
+    expect(html).toContain("\\u2029")
+    // 运行时通过 textContent 写入用户文本
+    expect(html).toContain("heading.textContent")
+    expect(html).toContain("body.textContent")
+    expect(html).toContain("btn.textContent")
   })
 
   it("buildInteractiveExport：组合三产物", () => {

@@ -14,12 +14,14 @@
  * 返回 discriminated union：`ok: false` 时 `result` 已是可直接 return 的
  * `IngestResult`，调用方无需再拼装。
  */
-import { readFile } from "@/commands/fs"
+import { listDirectory, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
+import { computeCheckpointDigest } from "./checkpoint-digest"
 import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
+import { flattenMdFilesBase } from "./chapter-utils"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { resolveNovelModel } from "./model-resolver"
 import type { IngestChapterOptions, IngestFailReason, IngestResult } from "./chapter-ingest"
@@ -61,16 +63,73 @@ function reject(failReason?: IngestFailReason): IngestTargetRejected {
   }
 }
 
+function toVirtualChapterPath(root: string, filePath: string): string {
+  const norm = normalizePath(filePath)
+  const physicalPrefix = `${root}/QM/chapters/`
+  return norm.startsWith(physicalPrefix)
+    ? `${root}/wiki/chapters/${norm.slice(physicalPrefix.length)}`
+    : norm
+}
+
+/**
+ * R2-M05：检查同章号是否存在多个正式章（chapter_status === "final"）文件。
+ * 目录缺失/不可列时回退 false（不误伤单文件环境；严格再摄取走 requireUniqueFinalChapter）。
+ */
+async function hasDuplicateFinalChapter(
+  pp: string,
+  chapterPath: string,
+  chapterNumber: number,
+): Promise<boolean> {
+  const root = pp.replace(/\/+$/, "")
+  const chaptersDir = `${root}/wiki/chapters`
+  let nodes: Awaited<ReturnType<typeof listDirectory>>
+  try {
+    nodes = await listDirectory(chaptersDir)
+  } catch (err) {
+    logger.warn("Chapter Ingest", "Skipping duplicate-chapter precheck (chapters dir unreadable)", {
+      chaptersDir,
+      error: toErrorMessage(err),
+    })
+    return false
+  }
+  const files = flattenMdFilesBase(nodes)
+  if (files.length === 0) return false
+
+  const currentVirtual = toVirtualChapterPath(root, chapterPath)
+  const matchingPaths = new Set<string>([currentVirtual])
+
+  for (const file of files) {
+    const candidateVirtual = toVirtualChapterPath(root, file.path)
+    if (candidateVirtual === currentVirtual) continue
+    try {
+      const raw = await readFile(file.path, { exactUtf8: true })
+      const fm = parseFrontmatter(raw.replace(/^\uFEFF/, "")).frontmatter as Record<string, unknown> | null
+      if (!fm || !isChapterPage(fm) || !isFinalChapter(fm)) continue
+      if (parseChapterNumber(fm.chapter_number) === chapterNumber) {
+        matchingPaths.add(candidateVirtual)
+        if (matchingPaths.size > 1) return true
+      }
+    } catch (err) {
+      logger.warn("Chapter Ingest", "Skipping unreadable chapter file during duplicate precheck", {
+        path: file.path,
+        error: toErrorMessage(err),
+      })
+    }
+  }
+  return matchingPaths.size > 1
+}
+
 /**
  * 解析并校验摄取目标。返回 `ok: false` 时调用方直接返回 `result`。
  *
  * 判定顺序（不可调换，见模块注释）：novelMode → no_llm → not_chapter
- * → not_final → invalid_chapter_number。
+ * → not_final → invalid_chapter_number → duplicate_chapter_number。
  */
 export async function resolveIngestTarget(
   projectPath: string,
   chapterPath: string,
   options: IngestChapterOptions = {},
+  checks: { requireExtractionModel?: boolean; expectedContentSha256?: string } = {},
 ): Promise<IngestTarget> {
   const pp = normalizePath(projectPath)
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
@@ -81,10 +140,22 @@ export async function resolveIngestTarget(
   const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
   // 使用 resolveNovelModel 正确解析提取模型（含供应商配置切换）
   const runtimeLlmConfig = resolveNovelModel(llmConfig, novelConfig, "extract")
-  if (!hasUsableLlm(runtimeLlmConfig)) return reject("no_llm")
+  if (checks.requireExtractionModel !== false && !hasUsableLlm(runtimeLlmConfig)) return reject("no_llm")
 
-  const content = await readFile(chapterPath)
-  const parsed = parseFrontmatter(content)
+  let content: string
+  try {
+    content = await readFile(chapterPath, { exactUtf8: true })
+  } catch (error) {
+    if (checks.expectedContentSha256 !== undefined) return reject("source_unavailable")
+    throw error
+  }
+  if (
+    checks.expectedContentSha256 !== undefined
+    && (await computeCheckpointDigest(content)) !== checks.expectedContentSha256
+  ) {
+    return reject("source_changed")
+  }
+  const parsed = parseFrontmatter(content.replace(/^\uFEFF/, ""))
   const fm = parsed.frontmatter as Record<string, unknown> | null
   if (!fm || !isChapterPage(fm)) return reject("not_chapter")
   if (!isFinalChapter(fm)) {
@@ -93,9 +164,19 @@ export async function resolveIngestTarget(
   }
 
   const chapterNumber = parseChapterNumber(fm.chapter_number) ?? 0
-  if (chapterNumber <= 0) {
+  if (!Number.isSafeInteger(chapterNumber) || chapterNumber <= 0) {
     logger.warn("Chapter Ingest", "Invalid chapter number, skipping ingest.")
     return reject("invalid_chapter_number")
+  }
+
+  // R2-M05：普通单章摄取统一拒收同号多正式章；requireUniqueFinalChapter: true 交由
+  // assertUniqueFinalChapterSource 在提取前与锁内各做一次严格校验（不重复扫描目录）。
+  if (!options.requireUniqueFinalChapter && await hasDuplicateFinalChapter(pp, chapterPath, chapterNumber)) {
+    logger.warn("Chapter Ingest", "Duplicate final chapter number detected, rejecting ingest.", {
+      chapterNumber,
+      chapterPath,
+    })
+    return reject("duplicate_chapter_number")
   }
 
   return {

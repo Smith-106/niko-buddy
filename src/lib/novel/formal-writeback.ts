@@ -1,10 +1,12 @@
-import { deleteFile, fileExists, readFile, writeFileAtomic } from "@/commands/fs"
-import { toErrorMessage, logger } from "@/lib/utils"
+import { deleteFile, fileExists, readFileAsBase64, writeFilesAtomic } from "@/commands/fs"
+import { toErrorMessage, logger, todayStamp } from "@/lib/utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
-import { isFinalChapter } from "./chapter-meta"
+import { getFileName, normalizePath } from "@/lib/path-utils"
+import { parseChapterNumber } from "./chapter-meta"
+import { chapterMarkdownHasBody, readManagedChapterHeader } from "./chapter-save-strategy"
 import { acceptDeepChapterDraft } from "./novel-session-status"
 import { updateEmotionLedgerFromChapter } from "./emotion-ledger"
-import { promote, sha256Prefix } from "./promotion-bridge"
+import { promote, resolveNextPromotionRevision, sha256Prefix } from "./promotion-bridge"
 
 export interface CommitAcceptedDeepChapterDraftInput {
   projectPath: string
@@ -15,116 +17,225 @@ export interface CommitAcceptedDeepChapterDraftInput {
   finalChapterContent: string
   sessionId?: string
   overwriteExisting?: boolean
+  expectedExistingContent?: string | null
+}
+
+export function buildManagedChapterDocument(chapterNumber: number, title: string, body: string, source?: "autonomous-campaign"): string {
+  return [
+    "---",
+    "type: chapter",
+    `chapter_number: ${chapterNumber}`,
+    "chapter_status: final",
+    `title: ${JSON.stringify(title)}`,
+    ...(source ? [`source: ${source}`] : []),
+    `created: ${todayStamp()}`,
+    "---",
+    body,
+  ].join("\n")
+}
+
+/** The ordinary Markdown reader strips the BOM and can decode legacy bytes lossily. */
+export async function readManagedChapterForWrite(path: string): Promise<string | null> {
+  if (!(await fileExists(path))) return null
+  const { base64 } = await readFileAsBase64(path)
+  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+    .decode(Uint8Array.from(atob(base64), (byte) => byte.charCodeAt(0)))
+}
+
+/**
+ * 正式正文「写 + 校验 + 回滚闭包」：先缓存原文（不可读则中止，零写入），
+ * 拒绝未授权覆盖已有正文，writeFilesAtomic 守卫批量落盘并回读校验精确字节；
+ * 返回 undo 闭包——若 accept 后续步骤失败，把正文还原到写前状态。
+ * 单文件原子写本身不是 ACID 多文件事务；rollback 只碰本次新写的精确字节。
+ */
+async function writeVerifiedChapter(
+  input: CommitAcceptedDeepChapterDraftInput,
+): Promise<() => Promise<void>> {
+  const path = input.chapterPath
+  const match = /(?:^|\/)chapter-(\d+)\.md$/i.exec(normalizePath(path))
+  if (match && Number(match[1]) !== input.chapterNumber) {
+    throw new Error("Formal chapter filename does not match the reviewed chapter")
+  }
+  const original = await readManagedChapterForWrite(path)
+  if (input.expectedExistingContent !== undefined && original !== input.expectedExistingContent) {
+    throw new Error("The target chapter changed after confirmation")
+  }
+
+  if (original === null) {
+    const canonicalName = `chapter-${String(input.chapterNumber).padStart(3, "0")}.md`
+    if (getFileName(path) !== canonicalName) {
+      throw new Error("New formal chapters must use the canonical chapter filename")
+    }
+  } else {
+    const markdown = original.replace(/^\uFEFF/, "")
+    const existingChapterNumber = parseFrontmatter(markdown).frontmatter?.chapter_number
+    if ((!match || existingChapterNumber !== undefined) && parseChapterNumber(existingChapterNumber) !== input.chapterNumber) {
+      throw new Error("The existing formal chapter does not match the reviewed chapter")
+    }
+    if (!input.overwriteExisting && chapterMarkdownHasBody(markdown)) {
+      throw new Error(`Formal chapter already exists: ${path}`)
+    }
+  }
+
+  const rollback = async () => {
+    const current = await readManagedChapterForWrite(path)
+    if (current === original) return
+    if (current !== input.finalChapterContent) {
+      throw new Error("Formal chapter changed during acceptance; rollback left it untouched")
+    }
+    if (original !== null) {
+      await writeFilesAtomic([[path, original]], [input.finalChapterContent])
+      if ((await readManagedChapterForWrite(path)) !== original) {
+        throw new Error("Could not verify restored formal chapter")
+      }
+    } else {
+      await deleteFile(path, input.finalChapterContent)
+      if (await fileExists(path)) {
+        throw new Error("Could not verify removal of the newly written chapter")
+      }
+    }
+  }
+
+  await writeFilesAtomic([[path, input.finalChapterContent]], [original])
+  try {
+    if ((await readManagedChapterForWrite(path)) !== input.finalChapterContent) {
+      throw new Error(`Could not verify the written formal chapter: ${path}`)
+    }
+  } catch (error) {
+    try {
+      await rollback()
+    } catch (rollbackError) {
+      throw new Error(`Failed to roll back formal chapter write: ${toErrorMessage(rollbackError)}; original error: ${toErrorMessage(error)}`)
+    }
+    throw error
+  }
+  return rollback
+}
+
+const FINALIZABLE_CHAPTER_STATUS_RE =
+  /^([ \t]*chapter_status:[ \t]*)(['"]?)(?:planned|draft|revised|outline|archived)\2(?=[ \t]*(?:#[^\r\n]*)?\r?$)/m
+
+/**
+ * 将既有章节 frontmatter 块的 `chapter_status` 升级为 `final`，
+ * 无损保留可选 UTF-8 BOM、CRLF/LF 换行、引号、缩进与行尾注释。
+ * 已为 `final` 时逐字节原样返回；缺失 `chapter_status` 时在闭合 `---` 前插入；
+ * 非法或无法升级的状态一律 fail-loud 抛错。
+ */
+export function finalizeChapterFrontmatterBlock(rawBlock: string): string {
+  const fm = parseFrontmatter(rawBlock.replace(/^\uFEFF/, "")).frontmatter
+  if (!fm) {
+    throw new Error("Could not finalize the existing chapter header")
+  }
+  if (fm.chapter_status === "final") {
+    return rawBlock
+  }
+  let nextBlock = rawBlock
+  if (FINALIZABLE_CHAPTER_STATUS_RE.test(rawBlock)) {
+    nextBlock = rawBlock.replace(FINALIZABLE_CHAPTER_STATUS_RE, "$1$2final$2")
+  } else if (fm.chapter_status === undefined && !/^[ \t]*chapter_status:/m.test(rawBlock)) {
+    const eol = rawBlock.includes("\r\n") ? "\r\n" : "\n"
+    nextBlock = rawBlock.replace(/(\r?\n)(---\s*)$/, `$1chapter_status: final${eol}$2`)
+  }
+  if (parseFrontmatter(nextBlock.replace(/^\uFEFF/, "")).frontmatter?.chapter_status !== "final") {
+    throw new Error("Could not finalize the existing chapter header")
+  }
+  return nextBlock
+}
+
+function chapterDocumentForWrite(input: CommitAcceptedDeepChapterDraftInput, original: string | null): string {
+  const candidate = readManagedChapterHeader(input.finalChapterContent)
+  if (!candidate || !candidate.prefix.endsWith("\n") || candidate.frontmatter?.type !== "chapter"
+    || candidate.chapterNumber !== input.chapterNumber || candidate.frontmatter.chapter_status !== "final") {
+    throw new Error("Formal chapter frontmatter does not match the reviewed draft")
+  }
+  if (original === null) return input.finalChapterContent
+  const existing = readManagedChapterHeader(original)
+  if (!existing) {
+    if (/^\uFEFF?---[ \t]*(?:\r?\n|$)/.test(original)) throw new Error("The existing formal chapter has a malformed header")
+    return original.startsWith("\uFEFF") && !input.finalChapterContent.startsWith("\uFEFF")
+      ? `\uFEFF${input.finalChapterContent}` : input.finalChapterContent
+  }
+  if (existing.frontmatter?.type !== "chapter" || existing.chapterNumber !== input.chapterNumber) {
+    throw new Error("The existing formal chapter does not match the reviewed chapter")
+  }
+  let prefix = finalizeChapterFrontmatterBlock(existing.prefix)
+  if (!prefix.endsWith("\n")) prefix += prefix.includes("\r\n") ? "\r\n" : "\n"
+  return prefix + input.finalChapterContent.slice(candidate.prefix.length)
 }
 
 export async function commitAcceptedDeepChapterDraft(
   input: CommitAcceptedDeepChapterDraftInput,
 ): Promise<void> {
-  // DF-2: 覆盖前缓存原文件是否存在及其原内容。accept/覆盖失败时回滚必须「还原文」
-  // 而非硬删（旧实现 rollback=deleteFile，令 planned 骨架/旧稿永久销毁，回滚路径
-  // 既不用回收站也不用备份设施）。
-  let hadOriginalFile = false
-  let originalContent: string | null = null
-  if (await fileExists(input.chapterPath)) {
-    hadOriginalFile = true
-    try {
-      originalContent = await readFile(input.chapterPath)
-    } catch {
-      // 原文件存在但读取失败 → 无法缓存；回滚时不得删除（删除只会销毁现场）。
-      originalContent = null
-    }
-    if (!input.overwriteExisting && originalContent !== null) {
-      try {
-        const { frontmatter, body } = parseFrontmatter(originalContent)
-        // 仅当已有文件明确为已定稿章节 (isFinalChapter 为 true 且正文字数 >= 100) 时拒绝覆盖
-        const isFormalFinal = isFinalChapter(frontmatter ?? {}) && body.trim().length >= 100
-        if (isFormalFinal) {
-          throw new Error(`Formal chapter already exists: ${input.chapterPath}`)
-        }
-      } catch (err) {
-        if (err instanceof Error && err.message.startsWith("Formal chapter already exists")) {
-          throw err
-        }
-        // 解析失败或非定稿章节（如 planned 骨架、未完成草稿）允许覆盖晋升；
-        // 读取失败时 originalContent === null 走同一放行路径（与旧「读失败→允许覆盖」一致）。
-      }
-    }
+  // accept 会话锁内先执行正式写（writeVerifiedChapter 返回 undo 闭包），
+  // 随后 persist 失败时经闭包还原；正式写自身失败则直接上抛（原子单文件失败
+  // 无中间态需还原）。accept 成功后 emotion-ledger / promotion 仍走
+  // 既有 non-fatal 降级——派生失败不回滚正文。
+  const original = await readManagedChapterForWrite(input.chapterPath)
+  if (input.expectedExistingContent !== undefined && original !== input.expectedExistingContent) {
+    throw new Error("The target chapter changed after confirmation")
   }
-
-  await writeFileAtomic(input.chapterPath, input.finalChapterContent)
-
+  const finalChapterContent = chapterDocumentForWrite(input, original)
+  const writeInput = { ...input, expectedExistingContent: original, finalChapterContent }
+  await acceptDeepChapterDraft({
+    projectPath: input.projectPath,
+    conversationId: input.conversationId,
+    userRequest: input.userRequest,
+    chapterNumber: input.chapterNumber,
+    sessionId: input.sessionId,
+    formalChapterPath: input.chapterPath,
+    finalChapterContent,
+    writeVerifiedChapter: () => writeVerifiedChapter(writeInput),
+  })
+  // A19 emotion-ledger 写入端 (B 方案, PLN-20260716-emotion-ledger-writehook):
+  // accept 成功后扫正文提取情绪基调 + 共现匹配出场角色 + 写情绪账本。
+  // Draft-first 守恒: 仅在 accept 成功后写账本 (正式层), draft 生成点不写。
+  // DD-3 failure 降级: 账本写失败只 logger.warn, 不回滚正文, 不抛错 —
+  // 正文是正式层已落盘, emotion-ledger 是派生观测层 (fold_rebuildable),
+  // 回滚正文会违反 Draft-first accept 不可逆, 与 Circuit Breaker catch 降级一致。
   try {
-    await acceptDeepChapterDraft({
+    await updateEmotionLedgerFromChapter(
+      input.projectPath,
+      input.chapterNumber,
+      finalChapterContent,
+    )
+  } catch (emotionError) {
+    logger.warn(
+      "emotion-ledger",
+      `write failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(emotionError)}`,
+    )
+  }
+  // E-05 (run-execute-1, 双库架构蓝图) C-7/C-13: formal-writeback 通道接线。
+  // accept 成功后触发晋升（PromotionRecord 落盘 + 事件日志）。
+  // 失败/歧义 → 入 promotion-retry 队列 + warn，**不回滚 accept/正文**
+  // （accept 唯一不可逆门，铁律②；「已 accept 未晋升」是可补偿态，重放收敛）。
+  try {
+    const digestPrefix = await sha256Prefix(finalChapterContent)
+    const chapterId = `chapter-${input.chapterNumber}`
+    const promotionsFilePath = `${normalizePath(input.projectPath)}/.novel/promotions.json`
+    const revision = (await fileExists(promotionsFilePath))
+      ? await resolveNextPromotionRevision(
+          input.projectPath,
+          "formal-writeback",
+          chapterId,
+          chapterId,
+          digestPrefix,
+        )
+      : 1
+    await promote({
+      channel: "formal-writeback",
       projectPath: input.projectPath,
-      conversationId: input.conversationId,
-      userRequest: input.userRequest,
+      chapterId,
       chapterNumber: input.chapterNumber,
-      sessionId: input.sessionId,
-      formalChapterPath: input.chapterPath,
+      revision,
+      entity: chapterId,
+      acceptTimestamp: new Date().toISOString(),
+      gateContext: { draftStatus: "accepted", decisionGatesPass: true, manualFinal: false },
+      contentDigestPrefix: digestPrefix,
     })
-    // A19 emotion-ledger 写入端 (B 方案, PLN-20260716-emotion-ledger-writehook):
-    // accept 成功后扫正文提取情绪基调 + 共现匹配出场角色 + 写情绪账本。
-    // Draft-first 守恒: 仅在 accept 成功后写账本 (正式层), draft 生成点不写。
-    // DD-3 failure 降级: 账本写失败只 logger.warn, 不回滚正文, 不抛错 —
-    // 正文是正式层已落盘, emotion-ledger 是派生观测层 (fold_rebuildable),
-    // 回滚正文会违反 Draft-first accept 不可逆, 与 Circuit Breaker catch 降级一致。
-    try {
-      await updateEmotionLedgerFromChapter(
-        input.projectPath,
-        input.chapterNumber,
-        input.finalChapterContent,
-      )
-    } catch (emotionError) {
-      logger.warn(
-        "emotion-ledger",
-        `write failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(emotionError)}`,
-      )
-    }
-    // E-05 (run-execute-1, 双库架构蓝图) C-7/C-13: formal-writeback 通道接线。
-    // accept 成功后触发晋升（PromotionRecord 落盘 + 事件日志）。
-    // 失败/歧义 → 入 promotion-retry 队列 + warn，**不回滚 accept/正文**
-    // （accept 唯一不可逆门，铁律②；「已 accept 未晋升」是可补偿态，重放收敛）。
-    try {
-      const digestPrefix = await sha256Prefix(input.finalChapterContent)
-      await promote({
-        channel: "formal-writeback",
-        projectPath: input.projectPath,
-        chapterId: `chapter-${input.chapterNumber}`,
-        chapterNumber: input.chapterNumber,
-        revision: 1,
-        entity: `chapter-${input.chapterNumber}`,
-        acceptTimestamp: new Date().toISOString(),
-        gateContext: { draftStatus: "accepted", decisionGatesPass: true, manualFinal: false },
-        contentDigestPrefix: digestPrefix,
-      })
-    } catch (promotionError) {
-      logger.warn(
-        "promotion-bridge",
-        `formal-writeback promote failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(promotionError)}`,
-      )
-    }
-  } catch (error) {
-    try {
-      if (hadOriginalFile) {
-        if (originalContent !== null) {
-          // DF-2: 还原被覆盖前的原文（writeFileAtomic 原子还原），而非删除。
-          await writeFileAtomic(input.chapterPath, originalContent)
-        } else {
-          // 原文在覆盖前已不可读、无法还原：保留现有文件（绝不删除），并留诊断日志。
-          logger.warn(
-            "formal-writeback",
-            `rollback kept file after accept failure: original content was unreadable before overwrite (${input.chapterPath})`,
-          )
-        }
-      } else {
-        // 覆盖前文件不存在：本次写入的「新建文件」回滚删除（等同旧行为）。
-        await deleteFile(input.chapterPath)
-      }
-    } catch (rollbackError) {
-      throw new Error(
-        `Failed to roll back formal chapter write after draft accept failure: ${toErrorMessage(rollbackError)}; original error: ${toErrorMessage(error)}`,
-      )
-    }
-    throw error
+  } catch (promotionError) {
+    logger.warn(
+      "promotion-bridge",
+      `formal-writeback promote failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(promotionError)}`,
+    )
   }
 }

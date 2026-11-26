@@ -15,6 +15,118 @@ import { fingerprintFileSample } from "./content-fingerprint"
 import { findBookLibraryEntry, upsertBookLibraryEntry } from "./library-store"
 import { logger, toErrorMessage } from "@/lib/utils"
 
+export interface SplitNovelTextChapter {
+  /** 1-based 顺序序号 */
+  order: number
+  /** 从标题识别到的章号（未识别时为 null） */
+  detectedChapterNumber: number | null
+  /** 规范化章节标题（不含多余前后空白） */
+  title: string
+  /** 去掉首行重复标题后的正文 */
+  body: string
+  /** 正文字数（去空白统计） */
+  wordCount: number
+  /** 前 120 字摘要预览 */
+  preview: string
+}
+
+const WHOLE_TEXT_CHAPTER_HEADING_RE =
+  /^[ \t\u3000]*(?:第[ \t\u3000]*([零〇一二三四五六七八九十百千万两0-9\uff10-\uff19]+)[ \t\u3000]*[章节回]|chapter[ \t\u3000]*[-_]?[ \t\u3000]*0*([0-9\uff10-\uff19]+))(?:(?:[ \t\u3000]+|[:：、·.．—–\-][ \t\u3000]*)([^\r\n]*))?[ \t\u3000]*$/gim
+
+function normalizeFullWidthDigitsForSplit(value: string): string {
+  return value.replace(/[０-９]/g, (ch) => String(ch.charCodeAt(0) - 0xff10))
+}
+
+function parseChineseChapterNumberForSplit(value: string): number | null {
+  const normalized = value.replace(/两/g, "二").replace(/[零〇]/g, "")
+  if (!normalized) return null
+  const digitMap: Record<string, number> = {
+    一: 1,
+    二: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  }
+  const unitMap: Record<string, number> = {
+    十: 10,
+    百: 100,
+    千: 1000,
+    万: 10000,
+  }
+  let total = 0
+  let section = 0
+  let current = 0
+  let hasValue = false
+  for (const ch of normalized) {
+    if (digitMap[ch] !== undefined) {
+      current = digitMap[ch]
+      hasValue = true
+      continue
+    }
+    const unit = unitMap[ch]
+    if (!unit) return null
+    hasValue = true
+    if (unit === 10000) {
+      section = (section + (current || 1)) * unit
+      total += section
+      section = 0
+    } else {
+      section += (current || 1) * unit
+    }
+    current = 0
+  }
+  const result = total + section + current
+  return hasValue && Number.isSafeInteger(result) && result >= 1 ? result : null
+}
+
+function parseDetectedChapterNumber(rawToken: string | undefined): number | null {
+  if (!rawToken) return null
+  const ascii = normalizeFullWidthDigitsForSplit(rawToken.trim())
+  if (/^\d+$/.test(ascii)) {
+    const parsed = Number.parseInt(ascii, 10)
+    return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null
+  }
+  return parseChineseChapterNumberForSplit(ascii)
+}
+
+/**
+ * 纯函数整本 TXT 拆章（P1-03：零 IO、零写 library.json，供预览与整本导入共用）。
+ * 剥离首部 UTF-8 BOM 并统一 CRLF → LF；识别行首中英文/全角/多分隔符章节标题，
+ * 严防正文行内误切。
+ */
+export function splitNovelTextToChapters(rawText: string): SplitNovelTextChapter[] {
+  const normalized = rawText.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n")
+  if (!normalized.trim()) return []
+
+  const matches = Array.from(normalized.matchAll(WHOLE_TEXT_CHAPTER_HEADING_RE))
+  if (matches.length === 0) return []
+
+  const chapters: SplitNovelTextChapter[] = []
+  for (let i = 0; i < matches.length; i += 1) {
+    const match = matches[i]!
+    const title = match[0].trim()
+    const bodyStart = match.index! + match[0].length
+    const bodyEnd = matches[i + 1]?.index ?? normalized.length
+    const body = normalized.slice(bodyStart, bodyEnd).trim()
+    const wordCount = body.replace(/\s+/g, "").length
+    const preview = body.replace(/\s+/g, " ").trim().slice(0, 120)
+    const detectedChapterNumber = parseDetectedChapterNumber(match[1] ?? match[2])
+    chapters.push({
+      order: i + 1,
+      detectedChapterNumber,
+      title,
+      body,
+      wordCount,
+      preview,
+    })
+  }
+  return chapters
+}
+
 export interface SplitChaptersInput {
   sourcePath: string
   projectPath: string
@@ -121,12 +233,9 @@ export async function splitNovelIntoChapters(
     percentage: 10,
   })
 
-  // 行首章节标题。允许「第 1 章」这种数字与「章」之间的空白，
-  // 但不把正文里随便出现的「第三章」当成新章节。
-  const chapterRegex = /^[ \t\u3000]*第\s*[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u767e\u5343\u96f6\u3007\u4e240-9\uff10-\uff19]+\s*章(?:\s+\S.*)?\s*$/gim
-  const matches = Array.from(content.matchAll(chapterRegex))
+  const splitChapters = splitNovelTextToChapters(content)
 
-  if (matches.length === 0) {
+  if (splitChapters.length === 0) {
     throw new Error("未能识别到章节标记，请确保小说文件包含\"第X章\"格式的章节标题")
   }
 
@@ -138,20 +247,17 @@ export async function splitNovelIntoChapters(
     path: string
   }> = []
 
-  const totalChapters = matches.length
+  const totalChapters = splitChapters.length
   let totalWords = 0
 
-  for (let i = 0; i < matches.length; i++) {
+  for (let i = 0; i < splitChapters.length; i++) {
     if (signal?.aborted) {
       throw new Error("用户取消分析")
     }
 
-    const match = matches[i]
-    const title = match[0].trim()
-    const startIdx = match.index!
-    const endIdx = matches[i + 1]?.index ?? content.length
-
-    const chapterContent = content.slice(startIdx, endIdx).trim()
+    const split = splitChapters[i]!
+    const title = split.title
+    const chapterContent = split.body ? `${title}\n${split.body}` : title
     const wordCount = chapterContent.length
     totalWords += wordCount
 

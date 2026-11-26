@@ -9,21 +9,25 @@
  * 1. 先 accept（采纳是唯一不可逆门，失败直接抛，绝不降级成摄取失败）；
  * 2. autoIngestOnSave 未开 → skipped-config（不提示）；
  * 3. 提取模型不可用 → skipped-no-model；
- * 4. 摄取完成但 snapshot 为空 → failed（携带 failReason）。
+ * 4. 正文落盘后，只有回填链完整才是 ok；部分完成或推迟的步骤单列原因。
  *
  * 采纳实现由调用方以 `accept` seam 注入——chat 用 commitAcceptedDeepChapterDraft
  * （含 emotion-ledger / promotion / 覆盖回滚），主控 drafts 页签经
  * `main-control-draft-actions.ts` 注入 `acceptChapterDraft`（与 ChapterDraftDock 同一实现）；
  * 本模块因此不会改写任何一条路径已验证的采纳语义。
  *
- * 本模块不产出任何用户文案（R-04）：文案映射留在各调用方。
+ * 跨入口共用同一份状态文案；各调用方决定如何显示正文采纳结果。
  */
 
+import { verifyRebuildOutcome } from "./rebuild"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types"
+import type { TFunction } from "i18next"
 import i18n from "@/i18n"
+import { normalizePath } from "@/lib/path-utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import type { IngestFailReason, IngestResult } from "./chapter-ingest"
-import { ingestChapter } from "./chapter-ingest"
+import { ingestChapter, type IngestProjectionReceipt } from "./chapter-ingest"
 import type {
   CanonDualWriteOutcome,
   IngestCommitReceipt,
@@ -34,7 +38,19 @@ import { resolveNovelModel } from "./model-resolver"
 import { resolveReviewModel } from "./review-model"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 
-export type AcceptDraftIngestStatus = "ok" | "skipped-config" | "skipped-no-model" | "failed"
+export type AcceptDraftIngestStatus = "ok" | "skipped-config" | "skipped-no-model" | "skipped-not-final" | "pending" | "partial" | "failed"
+type MemoryIngestReason = IngestFailReason | "memory_incomplete" | "memory_pending" | "ingest_error"
+
+interface MemoryIngestOutcome {
+  ingest: AcceptDraftIngestStatus
+  failReason?: MemoryIngestReason
+  ledgerSaveFailed?: boolean
+  factsStoreFailed?: boolean
+  failedProjections?: readonly string[]
+  committedProjections?: readonly string[]
+  pendingProjections?: readonly string[]
+  canonOutcome?: CanonDualWriteOutcome
+}
 
 export interface AcceptDraftAndIngestInput {
   projectPath: string
@@ -47,21 +63,17 @@ export interface AcceptDraftAndIngestInput {
   signal?: AbortSignal
 }
 
-export interface AcceptDraftAndIngestResult {
+export interface AcceptDraftAndIngestResult extends MemoryIngestOutcome {
   formalChapterPath: string
-  ingest: AcceptDraftIngestStatus
-  failReason?: IngestFailReason
   selfHeal?: IngestResult["selfHeal"]
-  ledgerSaveFailed?: boolean
   /**
-   * 摄取成功时透传的无正文源绑定（仅 additive 详情；失败/跳过不携带，不伪造）。
+   * 提取提交后的无正文源绑定；投影失败不抹去提交点证据。
    * 缺失 = 未绑定，不能读作 bound。
    */
   sourceBinding?: IngestSourceBinding
-  /** 摄取成功时透传的实际 Canon 双写 outcome（skip/failed/completed 原样）。 */
-  canonOutcome?: CanonDualWriteOutcome
-  /** 摄取成功时透传的提交点瞬时 receipt。 */
+  /** 提取提交点的瞬时 receipt，不证明投影已完成。 */
   receipt?: IngestCommitReceipt
+  projectionReceipt?: IngestProjectionReceipt
 }
 
 /** 摄取状态 → 事件文案键（固定映射，不用模板字面量拼 key）。 */
@@ -69,6 +81,9 @@ const INGEST_ACTIVITY_STATUS_KEYS: Record<AcceptDraftIngestStatus, string> = {
   ok: "mainControl.draftIngestOk",
   "skipped-config": "mainControl.draftIngestSkippedConfig",
   "skipped-no-model": "mainControl.draftIngestSkippedNoModel",
+  "skipped-not-final": "mainControl.draftIngestSkippedNotFinal",
+  pending: "mainControl.draftIngestPending",
+  partial: "mainControl.draftIngestIncomplete",
   failed: "mainControl.draftIngestFailed",
 }
 
@@ -77,7 +92,96 @@ const INGEST_ACTIVITY_KINDS: Record<AcceptDraftIngestStatus, AgentActivityKind> 
   ok: "extract_result",
   "skipped-config": "analysis",
   "skipped-no-model": "analysis",
+  "skipped-not-final": "analysis",
+  pending: "analysis",
+  partial: "analysis",
   failed: "error",
+}
+
+/** 普通回填按本次实际结果分类；这里不执行重建级的独立磁盘回读。 */
+export function classifyMemoryIngest(result: IngestResult): MemoryIngestOutcome {
+  const { ledgerSaveFailed, factsStoreFailed, failedProjections, committedProjections, pendingProjections, canonOutcome, receipt, projectionReceipt } = result
+  const details = {
+    ...(ledgerSaveFailed !== undefined && { ledgerSaveFailed }),
+    ...(factsStoreFailed !== undefined && { factsStoreFailed }),
+    ...(failedProjections !== undefined && { failedProjections }),
+    ...(committedProjections !== undefined && { committedProjections }),
+    ...(pendingProjections !== undefined && { pendingProjections }),
+    ...(canonOutcome !== undefined && { canonOutcome }),
+  }
+  if (result.projectionError) return { ingest: "failed", failReason: "memory_incomplete", ...details }
+  if (!result.snapshot) {
+    return {
+      ingest: result.failReason === "no_llm" ? "skipped-no-model" : result.failReason === "not_final" ? "skipped-not-final" : "failed",
+      failReason: result.failReason,
+    }
+  }
+
+  const hasProjectionReceipt = !!receipt && !!projectionReceipt
+    && receipt.chapterNumber === result.snapshot.chapterNumber
+    && receipt.snapshotRevisionAtExtractionCommit !== null
+    && projectionReceipt.revision === receipt.snapshotRevisionAtExtractionCommit + 1
+  const canonComplete = canonOutcome?.status === "completed"
+    ? canonOutcome.report.queued === 0 && canonOutcome.report.reconcile.consistent
+    : canonOutcome?.status === "skipped" && canonOutcome.reason === "no_facts"
+  const incomplete = ledgerSaveFailed !== false
+    || factsStoreFailed !== false
+    || failedProjections?.length !== 0
+    || pendingProjections === undefined
+    || !committedProjections?.includes("sync_snapshot_to_memory")
+    || !canonComplete
+    || !hasProjectionReceipt
+  if (incomplete) return { ingest: hasProjectionReceipt && committedProjections?.length ? "partial" : "failed", failReason: "memory_incomplete", ...details }
+  if (pendingProjections?.length) return { ingest: "pending", failReason: "memory_pending", ...details }
+  return { ingest: "ok", ...details }
+}
+
+/** Preserve pending and failed outcomes; a reported success requires independent receipt readback. */
+export async function readBackMemoryIngest(
+  projectPath: string,
+  formalChapterPath: string,
+  result: IngestResult,
+): Promise<MemoryIngestOutcome> {
+  const outcome = classifyMemoryIngest(result)
+  if (outcome.ingest !== "ok" || !result.snapshot) return outcome
+  try {
+    await verifyRebuildOutcome(normalizePath(projectPath), {
+      path: formalChapterPath,
+      chapterNumber: result.snapshot.chapterNumber,
+    }, result)
+    return outcome
+  } catch (error) {
+    logger.warn("Chapter Ingest", "Memory receipt readback failed", { error: toErrorMessage(error) })
+    return { ...outcome, ingest: "partial", failReason: "memory_incomplete" }
+  }
+}
+
+export function formatMemoryIngest(t: TFunction, result: MemoryIngestOutcome): string {
+  if (result.failReason === "not_final") return t("mainControl.draftIngestSkippedNotFinal")
+  const pending = result.pendingProjections?.length
+    ? t("mainControl.draftIngestPending", { projections: result.pendingProjections.join(", ") })
+    : ""
+  if (result.failReason === "memory_pending") return pending
+  if (result.failReason === "memory_incomplete") {
+    const canon = result.canonOutcome
+    const reasons = [
+      result.failedProjections?.length
+        ? t("mainControl.draftIngestProjectionFailures", { projections: result.failedProjections.join(", ") })
+        : "",
+      pending,
+      result.ledgerSaveFailed ? t("mainControl.draftIngestLedgerFailed") : "",
+      result.factsStoreFailed ? t("mainControl.draftIngestFactsFailed") : "",
+      canon?.status === "failed" ? t("mainControl.draftIngestCanonFailed") : "",
+      canon?.status === "completed" && (canon.report.queued > 0 || !canon.report.reconcile.consistent)
+        ? t("mainControl.draftIngestCanonUnreconciled", { queued: canon.report.queued })
+        : "",
+    ].filter(Boolean)
+    return t("mainControl.draftIngestIncomplete", {
+      reason: reasons.join(" · ") || t("mainControl.draftIngestMissingEvidence"),
+    })
+  }
+  if (result.failReason === "ingest_error") return t("mainControl.draftIngestUnexpectedError")
+  return t(INGEST_ACTIVITY_STATUS_KEYS[result.ingest], { reason: result.failReason ?? "" })
 }
 
 /**
@@ -87,10 +191,10 @@ const INGEST_ACTIVITY_KINDS: Record<AcceptDraftIngestStatus, AgentActivityKind> 
  * 转成一条可展示事件。标题与状态文案全部走 i18n 键，不硬编码中文。
  */
 export function buildIngestActivity(
-  result: Pick<AcceptDraftAndIngestResult, "formalChapterPath" | "ingest" | "failReason">,
+  result: AcceptDraftAndIngestResult,
   timestamp: number = Date.now(),
 ): AgentActivityEvent {
-  const status = i18n.t(INGEST_ACTIVITY_STATUS_KEYS[result.ingest], { reason: result.failReason ?? "" })
+  const status = formatMemoryIngest(i18n.t.bind(i18n), result)
   return {
     id: `memory_ingest:${timestamp}`,
     stageId: "memory_ingest",
@@ -116,28 +220,27 @@ export async function acceptDraftAndIngest(
     return { formalChapterPath: input.formalChapterPath, ingest: "skipped-config" }
   }
 
-  const extract = resolveNovelModel(input.llmConfig, input.novelConfig, "extract")
-  if (!hasUsableLlm(extract)) {
-    return { formalChapterPath: input.formalChapterPath, ingest: "skipped-no-model" }
-  }
-
-  const result = await ingestChapter(input.projectPath, input.formalChapterPath, resolveReviewModel(), input.signal, {
-    canonDualWriteDeps: defaultCanonDualWriteDeps(),
-  })
-  if (result.snapshot) {
+  try {
+    const extract = resolveNovelModel(input.llmConfig, input.novelConfig, "extract")
+    if (!hasUsableLlm(extract)) {
+      return { formalChapterPath: input.formalChapterPath, ingest: "skipped-no-model" }
+    }
+    const result = await ingestChapter(input.projectPath, input.formalChapterPath, resolveReviewModel(), input.signal, {
+      canonDualWriteDeps: defaultCanonDualWriteDeps(),
+      novelConfig: input.novelConfig,
+      llmConfig: input.llmConfig,
+    })
+    const memory = await readBackMemoryIngest(input.projectPath, input.formalChapterPath, result)
     return {
       formalChapterPath: input.formalChapterPath,
-      ingest: "ok",
-      selfHeal: result.selfHeal,
-      ledgerSaveFailed: result.ledgerSaveFailed,
+      ...memory,
+      ...(result.selfHeal ? { selfHeal: result.selfHeal } : {}),
       ...(result.sourceBinding ? { sourceBinding: result.sourceBinding } : {}),
-      ...(result.canonOutcome ? { canonOutcome: result.canonOutcome } : {}),
       ...(result.receipt ? { receipt: result.receipt } : {}),
+      ...(result.projectionReceipt ? { projectionReceipt: result.projectionReceipt } : {}),
     }
-  }
-  return {
-    formalChapterPath: input.formalChapterPath,
-    ingest: "failed",
-    failReason: result.failReason,
+  } catch (error) {
+    logger.warn("Chapter Ingest", "Automatic memory ingest failed after adoption", { error: toErrorMessage(error) })
+    return { formalChapterPath: input.formalChapterPath, ingest: "failed", failReason: "ingest_error" }
   }
 }

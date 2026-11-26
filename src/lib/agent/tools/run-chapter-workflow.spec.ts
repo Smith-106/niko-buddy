@@ -1049,4 +1049,57 @@ describe("createRunChapterWorkflowTool workflowMode 深度映射", () => {
     await tool.execute({ userRequest: "生成第3章", chapterNumber: 3 })
     expect(captured.value).toBe(original)
   })
+
+  it("R2：模型省略 chapterNumber 时自动回退 getFallbackParams().chapterNumber 传入 runDeepChapterGeneration（含无 planBlueprint 路径）", async () => {
+    const runDeepChapterGeneration = vi.fn(async () => fakeResult())
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      getFallbackParams: () => ({ chapterNumber: 15 }),
+    })
+
+    // 无 planBlueprint、无显式 chapterNumber → 生成链仍拿到结构化章号 15，且不误报冲突 warn
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await tool.execute({ userRequest: "继续写这一章" })
+      expect(runDeepChapterGeneration).toHaveBeenCalledWith(
+        expect.objectContaining({ chapterNumber: 15 }),
+        expect.any(Object),
+        undefined,
+        undefined,
+        expect.any(Function),
+      )
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it("R2：模型显式 chapterNumber 与 getFallbackParams 冲突时，无 planBlueprint 仍保留模型章号给生成链且不记计划落盘 warn", async () => {
+    const runDeepChapterGeneration = vi.fn(async () => fakeResult())
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      getFallbackParams: () => ({ chapterNumber: 15 }),
+    })
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await tool.execute({ userRequest: "写第3章", chapterNumber: 3 })
+      expect(runDeepChapterGeneration).toHaveBeenCalledWith(
+        expect.objectContaining({ chapterNumber: 3 }),
+        expect.any(Object),
+        undefined,
+        undefined,
+        expect.any(Function),
+      )
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
 })

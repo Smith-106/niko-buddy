@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 const fsMocks = vi.hoisted(() => ({
@@ -376,8 +376,12 @@ describe("ADR-34 firewall: main chain does not import persona-sidecar-runner", (
   // ADR-34: dependency graph is one-way (sidecar reads main chain, main chain never reads sidecar).
   const roots = [
     "deep-chapter-generation.ts",
+    "deep-chapter-review-repair.ts",
+    "chapter-gate-evaluation.ts",
     "review-adapter.ts",
     "dimension-review-adapter.ts",
+    "draft-manager.ts",
+    "formal-writeback.ts",
     "de-ai-adapter.ts",
     "context-engine.ts",
     "chapter-ingest.ts",
@@ -391,18 +395,19 @@ describe("ADR-34 firewall: main chain does not import persona-sidecar-runner", (
   ]
 
   for (const file of roots) {
-    it(`${file} has no persona-sidecar-runner import`, () => {
+    it(`${file} has no persona-sidecar-runner import or runPersonaCritique reference`, () => {
       const abs = resolve(__dirname, file)
       const src = readFileSync(abs, "utf8")
       expect(src).not.toMatch(/persona-sidecar-runner/)
+      expect(src).not.toMatch(/runPersonaCritique/)
     })
   }
 
-  it("mod.ts does not export persona-sidecar-runner", () => {
-    const abs = resolve(__dirname, "mod.ts")
-    const src = readFileSync(abs, "utf8")
-    expect(src).not.toMatch(/persona-sidecar-runner/)
-    expect(src).not.toMatch(/persona-critique/)
+  it("legacy mod.ts has been retired (R2-E10) and persona-sidecar-runner never writes status.json or decision_gates", () => {
+    expect(existsSync(resolve(__dirname, "mod.ts"))).toBe(false)
+    const runnerSrc = readFileSync(resolve(__dirname, "persona-sidecar-runner.ts"), "utf8")
+    expect(runnerSrc).not.toMatch(/saveNovelSessionStatus/)
+    expect(runnerSrc).not.toMatch(/decision_gates\s*=/)
   })
 
   it("sidecar write path never contains status.json or decision_gates", () => {

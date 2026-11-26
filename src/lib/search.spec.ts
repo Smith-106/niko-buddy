@@ -351,6 +351,80 @@ describe("searchWiki — vector materialization and RRF", () => {
     const results = await searchWiki(PP, "needle")
     expect(results).toEqual([])
   })
+
+  it.each([
+    "entities/characters",
+    "entities/items",
+    "entities/locations",
+    "entities/organizations",
+    "entities/events",
+    "chapters",
+  ])("materializes vector-only pages from wiki/%s (K-2)", async (dir) => {
+    const targetPath = `${PP}/wiki/${dir}/k2-hit.md`
+    mocks.searchByEmbedding.mockResolvedValue([{ id: "k2-hit", score: 0.92 }])
+    mocks.readFile.mockImplementation(async (p: string) => {
+      if (p === targetPath) return `# 命中 ${dir}\n\n包含 needle 正文。`
+      throw new Error("missing")
+    })
+
+    const results = await searchWiki(PP, "needle")
+    expect(results).toHaveLength(1)
+    expect(results[0]?.path).toBe(targetPath)
+    expect(results[0]?.title).toBe(`命中 ${dir}`)
+  })
+
+  it("R3-M06: 复用 wikiFiles 映射命中 wiki 顶层页与 chapters 卷子目录（含纯数字别名 003 ↔ chapter-003）", async () => {
+    mocks.listDirectory.mockResolvedValue([
+      mdFile(`${PP}/wiki/lore.md`, "lore.md"),
+      dirNode(`${PP}/wiki/chapters`, "chapters", [
+        dirNode(`${PP}/wiki/chapters/vol-1`, "vol-1", [
+          mdFile(`${PP}/wiki/chapters/vol-1/chapter-003.md`, "chapter-003.md"),
+        ]),
+      ]),
+    ])
+    mocks.readFile.mockImplementation(async (p: string) => {
+      if (p === `${PP}/wiki/lore.md`) return "# 世界观总纲\n\n此处不含搜索词。"
+      if (p === `${PP}/wiki/chapters/vol-1/chapter-003.md`) return "# 第三章 卷子目录\n\n此处也不含搜索词。"
+      throw new Error("missing")
+    })
+    mocks.searchByEmbedding.mockResolvedValue([
+      { id: "lore", score: 0.95 },
+      { id: "003", score: 0.91 },
+    ])
+
+    const results = await searchWiki(PP, "needle")
+    expect(results.map((r) => r.path)).toEqual([
+      `${PP}/wiki/lore.md`,
+      `${PP}/wiki/chapters/vol-1/chapter-003.md`,
+    ])
+    expect(results[0]?.title).toBe("世界观总纲")
+    expect(results[1]?.title).toBe("第三章 卷子目录")
+  })
+
+  it("R3-M06: 严格排除 .draft.md / -去AI味稿.md 草稿文件（token 与向量通道双过滤）", async () => {
+    mocks.listDirectory.mockResolvedValue([
+      dirNode(`${PP}/wiki/chapters`, "chapters", [
+        mdFile(`${PP}/wiki/chapters/chapter-003.draft.md`, "chapter-003.draft.md"),
+        mdFile(`${PP}/wiki/chapters/chapter-003-去AI味稿.md`, "chapter-003-去AI味稿.md"),
+        mdFile(`${PP}/wiki/chapters/chapter-003.md`, "chapter-003.md"),
+      ]),
+    ])
+    mocks.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("chapter-003.draft.md")) return "# 草稿\n\nneedle 泄漏"
+      if (p.endsWith("chapter-003-去AI味稿.md")) return "# 去AI稿\n\nneedle 泄漏"
+      if (p.endsWith("chapter-003.md")) return "# 第三章正式\n\nneedle 正文"
+      throw new Error("missing")
+    })
+    mocks.searchByEmbedding.mockResolvedValue([
+      { id: "chapter-003.draft", score: 0.99 },
+      { id: "chapter-003-去AI味稿", score: 0.98 },
+      { id: "chapter-003", score: 0.9 },
+    ])
+
+    const results = await searchWiki(PP, "needle")
+    expect(results).toHaveLength(1)
+    expect(results[0]?.path).toBe(`${PP}/wiki/chapters/chapter-003.md`)
+  })
 })
 
 describe("searchWiki — rerank", () => {

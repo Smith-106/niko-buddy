@@ -26,7 +26,16 @@ import {
 } from "./chapter-ingest-entity-validation"
 import { parseFactsSubject } from "./chapter-ingest-utils"
 import { runTruthAuthorityCheck } from "./truth-authority-adapter"
-import { saveChapterIngestOutput, saveSnapshot } from "./chapter-ingest-snapshot-io"
+import {
+  archiveSnapshotJson,
+  isMissingFile,
+  readSnapshotForReplacement,
+  saveChapterIngestOutput,
+  saveSnapshot,
+  withSnapshotWriteLock,
+} from "./chapter-ingest-snapshot-io"
+import { materializeNextCurrentSnapshot } from "./chapter-ingest-history"
+import { withProjectLock } from "./novel-locks"
 import type { CanonDualWriteDeps, ShadowWriteReport } from "./canon-dual-write"
 import type { ChapterSnapshot } from "./chapter-ingest"
 
@@ -90,12 +99,20 @@ export type CommitIngestSnapshotResult =
       sourceBinding: IngestSourceBinding | null
       /** 成功 receipt；legacy 无 sourceRead 调用为 null。 */
       receipt: IngestCommitReceipt | null
+      /** facts.json 读写失败标志（仅 committed 携带；拒绝分支无此字段）。 */
+      factsStoreFailed: boolean
     }
   | { status: "source_changed"; sourceReadRef: IngestSourceBinding | null }
   | { status: "source_unavailable"; sourceReadRef: IngestSourceBinding | null; reason: string }
   | { status: "cancelled"; sourceReadRef: IngestSourceBinding | null }
 
 export interface CommitIngestSnapshotParams {
+  /** 显式单章再摄取的唯一正式源复核（写锁内最早执行；undefined = 跳过）。 */
+  verifySourceIdentity?: () => Promise<void>
+  /** saveSnapshot+saveChapterIngestOutput 失败的持久化记账（调用方实现重试策略；undefined = 不记）。 */
+  /** 显式再摄取在写入当前快照前先持久化待完成状态。 */
+  onPersistenceStart?: () => Promise<void>
+  onPersistenceFailure?: (error: string) => Promise<void>
   pp: string
   snapshot: ChapterSnapshot
   /** 章节 frontmatter（canon 双写资格判定与标题提取）。 */
@@ -133,8 +150,8 @@ function toSourceBinding(sourceRead: IngestSourceRead): IngestSourceBinding {
 }
 
 /**
- * 提交一章的摄取结果。**永不抛错**：内部所有失败都降级为 warn，
- * 保证调用方拿到的 snapshot 已尽可能落盘。
+ * 提交一章的摄取结果。归档/快照/产物写入失败向上抛出；校验、rehearsal、
+ * facts-store 仍非致命（降级为 warn + factsStoreFailed 标志）。
  *
  * 源守卫（仅 sourceRead 存在时）：实体校验结束后、saveSnapshot 之前对**同一**
  * readPath 读一次完整内容，与本次提取实际使用的 originalContent 严格相等才提交。
@@ -142,7 +159,7 @@ function toSourceBinding(sourceRead: IngestSourceRead): IngestSourceBinding {
  * 本次提交的明确拒绝，不会降级成警告后继续落盘。
  */
 export async function commitIngestSnapshot(params: CommitIngestSnapshotParams): Promise<CommitIngestSnapshotResult> {
-  const { pp, snapshot, fm, canonDualWriteDeps, runCanonDualWriteHook, sourceRead, signal } = params
+  const { pp, snapshot, fm, canonDualWriteDeps, runCanonDualWriteHook, sourceRead, signal, verifySourceIdentity, onPersistenceStart, onPersistenceFailure } = params
   const sourceReadRef = sourceRead ? toSourceBinding(sourceRead) : null
 
   try {
@@ -162,13 +179,13 @@ export async function commitIngestSnapshot(params: CommitIngestSnapshotParams): 
     snapshot.entityIsNew = {}
   }
 
-  // 提交前源守卫：同路径完整内容严格比对 + 同一 AbortSignal 检查，均在
-  // saveSnapshot 之前。仅覆盖本次章节提取提交；不含之后 syncSnapshotToMemory、
-  // 跨进程 CAS 或 ABA。
-  if (sourceRead) {
+  // 提交前源守卫：锁内同路径完整内容严格比对 + 同一 AbortSignal 检查。
+  // 仅覆盖本次章节提取提交；不含之后 syncSnapshotToMemory、跨进程 CAS 或 ABA。
+  const checkSource = async (): Promise<Exclude<CommitIngestSnapshotResult, { status: "committed" }> | null> => {
+    if (!sourceRead) return null
     let currentContent: string
     try {
-      currentContent = await readFile(sourceRead.readPath)
+      currentContent = await readFile(sourceRead.readPath, { exactUtf8: true })
     } catch (err) {
       logger.warn("Chapter Ingest", "Pre-commit source read failed (rejecting this commit)", {
         path: sourceRead.readPath,
@@ -185,22 +202,58 @@ export async function commitIngestSnapshot(params: CommitIngestSnapshotParams): 
     if (signal?.aborted) {
       return { status: "cancelled", sourceReadRef }
     }
+    return null
   }
 
+  // 章级写锁临界区：严格读当前 → 源守卫 → 归档旧当前（全字段 + isHistorical）→
+  // 源守卫二次 → 物化下一 revision → saveSnapshot → 摄取产物。锁内任一失败
+  // 直接传播（归档失败 = 旧 current 原样保留，不写新快照）。
+  const persisted = await withSnapshotWriteLock(pp, snapshot.chapterNumber, async () => {
+    await verifySourceIdentity?.()
+    const current = await readSnapshotForReplacement(pp, snapshot.chapterNumber)
+    const rejected = await checkSource()
+    if (rejected) return rejected
+    if (current) {
+      await archiveSnapshotJson(pp, snapshot.chapterNumber, JSON.stringify({ ...JSON.parse(current.raw), isHistorical: true }, null, 2))
+      const afterArchive = await checkSource()
+      if (afterArchive) return afterArchive
+    }
+    // revision/identity 只信盘上既有 current，绝不接受 LLM 提取对象上的身份字段。
+    const candidate = sourceRead
+      ? { ...snapshot, sourceType: "chapter" as const, sourceSequence: snapshot.chapterNumber, revision: undefined, snapshotId: undefined, supersedes: undefined, isHistorical: false, memorySyncedAt: undefined }
+      : snapshot
+    if (onPersistenceStart) {
+      await onPersistenceStart()
+      const rejectedAfterReservation = await checkSource()
+      if (rejectedAfterReservation) {
+        await onPersistenceFailure?.(rejectedAfterReservation.status)
+        return rejectedAfterReservation
+      }
+    }
+    let committed: ChapterSnapshot
+    try {
+      committed = await saveSnapshot(pp, current ? materializeNextCurrentSnapshot(candidate, current.snapshot) : candidate)
+      await saveChapterIngestOutput(pp, committed, {
+        title: typeof fm.title === "string" ? fm.title : undefined,
+      })
+    } catch (error) {
+      await onPersistenceFailure?.(toErrorMessage(error))
+      throw error
+    }
+    return { status: "saved" as const, snapshot: committed }
+  })
+  if (persisted.status !== "saved") return persisted
   // saver 返回**它实际序列化落盘**的 normalized snapshot；提交点内部的 output/
   // Canon/receipt 共用这一个值（snapshot JSON 可能含 extraction 时不存在的新身份）。
-  const committedSnapshot = await saveSnapshot(pp, snapshot)
-  await saveChapterIngestOutput(pp, committedSnapshot, {
-    title: typeof fm.title === "string" ? fm.title : undefined,
-  })
+  const committedSnapshot = persisted.snapshot
 
   // Wave B: plan Mem0-style ADD ops from newCanonFacts (pure; log only).
   // Does not dual-write a fact store — temporal VIEW remains derived from snapshots.
   try {
     const { planAddOpsFromCanonFacts, applyMemoryOps } = await import("./memory-op")
     const ops = planAddOpsFromCanonFacts(
-      snapshot.chapterNumber,
-      snapshot.newCanonFacts ?? [],
+      committedSnapshot.chapterNumber,
+      committedSnapshot.newCanonFacts ?? [],
     )
     if (ops.length > 0) {
       const planned: import("./temporal-memory").TemporalFact[] = []
@@ -218,45 +271,59 @@ export async function commitIngestSnapshot(params: CommitIngestSnapshotParams): 
   // newCanonFacts → facts 表 (JSON 文件唯一持久化源, ADR-26 无第二真源);
   // 投影层 (temporal-memory) 仍为派生视图。additive: 写入失败仅 warn 不阻塞 ingest;
   // 文件不存在自动重建 (emptyFactsFile)。
+  let factsStoreFailed = false
   try {
     const { emptyFactsFile, loadFactsFile, saveFactsFile, addFact, recordEpisode } = await import("./facts-store")
     const factsPath = `${pp}/.novel/facts.json`
-    let factsState = emptyFactsFile()
-    try {
-      const raw = await readFile(factsPath)
-      factsState = loadFactsFile(raw)
-    } catch (err) {
-      // 无 facts.json → 空表重建 (零迁移成本)
-      // ISS-20260709-025 PAT-IM2: 记诊断（首次建表为预期路径，warn 弱提示），控制流不变。
-      logger.warn("Chapter Ingest", "facts file missing or corrupt, rebuild empty (non-fatal)", { error: toErrorMessage(err) })
-    }
-    const canonFacts = snapshot.newCanonFacts ?? []
-    if (canonFacts.length > 0) {
-      let next = factsState
-      const addedIds: string[] = []
-      for (const rawFact of canonFacts) {
-        const subject = parseFactsSubject(rawFact)
-        const before = next
-        next = addFact(next, {
-          subject,
-          predicate: "状态",
-          object: rawFact,
-          valid_at: snapshot.chapterNumber,
-          source: "chapter-ingest newCanonFacts",
-        })
-        if (next.facts.length > before.facts.length) {
-          addedIds.push(next.facts[next.facts.length - 1]!.id)
+    const canonFacts = committedSnapshot.newCanonFacts ?? []
+    // 项目级 facts 锁内完成读-改-写：同章同 source+valid_at+subject+predicate+object
+    // 重放复用既有行（含已退役行，绝不复活）；跨章/异源不去重、无遗漏删除。
+    // 表缺失 → 空表 fallback（与既有契约一致）；损坏/权限失败 → 外层 warn +
+    // factsStoreFailed，绝不把不可读的旧表当空表覆写。
+    // 空 canonFacts 仍保持既有一次读表契约。
+    await withProjectLock(`facts:${pp}`, async () => {
+      // 读失败与 JSON 解析失败分离：parse 错误绝不落 not-found 空表分支。
+      let raw: string | undefined
+      try {
+        raw = await readFile(factsPath)
+      } catch (err) {
+        if (!(await isMissingFile(factsPath, err))) {
+          throw err
+        }
+        // ISS-20260709-025 PAT-IM2: 记诊断（首次建表为预期路径，warn 弱提示），控制流不变。
+        logger.warn("Chapter Ingest", "facts file missing, rebuild empty (non-fatal)", { error: toErrorMessage(err) })
+      }
+      const factsState = raw === undefined ? emptyFactsFile() : loadFactsFile(raw, { strict: true })
+      if (canonFacts.length > 0) {
+        const source = "chapter-ingest newCanonFacts"
+        let next = factsState
+        const factIds = new Set<string>()
+        for (const object of canonFacts) {
+          const subject = parseFactsSubject(object)
+          const predicate = "状态"
+          const existing = next.facts.find(f => f.source === source && f.valid_at === committedSnapshot.chapterNumber && f.subject === subject && f.predicate === predicate && f.object === object)
+          if (existing) { factIds.add(existing.id); continue }
+          // 分配守卫：next_id 溢出或将生成 id 与既有行冲突 → 拒绝覆写（非致命上抛）。
+          if (next.next_id >= Number.MAX_SAFE_INTEGER
+            || next.facts.some(f => f.id === `fact-${next.next_id}`)) {
+            throw new Error("Invalid facts.json store; refusing to overwrite.")
+          }
+          next = addFact(next, { subject, predicate, object, valid_at: committedSnapshot.chapterNumber, source })
+          factIds.add(next.facts[next.facts.length - 1]!.id)
+        }
+        const previousIds = new Set(factsState.episodes.find(e => e.chapter === committedSnapshot.chapterNumber)?.fact_ids)
+        if (next !== factsState || [...factIds].some(id => !previousIds.has(id))) {
+          const added = next.facts.length - factsState.facts.length
+          next = recordEpisode(next, committedSnapshot.chapterNumber, [...factIds])
+          await writeFileAtomic(factsPath, saveFactsFile(next))
+          // 54 ③ 读侧接线：facts.json 变更后失效 temporal cache（空路径键 0:0:0:0 不变）
+          clearTemporalFactsCache(pp)
+          logger.info("Chapter Ingest", `facts-store ADD ${added} facts (chapter ${committedSnapshot.chapterNumber})`)
         }
       }
-      if (addedIds.length > 0) {
-        next = recordEpisode(next, snapshot.chapterNumber, addedIds)
-        await writeFileAtomic(factsPath, saveFactsFile(next))
-        // 54 ③ 读侧接线：facts.json 变更后失效 temporal cache（空路径键 0:0:0:0 不变）
-        clearTemporalFactsCache(pp)
-        logger.info("Chapter Ingest", `facts-store ADD ${addedIds.length} facts (chapter ${snapshot.chapterNumber})`)
-      }
-    }
+    })
   } catch (err) {
+    factsStoreFailed = true
     logger.warn("Chapter Ingest", "facts-store write skipped", {
       error: toErrorMessage(err),
     })
@@ -285,5 +352,5 @@ export async function commitIngestSnapshot(params: CommitIngestSnapshotParams): 
       }
     : null
 
-  return { status: "committed", snapshot: committedSnapshot, canonOutcome, sourceBinding, receipt }
+  return { status: "committed", snapshot: committedSnapshot, canonOutcome, sourceBinding, receipt, factsStoreFailed }
 }

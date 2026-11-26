@@ -211,6 +211,10 @@ export async function fetchEmbedding(
     if (onError) onError(message)
     else lastEmbeddingError = message
   }
+  const reportError = (message: string): void => {
+    report(message)
+    console.warn(`[Embedding] ${message}`)
+  }
   // G10 (39 号修复): 统一离线模式短路可选网络依赖
   if (useWikiStore.getState().offlineMode) return null
   if (!cfg.endpoint) return null
@@ -243,8 +247,7 @@ export async function fetchEmbedding(
           return embedding
         }
         const expectedShape = adapter.expectedShapeName
-        report(`Embedding response missing ${expectedShape} (got ${JSON.stringify(data).slice(0, 200)})`)
-        console.warn(`[Embedding] ${lastEmbeddingError}`)
+        reportError(`Embedding response missing ${expectedShape} (got ${JSON.stringify(data).slice(0, 200)})`)
         return null
       }
 
@@ -270,30 +273,26 @@ export async function fetchEmbedding(
         // Out of retries on a SERVER-oversize error — give the user a
         // message that names the smallest size that still failed so
         // they can tune Settings → Embedding accordingly.
-        report(`Endpoint rejected input even at ${current.length} chars — server context smaller than expected. Lower Settings → Embedding → Max Chunk Chars (${bodyText.slice(0, 160)}).`)
-        console.warn(`[Embedding] ${lastEmbeddingError}`)
+        reportError(`Endpoint rejected input even at ${current.length} chars — server context smaller than expected. Lower Settings → Embedding → Max Chunk Chars (${bodyText.slice(0, 160)}).`)
         return null
       }
 
       // Non-oversize definitive failure (auth, rate limit, server down, …).
-      report(`API ${resp.status} ${resp.statusText}${bodyText ? ` — ${bodyText.slice(0, 200)}` : ""} at ${endpoint}`)
-      console.warn(`[Embedding] ${lastEmbeddingError}`)
+      reportError(`API ${resp.status} ${resp.statusText}${bodyText ? ` — ${bodyText.slice(0, 200)}` : ""} at ${endpoint}`)
       return null
     } catch (err) {
-      if (isFetchNetworkError(err)) {
-        report(`Network error reaching ${endpoint}. Check endpoint URL, API key, and connectivity.`)
-      } else {
-        report(toErrorMessage(err))
-      }
-      console.warn(`[Embedding] ${lastEmbeddingError}`)
+      reportError(
+        isFetchNetworkError(err)
+          ? `Network error reaching ${endpoint}. Check endpoint URL, API key, and connectivity.`
+          : toErrorMessage(err),
+      )
       return null
     }
   }
 
   // Exhausted retries (only reachable if every halving round triggered
   // the retry branch and then the loop condition ended).
-  report(`Embedding endpoint rejected every size down to ${current.length} chars — the server's context is smaller than ${current.length * 2}. Lower Settings → Embedding → Max Chunk Chars.`)
-  console.warn(`[Embedding] ${lastEmbeddingError}`)
+  reportError(`Embedding endpoint rejected every size down to ${current.length} chars — the server's context is smaller than ${current.length * 2}. Lower Settings → Embedding → Max Chunk Chars.`)
   return null
 }
 
@@ -398,6 +397,21 @@ async function vectorUpsertChunks(
       embedding: c.embedding.map((v) => Math.fround(v)),
     })),
   })
+}
+
+/** 摘要槽位互相隔离，不参与 Wiki 页的共享指纹索引。 */
+export async function indexCommunitySummary(
+  projectPath: string,
+  pageId: string,
+  title: string,
+  summary: string,
+  cfg: EmbeddingConfig,
+): Promise<void> {
+  const vector = await fetchEmbedding(`${title}\n${summary}`, cfg)
+  if (!vector) throw new Error("Community summary embedding unavailable.")
+  await vectorUpsertChunks(projectPath, pageId, [{
+    chunkIndex: 0, chunkText: summary, headingPath: "", embedding: vector,
+  }])
 }
 
 interface ChunkSearchResult {
@@ -518,6 +532,30 @@ interface EmbedPageRows {
 const EMBEDDING_FETCH_CONCURRENCY = 5
 
 /**
+ * K-5：按归一化 projectPath 串行化 ChunkFingerprintIndex 读-改-写（FIFO）。
+ * 防止同项目并发 embedPage / removePageEmbedding 交错 load→save 导致丢写，
+ * 同时保持跨项目互不阻塞；单任务抛错不影响后续任务且尾部自清理无内存泄漏。
+ */
+const fingerprintIndexQueues = new Map<string, Promise<void>>()
+
+function withFingerprintIndexQueue<T>(projectPath: string, task: () => Promise<T>): Promise<T> {
+  const key = normalizePath(projectPath).replace(/\/+$/, "")
+  const prev = fingerprintIndexQueues.get(key) ?? Promise.resolve()
+  const run = prev.then(task)
+  const settled = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  const tail = settled.finally(() => {
+    if (fingerprintIndexQueues.get(key) === tail) {
+      fingerprintIndexQueues.delete(key)
+    }
+  })
+  fingerprintIndexQueues.set(key, tail)
+  return run
+}
+
+/**
  * 有界并发 map：保持输入顺序。`fn` 只允许做 HTTP 取数，
  * 不得触碰指纹索引/行集等共享可变状态（由调用方串行收尾）。
  */
@@ -568,62 +606,77 @@ async function collectPageChunkRows(
   // content fingerprint already exists in the project's fingerprint index
   // (owned by another page). This prevents the same content, ingested into
   // multiple pages, from creating duplicate vectors that pollute retrieval.
-  const fingerprintIndex = await ChunkFingerprintIndex.load(projectPath)
-  fingerprintIndex.removeByPage(pageId)
+  // K-5: 同项目 ChunkFingerprintIndex 读-改-写经 FIFO 队列串行，避免并发丢写。
+  return withFingerprintIndexQueue(projectPath, async () => {
+    const fingerprintIndex = await ChunkFingerprintIndex.load(projectPath)
+    fingerprintIndex.removeByPage(pageId)
 
-  const rows: ChunkUpsertInput[] = []
-  let failedChunks = 0
-  let dedupedChunks = 0
-  // 单写者阶段 1（串行）：仅剔除已被其他存活页拥有的 chunk（跨页去重）。
-  // 同页重复不在此预占——原串行语义下，先行 chunk 取数失败时后行同文 chunk
-  // 仍会重试；预占会吃掉这次重试机会。页内折叠统一放到阶段 3 串行收尾。
-  // 本阶段不做任何网络 IO，只划分出待取数的候选集。
-  const pending: { chunk: Chunk; fp: string; embedText: string }[] = []
-  for (const chunk of chunks) {
-    const fp = chunkFingerprint(chunk.text)
-    if (fingerprintIndex.has(fp)) {
-      // 已被另一存活页拥有——跳过，不取数。
-      dedupedChunks++
-      continue
+    const rows: ChunkUpsertInput[] = []
+    let failedChunks = 0
+    let dedupedChunks = 0
+    // 单写者阶段 1（串行）：仅剔除已被其他存活页拥有的 chunk（跨页去重）。
+    // 同页重复不在此预占——原串行语义下，先行 chunk 取数失败时后行同文 chunk
+    // 仍会重试；预占会吃掉这次重试机会。页内折叠统一放到阶段 3 串行收尾。
+    // 本阶段不做任何网络 IO，只划分出待取数的候选集。
+    const pending: { chunk: Chunk; fp: string; embedText: string }[] = []
+    for (const chunk of chunks) {
+      const fp = chunkFingerprint(chunk.text)
+      if (fingerprintIndex.has(fp)) {
+        // 已被另一存活页拥有——跳过，不取数。
+        dedupedChunks++
+        continue
+      }
+      pending.push({ chunk, fp, embedText: enrichChunkForEmbedding(title, chunk) })
     }
-    pending.push({ chunk, fp, embedText: enrichChunkForEmbedding(title, chunk) })
-  }
-  // 并行阶段（仅 HTTP）：并发取回向量，不触碰指纹索引、行集与全局错误。
-  // 每个 chunk 的错误归因按下标采集，收尾按原 chunk 序回写最后一条，
-  // 与原串行语义一致（串行时全局错误恒等于最后一次取数的结果；若最后一次
-  // 取数早退未上报，则保持原值不动）。
-  const pendingErrors = new Array<string | null | undefined>(pending.length)
-  const vecs = await mapWithConcurrency(pending, EMBEDDING_FETCH_CONCURRENCY, (t, i) =>
-    fetchEmbedding(t.embedText, cfg, 3, (message) => {
-      pendingErrors[i] = message
-    }),
-  )
-  // 单写者阶段 3（串行）：按原 chunk 顺序组装行集 + 指纹落子。
-  // 页内同文：首个成功者落子，后行同文计 deduped；各自取数失败则各计 failed，
-  // 与原串行（失败不落子、后行重试）完全一致。
-  const addedInPage = new Set<string>()
-  for (let i = 0; i < pending.length; i++) {
-    const vec = vecs[i]
-    const fp = pending[i].fp
-    if (vec && !fingerprintIndex.has(fp) && !addedInPage.has(fp)) {
-      rows.push({
-        chunkIndex: pending[i].chunk.index,
-        chunkText: pending[i].chunk.text,
-        headingPath: pending[i].chunk.headingPath,
-        embedding: vec,
-      })
-      fingerprintIndex.add(fp, pageId)
-      addedInPage.add(fp)
-    } else if (!vec) {
-      failedChunks++
-    } else {
-      dedupedChunks++
+    // 并行阶段（仅 HTTP）：并发取回向量，不触碰指纹索引、行集与全局错误。
+    // 每个 chunk 的错误归因按下标采集，收尾按原 chunk 序优先保留最后一条非 null 错误；
+    // 仅全成功且至少上报一次时清空 lastEmbeddingError（全部早退未上报时保持原值不动）。
+    const pendingErrors = new Array<string | null | undefined>(pending.length)
+    const vecs = await mapWithConcurrency(pending, EMBEDDING_FETCH_CONCURRENCY, (t, i) =>
+      fetchEmbedding(t.embedText, cfg, 3, (message) => {
+        pendingErrors[i] = message
+      }),
+    )
+    // 单写者阶段 3（串行）：按原 chunk 顺序组装行集 + 指纹落子。
+    // 页内同文：每个指纹只保留首条成功行；同文重复取数（先失败后成功或
+    // 先成功后失败）在已有成功行覆盖时计 deduped，仅完全未被覆盖的
+    // 唯一失败仍计 failed。
+    const coveredFingerprints = new Set(pending.flatMap(({ fp }, i) => vecs[i] ? [fp] : []))
+    const addedInPage = new Set<string>()
+    for (let i = 0; i < pending.length; i++) {
+      const vec = vecs[i]
+      const fp = pending[i].fp
+      if (vec && !fingerprintIndex.has(fp) && !addedInPage.has(fp)) {
+        rows.push({
+          chunkIndex: pending[i].chunk.index,
+          chunkText: pending[i].chunk.text,
+          headingPath: pending[i].chunk.headingPath,
+          embedding: vec,
+        })
+        fingerprintIndex.add(fp, pageId)
+        addedInPage.add(fp)
+      } else if (!coveredFingerprints.has(fp)) {
+        failedChunks++
+      } else {
+        dedupedChunks++
+      }
     }
-  }
-  const lastReported = pending.length > 0 ? pendingErrors[pending.length - 1] : undefined
-  if (lastReported !== undefined) lastEmbeddingError = lastReported
-  await fingerprintIndex.save(projectPath)
-  return { rows, failedChunks, dedupedChunks, chunksTotal: chunks.length }
+    let lastFailure: string | undefined
+    let hasReported = false
+    for (let i = 0; i < pendingErrors.length; i++) {
+      const err = pendingErrors[i]
+      if (err === undefined) continue
+      hasReported = true
+      if (err !== null) lastFailure = err
+    }
+    if (lastFailure !== undefined) {
+      lastEmbeddingError = lastFailure
+    } else if (hasReported) {
+      lastEmbeddingError = null
+    }
+    await fingerprintIndex.save(projectPath)
+    return { rows, failedChunks, dedupedChunks, chunksTotal: chunks.length }
+  })
 }
 
 /**
@@ -639,11 +692,15 @@ export async function embedPage(
   title: string,
   content: string,
   cfg: EmbeddingConfig,
+  onFailure?: (error: unknown) => void,
 ): Promise<void> {
   if (!cfg.enabled || !cfg.model) return
 
   const page = await collectPageChunkRows(projectPath, pageId, title, content, cfg)
   if (page.chunksTotal === 0) return
+  if (page.failedChunks > 0) {
+    onFailure?.(new Error(`Embedding failed for ${page.failedChunks} of ${page.chunksTotal} chunks.`))
+  }
 
   if (page.rows.length === 0) {
     console.warn(
@@ -885,9 +942,11 @@ export async function removePageEmbedding(
   // Drop the page's fingerprints (A12) so its freed chunks can re-embed
   // elsewhere; vector deletion frees the slot regardless.
   try {
-    const index = await ChunkFingerprintIndex.load(projectPath)
-    index.removeByPage(pageId)
-    await index.save(projectPath)
+    await withFingerprintIndexQueue(projectPath, async () => {
+      const index = await ChunkFingerprintIndex.load(projectPath)
+      index.removeByPage(pageId)
+      await index.save(projectPath)
+    })
   } catch {
     // non-critical
   }

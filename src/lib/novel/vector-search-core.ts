@@ -1,6 +1,9 @@
-import { readFile } from "@/commands/fs"
+import { listDirectory, readFile } from "@/commands/fs"
 import type { PageSearchResult } from "@/lib/embedding"
 import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
+import { getFileStem } from "@/lib/path-utils"
+import { flattenMdFilesBase, isDraftChapterFile } from "./chapter-utils"
+import { ENTITY_SUBDIRS } from "./entity-subdir-resolver"
 import { sanitizeEntitySlug } from "./graph-adapter"
 import { parseFrontmatter } from "@/lib/frontmatter"
 
@@ -16,7 +19,7 @@ import { parseFrontmatter } from "@/lib/frontmatter"
  *      保持 vector-relevance / contextGaps 不下沉到检索适配层）。
  *   2. perItemGuard（逐条异常守卫）：adapter 单条 throw → 跳过该条；
  *      context 无内层 try → 冒泡外层 catch → 整批 []。默认 false（context 语义）。
- *   3. sanitize / dirs 可注入（默认共用 sanitizeEntitySlug + 6 目录序）—— 两侧当前
+ *   3. sanitize / dirs 可注入（默认共用 sanitizeEntitySlug + 13 目录序）—— 两侧当前
  *      完全一致，参数化只为后续单侧调整时有显式接缝。
  * 命中投影（NovelSearchResult vs {title,snippet,path}）留在各自薄包装里，
  * 投影是纯函数（不抛错），后置映射与原先循环内 push 逐元素等价（顺序守恒）。
@@ -27,9 +30,15 @@ import { parseFrontmatter } from "@/lib/frontmatter"
  * 本模块无既有 mock 覆盖，两侧孪生共用同一份真实实现。
  */
 
-/** probe 候选目录（声明序即优先级）—— 两孪生历史一致，收一为单一常量。 */
+/**
+ * probe 候选目录（声明序即优先级；13 目录 = entities 顶层 + 5 个实体子目录 + chapters + memory + 5 个通用目录）——
+ * 两孪生与 searchWiki 共享单一常量，避免对 entities/<subdir>、chapters 与 memory 失明。
+ */
 export const VECTOR_WIKI_DIRS: readonly string[] = [
   "entities",
+  ...ENTITY_SUBDIRS.map((sub) => `entities/${sub}`),
+  "chapters",
+  "memory",
   "concepts",
   "sources",
   "synthesis",
@@ -103,18 +112,53 @@ export async function runVectorSearchShared(
     const candidates = selectCandidates(vectorResults, limit)
 
     // PERF-NEW-06/PAT-G2 (odyssey-improve): parallelize the per-vr path probe.
-    // 两孪生此前均为串行 `for (dir of dirs) await readFile(...)`（每 vr 最多 7 次
-    // 串行 IPC，N×7 最坏）；现每个 vr 并发 probe 全部 7 个候选路径（6 目录 + 根），
-    // 按 settled 声明序取首个成功项，保留 dirs 优先于根的回退语义。
+    // 两孪生此前均为串行 `for (dir of dirs) await readFile(...)`；现每个 vr 并发
+    // probe 全部候选路径（默认 13 目录 + 根 = 14 候选），按 settled 声明序取首个
+    // 成功项，保留 dirs 优先于根的回退语义。
     const probePath = async (
       tryPath: string,
     ): Promise<{ path: string; content: string } | null> => {
+      if (isDraftChapterFile(tryPath)) return null
       try {
         const content = await readFile(tryPath)
         return { path: tryPath, content }
       } catch {
         return null
       }
+    }
+
+    // R3-M03: 惰性递归扫描 wiki/chapters（经 flattenMdFilesBase，天然支持分卷子目录并过滤草稿文件），
+    // 仅在直接路径探测未命中时触发，且同一次检索内共享缓存，避免 N 次 listDirectory 放大。
+    let chapterFallbackIndexPromise: Promise<Map<string, string>> | null = null
+    const resolveNestedChapterPath = async (safeId: string): Promise<string | null> => {
+      if (!chapterFallbackIndexPromise) {
+        chapterFallbackIndexPromise = (async () => {
+          const index = new Map<string, string>()
+          try {
+            const tree = await listDirectory(`${pp}/wiki/chapters`)
+            const files = flattenMdFilesBase(tree)
+            for (const file of files) {
+              if (isDraftChapterFile(file.name) || isDraftChapterFile(file.path)) continue
+              const stem = getFileStem(file.path)
+              if (stem && !index.has(stem)) {
+                index.set(stem, file.path)
+              }
+              const numericAlias = stem.match(/^chapter-(\d{3,})$/i)?.[1]
+              if (numericAlias && !index.has(numericAlias)) {
+                index.set(numericAlias, file.path)
+              }
+            }
+          } catch {
+            // wiki/chapters 目录不存在或不可读 → 返回空索引，不影响主探测
+          }
+          return index
+        })()
+      }
+      const index = await chapterFallbackIndexPromise
+      return (
+        index.get(safeId) ??
+        (/^\d{3,}$/.test(safeId) ? index.get(`chapter-${safeId}`) ?? null : null)
+      )
     }
 
     // ISS-20260709-036: N 个 vr 间串行改并行（Promise.all 保序回填）。
@@ -133,15 +177,25 @@ export async function runVectorSearchShared(
         // 显式接收的 vrId 参数），不依赖循环变量闭包。
         try {
           const safeId = sanitize(vr.id)
+          if (isDraftChapterFile(`${safeId}.md`)) return null
           const candidatePaths = [
             ...dirs.map((dir) => `${pp}/wiki/${dir}/${safeId}.md`),
+            // 仅对纯数字遗留 page_id（如 "001"/"1000"）额外兼容探测 wiki/chapters/chapter-${safeId}.md
+            ...(/^\d{3,}$/.test(safeId) ? [`${pp}/wiki/chapters/chapter-${safeId}.md`] : []),
             `${pp}/wiki/${safeId}.md`,
-          ]
+          ].filter((p) => !isDraftChapterFile(p))
           const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p)))
           // Priority order: dirs first (in declared order), then root fallback.
-          const hit = settled
+          let hit = settled
             .map((r) => (r.status === "fulfilled" ? r.value : null)) /* v8 ignore start */ /* v8 ignore stop */
             .find((v): v is { path: string; content: string } => v !== null)
+          // R3-M03: 直接探测未命中时，回退查询递归扫描的分卷章节目录 wiki/chapters/<vol>/*.md
+          if (!hit) {
+            const nestedChapterPath = await resolveNestedChapterPath(safeId)
+            if (nestedChapterPath) {
+              hit = (await probePath(nestedChapterPath)) ?? undefined
+            }
+          }
           if (hit) {
             return {
               vr,

@@ -6,10 +6,10 @@ import { create } from "zustand"
 import { normalizePath } from "@/lib/path-utils"
 
 /** Discriminator for the kind of content being imported. */
-export type ImportProgressKind = "chapter" | "outline" | "outline_generation" | "outline_refinement"
+export type ImportProgressKind = "chapter" | "outline" | "outline_generation" | "outline_refinement" | "batch_extraction"
 
 /** Lifecycle states an import task can occupy. */
-export type ImportProgressStatus = "running" | "done" | "cancelled" | "error"
+export type ImportProgressStatus = "running" | "done" | "cancelled" | "error" | "pending" | "skipped"
 
 /**
  * A single import operation being tracked. Carries enough metadata for
@@ -112,8 +112,15 @@ export const useImportProgressStore = create<ImportProgressState>((set, get) => 
 
   cancelTask: (taskId) => {
     const match = get().tasks.find((t) => t.id === taskId)
-    if (!match) return
-    match.abortController?.abort()
+    if (!match || match.status !== "running") return
+    // R2-U10: 统一所有带 AbortController 的运行态任务走 cancelling 过渡态 + abort()，
+    // 由实际执行者收尾 finishTask；仅无 controller 的任务直接标 cancelled 并延迟清理。
+    if (match.abortController) {
+      if (match.cancelling) return
+      get().markCancelling(taskId)
+      match.abortController.abort()
+      return
+    }
     get().updateTask(taskId, { status: "cancelled", cancelling: false })
     setTimeout(() => {
       get().clearTask(taskId)

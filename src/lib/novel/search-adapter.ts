@@ -134,6 +134,9 @@ type RankedNovelSearchResult = NovelSearchResult & {
 export async function novelMixedSearch(params: NovelSearchParams): Promise<NovelSearchResult[]> {
   const pp = normalizePath(params.projectPath)
   const topK = params.topK ?? 5
+  const authoritativeOnly = params.authoritativeOnly === true
+  // authoritativeOnly 开启时对多源分支过采样前置过滤，防止非权威结果占满单源 topK 挤出权威命中。
+  const branchLimit = authoritativeOnly ? Math.max(topK * 3, 15) : topK
   const results: RankedNovelSearchResult[] = []
 
   // R0-c：链头 span（分词）——复用 BM25 同一分词器（tokenizeForBm25），观测不改变分词。
@@ -142,7 +145,7 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
   const promises: Promise<void>[] = []
 
   if (params.includeKeyword !== false) {
-    const pKeyword = runSearchBranch("keyword", searchWiki(pp, params.query)).then(items => {
+    const pKeyword = runSearchBranch("keyword", searchWiki(pp, params.query, { includeVector: false })).then(items => {
       // 54 号设计 ①: BM25 排序增强 (inkos/mem0 吸收)——只改顺序不改召回集,
       // RRF 融合输入不变形; 零分文档保持原序 (rankByBm25 稳定排序)。
       const bm25Order = rankByBm25(
@@ -153,25 +156,27 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
       const ordered = bm25Order
         .map((r) => byPath.get(r.id))
         .filter((item): item is NonNullable<typeof item> => item !== undefined)
-      results.push(...ordered.slice(0, topK).map((item, sourceRank) => ({
+      const mapped: NovelSearchResult[] = ordered.map((item) => ({
         type: "keyword" as const,
         path: item.path,
         title: item.title,
         snippet: item.snippet ?? "",
         relevance: item.score ?? 0,
-        sourceRank,
-      })))
+      }))
+      const scoped = authoritativeOnly ? filterAuthoritative(mapped) : mapped
+      results.push(...rankSourceResults(scoped.slice(0, topK)))
     })
     promises.push(pKeyword)
   }
 
   if (params.includeVector) {
-    const pVector = runSearchBranch("vector", runVectorSearch(pp, params.query, topK, params.embCfg)).then(items => {
-      if (items.length === 0) {
+    const pVector = runSearchBranch("vector", runVectorSearch(pp, params.query, branchLimit, params.embCfg)).then(items => {
+      const scopedVector = authoritativeOnly ? filterAuthoritative(items).slice(0, topK) : items
+      if (scopedVector.length === 0) {
         // 54 号设计 ①: 向量失败→BM25 降级——keyword 分支未启用时补跑
         // searchWiki+BM25 作为 lexical 兜底 (标记 keyword, 不新增 type)。
         if (params.includeKeyword === false) {
-          return runSearchBranch("keyword", searchWiki(pp, params.query)).then((kwItems) => {
+          return runSearchBranch("keyword", searchWiki(pp, params.query, { includeVector: false })).then((kwItems) => {
             const bm25Order = rankByBm25(
               params.query,
               kwItems.map((item) => ({ id: item.path, text: `${item.title ?? ""} ${item.snippet ?? ""}` })),
@@ -180,26 +185,28 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
             const ordered = bm25Order
               .map((r) => byPath.get(r.id))
               .filter((item): item is NonNullable<typeof item> => item !== undefined)
-            results.push(...ordered.slice(0, topK).map((item, sourceRank) => ({
+            const mapped: NovelSearchResult[] = ordered.map((item) => ({
               type: "keyword" as const,
               path: item.path,
               title: item.title,
               snippet: item.snippet ?? "",
               relevance: item.score ?? 0,
-              sourceRank,
-            })))
+            }))
+            const scopedKw = authoritativeOnly ? filterAuthoritative(mapped) : mapped
+            results.push(...rankSourceResults(scopedKw.slice(0, topK)))
           })
         }
         return
       }
-      results.push(...rankSourceResults(items))
+      results.push(...rankSourceResults(scopedVector))
     })
     promises.push(pVector)
   }
 
   if (params.includeGraph) {
-    const pGraph = runSearchBranch("graph", runGraphSearch(pp, params.query, topK)).then(items => {
-      results.push(...rankSourceResults(items))
+    const pGraph = runSearchBranch("graph", runGraphSearch(pp, params.query, branchLimit)).then(items => {
+      const scoped = authoritativeOnly ? filterAuthoritative(items).slice(0, topK) : items
+      results.push(...rankSourceResults(scoped))
     })
     promises.push(pGraph)
   }
@@ -480,7 +487,8 @@ async function runRecentChapterSearch(
   topK: number,
 ): Promise<NovelSearchResult[]> {
   try {
-    const chapterNumbers = await listSnapshots(pp)
+    // 仅召回正文章快照（过滤负数大纲快照与 0）
+    const chapterNumbers = (await listSnapshots(pp)).filter((n) => n > 0)
     if (chapterNumbers.length === 0) return []
 
     const recentNumbers = chapterNumbers.slice(-topK).reverse()
@@ -610,15 +618,11 @@ export interface HardInjectItem {
  * novelMixedSearch 既有 RRF 代码路径一字不动 (includeCanon:false 走通道 B)。
  * 输出 { hardInject, ranked, gaps, usage } — hy3 RetrievalRouter 形状。
  */
-export interface DualTrackParams {
-  projectPath: string
-  query: string
-  chapterNumber?: number
+export interface DualTrackParams extends Omit<NovelSearchParams, "includeCanon"> {
   /** 主 POV 角色 (缺省 undefined → 不注入过程库投影, canon 仍按无 POV 过滤)。 */
   povCharacter?: string
   /** 意图 (draft/plan/revise/style/lookup) — 前置路由门。 */
   intent?: string
-  topK?: number
   /** 硬注入预算 cap (chars, 缺省 computeContextBudget 口径)。 */
   hardInjectCapChars?: number
   /** E-06 (C-2): trust 过滤开关 (默认 false → 字节级回退现状)。 */
@@ -705,11 +709,17 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
     }
   }
 
-  // 通道 B: 语义检索 (canon 不参与排名 — includeCanon:false)
+  // 通道 B: 语义检索 (canon 不参与排名 — 透传全部检索选项并锁死 includeCanon:false)
+  const {
+    povCharacter: _povCharacter,
+    intent: _intent,
+    hardInjectCapChars: _hardInjectCapChars,
+    trustFilterEnabled: _trustFilterEnabled,
+    trustGrades: _trustGrades,
+    ...searchOptions
+  } = params
   const ranked = await novelMixedSearch({
-    projectPath: params.projectPath,
-    query: params.query,
-    chapterNumber: params.chapterNumber,
+    ...searchOptions,
     topK: params.topK ?? 8,
     includeCanon: false,
   })
@@ -763,6 +773,10 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
     const routed = routeByQueryIntent(params.intent)
     const referenceBudget = 2048
     let refChars = 0
+    // P1-IMP-17 修复（三模型共识 F1）：复用 tokenizeForBm25（零依赖 CJK
+    // bigram + ASCII 词元）替代 split(/\s+/)——中文无空格 query 不再成单巨型 token。
+    // K-4：提至循环外单次分词，避免全库条目 O(N) 重复分词。
+    const tokens = tokensForKbMatch(params.query)
     const cols = (kbRoutingView as { collections?: Record<string, Array<Record<string, unknown>>> }).collections ?? {}
     for (const collection of routed.collections) {
       /* v8 ignore next -- 台账 search-adapter.ts L767：routeByQueryIntent 的 collections 按 K-11 安全不变量恒不含 tech（见 search-strategy.ts L147 注释），此处是出口兜底断言 */
@@ -774,9 +788,6 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
         const domain = Array.isArray(entry["domain"]) ? (entry["domain"] as string[]).join(" ") : ""
         const hay = `${name} ${title} ${domain}`.toLowerCase()
         // 关键词命中：query 任一 ≥2 字 token 出现在 name/title/domain
-        // P1-IMP-17 修复（三模型共识 F1）：复用 tokenizeForBm25（零依赖 CJK
-        // bigram + ASCII 词元）替代 split(/\s+/)——中文无空格 query 不再成单巨型 token。
-        const tokens = tokensForKbMatch(params.query)
         const hit = tokens.some((t) => hay.includes(t))
         if (!hit) continue
         const summary = entry["purpose"] ? String(entry["purpose"]).slice(0, 200) : undefined

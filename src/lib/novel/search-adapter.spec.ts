@@ -565,8 +565,8 @@ describe("novelMixedSearch", () => {
     // both matched windows share `${pp}/wiki/canon.md` → deduplicated into one entry
     expect(canon).toHaveLength(1)
     expect(canon[0]!.snippet).toContain("行2 关键词")
-    // both windows share the canon path → contributions fuse: 0.9/61 + 0.9/62
-    expect(canon[0]!.relevance).toBeCloseTo(0.9 / 61 + 0.9 / 62, 5)
+    // R2-M08: 同源（canon）同路径取最高 RRF 贡献不叠加：0.9/61
+    expect(canon[0]!.relevance).toBeCloseTo(0.9 / 61, 5)
   })
 
   it("canon branch: returns empty when canon.md empty or missing", async () => {
@@ -648,13 +648,12 @@ describe("novelMixedSearch", () => {
       includeCanon: false,
     })
     const jia = results.find((r) => r.path === `${pp}/wiki/entities/甲.md`)!
-    // kw rank0 (1/61) + kw rank1 (1/62) + vector rank0 (1/61)
-    expect(jia.relevance).toBeCloseTo(2 / 61 + 1 / 62, 5)
+    // R2-M08: 单源同路径（keyword rank0/rank1）取最高 1/61，跨源叠加 vector rank0 (1/61) → 2/61
+    expect(jia.relevance).toBeCloseTo(2 / 61, 5)
   })
 
   it("dedup result sort falls through equal fusion scores to title order", async () => {
-    // two distinct paths each fused from 2 keyword entries → equal fusion 2/61,
-    // equal relevance, equal rank, equal type priority → title localeCompare
+    // alpha 与 beta 各自在同源内取最高 RRF：alpha rank0 (1/61) 排在 beta rank2 (1/63) 前
     mocks.searchWiki.mockResolvedValue([
       keywordItem({ path: `${pp}/wiki/entities/alpha.md`, title: "alpha", score: 0.9 }),
       keywordItem({ path: `${pp}/wiki/entities/alpha.md`, title: "alpha", score: 0.8 }),
@@ -668,7 +667,6 @@ describe("novelMixedSearch", () => {
   })
 
   it("dedup result sort tie-breaks on bestRelevance then bestRank then type priority", async () => {
-    // path A: bestRelevance 0.9 (no replace) vs path B: bestRelevance 1.0
     mocks.searchWiki.mockResolvedValue([
       keywordItem({ path: `${pp}/wiki/entities/甲.md`, title: "甲", score: 0.9 }),
       keywordItem({ path: `${pp}/wiki/entities/甲.md`, title: "甲", score: 0.8 }),
@@ -677,8 +675,6 @@ describe("novelMixedSearch", () => {
       keywordItem({ path: `${pp}/wiki/entities/丙.md`, title: "丙", score: 0.6 }),
     ])
     const results = await novelMixedSearch({ projectPath: pp, query: "q", topK: 5 })
-    // tie-breakers sort ascending: 乙 has bestRelevance 1.0 (replaced rep),
-    // 甲 0.9 → 甲 first; 丙 lower fusion score last
     expect(results[0]!.title).toBe("甲")
     expect(results[1]!.title).toBe("乙")
     expect(results[2]!.title).toBe("丙")
@@ -1698,5 +1694,153 @@ describe("分支覆盖补齐 portals（20261105-ralph-coverage-100 / search-adap
     } finally {
       if (kbView.collections && origCraft) kbView.collections["craft"] = origCraft
     }
+  })
+})
+
+describe("K-4 冗余 Embedding 消除与 retrieveDualTrack 全选项透传", () => {
+  it("novelMixedSearch keyword 主路径显式传 { includeVector: false } 给 searchWiki", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    await novelMixedSearch({ projectPath: pp, query: "剑", includeVector: true })
+    expect(mocks.searchWiki).toHaveBeenCalledWith(pp, "剑", { includeVector: false })
+  })
+
+  it("novelMixedSearch 向量零命中降级 BM25 兜底也显式传 { includeVector: false }", async () => {
+    mocks.useWikiStoreGetState.mockReturnValue({
+      embeddingConfig: { enabled: true, model: "bge" } as EmbeddingConfig,
+    })
+    mocks.searchByEmbedding.mockResolvedValue([])
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    await novelMixedSearch({
+      projectPath: pp,
+      query: "剑",
+      includeKeyword: false,
+      includeVector: true,
+    })
+    expect(mocks.searchWiki).toHaveBeenCalledWith(pp, "剑", { includeVector: false })
+  })
+
+  it("retrieveDualTrack 透传全检索选项（含 embCfg/includeVector/includeGraph/includeRecentChapters/authoritativeOnly/recipe/anchors/task）且锁死不召回 canon", async () => {
+    const customEmb: EmbeddingConfig = {
+      enabled: true,
+      endpoint: "http://127.0.0.1:9999/v1/embeddings",
+      apiKey: "k",
+      model: "custom-emb",
+    }
+    mocks.searchWiki.mockResolvedValue([
+      keywordItem({ path: `${pp}/wiki/entities/剑.md`, title: "剑" }),
+      keywordItem({ path: `${pp}/wiki/sources/非权威.md`, title: "非权威" }),
+    ])
+    mocks.searchByEmbedding.mockResolvedValue([{ id: "灵泉", score: 0.9 }])
+    mocks.buildRetrievalGraph.mockResolvedValue({
+      nodes: new Map([
+        [
+          "n1",
+          {
+            id: "n1",
+            title: "白砚",
+            type: "character",
+            path: `${pp}/wiki/entities/白砚.md`,
+            sources: [],
+            outLinks: new Set(),
+            inLinks: new Set(),
+            relationEdges: [],
+          },
+        ],
+      ]),
+      dataVersion: 1,
+    })
+    mocks.getRelatedNodes.mockReturnValue([
+      { node: { id: "n2", title: "苏未晞", path: `${pp}/wiki/entities/苏未晞.md` }, relevance: 0.85 },
+    ])
+    mocks.listSnapshots.mockResolvedValue([1])
+    mocks.loadSnapshot.mockResolvedValue({ summary: "第1章摘要", endingHook: "" })
+    mocks.readFile.mockImplementation(async (p: string) => {
+      if (p === `${pp}/wiki/entities/灵泉.md`) return "# 灵泉\n正文"
+      if (p === `${pp}/wiki/entities/苏未晞.md`) return "# 苏未晞\n正文"
+      if (p === `${pp}/wiki/canon.md`) return "正史规则：白砚禁术"
+      throw new Error("ENOENT")
+    })
+
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "白砚 剑",
+      task: "白砚查验青锋剑",
+      chapterNumber: 2,
+      topK: 10,
+      authoritativeOnly: true,
+      includeKeyword: true,
+      includeVector: true,
+      includeGraph: true,
+      includeRecentChapters: true,
+      embCfg: customEmb,
+      recipe: "diverse",
+      anchors: ["白砚"],
+      // 运行时即使强塞 includeCanon: true 也必须被锁死为 false
+      ...({ includeCanon: true } as Record<string, unknown>),
+    })
+
+    expect(mocks.searchByEmbedding).toHaveBeenCalledWith(pp, "白砚 剑", customEmb, expect.any(Number))
+    expect(res.ranked.some((r) => r.type === "vector")).toBe(true)
+    expect(res.ranked.some((r) => r.type === "graph")).toBe(true)
+    expect(res.ranked.some((r) => r.type === "recent_chapter")).toBe(true)
+    expect(res.ranked.some((r) => r.path.includes("/wiki/sources/"))).toBe(false)
+    expect(res.ranked.some((r) => r.type === "canon")).toBe(false)
+    expect(mocks.readFile).not.toHaveBeenCalledWith(`${pp}/wiki/canon.md`)
+  })
+
+  it("retrieveDualTrack 启用 intent 时 tokensForKbMatch 仅在循环外调用 1 次", async () => {
+    const strat = await import("./search-strategy")
+    const spy = vi.spyOn(strat, "tokensForKbMatch")
+    try {
+      mocks.searchWiki.mockResolvedValue([keywordItem()])
+      await retrieveDualTrack({
+        projectPath: pp,
+        query: "冲突节奏与人物对话技巧",
+        intent: "draft",
+      })
+      expect(spy).toHaveBeenCalledTimes(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("R2-M08: authoritativeOnly 前置过滤防止前排非权威条目挤出后端权威条目（保 span 契约）", async () => {
+    mocks.searchWiki.mockResolvedValue([
+      keywordItem({ path: `${pp}/wiki/sources/s1.md`, title: "s1", score: 1.0 }),
+      keywordItem({ path: `${pp}/wiki/sources/s2.md`, title: "s2", score: 0.9 }),
+      keywordItem({ path: `${pp}/wiki/sources/s3.md`, title: "s3", score: 0.8 }),
+      keywordItem({ path: `${pp}/wiki/sources/s4.md`, title: "s4", score: 0.7 }),
+      keywordItem({ path: `${pp}/wiki/entities/白砚.md`, title: "白砚", score: 0.6 }),
+    ])
+    const collector = createRetrievalSpanCollector(() => "2026-09-17T00:00:00.000Z")
+    const results = await novelMixedSearch({
+      projectPath: pp,
+      query: "q",
+      topK: 2,
+      authoritativeOnly: true,
+      spans: collector,
+    })
+    expect(results).toHaveLength(1)
+    expect(results[0]!.path).toBe(`${pp}/wiki/entities/白砚.md`)
+    expect(collector.spans.map((s) => s.stage)).toEqual([...RETRIEVAL_SPAN_STAGES])
+  })
+
+  it("R2-M09: recent_chapter 过滤负数大纲快照与 0，仅召回 chapterNumber > 0", async () => {
+    mocks.listSnapshots.mockResolvedValue([-12, -1, 0, 2])
+    mocks.loadSnapshot.mockImplementation(async (_p: string, num: number) => ({
+      summary: `第${num}章摘要`,
+      endingHook: "",
+    }))
+    const results = await novelMixedSearch({
+      projectPath: pp,
+      query: "q",
+      topK: 5,
+      includeKeyword: false,
+      includeRecentChapters: true,
+    })
+    expect(results).toHaveLength(1)
+    expect(results[0]!.title).toBe("第2章")
+    expect(mocks.loadSnapshot).toHaveBeenCalledTimes(1)
+    expect(mocks.loadSnapshot).toHaveBeenCalledWith(pp, 2)
   })
 })

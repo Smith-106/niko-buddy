@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { createHash } from "node:crypto"
+import type { IngestResult } from "./chapter-ingest"
+import { normalizeChapterSnapshot } from "./chapter-snapshot-normalize"
+import { getNextChapterNumber, invalidateChapterCache } from "./chapter-utils"
 
 const fsMocks = vi.hoisted(() => ({
   createDirectory: vi.fn(),
@@ -6,7 +10,10 @@ const fsMocks = vi.hoisted(() => ({
   listDirectory: vi.fn(),
   readFile: vi.fn(),
   writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
 }))
+
+
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
@@ -17,6 +24,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
       listDirectory: fsMocks.listDirectory,
       readFile: fsMocks.readFile,
       writeFile: fsMocks.writeFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
     
   }
 })
@@ -29,9 +37,48 @@ import {
   extractImportedChapterNumber,
   importChapterFiles,
   importChapterFolder,
+  importWholeTxtNovel,
+  previewWholeTxtChapters,
   runImportedChapterMemoryExtraction,
   sortChapterImportCandidates,
 } from "./chapter-import"
+
+const IMPORT_PROJECT = "E:/Novel"
+const IMPORT_SYNC = "sync_snapshot_to_memory"
+
+function importedMemoryFixture(chapterNumber: number, path: string) {
+  const index = String(chapterNumber).padStart(3, "0")
+  const body = `Chapter ${chapterNumber} test body.`
+  const historyPath = `${IMPORT_PROJECT}/.novel/snapshots/history/${index}/extraction.snapshot.json`
+  const currentPath = `${IMPORT_PROJECT}/.novel/snapshots/${index}.snapshot.json`
+  const source = `---
+type: chapter
+chapter_number: ${chapterNumber}
+chapter_status: final
+---
+${body}`
+  const hash = (text: string) => createHash("sha256").update(text, "utf8").digest("hex")
+  const extraction = { chapterNumber, snapshotId: `chapter-${chapterNumber}-r1`, revision: 1, isHistorical: false }
+  const projected = { ...extraction, snapshotId: `chapter-${chapterNumber}-r2`, revision: 2, supersedes: extraction.snapshotId }
+  const archive = JSON.stringify({ ...extraction, isHistorical: true }, null, 2)
+  const current = JSON.stringify(projected, null, 2)
+  const ledgerPath = `${IMPORT_PROJECT}/.novel/projection-status.json`
+  const ledger = { schemaVersion: "2", chapters: { [String(chapterNumber)]: { [IMPORT_SYNC]: { projection: IMPORT_SYNC, category: "fold_rebuildable", status: "committed", updated_at: "2026-01-01T00:00:00Z", last_error: "" } } } }
+  const files = new Map([[path, source], [historyPath, archive], [currentPath, current], [ledgerPath, JSON.stringify(ledger)]])
+  const canonOutcome = { status: "skipped", reason: "no_facts" } as const
+  const result: IngestResult = {
+    snapshot: normalizeChapterSnapshot(extraction),
+    receipt: {
+      readPath: path, chapterNumber, contentSha256: hash(source), bodySha256: hash(body),
+      snapshotIdAtExtractionCommit: extraction.snapshotId, snapshotRevisionAtExtractionCommit: extraction.revision,
+      snapshotJsonSha256AtExtractionCommit: hash(JSON.stringify(extraction, null, 2)), canonOutcome,
+    },
+    projectionReceipt: { extractionHistoryPath: historyPath, snapshotId: projected.snapshotId, revision: projected.revision, snapshotJsonSha256: hash(current) },
+    canonOutcome, ledgerSaveFailed: false, factsStoreFailed: false, failedProjections: [],
+    pendingProjections: [], committedProjections: [IMPORT_SYNC],
+  }
+  return { result, files }
+}
 
 describe("chapter import", () => {
   beforeEach(() => {
@@ -162,21 +209,29 @@ describe("chapter import", () => {
 
   it("extracts imported chapter memories one by one and stops after cancellation", async () => {
     const abortController = new AbortController()
+    const firstPath = `${IMPORT_PROJECT}/wiki/chapters/chapter-001.md`
+    const { files, result: ingestResult } = importedMemoryFixture(1, firstPath)
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      const found = files.get(path)
+      if (found === undefined) throw new Error(`ENOENT: ${path}`)
+      return found
+    })
     const ingestChapter = vi.fn(async () => {
       abortController.abort()
-      return { snapshot: { chapterNumber: 1 } }
+      return ingestResult
     })
     const onProgress = vi.fn()
 
     const result = await runImportedChapterMemoryExtraction({
       projectPath: "E:/Novel",
-      chapterPaths: ["E:/Novel/wiki/chapters/chapter-001.md", "E:/Novel/wiki/chapters/chapter-002.md"],
+      chapterPaths: [firstPath, `${IMPORT_PROJECT}/wiki/chapters/chapter-002.md`],
       signal: abortController.signal,
       ingestChapter,
       onProgress,
     })
 
     expect(ingestChapter).toHaveBeenCalledTimes(1)
+    expect(ingestChapter).toHaveBeenCalledWith(IMPORT_PROJECT, firstPath, undefined, abortController.signal, expect.any(Object))
     expect(result.cancelled).toBe(true)
     expect(result.completed).toBe(1)
     expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ completed: 0, total: 2 }))
@@ -331,7 +386,7 @@ describe("runImportedChapterMemoryExtraction failure paths", () => {
     const result = await runImportedChapterMemoryExtraction({
       projectPath: "E:/Novel",
       chapterPaths: ["E:/Novel/wiki/chapters/chapter-001.md"],
-      ingestChapter: vi.fn(async () => ({ snapshot: null, failReason: "no_llm" })),
+      ingestChapter: vi.fn(async (): Promise<IngestResult> => ({ snapshot: null, failReason: "no_llm" } as IngestResult)),
     })
     expect(result).toMatchObject({ completed: 0, failed: 1, cancelled: false })
     expect(result.errors[0]).toContain("no_llm")
@@ -344,6 +399,42 @@ describe("runImportedChapterMemoryExtraction failure paths", () => {
       ingestChapter: vi.fn(async () => ({ snapshot: null })),
     })
     expect(result.errors[0]).toContain("提取失败")
+  })
+
+  it("pending/partial 未核验 → 计为 pending/partial，不误报失败", async () => {
+    const pending = importedMemoryFixture(1, `${IMPORT_PROJECT}/wiki/chapters/a.md`)
+    const partial = importedMemoryFixture(2, `${IMPORT_PROJECT}/wiki/chapters/b.md`)
+    const allFiles = new Map([...pending.files, ...partial.files])
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      const found = allFiles.get(path)
+      if (found === undefined) throw new Error(`ENOENT: ${path}`)
+      return found
+    })
+    const ingestChapter = vi.fn<() => Promise<IngestResult>>()
+      .mockResolvedValueOnce({ ...pending.result, pendingProjections: ["community_summary"] })
+      .mockResolvedValueOnce({ ...partial.result, failedProjections: ["graph_entity_pages"] })
+    const result = await runImportedChapterMemoryExtraction({
+      projectPath: IMPORT_PROJECT,
+      chapterPaths: [`${IMPORT_PROJECT}/wiki/chapters/a.md`, `${IMPORT_PROJECT}/wiki/chapters/b.md`],
+      ingestChapter,
+    })
+    expect(result).toMatchObject({ completed: 0, pending: 1, partial: 1, failed: 0, cancelled: false, errors: [] })
+  })
+
+  it("ingest 返回 failReason cancelled + 已 abort → 不记失败且不再启动下一章", async () => {
+    const abortController = new AbortController()
+    const ingestChapter = vi.fn(async (): Promise<IngestResult> => {
+      abortController.abort()
+      return { snapshot: null, failReason: "cancelled" } as IngestResult
+    })
+    const result = await runImportedChapterMemoryExtraction({
+      projectPath: "E:/Novel",
+      chapterPaths: ["E:/Novel/wiki/chapters/a.md", "E:/Novel/wiki/chapters/b.md"],
+      signal: abortController.signal,
+      ingestChapter,
+    })
+    expect(ingestChapter).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ completed: 0, pending: 0, partial: 0, failed: 0, cancelled: true, errors: [] })
   })
 
   it("records thrown Error and non-Error failures", async () => {
@@ -437,5 +528,160 @@ describe("导入即副本幂等：探测/读盘失败时降级（不误判为已
     expect(imported[0].path).toBe("E:/Novel/wiki/chapters/chapter-001-前言-2.md")
     expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
     expect(String(fsMocks.writeFile.mock.calls[0][1])).toContain("正文内容")
+  })
+})
+
+describe("P1-03 整本 TXT 拆章预览与导入（previewWholeTxtChapters / importWholeTxtNovel）", () => {
+  const sampleBook = [
+    "\uFEFF第一章：雾起长街",
+    "林深推开门。",
+    "",
+    "第二章 暗潮",
+    "雨声渐急。",
+    "",
+    "第3章 破晓",
+    "东方泛白。",
+  ].join("\r\n")
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.listDirectory.mockResolvedValue([])
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+  })
+
+  it("previewWholeTxtChapters 纯读零写盘，统计总字数并提示重复章号告警", async () => {
+    const dupBook = "第1章 开局\n正文甲\n\n第1章 重复章\n正文乙"
+    const preview = await previewWholeTxtChapters("E:/books/dup.txt", { rawText: dupBook })
+
+    expect(preview.chapters).toHaveLength(2)
+    expect(preview.totalWords).toBe("正文甲".length + "正文乙".length)
+    expect(preview.warnings.some((w) => w.includes("重复章号") && w.includes("1"))).toBe(true)
+    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(fsMocks.createDirectory).not.toHaveBeenCalled()
+  })
+
+  it("importWholeTxtNovel 默认 auto-offset 顺延冲突章号，走 writeFileAtomic 且绝不自动入库", async () => {
+    // 既有第 1、2 章存在 → 导入书的第 1、2 章顺延为 4、5（第 3 章无冲突保留为 3，或按空闲位分配）
+    fsMocks.listDirectory.mockResolvedValue([
+      { name: "chapter-001.md", path: "E:/Novel/wiki/chapters/chapter-001.md", is_dir: false },
+      { name: "chapter-002.md", path: "E:/Novel/wiki/chapters/chapter-002.md", is_dir: false },
+    ])
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("chapter-001.md")) return "---\nchapter_number: 1\nchapter_status: final\n---\n旧一"
+      if (p.endsWith("chapter-002.md")) return "---\nchapter_number: 2\nchapter_status: final\n---\n旧二"
+      return sampleBook
+    })
+    const onProgress = vi.fn()
+
+    const result = await importWholeTxtNovel("E:/Novel", "E:/books/whole.txt", {
+      finalForMemoryExtraction: false,
+      onProgress,
+    })
+
+    expect(result.detectedCount).toBe(3)
+    expect(result.skippedCount).toBe(0)
+    // 既有 1/2 占坑 → 原 1→3、原 2→4，顺延后 3 也被占 → 原 3→5（共 3 章重映射）
+    expect(result.remappedCount).toBe(3)
+    expect(result.imported.map((c) => c.chapterNumber)).toEqual([3, 4, 5])
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(3)
+    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(String(fsMocks.writeFileAtomic.mock.calls[0]![1])).toContain("chapter_status: draft")
+    expect(String(fsMocks.writeFileAtomic.mock.calls[0]![1])).toContain("import_source_fingerprint:")
+    expect(onProgress).toHaveBeenCalledWith(3, 3)
+
+    // 局部冲突场景：既有 1/2，导入第 1 章与第 5 章 → 仅第 1 章顺延至 3，第 5 章保持原号
+    const partial = await importWholeTxtNovel("E:/Novel", "E:/books/partial.txt", {
+      rawText: "第1章 冲突\n正文甲\n\n第5章 保留\n正文乙",
+    })
+    expect(partial.imported.map((c) => c.chapterNumber)).toEqual([3, 5])
+    expect(partial.remappedCount).toBe(1)
+  })
+
+  it("importWholeTxtNovel 支持 append-after-max / keep-detected / startChapterNumber / finalForMemoryExtraction", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      { name: "chapter-001.md", path: "E:/Novel/wiki/chapters/chapter-001.md", is_dir: false },
+      { name: "chapter-002.md", path: "E:/Novel/wiki/chapters/chapter-002.md", is_dir: false },
+    ])
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("chapter-001.md")) return "---\nchapter_number: 1\n---\n旧一"
+      if (p.endsWith("chapter-002.md")) return "---\nchapter_number: 2\n---\n旧二"
+      return ""
+    })
+
+    const appended = await importWholeTxtNovel("E:/Novel", "E:/books/whole.txt", {
+      rawText: sampleBook,
+      conflictStrategy: "append-after-max",
+      finalForMemoryExtraction: true,
+    })
+    expect(appended.imported.map((c) => c.chapterNumber)).toEqual([3, 4, 5])
+    expect(appended.remappedCount).toBe(3)
+    expect(String(fsMocks.writeFileAtomic.mock.calls[0]![1])).toContain("chapter_status: final")
+
+    fsMocks.writeFileAtomic.mockClear()
+    const kept = await importWholeTxtNovel("E:/Novel", "E:/books/whole.txt", {
+      rawText: sampleBook,
+      conflictStrategy: "keep-detected",
+    })
+    expect(kept.skippedCount).toBe(2)
+    expect(kept.imported.map((c) => c.chapterNumber)).toEqual([3])
+    expect(kept.warnings.some((w) => w.includes("跳过冲突章号"))).toBe(true)
+
+    fsMocks.writeFileAtomic.mockClear()
+    const started = await importWholeTxtNovel("E:/Novel", "E:/books/whole.txt", {
+      rawText: sampleBook,
+      startChapterNumber: 10,
+    })
+    expect(started.imported.map((c) => c.chapterNumber)).toEqual([10, 11, 12])
+  })
+
+  it("importWholeTxtNovel 响应 AbortSignal 中途取消", async () => {
+    const controller = new AbortController()
+    fsMocks.writeFileAtomic.mockImplementationOnce(async () => {
+      controller.abort()
+    })
+
+    const result = await importWholeTxtNovel("E:/Novel", "E:/books/whole.txt", {
+      rawText: sampleBook,
+      signal: controller.signal,
+    })
+
+    expect(result.imported).toHaveLength(1)
+    expect(result.warnings).toContain("整本导入已取消")
+  })
+
+  it("R3-3B-MAINT-001: importWholeTxtNovel 成功落盘章节后主动失效 chapter cache，避免程序化调用读到过期章号", async () => {
+    invalidateChapterCache("E:/Novel")
+    let diskChapters = [
+      { name: "chapter-001.md", path: "E:/Novel/wiki/chapters/chapter-001.md", is_dir: false },
+    ]
+    fsMocks.listDirectory.mockImplementation(async () => diskChapters)
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("chapter-001.md")) return "---\nchapter_number: 1\n---\n旧一"
+      if (p.endsWith("chapter-002-新章.md")) return "---\nchapter_number: 2\n---\n新正文"
+      return ""
+    })
+    fsMocks.writeFileAtomic.mockImplementation(async (p: string) => {
+      const name = p.split("/").pop() ?? "chapter-002.md"
+      diskChapters = [...diskChapters, { name, path: p, is_dir: false }]
+    })
+
+    // 首次读取写入 chapter cache（当前最大章号 1 → 下一章 2）
+    expect(await getNextChapterNumber("E:/Novel")).toBe(2)
+    expect(fsMocks.listDirectory).toHaveBeenCalledTimes(1)
+    // 命中缓存不再触发 listDirectory
+    expect(await getNextChapterNumber("E:/Novel")).toBe(2)
+    expect(fsMocks.listDirectory).toHaveBeenCalledTimes(1)
+
+    // 导入新章 → 应自动调用 invalidateChapterCache
+    const res = await importWholeTxtNovel("E:/Novel", "E:/books/one.txt", {
+      rawText: "第2章 新章\n新正文",
+    })
+    expect(res.imported).toHaveLength(1)
+
+    // 导入后再次查询章节号：因缓存已失效，重新枚举并返回 3（而非过期缓存值 2）
+    expect(await getNextChapterNumber("E:/Novel")).toBe(3)
   })
 })

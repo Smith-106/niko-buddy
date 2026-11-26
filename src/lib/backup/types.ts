@@ -84,3 +84,25 @@ export interface BackupProgressPayload {
 
 /** 进度回调 */
 export type BackupProgressCallback = (payload: BackupProgressPayload) => void
+
+/** 项目备份范围盘点（只读，8 类项目内容，对齐 v2 全量书稿备份范围）。 */
+export interface ProjectBackupScopeInventory {
+  /** 正文与章节（QM/chapters 或 wiki/chapters） */
+  chapters: number
+  /** 大纲文件（QM/outlines 或 wiki/outlines） */
+  outlines: number
+  /** 设定与词条（QM/wiki 下除 chapters/outlines 外的其余文件） */
+  settings: number
+  /** 历史快照（.novel/snapshots/） */
+  snapshots: number
+  /** 待采纳草稿箱（.qm-drafts/） */
+  qmDrafts: number
+  /** 会话状态（.novel/status.json，0 或 1） */
+  status: number
+  /** 事实库（.niko-buddy/lancedb/） */
+  canonLancedb: number
+  /** 书魂与规范文档（顶层 soul.md / schema.md / purpose.md） */
+  rootDocs: number
+  /** 解析到的知识目录根（QM 优先于 wiki） */
+  knowledgeRoot: "QM" | "wiki" | null
+}

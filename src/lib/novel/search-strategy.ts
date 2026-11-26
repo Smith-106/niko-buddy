@@ -18,6 +18,7 @@ import { SEARCH_RECIPE_IDS, isSearchRecipeId } from "@/stores/wiki-store"
 import type { SearchRecipeId } from "@/stores/wiki-store"
 import { logger } from "@/lib/utils"
 import { isBareChapterLabel, isRichChapterTitle, parseChapterOrdinal } from "./chapter-typography"
+import { isDraftChapterFile } from "./chapter-utils"
 export { SEARCH_RECIPE_IDS, isSearchRecipeId }
 export type { SearchRecipeId }
 
@@ -26,17 +27,21 @@ export type { SearchRecipeId }
 // ============================================================================
 
 export function isAuthoritativeGenerationPath(path: string): boolean {
-  return /\/wiki\/(entities|concepts|memory|chapters)\//.test(path)
-    || /\/wiki\/canon\.md$/.test(path)
-    || /\/\.novel\/snapshots\//.test(path)
+  const normalized = path.replace(/\\/g, "/")
+  if (isDraftChapterFile(normalized)) return false
+  return /\/wiki\/(entities|concepts|memory|chapters)\//.test(normalized)
+    || /\/wiki\/canon\.md$/.test(normalized)
+    || /\/\.novel\/snapshots\//.test(normalized)
 }
 
 export function isHistoricalProjectionSnippet(path: string, snippet: string): boolean {
-  return /\/history\//.test(path) || /is_historical:\s*true/i.test(snippet)
+  const normalized = path.replace(/\\/g, "/")
+  return /\/history\//.test(normalized) || /is_historical:\s*true/i.test(snippet)
 }
 
 export function filterAuthoritative(items: NovelSearchResult[]): NovelSearchResult[] {
   return items.filter((item) => {
+    if (isDraftChapterFile(item.path)) return false
     if (item.type === "canon" || item.type === "recent_chapter") return true
     if (isHistoricalProjectionSnippet(item.path, item.snippet)) return false
     return isAuthoritativeGenerationPath(item.path)

@@ -94,6 +94,21 @@ describe("appendFoldNote", () => {
   it("有旧备注时换行累积", () => {
     expect(appendFoldNote("旧", 3, "回收", "真相揭晓")).toBe("旧\n[第3章回收] 真相揭晓")
   })
+
+  it("M2-07：重复追加完全相同行时按行精确去重（幂等）", () => {
+    const once = appendFoldNote("", 3, "推进", "发现密信")
+    expect(appendFoldNote(once, 3, "推进", "发现密信")).toBe(once)
+    const multi = `${once}\n[第4章推进] 密信破译`
+    expect(appendFoldNote(multi, 3, "推进", "发现密信")).toBe(multi)
+    expect(appendFoldNote(multi, 4, "推进", "密信破译")).toBe(multi)
+  })
+
+  it("M2-07：前缀子串非整行相等时不误去重", () => {
+    const existing = "[第3章推进] 发现密信线索"
+    expect(appendFoldNote(existing, 3, "推进", "发现密信")).toBe(
+      "[第3章推进] 发现密信线索\n[第3章推进] 发现密信",
+    )
+  })
 })
 
 describe("parseCharacterStateChange", () => {
@@ -551,5 +566,22 @@ describe("applyForeshadowingChangesToStore", () => {
     const store = createEmptyForeshadowingStore()
     applyForeshadowingChangesToStore(store, snap({ foreshadowingChanges: ["今天天气不错"] }))
     expect(store.items).toHaveLength(0)
+  })
+
+  it("M2-07：重复 fold 同一推进/回收快照时备注与章次完全幂等（不产生重复备注行）", () => {
+    const store = createEmptyForeshadowingStore()
+    applyForeshadowingChangesToStore(store, snap({ chapterNumber: 2, foreshadowingChanges: ["新增：灰门"] }))
+    const advanceSnap = snap({ chapterNumber: 3, foreshadowingChanges: ["推进：灰门-守卫加强"] })
+    applyForeshadowingChangesToStore(store, advanceSnap)
+    applyForeshadowingChangesToStore(store, advanceSnap)
+    expect(store.items[0].advancedChapters).toEqual([3])
+    expect(store.items[0].notes).toBe("[第3章推进] 守卫加强")
+
+    const resolveSnap = snap({ chapterNumber: 5, foreshadowingChanges: ["回收：灰门-真相揭晓"] })
+    applyForeshadowingChangesToStore(store, resolveSnap)
+    applyForeshadowingChangesToStore(store, resolveSnap)
+    expect(store.items[0].status).toBe("resolved")
+    expect(store.items[0].resolvedChapter).toBe(5)
+    expect(store.items[0].notes).toBe("[第3章推进] 守卫加强\n[第5章回收] 真相揭晓")
   })
 })

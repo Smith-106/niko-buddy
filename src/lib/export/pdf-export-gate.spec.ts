@@ -56,11 +56,15 @@ vi.mock("./pdf-client", async (importOriginal) => {
 })
 
 import {
+  appendManuscriptExportHistory,
   assertChapterFinalForExport,
+  deriveVerifiedExportParagraphs,
   exportConfirmedChapterPdf,
   exportHistoryPath,
+  loadManuscriptExportHistory,
   loadPdfExportHistory,
   markExportHistorySourceMissing,
+  type ManuscriptExportHistoryEntry,
 } from "./pdf-export-gate"
 
 const PROJECT = "C:/QM-J0312/gate-book"
@@ -235,6 +239,25 @@ describe("PDF 导出确认门 + 导出历史（门禁 1/5/6/7/9）", () => {
     expect(ipcMocks.exportPdf).not.toHaveBeenCalled()
   })
 
+  it("门禁1-TOCTOU：确认门与导出之间正文不变但 frontmatter 降级为 draft 时阻断", async () => {
+    let calls = 0
+    const downgradedRead = async () => {
+      calls += 1
+      return calls === 1 ? FINAL_MD : DRAFT_MD
+    }
+    await expect(
+      exportConfirmedChapterPdf({
+        projectPath: PROJECT,
+        chapterPath: CHAPTER,
+        chapterTitle: "第1章",
+        target: "exports/chapter-001.pdf",
+        paragraphs: PARAGRAPHS,
+        readChapterContent: downgradedRead,
+      }),
+    ).rejects.toThrow("PDF_EXPORT_NOT_CONFIRMED")
+    expect(ipcMocks.exportPdf).not.toHaveBeenCalled()
+  })
+
   it("数据区目标仍被硬拦（与 pdf-client 同判据）", async () => {
     await fsState.writeFileAtomic(CHAPTER_ABS, FINAL_MD)
     await expect(
@@ -280,6 +303,55 @@ describe("PDF 导出确认门 + 导出历史（门禁 1/5/6/7/9）", () => {
     // 无该章节的标记请求返回 0
     expect(await markExportHistorySourceMissing({ projectPath: PROJECT, chapterPath: "QM/chapters/other.md" })).toBe(0)
   })
+
+  it("安全边界：忽略调用方伪造 paragraphs，恒从已校验磁盘正文派生导出段落", async () => {
+    await fsState.writeFileAtomic(CHAPTER_ABS, FINAL_MD)
+    const { report } = await exportConfirmedChapterPdf({
+      projectPath: PROJECT,
+      chapterPath: CHAPTER,
+      chapterTitle: "第1章",
+      target: "exports/chapter-001.pdf",
+      paragraphs: ["伪造段落一", "伪造段落二", "伪造段落三"],
+      readChapterContent: readChapter,
+    })
+    expect(ipcMocks.exportPdf).toHaveBeenCalledWith(
+      PROJECT,
+      "exports/chapter-001.pdf",
+      "第1章",
+      PARAGRAPHS,
+    )
+    expect(report.paragraphs).toBe(PARAGRAPHS.length)
+    expect(deriveVerifiedExportParagraphs("# 标题\n\n第一段\r\n第二段")).toEqual([
+      "标题",
+      "第一段",
+      "第二段",
+    ])
+  })
+
+  it("已确认章节正文为空时阻断导出且不触碰 IPC", async () => {
+    const emptyFinal = [
+      "---",
+      "type: chapter",
+      "chapter_number: 1",
+      "chapter_status: final",
+      'title: "第1章"',
+      "---",
+      "",
+      "   ",
+    ].join("\n")
+    await fsState.writeFileAtomic(CHAPTER_ABS, emptyFinal)
+    await expect(
+      exportConfirmedChapterPdf({
+        projectPath: PROJECT,
+        chapterPath: CHAPTER,
+        chapterTitle: "第1章",
+        target: "exports/chapter-001.pdf",
+        paragraphs: ["调用方试图塞入的假内容"],
+        readChapterContent: readChapter,
+      }),
+    ).rejects.toThrow("PDF_EXPORT_EMPTY_BODY")
+    expect(ipcMocks.exportPdf).not.toHaveBeenCalled()
+  })
 })
 
 describe("历史文件损坏/空历史", () => {
@@ -293,5 +365,71 @@ describe("历史文件损坏/空历史", () => {
     expect(
       await markExportHistorySourceMissing({ projectPath: PROJECT, chapterPath: "QM/chapters/other.md" }),
     ).toBe(0)
+  })
+})
+
+describe("P1-04 整本导出历史（manuscriptExports）与单章历史共存不互相覆盖", () => {
+  const sampleManuscriptEntry = (id: string, format: ManuscriptExportHistoryEntry["format"] = "TXT"): ManuscriptExportHistoryEntry => ({
+    id,
+    format,
+    path: "D:/exports/novel.txt",
+    chapterCount: 12,
+    draftCount: 1,
+    includeDrafts: true,
+    startChapter: 1,
+    endChapter: 12,
+    success: true,
+    message: "TXT 导出完成：12 章（含 1 章草稿）",
+    exportedAt: "2026-11-26T00:00:00.000Z",
+  })
+
+  it("appendManuscriptExportHistory 追加并返回最新列表，重启可读回，同时保留单章 entries", async () => {
+    await fsState.writeFileAtomic(CHAPTER_ABS, FINAL_MD)
+    await exportConfirmedChapterPdf({
+      projectPath: PROJECT,
+      chapterPath: CHAPTER,
+      chapterTitle: "第1章",
+      target: "exports/chapter-001.pdf",
+      paragraphs: PARAGRAPHS,
+      readChapterContent: readChapter,
+    })
+
+    const after1 = await appendManuscriptExportHistory(PROJECT, sampleManuscriptEntry("m-1", "TXT"))
+    expect(after1).toHaveLength(1)
+    expect(after1[0]?.id).toBe("m-1")
+
+    const after2 = await appendManuscriptExportHistory(PROJECT, sampleManuscriptEntry("m-2", "PDF"))
+    expect(after2.map((e) => e.id)).toEqual(["m-1", "m-2"])
+
+    // 单章历史未被覆盖
+    expect(await loadPdfExportHistory(PROJECT)).toHaveLength(1)
+    // 整本历史可读回
+    expect((await loadManuscriptExportHistory(PROJECT)).map((e) => e.id)).toEqual(["m-1", "m-2"])
+
+    // 单章再次写入与 markExportHistorySourceMissing 也不覆盖 manuscriptExports
+    fsState.fileMap.delete(CHAPTER_ABS)
+    await markExportHistorySourceMissing({ projectPath: PROJECT, chapterPath: CHAPTER })
+    const raw = JSON.parse(await fsState.readFile(exportHistoryPath(PROJECT))) as {
+      version: number
+      entries: unknown[]
+      manuscriptExports: unknown[]
+    }
+    expect(raw.version).toBe(1)
+    expect(raw.entries).toHaveLength(1)
+    expect(raw.manuscriptExports).toHaveLength(2)
+  })
+
+  it("项目外绝对 PDF 路径（如 D:/backups/chapter-001.pdf）允许通过确认门导出", async () => {
+    await fsState.writeFileAtomic(CHAPTER_ABS, FINAL_MD)
+    const { entry } = await exportConfirmedChapterPdf({
+      projectPath: PROJECT,
+      chapterPath: CHAPTER,
+      chapterTitle: "第1章",
+      target: "D:/backups/chapter-001.pdf",
+      paragraphs: PARAGRAPHS,
+      readChapterContent: readChapter,
+    })
+    expect(ipcMocks.exportPdf).toHaveBeenCalledTimes(1)
+    expect(entry.target).toBe("D:/backups/chapter-001.pdf")
   })
 })

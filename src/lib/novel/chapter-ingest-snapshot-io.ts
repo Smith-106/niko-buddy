@@ -27,6 +27,7 @@ import {
   normalizeChapterSnapshot,
 } from "./chapter-snapshot-normalize"
 import { buildChapterIngestOutput, type ChapterIngestOutput } from "./chapter-ingest-output"
+import { isMissingFile } from "./chapter-ingest-utils"
 import { canonicalizeSnapshotCharacters } from "./graph-adapter"
 import { mergeSnapshotTimeline } from "./timeline"
 import {
@@ -39,7 +40,79 @@ import {
   snapshotSourceFileNameCandidates,
   snapshotToMarkdown,
 } from "./snapshot-paths"
+import { withProjectLock } from "./novel-locks"
 import type { ChapterSnapshot } from "./chapter-ingest"
+
+export { isMissingFile, isNotFoundError } from "./chapter-ingest-utils"
+
+/**
+ * 章级快照写临界区（read-current → archive → save 的同一把锁）。
+ * 键含 normalizePath 归一后的 project + 章号；canonicalLockKey 再做尾斜杠归一。
+ */
+export function withSnapshotWriteLock<T>(projectPath: string, chapterNumber: number, run: () => Promise<T>): Promise<T> {
+  return withProjectLock(`snapshot:${normalizePath(projectPath).replace(/\/+$/, "")}:${chapterNumber}`, run)
+}
+
+/**
+ * 提交点严格读当前快照：真缺失返回 null；存在但损坏/章号不符/revision
+ * 不可安全自增 → 抛错（绝不带病覆写）。revision 必须可 +1 仍安全整数。
+ */
+export async function readSnapshotForReplacement(
+  projectPath: string,
+  chapterNumber: number,
+): Promise<{ raw: string; snapshot: ChapterSnapshot } | null> {
+  const path = snapshotJsonPath(projectPath, chapterNumber)
+  let raw: string
+  try {
+    raw = await readFile(path)
+  } catch (err) {
+    if (await isMissingFile(path, err)) return null
+    throw err
+  }
+  const value: unknown = JSON.parse(raw)
+  const snapshot = normalizeChapterSnapshot(value, {
+    chapterId: `chapter-${chapterNumber}`,
+    chapterNumber,
+  })
+  // 严格 current 读取：历史归档、章号不符、或显式 revision 被归一化丢失
+  // （损坏身份）一律拒绝——绝不把损坏的 r2 静默当 r1 覆写。
+  const rawFields = typeof value === "object" && value !== null ? value as Record<string, unknown> : {}
+  if (!snapshot
+    || Object.keys(rawFields).length === 0
+    || snapshot.chapterNumber !== chapterNumber
+    || rawFields.isHistorical === true
+    || (rawFields.revision != null && snapshot.revision === undefined)) {
+    throw new Error("Invalid current snapshot data.")
+  }
+  const current = ensureSnapshotIdentity(snapshot)
+  if (!Number.isSafeInteger(current.revision) || (current.revision ?? 0) >= Number.MAX_SAFE_INTEGER) {
+    throw new Error("Invalid current snapshot data.")
+  }
+  // 显式 `-rN` 后缀的 snapshotId 必须与可信 revision 一致（无后缀/无 id 仍允许）。
+  const idSuffix = typeof current.snapshotId === "string"
+    ? current.snapshotId.match(/-r(\d+)$/)?.[1]
+    : undefined
+  if (idSuffix !== undefined && Number(idSuffix) !== current.revision) {
+    throw new Error("Invalid current snapshot data.")
+  }
+  return { raw, snapshot: current }
+}
+
+/**
+ * 归档一份已序列化的快照 JSON 到本章 history 目录，返回实际落盘路径。
+ * 同戳文件存在时追加 `-N` 后缀选首个空位（不覆盖已有历史）。
+ */
+export async function archiveSnapshotJson(projectPath: string, chapterNumber: number, json: string): Promise<string> {
+  const historyDir = snapshotHistoryDir(projectPath, chapterNumber)
+  await createDirectory(historyDir)
+  const fileName = snapshotHistoryFileName()
+  let path = `${historyDir}/${fileName}`
+  for (let suffix = 1; await fileExists(path); suffix++) {
+    path = `${historyDir}/${fileName.replace(/\.snapshot\.json$/, `-${suffix}.snapshot.json`)}`
+  }
+  await writeFileAtomic(path, json)
+  return path
+}
 
 /**
  * 落盘快照（JSON+MD 原子批写）并合并 timeline。
@@ -91,12 +164,15 @@ export async function saveChapterIngestOutput(
   // object (no cross-file dependency) and target distinct paths, so
   // writeFileAtomic invocations are safe to run concurrently. Drops 4 serial
   // IPC round-trips to ~1 concurrent batch.
-  await Promise.all([
+  // 单次摄取的写入全部落定后才释放章锁，失败的旧写入不能越过下一轮。
+  const writes = await Promise.allSettled([
     writeFileAtomic(`${prefix}.output.json`, JSON.stringify(output, null, 2)),
     writeFileAtomic(`${prefix}.wiki-patch.json`, JSON.stringify(output.wikiUpdatePatch, null, 2)),
     writeFileAtomic(`${prefix}.search-index.json`, JSON.stringify(output.searchIndexText, null, 2)),
     writeFileAtomic(`${prefix}.vector-index.json`, JSON.stringify(output.vectorIndexText, null, 2)),
   ])
+  const failure = writes.find((write): write is PromiseRejectedResult => write.status === "rejected")
+  if (failure) throw failure.reason
 
   return output
 }
@@ -148,16 +224,10 @@ export async function listSnapshots(
       .filter(n => !isNaN(n))
       .sort((a, b) => a - b)
   } catch (err) {
-    if (opts?.failLoud && !isNotFoundError(err)) throw err
+    if (opts?.failLoud && !(await isMissingFile(snapshotDir, err))) throw err
     logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 3024 })
     return []
   }
-}
-
-/** 目录不存在（首次打开尚未生成快照）与真正的 IO 失败的区分。 */
-export function isNotFoundError(err: unknown): boolean {
-  const message = toErrorMessage(err)
-  return /not found|no such file|does not exist|cannot find the (file|path)/i.test(message)
 }
 
 export async function backupSnapshotBeforeOverwrite(
@@ -174,9 +244,7 @@ export async function backupSnapshotBeforeOverwrite(
   const currentJson = normalizedCurrent
     ? JSON.stringify(ensureSnapshotIdentity(normalizedCurrent, { isHistorical: true }), null, 2)
     : currentRaw
-  const historyDir = snapshotHistoryDir(projectPath, chapterNumber)
-  await createDirectory(historyDir)
-  await writeFileAtomic(`${historyDir}/${snapshotHistoryFileName()}`, currentJson)
+  await archiveSnapshotJson(projectPath, chapterNumber, currentJson)
 }
 
 /**
@@ -192,15 +260,13 @@ export async function cleanupDeletedChapterResidualEntities(
   const candidates = new Set(snapshotSourceFileNameCandidates(chapterNumber))
   let oldFiles: string[] = []
   try {
-    oldFiles = (await listEntityFiles(pp)).map((f) => `${f.name}.md`)
+    oldFiles = (await listEntityFiles(pp)).map((f) => normalizePath(f.path))
   } catch (err) {
     logger.warn("Chapter Ingest", "residual sweep list failed (non-fatal)", { error: toErrorMessage(err) })
     return []
   }
   const deleted: string[] = []
-  const entitiesDir = `${pp}/wiki/entities`
-  for (const oldFile of oldFiles) {
-    const filePath = `${entitiesDir}/${oldFile}`
+  for (const filePath of oldFiles) {
     let content: string
     try {
       content = await readFile(filePath)

@@ -51,6 +51,8 @@ import {
   type PreWriteGateMode,
 } from "./canon-pre-write-gate"
 import { appendFoldConflictLog, promote } from "./promotion-bridge"
+import { isMissingFile } from "./chapter-ingest-utils"
+import { canonicalLockKey, withProjectLock } from "./novel-locks"
 import { logger, toErrorMessage } from "@/lib/utils"
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -305,9 +307,13 @@ export function resolvePreWriteGateMode(): PreWriteGateMode {
 
 /**
  * 53 号报告 P1-2: 写前 gate 现存边快照拉取 (复用既有 canon_query IPC)。
- * 拉取失败 → 降级空数组 (gate 不阻断写可用性, 守 Draft-first)。
+ * - mode === "block" 时读错 fail-closed 抛错（绝不跳过硬冲突校验）；
+ * - mode === "warn" 时降级空数组（观察期不阻断写可用性）。
  */
-async function queryAllEdges(projectPath: string): Promise<PreWriteGateInput["existingEdges"]> {
+async function queryAllEdges(
+  projectPath: string,
+  mode: PreWriteGateMode,
+): Promise<PreWriteGateInput["existingEdges"]> {
   try {
     const res = await invoke<{
       edges: Array<{
@@ -318,6 +324,7 @@ async function queryAllEdges(projectPath: string): Promise<PreWriteGateInput["ex
         digest?: string
         valid_at?: number | null
         invalid_at?: number | null
+        modality?: string | null
       }>
     }>("canon_query", { projectId: projectPath, filter: {} })
     return res.edges.map((e) => ({
@@ -328,9 +335,13 @@ async function queryAllEdges(projectPath: string): Promise<PreWriteGateInput["ex
       digest: e.digest,
       validAt: e.valid_at ?? null,
       invalidAt: e.invalid_at ?? null,
+      modality: e.modality ?? null,
     }))
-  } catch {
-    // 拉取失败 → 降级 PASS (写前 gate 不阻断写可用性)
+  } catch (err) {
+    if (mode === "block") {
+      throw err
+    }
+    // warn-only 模式拉取失败 → 降级 PASS (观察期不阻断写可用性)
     return []
   }
 }
@@ -380,7 +391,7 @@ export async function canonStoreWriter(
       // resolvePreWriteGateMode 读 NovelConfig.preWriteGateMode (默认 warn 观察期
       // 零行为变更; 显式 block 时 BLOCK 硬拦)。gate 不 invoke, 不进 pending 队列。
       // warn 语义: BLOCK 降级只记录 gate 标记继续写 (不静默丢写, 审计可追溯)
-      let gateHit: "pre_write_warn" | undefined = undefined
+      let gateHit: "pre_write_warn" | "pre_write_duplicate" | undefined = undefined
       const request = payload.request as {
         new_edges?: Array<{
           id: string
@@ -390,13 +401,33 @@ export async function canonStoreWriter(
           digest?: string
           valid_at?: number | null
           invalid_at?: number | null
+          modality?: string | null
         }>
         old_edge_ids?: string[]
         cap_chapter?: number
       }
       const newEdges = request.new_edges ?? []
+      const oldEdgeIds = request.old_edge_ids ?? []
+      let effectiveRequest: Record<string, unknown> = payload.request
       if (newEdges.length > 0) {
-        const existingEdges = await queryAllEdges(projectPath)
+        const mode = resolvePreWriteGateMode()
+        const existingEdges = await queryAllEdges(projectPath, mode)
+        // 调用前对 old_edge_ids 应用单调虚拟封顶 min(e.invalidAt ?? +∞, cap_chapter)，
+        // 避免合法 supersede 被待封顶旧边误判为区间重叠冲突。
+        const oldEdgeIdSet = new Set(oldEdgeIds)
+        const capChapter =
+          typeof request.cap_chapter === "number" && Number.isFinite(request.cap_chapter)
+            ? request.cap_chapter
+            : undefined
+        const effectiveExistingEdges =
+          oldEdgeIdSet.size > 0 && capChapter !== undefined
+            ? existingEdges.map((e) => {
+                if (!oldEdgeIdSet.has(e.id)) return e
+                const cappedInvalidAt =
+                  e.invalidAt == null ? capChapter : Math.min(e.invalidAt, capChapter)
+                return { ...e, invalidAt: cappedInvalidAt }
+              })
+            : existingEdges
         const gateResult = checkCanonPreWrite(
           {
             newEdges: newEdges.map((e) => ({
@@ -407,10 +438,11 @@ export async function canonStoreWriter(
               digest: e.digest,
               validAt: e.valid_at ?? null,
               invalidAt: e.invalid_at ?? null,
+              modality: e.modality ?? null,
             })),
-            existingEdges,
+            existingEdges: effectiveExistingEdges,
           },
-          { mode: resolvePreWriteGateMode() },
+          { mode },
         )
         if (gateResult.state === "BLOCK") {
           return {
@@ -422,6 +454,16 @@ export async function canonStoreWriter(
               .join("; ")}`,
           }
         }
+        // 批内命中 DUPLICATE 仅剔除重复边，不丢其余合法边与 old_edge_ids
+        const duplicateNewEdgeIds = new Set(
+          gateResult.conflicts
+            .filter((c) => c.code === "duplicate_digest_overlap")
+            .map((c) => c.newEdgeId),
+        )
+        const filteredNewEdges =
+          duplicateNewEdgeIds.size > 0
+            ? newEdges.filter((e) => !duplicateNewEdgeIds.has(e.id))
+            : newEdges
         // warn-only 语义 (53 号设计 P1-2 决策 2): WARN/BLOCK 降级只记录 gate
         // 标记, 继续写 (不静默丢写, 审计可追溯)
         if (gateResult.state === "WARN") {
@@ -432,22 +474,27 @@ export async function canonStoreWriter(
             ts: new Date().toISOString(),
             source: "pre-write-gate",
             chapter: String(request.cap_chapter ?? "?"),
-            subject: newEdges.map((e) => e.id).join(",") || "supersede",
+            subject: filteredNewEdges.map((e) => e.id).join(",") || newEdges.map((e) => e.id).join(",") || "supersede",
             shouldSide: "canon 写前门 WARN（L1 硬冲突候选）",
             actualSide: "actual-first（warn-only 降级继续写）",
             resolution: "actual-first",
             note: gateResult.conflicts.map((c) => c.reason).join("; "),
           })
+        } else if (duplicateNewEdgeIds.size > 0) {
+          gateHit = "pre_write_duplicate"
         }
-        if (gateResult.state === "DUPLICATE") {
-          // 幂等去重: digest 重复且区间重叠 → 跳过写 (审计可追溯)
-          return { ok: true, gate: "pre_write_duplicate" }
+        if (duplicateNewEdgeIds.size > 0) {
+          if (filteredNewEdges.length === 0 && oldEdgeIds.length === 0) {
+            // 整批全为重复边且无待封顶旧边：幂等跳过写 (审计可追溯)
+            return { ok: true, gate: "pre_write_duplicate" }
+          }
+          effectiveRequest = { ...payload.request, new_edges: filteredNewEdges }
         }
       }
-      // 门控通过/降级后继续写 (gateHit 由本分支携带)
+      // 门控通过/降级/剔重后继续写 (gateHit 由本分支携带)
       const res = await invoke<{ result: unknown; max_revision: number }>("canon_supersede_edges", {
         projectId: projectPath,
-        request: payload.request,
+        request: effectiveRequest,
       })
       return { ok: true, revision: res.max_revision, ...(gateHit ? { gate: gateHit } : {}) }
     }
@@ -482,6 +529,16 @@ export type SupersedeInvokeResult = {
   max_revision: number
 }
 /**
+ * M2-03：队列 / legacy JSONL 读错误分类——仅文件真正缺失（ENOENT 或
+ * `isMissingFile` 复核为缺失）返回 true；权限/IO/锁等非缺失错误必须 fail-closed
+ * 上抛，绝不视为空文件而覆写清零队列。
+ */
+async function isQueueFileMissing(filePath: string, err: unknown): Promise<boolean> {
+  if (/\bENOENT\b/i.test(toErrorMessage(err))) return true
+  return isMissingFile(filePath, err)
+}
+
+/**
  * 旧 snapshot-derived view 写适配器（真实投影写回，DEBT-20260820-15 偿还）。
  * 将 T16 双写钩子产生的 `{ kind: "snapshot_fact", chapterNumber, fact }` 负载
  * 写入 `.novel/canon-legacy.jsonl` 文件（每行包含章节号、事实文本、时间戳），
@@ -503,20 +560,24 @@ export async function snapshotLegacyWriter(
     const pp = normalizePath(projectPath)
     const legacyDir = `${pp}/.novel/canon-legacy`
     const legacyPath = `${legacyDir}/canon-legacy.jsonl`
-    await createDirectory(legacyDir)
-    const line = JSON.stringify({
-      chapterNumber: p.chapterNumber,
-      fact: p.fact,
-      writtenAt: Date.now(),
-    }) + "\n"
-    // 追加写入：先读现有内容，追加新行，再原子写回
-    let existing = ""
-    try {
-      existing = await readFile(legacyPath)
-    } catch {
-      // 文件不存在，新建
-    }
-    await writeFileAtomic(legacyPath, existing + line)
+    await withProjectLock(`canon-legacy:${pp}`, async () => {
+      await createDirectory(legacyDir)
+      const line = JSON.stringify({
+        chapterNumber: p.chapterNumber,
+        fact: p.fact,
+        writtenAt: Date.now(),
+      }) + "\n"
+      // 追加写入：先读现有内容，追加新行，再原子写回；非缺失读错 fail-closed 上抛
+      let existing = ""
+      try {
+        existing = await readFile(legacyPath)
+      } catch (err) {
+        if (!(await isQueueFileMissing(legacyPath, err))) {
+          throw err
+        }
+      }
+      await writeFileAtomic(legacyPath, existing + line)
+    })
     return { ok: true }
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) }
@@ -525,8 +586,9 @@ export async function snapshotLegacyWriter(
 
 /**
  * 默认双写依赖：真实 IPC + 真实 fs 原子写（运行期使用）。
- * `queueRead` 在文件不存在时返回空串（视为空队列）；`queueWrite` 先确保
- * `.novel/` 目录再原子写，保证崩溃中途中途写不损坏队列（与 projection-status-ledger 同契约）。
+ * `queueRead` 仅在文件缺失时返回空串（视为空队列），其他 IO/权限错误 fail-closed 上抛；
+ * `queueWrite` 先确保 `.novel/` 目录再原子写，保证崩溃中途中途写不损坏队列
+ * （与 projection-status-ledger 同契约）。
  */
 export function defaultCanonDualWriteDeps(): CanonDualWriteDeps {
   return {
@@ -535,8 +597,9 @@ export function defaultCanonDualWriteDeps(): CanonDualWriteDeps {
     queueRead: async (queuePath: string): Promise<string> => {
       try {
         return await readFile(queuePath)
-      } catch {
-        return ""
+      } catch (err) {
+        if (await isQueueFileMissing(queuePath, err)) return ""
+        throw err
       }
     },
     queueWrite: async (queuePath: string, contents: string): Promise<void> => {
@@ -631,7 +694,8 @@ function serializeRecord(rec: CanonPendingRecord): string {
 
 /**
  * 读待写队列：解析 JSONL，跳过空行与畸形行（容错，绝不让坏行阻断重放）。
- * `queueRead` 抛错（如权限）视为空队列返回 `[]`。
+ * 仅当 `queueRead` 报错为文件缺失（ENOENT / `isMissingFile`）时返回 `[]`；
+ * 其他 IO/权限错误 fail-closed 原样上抛，绝不清零覆盖待写队列。
  */
 export async function loadPendingQueue(
   deps: CanonDualWriteDeps,
@@ -640,8 +704,9 @@ export async function loadPendingQueue(
   let raw: string
   try {
     raw = await deps.queueRead(queuePath)
-  } catch {
-    return []
+  } catch (err) {
+    if (await isQueueFileMissing(queuePath, err)) return []
+    throw err
   }
   if (!raw) return []
   const out: CanonPendingRecord[] = []
@@ -651,8 +716,12 @@ export async function loadPendingQueue(
     try {
       const parsed = JSON.parse(trimmed) as CanonPendingRecord
       if (parsed && typeof parsed.digest === "string") out.push(parsed)
-    } catch {
-      // 畸形行：跳过（容错）
+    } catch (err) {
+      // 畸形行：记诊断并跳过（容错，不阻断合法记录重放）
+      logger.warn("canon-dual-write", "Skipping malformed pending queue line", {
+        queuePath,
+        error: toErrorMessage(err),
+      })
     }
   }
   return out
@@ -752,36 +821,49 @@ export async function shadowWriteCanon(
    *  ingest 路径（T16 钩子）传 "canon-dual-write"；backfill 路径在
    *  canon-backfill.ts 循环内自行按章晋升（带 snapshot revision）。 */
   promoteChannel?: "canon-dual-write",
+  /** R3-M01: 透传自 ChapterSnapshot.revision（缺省 1，保既有单测向后兼容）。 */
+  snapshotRevision?: number,
 ): Promise<ShadowWriteReport> {
-  const queuePath = canonPendingQueuePath(projectPath)
+  const pp = normalizePath(projectPath)
+  const queuePath = canonPendingQueuePath(pp)
   const results: CanonWriteOutcome[] = []
   const incoming: CanonPendingRecord[] = []
   for (const op of ops) {
     const outcome = await attemptDualWrite(deps, projectPath, op)
     results.push(outcome)
-    if (!outcome.consistent) {
+    // pre_write_block 是写前 L1 硬冲突拦截，绝不入 .novel/canon-pending.jsonl 重试队列
+    if (!outcome.consistent && outcome.canon.gate !== "pre_write_block") {
       incoming.push(buildPendingRecord(outcome, op, now))
     }
   }
   if (incoming.length > 0) {
-    const existing = await loadPendingQueue(deps, queuePath)
-    const merged = mergePending(existing, incoming)
-    await savePendingQueue(deps, queuePath, merged)
+    await withProjectLock(`canon-pending:${pp}`, async () => {
+      const existing = await loadPendingQueue(deps, queuePath)
+      const merged = mergePending(existing, incoming)
+      await savePendingQueue(deps, queuePath, merged)
+    })
   }
   // 54 号设计 ⑤: 写后对账薄编排 (lore-weave twoPhaseReconcile 吸收)。
   // 一致时 noop 零开销; 不一致时重放待写队列; 重放后仍不一致才 alerted。
   // 重放事件全程 trace 留痕, 绝不静默吞差异。
   const reconcile = await twoPhaseReconcile(deps, projectPath, results, now)
-  // E-05 (C-4/C-6): canon-dual-write 通道晋升接线。
-  // reconcile 一致 → 对 episode 类 ops 批量晋升（凭证层落盘 + 事件日志）。
-  // 失败/歧义 → promote 内部入 promotion-retry 队列 + warn（非致命，重放收敛）。
-  // 注：本层无 ChapterSnapshot.revision（C-2 权威字段在 ingest 层），保守取
-  // revision=1；正式 revision 语义由 formal-writeback 通道承载（C-2 主案）。
+  // E-05 (C-4/C-6) + R3-M01: canon-dual-write 通道晋升接线。
+  // reconcile 一致 → 对 episode 类 ops 批量晋升（含经 twoPhaseReconcile 重放自愈的
+  // replayedDigests，确保瞬态失败自愈后凭证不遗漏）。
+  // 使用真实 snapshotRevision 与 episode.id 作为 entity，使同章多条事实拥有唯一 replayKey。
   if (promoteChannel === "canon-dual-write" && reconcile.finalConsistent) {
+    const replayedDigests = new Set(reconcile.replayedDigests)
+    const effectiveRevision =
+      typeof snapshotRevision === "number" &&
+      Number.isInteger(snapshotRevision) &&
+      snapshotRevision >= 1
+        ? snapshotRevision
+        : 1
     for (let i = 0; i < ops.length; i++) {
       const op = ops[i]
       const outcome = results[i]
-      if (!outcome.consistent || op.canonPayload.kind !== "episode") continue
+      const settled = outcome.consistent || replayedDigests.has(outcome.digest)
+      if (!settled || op.canonPayload.kind !== "episode") continue
       const ep = op.canonPayload.episode
       const chapterId =
         typeof ep.entity_id === "string" ? ep.entity_id : `ch${ep.chapter_number}`
@@ -795,16 +877,21 @@ export async function shadowWriteCanon(
         )
         continue
       }
+      const resolvedDigest = op.digest ?? outcome.digest
+      const episodeEntity =
+        typeof ep.id === "string" && ep.id.trim().length > 0
+          ? ep.id.trim()
+          : (resolvedDigest ? `ch${parsedChapter}-ep-${resolvedDigest.slice(0, 12)}` : chapterId)
       try {
         await promote({
           channel: "canon-dual-write",
           projectPath,
           chapterId,
           chapterNumber: parsedChapter,
-          revision: 1,
-          entity: chapterId,
+          revision: effectiveRevision,
+          entity: episodeEntity,
           gateContext: { isFinalChapter: true, dualWriteConsistent: true },
-          contentDigestPrefix: op.digest ? op.digest.slice(0, 16) : undefined,
+          contentDigestPrefix: resolvedDigest ? resolvedDigest.slice(0, 16) : undefined,
         })
       } catch (err) {
         logger.warn(
@@ -829,12 +916,36 @@ export async function shadowWriteCanon(
 }
 
 /**
- * 按序重放持久待写队列（重启 / 下次 ingest 调用）：
- * 1. 读队列（`.novel/canon-pending.jsonl`），按文件顺序遍历（保序重放）。
- * 2. `nextRetryAt > now` 的未到期项 → 保留跳过。
- * 3. 到期项 → 重新双写（两侧幂等：canon ingest 按 (chapter,digest) 去重）；
- *    成功出队，失败重新退避调度后保留。
- * 4. 重写队列（保序）。
+ * 进程内正在重放中的 digest 集合（按归一项目键分桶）。
+ * 配合 `canon-pending:${pp}` 短临界区锁，避免 Phase B 锁外重放期间并发
+ * `replayPendingQueue` 重复认领同一 digest。
+ */
+const inFlightReplayDigests = new Map<string, Set<string>>()
+
+function pendingPayloadSignature(
+  rec: Pick<CanonPendingRecord, "legacyPayload" | "canonPayload">,
+): string {
+  return JSON.stringify([rec.legacyPayload ?? null, rec.canonPayload])
+}
+
+export interface ReplayPendingOptions {
+  /**
+   * 仅在 `twoPhaseReconcile` 写后立即自愈时传入本次初始差异的 digest 集：
+   * 对刚入队（`attempts <= 1`）的记录豁免首次退避窗口，允许立即重放一次；
+   * 若仍失败，`attempts` 升至 2 后不再豁免，防止重试风暴。
+   */
+  immediateDigests?: ReadonlySet<string>
+}
+
+/**
+ * 按序重放持久待写队列（重启 / 下次 ingest / twoPhaseReconcile 调用）：
+ * 三段无嵌套锁实现（严守 novel-locks 单锁单临界区铁律，`canon-pending` 绝不与
+ * `canon-legacy` 嵌套持锁）：
+ *   - Phase A（持 `canon-pending:${pp}` 锁）：读队列，跳过 in-flight 与未到期且无豁免项，
+ *     认领待重放项并登记进 `inFlightReplayDigests`。
+ *   - Phase B（锁外）：对认领项执行 `attemptDualWrite`，记录成功或 `reschedule(rec, now)`。
+ *   - Phase C（持 `canon-pending:${pp}` 锁）：重读最新队列并合并（保留并发新写入与新 payload，
+ *     出队成功且未被覆写的已认领项，更新失败项退避），落盘写回；`finally` 必释放 in-flight。
  *
  * 返回重放统计（total/succeeded/rescheduled/skipped/remaining）。
  */
@@ -842,39 +953,137 @@ export async function replayPendingQueue(
   deps: CanonDualWriteDeps,
   projectPath: string,
   now: number,
+  options?: ReplayPendingOptions,
 ): Promise<ReplayReport> {
-  const queuePath = canonPendingQueuePath(projectPath)
-  const queue = await loadPendingQueue(deps, queuePath)
-  const remaining: CanonPendingRecord[] = []
-  let succeeded = 0
-  let rescheduled = 0
+  const pp = normalizePath(projectPath)
+  const queuePath = canonPendingQueuePath(pp)
+  const lockKey = `canon-pending:${pp}`
+  const projectKey = canonicalLockKey(pp)
+
+  // Phase A（持 canon-pending 锁）：加载队列并认领待重放项
+  let total = 0
   let skipped = 0
-  for (const rec of queue) {
-    if (rec.nextRetryAt > now) {
-      remaining.push(rec)
-      skipped += 1
-      continue
+  const toReplay: CanonPendingRecord[] = []
+  const claimedSignatures = new Map<string, string>()
+
+  const nothingToReplay = await withProjectLock(lockKey, async () => {
+    const queue = await loadPendingQueue(deps, queuePath)
+    total = queue.length
+    let inFlight = inFlightReplayDigests.get(projectKey)
+    for (const rec of queue) {
+      if (inFlight?.has(rec.digest)) {
+        skipped += 1
+        continue
+      }
+      const bypassInitialBackoff = Boolean(
+        options?.immediateDigests?.has(rec.digest) && rec.attempts <= 1,
+      )
+      if (rec.nextRetryAt > now && !bypassInitialBackoff) {
+        skipped += 1
+        continue
+      }
+      if (!inFlight) {
+        inFlight = new Set<string>()
+        inFlightReplayDigests.set(projectKey, inFlight)
+      }
+      inFlight.add(rec.digest)
+      toReplay.push(rec)
+      claimedSignatures.set(rec.digest, pendingPayloadSignature(rec))
     }
-    const op: CanonDualWriteOp = {
-      digest: rec.digest,
-      legacyPayload: rec.legacyPayload,
-      canonPayload: rec.canonPayload,
+    if (toReplay.length === 0) {
+      // R2-REV-002: 无待重放项且未修改队列时直接返回，避免平白落盘空 .novel/canon-pending.jsonl。
+      return true
     }
-    const outcome = await attemptDualWrite(deps, projectPath, op)
-    if (outcome.consistent) {
-      succeeded += 1
-    } else {
-      remaining.push(reschedule(rec, now))
-      rescheduled += 1
+    return false
+  })
+
+  if (nothingToReplay) {
+    return {
+      total,
+      succeeded: 0,
+      rescheduled: 0,
+      skipped,
+      remaining: total,
     }
   }
-  await savePendingQueue(deps, queuePath, remaining)
+
+  let succeeded = 0
+  let rescheduled = 0
+  let remainingCount = 0
+
+  try {
+    // Phase B（锁外）：逐条执行双写（可能经 snapshotLegacyWriter 获取 canon-legacy 锁）
+    const succeededDigests = new Set<string>()
+    const rescheduledByDigest = new Map<string, CanonPendingRecord>()
+    for (const rec of toReplay) {
+      const op: CanonDualWriteOp = {
+        digest: rec.digest,
+        legacyPayload: rec.legacyPayload,
+        canonPayload: rec.canonPayload,
+      }
+      const outcome = await attemptDualWrite(deps, projectPath, op)
+      if (outcome.consistent) {
+        succeeded += 1
+        succeededDigests.add(rec.digest)
+      } else {
+        rescheduled += 1
+        rescheduledByDigest.set(rec.digest, reschedule(rec, now))
+      }
+    }
+
+    // Phase C（持 canon-pending 锁）：重读最新队列并合并，保留并发新写入与新 payload
+    remainingCount = await withProjectLock(lockKey, async () => {
+      const latest = await loadPendingQueue(deps, queuePath)
+      const mergedRemaining: CanonPendingRecord[] = []
+      for (const rec of latest) {
+        const claimedSig = claimedSignatures.get(rec.digest)
+        if (claimedSig === undefined) {
+          mergedRemaining.push(rec)
+          continue
+        }
+        const overwritten = pendingPayloadSignature(rec) !== claimedSig
+        if (succeededDigests.has(rec.digest)) {
+          if (overwritten) {
+            mergedRemaining.push(rec)
+          }
+          continue
+        }
+        const nextRec = rescheduledByDigest.get(rec.digest)
+        if (nextRec) {
+          if (overwritten) {
+            mergedRemaining.push({
+              ...rec,
+              attempts: Math.max(rec.attempts, nextRec.attempts),
+              nextRetryAt: Math.max(rec.nextRetryAt, nextRec.nextRetryAt),
+            })
+          } else {
+            mergedRemaining.push(nextRec)
+          }
+          continue
+        }
+        mergedRemaining.push(rec)
+      }
+      await savePendingQueue(deps, queuePath, mergedRemaining)
+      return mergedRemaining.length
+    })
+  } finally {
+    const inFlight = inFlightReplayDigests.get(projectKey)
+    if (inFlight) {
+      for (const rec of toReplay) {
+        inFlight.delete(rec.digest)
+      }
+      if (inFlight.size === 0) {
+        inFlightReplayDigests.delete(projectKey)
+      }
+    }
+  }
+
   return {
-    total: queue.length,
+    total,
     succeeded,
     rescheduled,
     skipped,
-    remaining: remaining.length,
+    remaining: remainingCount,
   }
 }
 

@@ -134,7 +134,11 @@ export interface AuditGateResult {
  */
 export function auditRemotePayload(payload: string, trustInput: RagTrustInput): AuditGateResult {
   const injection = auditRetrievedChunk(payload);
-  const trust = auditRagSource(trustInput);
+  const normalizedLicense =
+    typeof trustInput.license === "string" && trustInput.license.trim().length > 0
+      ? trustInput.license.trim()
+      : undefined;
+  const trust = auditRagSource({ ...trustInput, license: normalizedLicense });
 
   const injectionOk = injection.action === "pass";
   const trustOk = isRagTrustAllowed(trust);
@@ -178,5 +182,9 @@ export async function requestAndAuditRemote(
 ): Promise<AuditedRemoteResult> {
   const payload = await requestRemote(projectPath, serverId, requestPayload);
   const audit = auditRemotePayload(payload.body, trustInput);
-  return { allowed: audit.allowed, payload, audit };
+  return {
+    allowed: audit.allowed,
+    payload: audit.allowed ? payload : { ...payload, body: "" },
+    audit,
+  };
 }

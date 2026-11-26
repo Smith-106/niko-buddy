@@ -7,6 +7,7 @@ import type { McpConfig } from "@/lib/mcp/config"
 import type { WikiProject, FileNode } from "@/types/wiki"
 import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
 import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
+import { normalizePath } from "@/lib/path-utils"
 import type { TrashItem } from "@/lib/trash"
 import { CHAT_DOCK_POSITION_KEY, FOCUS_MODE_KEY, OFFLINE_MODE_KEY, UI_FONT_SIZE_SCALE_KEY } from "./wiki-store-config"
 import { DEFAULT_AI_WORKFLOW_MODE, type AiWorkflowMode } from "@/lib/agent/workflow-mode"
@@ -182,6 +183,7 @@ export interface WikiState {
   setSearchTrigger: (trigger: { query: string; ts: number } | null) => void
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig) => void
   setFinalChapterSave: (finalChapterSave: FinalChapterSaveState | null) => void
+  clearFinalChapterSaveForPath: (path: string) => void
   setLintRun: (lintRun: LintRunState | null) => void
   finishLintRun: (runId: string, lintRun: LintRunFinishState) => void
   setReviewRun: (reviewRun: ReviewRunState | null) => void
@@ -330,7 +332,13 @@ export const useWikiStore = create<WikiState>((set) => ({
   uiFontSizeScale: readStoredUiFontSizeScale(),
 
   // ── Simple setters ─────────────────────────────────────────────────────────────
-  setProject: (project) => set({ project }),
+  setProject: (project) => set((state) => {
+    const prevPath = state.project?.path ? normalizePath(state.project.path) : null
+    const nextPath = project?.path ? normalizePath(project.path) : null
+    return prevPath === nextPath
+      ? { project }
+      : { project, finalChapterSave: null }
+  }),
   setFileTree: (fileTree) => set({ fileTree }),
   setSelectedFile: (selectedFile) => set({ selectedFile, selectedTrashItem: null }),
   setSelectedTrashItem: (selectedTrashItem) => set({ selectedTrashItem, selectedFile: null }),
@@ -452,6 +460,12 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSearchTrigger: (searchTrigger) => set({ searchTrigger }),
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig) => set({ revisionFeedbackWindowConfig }),
   setFinalChapterSave: (finalChapterSave) => set({ finalChapterSave }),
+  clearFinalChapterSaveForPath: (path) => set((state) => {
+    const current = state.finalChapterSave
+    if (!current || current.phase === "saving" || current.saving) return {}
+    if (normalizePath(current.filePath) !== normalizePath(path)) return {}
+    return { finalChapterSave: null }
+  }),
   setLintRun: (lintRun) => set({ lintRun }),
   finishLintRun: (runId, lintRun) => set((prev) => {
     if (prev.lintRun?.runId !== runId) return {}

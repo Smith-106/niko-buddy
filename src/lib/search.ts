@@ -3,7 +3,9 @@ import { parseFrontmatter } from "./frontmatter"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath, getFileStem } from "@/lib/path-utils"
+import { isDraftChapterFile } from "./novel/chapter-utils"
 import { sanitizeEntitySlug } from "./novel/graph-adapter"
+import { VECTOR_WIKI_DIRS } from "./novel/vector-search-core"
 import { toErrorMessage } from "@/lib/utils"
 
 /**
@@ -162,11 +164,57 @@ function flattenMdFiles(nodes: FileNode[]): FileNode[] {
   for (const node of nodes) {
     if (node.is_dir && node.children) {
       files.push(...flattenMdFiles(node.children))
-    } else if (!node.is_dir && node.name.endsWith(".md")) {
+    } else if (!node.is_dir && node.name.endsWith(".md") && !isDraftChapterFile(node.name)) {
       files.push(node)
     }
   }
   return files
+}
+
+function wikiFileDirPriority(pp: string, filePath: string): number {
+  const norm = normalizePath(filePath)
+  const wikiPrefix = `${pp}/wiki/`
+  if (!norm.startsWith(wikiPrefix)) return VECTOR_WIKI_DIRS.length + 2
+  const rel = norm.slice(wikiPrefix.length)
+  const lastSlash = rel.lastIndexOf("/")
+  if (lastSlash === -1) {
+    // 顶层 wiki/*.md：排在声明目录之后但高于未知深层目录
+    return VECTOR_WIKI_DIRS.length
+  }
+  const dirPart = rel.slice(0, lastSlash)
+  const exactIdx = VECTOR_WIKI_DIRS.indexOf(dirPart)
+  if (exactIdx !== -1) return exactIdx
+  if (dirPart.startsWith("chapters/")) {
+    const chIdx = VECTOR_WIKI_DIRS.indexOf("chapters")
+    return chIdx !== -1 ? chIdx : VECTOR_WIKI_DIRS.length
+  }
+  return VECTOR_WIKI_DIRS.length + 1
+}
+
+function buildWikiStemMap(pp: string, wikiFiles: readonly FileNode[]): Map<string, FileNode> {
+  const ranked = [...wikiFiles]
+    .filter((f) => !isDraftChapterFile(f.name) && !isDraftChapterFile(f.path))
+    .sort((a, b) => {
+      const pa = wikiFileDirPriority(pp, a.path)
+      const pb = wikiFileDirPriority(pp, b.path)
+      if (pa !== pb) return pa - pb
+      return a.path.localeCompare(b.path)
+    })
+  const map = new Map<string, FileNode>()
+  for (const file of ranked) {
+    const stem = getFileStem(file.path)
+    if (stem && !map.has(stem)) {
+      map.set(stem, file)
+    }
+    const norm = normalizePath(file.path)
+    if (norm.includes("/wiki/chapters/")) {
+      const numericAlias = stem.match(/^chapter-(\d{3,})$/i)?.[1]
+      if (numericAlias && !map.has(numericAlias)) {
+        map.set(numericAlias, file)
+      }
+    }
+  }
+  return map
 }
 
 // ── Wiki 内容缓存 (G8, 39 号修复) ──────────────────────────────────
@@ -351,6 +399,7 @@ export async function searchWiki(
   // never been ingested (and thus had no wiki summary), which is
   // not a workflow we want to optimize at the cost of every other
   // search call.
+  let wikiFiles: FileNode[] = []
   try {
     // G8 (39 号修复): dataVersion 变化 (应用内写 wiki) → 整体失效
     const dataVersion = useWikiStore.getState().dataVersion
@@ -362,7 +411,7 @@ export async function searchWiki(
       wikiCacheEpoch += 1
       wikiCacheDataVersion = dataVersion
     }
-    const wikiFiles = await listWikiFiles(pp)
+    wikiFiles = await listWikiFiles(pp)
     await searchFiles(wikiFiles, effectiveTokens, query, results)
   } catch {
     // no wiki directory
@@ -396,18 +445,53 @@ export async function searchWiki(
         // already include — without this, `results` has no entry for
         // them and they can't surface even with a top vector rank.
         const knownIds = new Set(results.map((r) => getFileStem(r.path)))
+        const stemToFile = buildWikiStemMap(pp, wikiFiles)
         let added = 0
         for (const vr of vectorResults) {
-          if (knownIds.has(vr.id)) continue
           // SEC-001 (odyssey-review, CWE-22): sanitize vr.id (LanceDB page_id)
           // before path construction — symmetric with context-engine.ts
           // runVectorSearchForContent + search-adapter.ts runVectorSearch. PAT-RV3
           // twin: read path must self-sufficiently sanitize, not rely on the write
           // path's sanitize invariant (Rust readFile has no project-root containment).
-          const dirs = ["entities", "concepts", "sources", "synthesis", "comparison", "queries"]
           const safeId = sanitizeEntitySlug(vr.id)
-          for (const dir of dirs) {
-            const tryPath = `${pp}/wiki/${dir}/${safeId}.md`
+          if (isDraftChapterFile(`${safeId}.md`)) continue
+          if (knownIds.has(vr.id) || knownIds.has(safeId)) continue
+          const legacyChapterKey = /^\d{3,}$/.test(safeId) ? `chapter-${safeId}` : null
+          if (legacyChapterKey && knownIds.has(legacyChapterKey)) continue
+
+          // R3-M03: 优先复用已读 wikiFiles 的 stem → FileNode 映射（覆盖顶层 wiki/*.md、
+          // 分卷 wiki/chapters/<vol>/*.md 以及纯数字 stem "003" ↔ "chapter-003.md"）。
+          const mappedFile =
+            stemToFile.get(safeId) ??
+            (legacyChapterKey ? stemToFile.get(legacyChapterKey) : undefined)
+          if (mappedFile && !isDraftChapterFile(mappedFile.name) && !isDraftChapterFile(mappedFile.path)) {
+            try {
+              const content = await readFileCached(mappedFile.path)
+              const title = extractTitle(content, mappedFile.name)
+              results.push({
+                path: mappedFile.path,
+                title,
+                snippet: buildSnippet(content, query),
+                titleMatch: false,
+                score: 0, // overwritten by RRF below
+                images: extractImageRefs(content),
+              })
+              knownIds.add(vr.id)
+              knownIds.add(getFileStem(mappedFile.path))
+              added++
+              continue
+            } catch {
+              // 映射路径读取失败时降级至目录回退探测
+            }
+          }
+
+          // 回退探测：当 wikiFiles 为空或映射未命中时保留既有按目录序探测语义
+          const fallbackPaths = [
+            ...VECTOR_WIKI_DIRS.map((dir) => `${pp}/wiki/${dir}/${safeId}.md`),
+            ...(legacyChapterKey ? [`${pp}/wiki/chapters/${legacyChapterKey}.md`] : []),
+            `${pp}/wiki/${safeId}.md`,
+          ].filter((p) => !isDraftChapterFile(p))
+          for (const tryPath of fallbackPaths) {
             try {
               const content = await readFileCached(tryPath)
               const title = extractTitle(content, `${safeId}.md`)
@@ -445,7 +529,11 @@ export async function searchWiki(
   // results array, which already contains every candidate).
   for (const r of results) {
     const tRank = tokenRank.get(normalizePath(r.path))
-    const vRank = vectorRank.get(getFileStem(r.path))
+    const stem = getFileStem(r.path)
+    const numericAlias = normalizePath(r.path).includes("/wiki/chapters/")
+      ? stem.match(/^chapter-(\d{3,})$/i)?.[1]
+      : undefined
+    const vRank = vectorRank.get(stem) ?? (numericAlias ? vectorRank.get(numericAlias) : undefined)
     let rrf = 0
     if (tRank !== undefined) rrf += 1 / (RRF_K + tRank)
     if (vRank !== undefined) rrf += 1 / (RRF_K + vRank)

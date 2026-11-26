@@ -30,6 +30,8 @@ import {
   SNAPSHOT_BACKFILL_REASONS,
   acceptBatchDraft,
   applyBatchExtractBudget,
+  applyDesktopBatchExtractBudget,
+  assertUniqueFinalChapterSource,
   batchQueueProgress,
   buildBatchBudgetLedger,
   cancelBatchExtractQueue,
@@ -41,6 +43,7 @@ import {
   listAcceptableDrafts,
   normalizeBatchExtractBudget,
   resolveBatchExtractScope,
+  scanFinalChapterBackfill,
   scanSnapshotBackfill,
   startBatchChapter,
   type BatchExtractBudgetPlan,
@@ -281,6 +284,33 @@ describe("D2 resolveBatchExtractScope（默认仅未提取）", () => {
     const selection = resolveBatchExtractScope(scan, { mode: "all", skipExisting: false })
     expect(selection.chapters).toEqual([1, 2, 3])
   })
+
+  it("P1-02: 支持 startChapter / endChapter 区间筛选，且区间反转时返回空数组", () => {
+    const rangeMissing = resolveBatchExtractScope(scan, {
+      mode: "missing",
+      startChapter: 2,
+      endChapter: 2,
+    })
+    expect(rangeMissing.chapters).toEqual([2])
+    expect(rangeMissing.skippedExisting).toEqual([])
+
+    const rangeAll = resolveBatchExtractScope(scan, {
+      mode: "all",
+      startChapter: 1,
+      endChapter: 2,
+    })
+    expect(rangeAll.chapters).toEqual([2])
+    expect(rangeAll.skippedExisting).toEqual([1])
+
+    const inverted = resolveBatchExtractScope(scan, {
+      mode: "all",
+      force: true,
+      startChapter: 3,
+      endChapter: 1,
+    })
+    expect(inverted.chapters).toEqual([])
+    expect(inverted.skippedExisting).toEqual([])
+  })
 })
 
 describe("D2 预算上限（超限即停 + 记账，R3 缓解）", () => {
@@ -290,6 +320,24 @@ describe("D2 预算上限（超限即停 + 记账，R3 缓解）", () => {
     expect(normalizeBatchExtractBudget(Number.NaN)).toBe(BATCH_EXTRACT_BUDGET_DEFAULT)
     expect(normalizeBatchExtractBudget(5)).toBe(5)
     expect(normalizeBatchExtractBudget(9999)).toBe(BATCH_EXTRACT_BUDGET_MAX)
+    expect(BATCH_EXTRACT_BUDGET_MAX).toBe(60)
+  })
+
+  it("P1-02: applyDesktopBatchExtractBudget 默认 20、最高支持 BATCH_EXTRACT_BUDGET_MAX (60)", () => {
+    const chapters = Array.from({ length: 70 }, (_, i) => i + 1)
+    const defaultPlan = applyDesktopBatchExtractBudget(chapters)
+    expect(defaultPlan.budget).toBe(20)
+    expect(defaultPlan.admitted).toHaveLength(20)
+
+    const customPlan = applyDesktopBatchExtractBudget(chapters, 45)
+    expect(customPlan.budget).toBe(45)
+    expect(customPlan.admitted).toHaveLength(45)
+    expect(customPlan.skippedByBudget).toHaveLength(25)
+    expect(customPlan.exhausted).toBe(true)
+
+    const cappedPlan = applyDesktopBatchExtractBudget(chapters, 120)
+    expect(cappedPlan.budget).toBe(BATCH_EXTRACT_BUDGET_MAX)
+    expect(cappedPlan.admitted).toHaveLength(60)
   })
 
   it("未超预算 → 全部准入、未触顶", () => {
@@ -409,5 +457,111 @@ describe("D4/D5 队列状态机（Draft-first 硬边界）", () => {
       now: 1000,
     })
     expect(batchQueueProgress(empty).percent).toBe(0)
+  })
+})
+
+describe("scanFinalChapterBackfill（正式章文件扫描 → 补齐候选 + paths）", () => {
+  const chapterNode = (name: string): FileNode => ({ name, path: `${PROJECT}/wiki/chapters/${name}`, is_dir: false })
+  const chapterMd = (n: number, status: string) =>
+    `---\ntype: chapter\nchapter_number: ${n}\nchapter_status: ${status}\n---\n正文`
+  const outlineMd = (n: number) =>
+    `---\ntype: outline\nchapter_number: ${n}\nchapter_status: final\n---\n大纲`
+
+  it("final 1 缺快照入 pending+paths；planned 与同号重复与 outline 均排除；duplicate 进诊断", async () => {
+    mockListDirectory.mockImplementation(async (path: string) => {
+      if (String(path).endsWith("wiki/chapters")) {
+        return [
+          chapterNode("chapter-001.md"),
+          chapterNode("chapter-002.md"),
+          chapterNode("chapter-003a.md"),
+          chapterNode("chapter-003b.md"),
+          chapterNode("outline-001.md"),
+        ]
+      }
+      throw new Error("ENOENT")
+    })
+    const md: Record<string, string> = {
+      "chapter-001.md": chapterMd(1, "final"),
+      "chapter-002.md": chapterMd(2, "planned"),
+      "chapter-003a.md": chapterMd(3, "final"),
+      "chapter-003b.md": chapterMd(3, "final"),
+      "outline-001.md": outlineMd(1),
+    }
+    mockReadFile.mockImplementation(async (path: string) => {
+      const p = String(path)
+      const name = p.split("/").pop() ?? ""
+      if (p.includes("wiki/chapters")) {
+        const hit = md[name]
+        if (hit === undefined) throw new Error("ENOENT")
+        return hit
+      }
+      // 快照读取：chapter 1 缺快照 → ENOENT（pending）
+      throw new Error("ENOENT")
+    })
+
+    const scan = await scanFinalChapterBackfill(PROJECT)
+
+    // 只有无歧义的 final 章 1 进入 paths；planned(2)/重复(3)/outline(1) 全排除
+    expect(scan.paths).toEqual({ 1: `${PROJECT}/wiki/chapters/chapter-001.md` })
+    expect(scan.chapters).toEqual([1])
+    expect(scan.pending.map((e) => e.chapter)).toEqual([1])
+    expect(scan.errors.some((e) => e.includes("第 3 章") && e.includes("2 个"))).toBe(true)
+    expect(scan.excluded).toEqual({
+      invalid: 1,
+      nonFinal: 1,
+      unreadable: 0,
+      duplicateChapters: [3],
+      duplicateChapterPaths: {
+        3: [`${PROJECT}/wiki/chapters/chapter-003a.md`, `${PROJECT}/wiki/chapters/chapter-003b.md`],
+      },
+    })
+  })
+
+  it("章节目录不存在 → 无候选 + 只读诊断（非 success 假报）", async () => {
+    mockListDirectory.mockRejectedValue(new Error("Path not found: wiki/chapters"))
+    const scan = await scanFinalChapterBackfill(PROJECT)
+    expect(scan.chapters).toEqual([])
+    expect(scan.pending).toEqual([])
+    expect(scan.errors.length).toBe(1)
+  })
+
+  it("P1-02: assertUniqueFinalChapterSource 3 类错误均输出中文并列出冲突路径", async () => {
+    // 1. 同章号存在多个 final 文件（含中文冲突路径 + 兼容英文括号锚点）
+    mockListDirectory.mockResolvedValue([
+      chapterNode("chapter-003a.md"),
+      chapterNode("chapter-003b.md"),
+      chapterNode("chapter-004.md"),
+    ])
+    mockReadFile.mockImplementation(async (path: string) => {
+      if (String(path).includes("003")) return chapterMd(3, "final")
+      if (String(path).includes("004")) return chapterMd(4, "final")
+      throw new Error("ENOENT")
+    })
+    await expect(
+      assertUniqueFinalChapterSource(PROJECT, `${PROJECT}/wiki/chapters/chapter-003a.md`, 3),
+    ).rejects.toThrow(
+      /第 3 章存在多个正式章文件[\s\S]*chapter-003a\.md[\s\S]*chapter-003b\.md[\s\S]*Multiple final chapter files share chapter number 3/,
+    )
+
+    // 2. 存在不可读章节文件 → 中文阻断提示
+    mockListDirectory.mockResolvedValueOnce([
+      chapterNode("chapter-004.md"),
+      chapterNode("chapter-005-broken.md"),
+    ])
+    mockReadFile.mockImplementationOnce(async () => chapterMd(4, "final"))
+    mockReadFile.mockRejectedValueOnce(new Error("EACCES"))
+    await expect(
+      assertUniqueFinalChapterSource(PROJECT, `${PROJECT}/wiki/chapters/chapter-004.md`, 4),
+    ).rejects.toThrow(/无法校验第 4 章的唯一性[\s\S]*无法读取/)
+
+    // 3. 当前路径与唯一正式章路径不一致
+    await expect(
+      assertUniqueFinalChapterSource(PROJECT, `${PROJECT}/wiki/chapters/chapter-004-other.md`, 4),
+    ).rejects.toThrow(/不是第 4 章的唯一正式来源[\s\S]*chapter-004\.md/)
+
+    // 4. 唯一正式章且路径匹配 → 通过
+    await expect(
+      assertUniqueFinalChapterSource(PROJECT, `${PROJECT}/wiki/chapters/chapter-004.md`, 4),
+    ).resolves.toBeUndefined()
   })
 })

@@ -10,7 +10,7 @@
  *      它们依赖 rebuild(W3) 与 drift 自愈(W4)，必须等 W3/W4 落地后才能搬出，
  *      故收口于本波次。
  */
-import { deleteFile, fileExists, readFile } from "@/commands/fs"
+import { deleteFile, fileExists, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
@@ -27,6 +27,11 @@ import { writeSnapshotToWiki } from "./graph-adapter"
 import { normalizeChapterSnapshot } from "./chapter-snapshot-normalize"
 import { sliceChapterForReview } from "./chapter-window"
 import { clearTemporalFactsCache } from "./context-engine"
+import { findChapterFileByNumber } from "./chapter-utils"
+import { loadFactsFile, removeChapterFacts, saveFactsFile } from "./facts-store"
+import { withProjectLock } from "./novel-locks"
+import { removeChapterFromProjectionLedger } from "./projection-status-ledger"
+import { removeChapterTimelineEvents } from "./timeline"
 import {
   snapshotHistoryDir,
   snapshotJsonPath,
@@ -35,7 +40,9 @@ import {
 import {
   backupSnapshotBeforeOverwrite,
   cleanupDeletedChapterResidualEntities,
+  isMissingFile,
   saveSnapshot,
+  withSnapshotWriteLock,
 } from "./chapter-ingest-snapshot-io"
 import {
   materializeRestoredCurrentSnapshot,
@@ -367,8 +374,16 @@ export async function restoreSnapshotHistory(
   onDataVersionBump?: () => void,
 ): Promise<ChapterSnapshot> {
   const pp = normalizePath(projectPath)
-  const currentSnapshot = await readCurrentSnapshot(pp, chapterNumber)
-  await backupSnapshotBeforeOverwrite(pp, chapterNumber)
+  return withSnapshotWriteLock(pp, chapterNumber, () =>
+    restoreSnapshotHistoryUnlocked(pp, chapterNumber, historyFileName, onDataVersionBump))
+}
+
+async function restoreSnapshotHistoryUnlocked(
+  pp: string,
+  chapterNumber: number,
+  historyFileName: string,
+  onDataVersionBump?: () => void,
+): Promise<ChapterSnapshot> {
   // SEC-003: historyFileName is user-supplied (e.g. from the UI snapshot-history
   // picker). Reject path traversal: no separators, no parent-dir, must be a
   // bare `*.snapshot.json` filename so `${dir}/${historyFileName}` cannot
@@ -385,6 +400,8 @@ export async function restoreSnapshotHistory(
   if (!snapshot) {
     throw new Error("Invalid snapshot history file.")
   }
+  const currentSnapshot = await readCurrentSnapshot(pp, chapterNumber)
+  await backupSnapshotBeforeOverwrite(pp, chapterNumber)
   const restoredCurrent = materializeRestoredCurrentSnapshot(snapshot, currentSnapshot)
   await saveSnapshot(pp, restoredCurrent)
   const writtenEntityPaths = await writeSnapshotToWiki(pp, restoredCurrent)
@@ -406,16 +423,246 @@ export async function restoreSnapshotHistory(
 }
 
 // ── deleteChapterSnapshots ──
-export async function deleteChapterSnapshots(projectPath: string, chapterNumber: number, onDataVersionBump?: () => void): Promise<void> {
+export interface DeleteChapterSnapshotsOptions {
+  onDataVersionBump?: () => void
+  chapterPath?: string
+}
+
+function normalizeWinDriveLetter(path: string): string {
+  return /^[A-Za-z]:\//.test(path) ? path[0]!.toLowerCase() + path.slice(1) : path
+}
+
+function canonicalChapterSourcePath(pp: string, rawPath: string): string {
+  const root = normalizeWinDriveLetter(normalizePath(pp).replace(/\/+$/, ""))
+  let norm = normalizeWinDriveLetter(normalizePath(rawPath).replace(/\/+$/, ""))
+  if (!/^[A-Za-z]:\//.test(norm) && !norm.startsWith("/")) {
+    norm = `${root}/${norm.replace(/^\/+/, "")}`
+  }
+  const physicalPrefix = `${root}/QM/chapters/`
+  if (norm.startsWith(physicalPrefix)) {
+    return `${root}/wiki/chapters/${norm.slice(physicalPrefix.length)}`
+  }
+  return norm
+}
+
+function extractSnapshotBoundPath(rawJson: string): string | null {
+  try {
+    const parsed = JSON.parse(rawJson) as Record<string, unknown> | null
+    if (!parsed || typeof parsed !== "object") return null
+    for (const key of ["sourcePath", "chapterPath", "readPath"] as const) {
+      const value = parsed[key]
+      if (typeof value === "string" && value.trim().length > 0) return value.trim()
+    }
+    const sourceBinding = parsed.sourceBinding
+    if (sourceBinding && typeof sourceBinding === "object") {
+      const readPath = (sourceBinding as Record<string, unknown>).readPath
+      if (typeof readPath === "string" && readPath.trim().length > 0) return readPath.trim()
+    }
+  } catch (err) {
+    logger.warn("Chapter Ingest", "parse snapshot json for bound path check failed (non-fatal)", {
+      error: toErrorMessage(err),
+    })
+  }
+  return null
+}
+
+export function deleteChapterSnapshots(
+  projectPath: string,
+  chapterNumber: number,
+  onDataVersionBump?: () => void,
+): Promise<void>
+export function deleteChapterSnapshots(
+  projectPath: string,
+  chapterNumber: number,
+  options: DeleteChapterSnapshotsOptions,
+): Promise<boolean>
+export function deleteChapterSnapshots(
+  projectPath: string,
+  chapterNumber: number,
+  onDataVersionBump: (() => void) | undefined,
+  extraOptions: { chapterPath?: string },
+): Promise<boolean>
+export async function deleteChapterSnapshots(
+  projectPath: string,
+  chapterNumber: number,
+  onDataVersionBumpOrOptions?: (() => void) | DeleteChapterSnapshotsOptions,
+  extraOptions?: { chapterPath?: string },
+): Promise<boolean | void> {
   const pp = normalizePath(projectPath)
+  const hasOptionsObject =
+    (typeof onDataVersionBumpOrOptions === "object" && onDataVersionBumpOrOptions !== null) ||
+    extraOptions !== undefined
+  const onDataVersionBump =
+    typeof onDataVersionBumpOrOptions === "function"
+      ? onDataVersionBumpOrOptions
+      : onDataVersionBumpOrOptions?.onDataVersionBump
+  const chapterPath =
+    typeof onDataVersionBumpOrOptions === "object" && onDataVersionBumpOrOptions !== null
+      ? (onDataVersionBumpOrOptions.chapterPath ?? extraOptions?.chapterPath)
+      : extraOptions?.chapterPath
+  const deleted = await withSnapshotWriteLock(pp, chapterNumber, () =>
+    deleteChapterSnapshotsUnlocked(pp, chapterNumber, onDataVersionBump, chapterPath))
+  return hasOptionsObject ? deleted : undefined
+}
+
+async function deleteChapterSnapshotsUnlocked(
+  pp: string,
+  chapterNumber: number,
+  onDataVersionBump?: () => void,
+  chapterPath?: string,
+): Promise<boolean> {
   const jsonPath = snapshotJsonPath(pp, chapterNumber)
   const mdPath = snapshotMarkdownPath(pp, chapterNumber)
   const historyDir = snapshotHistoryDir(pp, chapterNumber)
+
+  // R3-M05: 当调用方传入 chapterPath 时，若现有快照绑定了明确的源文件路径且与待删路径不一致，
+  // 则跳过删除该章快照与派生记忆，防止同章号冲突文件误删另一份正式章的记忆。
+  if (chapterPath && chapterPath.trim().length > 0) {
+    let boundPath: string | null = null
+    try {
+      const raw = await readFile(jsonPath)
+      boundPath = extractSnapshotBoundPath(raw)
+    } catch (err) {
+      logger.warn("Chapter Ingest", "read snapshot for bound path check skipped (non-fatal)", {
+        path: jsonPath,
+        error: toErrorMessage(err),
+      })
+    }
+    if (
+      boundPath &&
+      canonicalChapterSourcePath(pp, boundPath) !== canonicalChapterSourcePath(pp, chapterPath)
+    ) {
+      logger.warn("Chapter Ingest", "skip snapshot delete: bound chapter source path mismatch", {
+        chapterNumber,
+        requestedPath: chapterPath,
+        boundPath,
+      })
+      const deletedStem = normalizePath(chapterPath).split("/").pop()?.replace(/\.md$/i, "") ?? ""
+      const prefix = String(chapterNumber).padStart(3, "0")
+      if (chapterNumber > 0 && deletedStem && deletedStem !== `chapter-${prefix}` && deletedStem !== prefix) {
+        try {
+          const { removePageEmbedding } = await import("@/lib/embedding")
+          await removePageEmbedding(pp, deletedStem)
+        } catch (err) {
+          logger.warn("Chapter Ingest", "remove mismatched chapter stem embedding failed (non-fatal)", {
+            pageId: deletedStem,
+            error: toErrorMessage(err),
+          })
+        }
+      }
+      return false
+    }
+  }
+
   // ISS-20260712-REL-1: 空 catch 收敛 — 记诊断（warn + 脱敏 message），控制流不变
   // （删除失败不阻断 rebuild；缺文件仍视为已删）。
   try { if (await fileExists(jsonPath)) await deleteFile(jsonPath) } catch (err) { logger.warn("Chapter Ingest", "delete snapshot json failed (non-fatal)", { path: jsonPath, error: toErrorMessage(err) }) }
   try { if (await fileExists(mdPath)) await deleteFile(mdPath) } catch (err) { logger.warn("Chapter Ingest", "delete snapshot md failed (non-fatal)", { path: mdPath, error: toErrorMessage(err) }) }
   try { if (await fileExists(historyDir)) await deleteFile(historyDir) } catch (err) { logger.warn("Chapter Ingest", "delete snapshot history failed (non-fatal)", { path: historyDir, error: toErrorMessage(err) }) }
+
+  // R2-M03: 联动清理 chapter-ingest-output/${prefix}.*（正文章产物；逐文件容错不阻断）。
+  if (chapterNumber > 0) {
+    const prefix = String(chapterNumber).padStart(3, "0")
+    const outputDir = `${pp}/.novel/chapter-ingest-output`
+    const outputSuffixes = [".output.json", ".wiki-patch.json", ".search-index.json", ".vector-index.json"]
+    for (const suffix of outputSuffixes) {
+      const outputPath = `${outputDir}/${prefix}${suffix}`
+      try {
+        if (await fileExists(outputPath)) await deleteFile(outputPath)
+      } catch (err) {
+        logger.warn("Chapter Ingest", "delete chapter ingest output failed (non-fatal)", {
+          path: outputPath,
+          error: toErrorMessage(err),
+        })
+      }
+    }
+  }
+
+  // R2-M03: 独立短锁清理 facts.json（绝不与 timeline/ledger/projection-store 跨锁嵌套）。
+  try {
+    await withProjectLock(`facts:${pp}`, async () => {
+      const factsPath = `${pp}/.novel/facts.json`
+      let raw: string
+      try {
+        raw = await readFile(factsPath)
+      } catch (err) {
+        if (await isMissingFile(factsPath, err)) return
+        throw err
+      }
+      if (!raw.trim()) return
+      const state = loadFactsFile(raw, { strict: true })
+      const next = removeChapterFacts(state, chapterNumber)
+      if (next !== state) {
+        await writeFileAtomic(factsPath, saveFactsFile(next))
+      }
+    })
+  } catch (err) {
+    logger.warn("Chapter Ingest", "remove chapter facts failed (non-fatal)", {
+      chapterNumber,
+      error: toErrorMessage(err),
+    })
+  }
+
+  // R2-M03: 独立短锁清理 timeline.json。
+  try {
+    await removeChapterTimelineEvents(pp, chapterNumber)
+  } catch (err) {
+    logger.warn("Chapter Ingest", "remove chapter timeline events failed (non-fatal)", {
+      chapterNumber,
+      error: toErrorMessage(err),
+    })
+  }
+
+  // R2-M03: 独立短锁清理 projection-status.json。
+  try {
+    await removeChapterFromProjectionLedger(pp, chapterNumber)
+  } catch (err) {
+    logger.warn("Chapter Ingest", "remove chapter from projection ledger failed (non-fatal)", {
+      chapterNumber,
+      error: toErrorMessage(err),
+    })
+  }
+
+  // R2-M03: 联动清理 LanceDB 向量（覆 chapter-${prefix} / ${prefix} / 真实 stem，失败 warn 不阻断）。
+  if (chapterNumber > 0) {
+    const prefix = String(chapterNumber).padStart(3, "0")
+    const pageIds = new Set<string>([`chapter-${prefix}`, prefix])
+    if (chapterPath && chapterPath.trim().length > 0) {
+      const requestedStem = normalizePath(chapterPath).split("/").pop()?.replace(/\.md$/i, "") ?? ""
+      if (requestedStem) pageIds.add(requestedStem)
+    }
+    try {
+      const chapterFilePath = await findChapterFileByNumber(pp, chapterNumber)
+      const stem = chapterFilePath
+        ? normalizePath(chapterFilePath).split("/").pop()?.replace(/\.md$/i, "") ?? ""
+        : ""
+      if (stem) pageIds.add(stem)
+    } catch (err) {
+      logger.warn("Chapter Ingest", "resolve chapter file stem for vector cleanup failed (non-fatal)", {
+        chapterNumber,
+        error: toErrorMessage(err),
+      })
+    }
+    try {
+      const { removePageEmbedding } = await import("@/lib/embedding")
+      for (const pageId of pageIds) {
+        try {
+          await removePageEmbedding(pp, pageId)
+        } catch (err) {
+          logger.warn("Chapter Ingest", "remove page embedding failed (non-fatal)", {
+            pageId,
+            error: toErrorMessage(err),
+          })
+        }
+      }
+    } catch (err) {
+      logger.warn("Chapter Ingest", "load embedding module for vector cleanup failed (non-fatal)", {
+        chapterNumber,
+        error: toErrorMessage(err),
+      })
+    }
+  }
+
   await rebuildDerivedMemoryFromSnapshots(pp)
   // ISS-20260712-MAINT-4: truth store 残留修 — rebuild 仅重放剩余快照，已删章节的
   // 孤儿实体（其 snapshot token 全属于被删章节候选）在此兜底清扫。exact 匹配
@@ -428,4 +675,5 @@ export async function deleteChapterSnapshots(projectPath: string, chapterNumber:
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
   const bump = onDataVersionBump ?? (() => useWikiStore.getState().bumpDataVersion())
   bump()
+  return true
 }

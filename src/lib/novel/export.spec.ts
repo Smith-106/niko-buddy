@@ -108,7 +108,9 @@ vi.mock("@/commands/fs", async (importOriginal) => {
       writeFile: vi.fn(async (path: string, content: string): Promise<void> => {
         fsState.writes.push({ path: String(path).replace(/\\/g, "/"), content })
       }),
-      writeFileAtomic: vi.fn(async (): Promise<void> => {}),
+      writeFileAtomic: vi.fn(async (path: string, content: string): Promise<void> => {
+        fsState.writes.push({ path: String(path).replace(/\\/g, "/"), content })
+      }),
       listDirectory: vi.fn(async (path: string) => {
         return fsState.directories.get(String(path).replace(/\\/g, "/")) ?? []
       }),
@@ -125,9 +127,13 @@ import {
   exportProject,
   exportNovelDocx,
   exportNovelEpub,
+  exportNovelTxt,
+  exportNovelPdf,
   exportInteractiveStory,
   finalizeManuscript,
   countFinalChapters,
+  inspectExportableChapters,
+  stripMarkdownForPlainText,
 } from "./export"
 import type { InteractiveStoryGraph } from "./interactive-film-graph"
 import { createDirectory, fileExists, listDirectory, writeFile } from "@/commands/fs"
@@ -144,13 +150,12 @@ function chapterFile(num: number, title: string, bodyText: string): string {
 }
 
 describe("exportProject 并行化（TASK-403）", () => {
-  it("章节段 readFile 并发峰值 = 文件数；写出顺序与改动前 files 遍历序一致（不随并行完成顺序改变）", async () => {
+  it("章节段 readFile 并发峰值 = 文件数；写出顺序按数值章号排序（不随并行完成顺序或目录顺序改变）", async () => {
     fsState.reset()
     fsState.files.set(`${PROJECT}/wiki/chapters/c3.md`, chapterFile(3, "第三章", "正文三"))
     fsState.files.set(`${PROJECT}/wiki/chapters/c1.md`, chapterFile(1, "第一章", "正文一"))
     fsState.files.set(`${PROJECT}/wiki/chapters/c2.md`, chapterFile(2, "第二章", "正文二"))
-    // 文件树顺序 [c3, c1, c2]：改动前输出即此遍历序（parseFrontmatter 标量字符串化
-    // → chapter_number 为 string → sort by num 稳定 no-op）。
+    // 文件树顺序 [c3, c1, c2]：经 parseChapterNumber 修复排序后，确定按数值章号 1 → 2 → 3 输出。
     fsState.directories.set(`${PROJECT}/wiki/chapters`, [
       { name: "c3.md", path: `${PROJECT}/wiki/chapters/c3.md`, is_dir: false },
       { name: "c1.md", path: `${PROJECT}/wiki/chapters/c1.md`, is_dir: false },
@@ -168,20 +173,18 @@ describe("exportProject 并行化（TASK-403）", () => {
     await vi.waitFor(() => expect(fsState.inFlight).toBe(3), { timeout: 2000, interval: 10 })
     expect(fsState.peak).toBe(3)
 
-    // 乱序放行：c1 先完成、c2 其次、c3 最后 —— 与 files 遍历序 [c3, c1, c2] 不同。
-    // 若按完成顺序写盘输出将是 一→二→三；按 i 还原则保持遍历序 三→一→二。
-    fsState.release(`${PROJECT}/wiki/chapters/c1.md`)
+    // 乱序放行：c2 先完成、c3 其次、c1 最后 —— 最终输出仍按数值章号 1 → 2 → 3。
     fsState.release(`${PROJECT}/wiki/chapters/c2.md`)
     fsState.release(`${PROJECT}/wiki/chapters/c3.md`)
+    fsState.release(`${PROJECT}/wiki/chapters/c1.md`)
 
     const result = await pending
     expect(result.success).toBe(true)
     expect(result.chapterCount).toBe(3)
     expect(fsState.writes).toHaveLength(1)
     expect(fsState.writes[0].path).toBe(`${OUT}/complete-novel.md`)
-    // 输出顺序 = 改动前遍历序（c3 → c1 → c2），不随并行完成顺序改变。
     expect(fsState.writes[0].content).toBe(
-      "# 第三章\n\n正文三\n\n---\n\n# 第一章\n\n正文一\n\n---\n\n# 第二章\n\n正文二",
+      "# 第一章\n\n正文一\n\n---\n\n# 第二章\n\n正文二\n\n---\n\n# 第三章\n\n正文三",
     )
   })
 
@@ -919,5 +922,193 @@ describe("故障降级路径（增补）", () => {
       if (defaultWrite) writeFileMock.mockImplementation(defaultWrite)
       else writeFileMock.mockReset()
     }
+  })
+})
+
+describe("P1-04 数值排序修复 + 范围筛选 + TXT/PDF 整本导出 + inspectExportableChapters", () => {
+  function setupMixedChapters(): void {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "c10.md", path: `${PROJECT}/wiki/chapters/c10.md`, is_dir: false },
+      { name: "c2.md", path: `${PROJECT}/wiki/chapters/c2.md`, is_dir: false },
+      { name: "c1.md", path: `${PROJECT}/wiki/chapters/c1.md`, is_dir: false },
+      { name: "c3-draft.md", path: `${PROJECT}/wiki/chapters/c3-draft.md`, is_dir: false },
+      { name: "c4-archived.md", path: `${PROJECT}/wiki/chapters/c4-archived.md`, is_dir: false },
+    ])
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/c10.md`,
+      "---\nchapter_number: 10\ntitle: 第十章 终局\nchapter_status: final\n---\n**第十章**正文。",
+    )
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/c2.md`,
+      "---\nchapter_number: 2\ntitle: 第二章 暗流\nchapter_status: final\n---\n第二章正文。",
+    )
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/c1.md`,
+      "---\nchapter_number: 1\ntitle: 第一章 开局\nchapter_status: final\n---\n第一章正文。",
+    )
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/c3-draft.md`,
+      "---\nchapter_number: 3\ntitle: 第三章 未定\nchapter_status: draft\n---\n草稿正文。",
+    )
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/c4-archived.md`,
+      "---\nchapter_number: 4\ntitle: 第四章 废稿\nchapter_status: archived\n---\n归档内容不应出现。",
+    )
+  }
+
+  it("1 / 2 / 10 严格按数值排序（非字符串序 1, 10, 2），且绝不导出 archived", async () => {
+    setupMixedChapters()
+    const invokeMock = vi.mocked(invoke)
+    invokeMock.mockClear()
+    invokeMock.mockResolvedValue({ success: true, exportedPath: `${OUT}/book.docx`, chapterCount: 3, message: "ok" })
+
+    await exportNovelDocx({ projectPath: PROJECT, exportPath: `${OUT}/book.docx` })
+    const [, docxArgs] = invokeMock.mock.calls[0] as [string, { chapters: Array<{ title: string }> }]
+    expect(docxArgs.chapters.map((c) => c.title)).toEqual([
+      "第一章 开局",
+      "第二章 暗流",
+      "第十章 终局",
+    ])
+  })
+
+  it("exportNovelEpub 带 scope/includeDrafts 时按范围过滤、标注【草稿】且绝不向 Rust 透传 scope 键", async () => {
+    setupMixedChapters()
+    const invokeMock = vi.mocked(invoke)
+    invokeMock.mockClear()
+    invokeMock.mockResolvedValueOnce({ success: true, exportedPath: `${OUT}/book.epub`, chapterCount: 2, message: "ok" })
+
+    await exportNovelEpub({
+      projectPath: PROJECT,
+      exportPath: `${OUT}/book.epub`,
+      scope: { mode: "range", startChapter: 2, endChapter: 5, includeDrafts: true },
+    })
+
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+    const [cmd, args] = invokeMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(cmd).toBe("export_novel_epub")
+    expect(Object.keys(args).sort()).toEqual(["chapters", "exportPath", "meta"])
+    const chapters = args.chapters as Array<{ title: string; body: string }>
+    expect(chapters.map((c) => c.title)).toEqual(["第二章 暗流", "【草稿】第三章 未定"])
+  })
+
+  it("inspectExportableChapters 返回统计、项目相对路径 finalChapters，且区间反转归零", async () => {
+    setupMixedChapters()
+    const stats = await inspectExportableChapters(PROJECT)
+    expect(stats.finalCount).toBe(3)
+    expect(stats.draftCount).toBe(1)
+    expect(stats.minChapter).toBe(1)
+    expect(stats.maxChapter).toBe(10)
+    expect(stats.totalWords).toBeGreaterThan(0)
+    expect(stats.finalChapters).toEqual([
+      { chapterNumber: 1, title: "第一章 开局", path: "wiki/chapters/c1.md" },
+      { chapterNumber: 2, title: "第二章 暗流", path: "wiki/chapters/c2.md" },
+      { chapterNumber: 10, title: "第十章 终局", path: "wiki/chapters/c10.md" },
+    ])
+
+    const inverted = await inspectExportableChapters(PROJECT, { mode: "range", startChapter: 8, endChapter: 2 })
+    expect(inverted).toEqual({
+      finalCount: 0,
+      draftCount: 0,
+      minChapter: null,
+      maxChapter: null,
+      totalWords: 0,
+      finalChapters: [],
+    })
+  })
+
+  it("stripMarkdownForPlainText 清理标题/粗斜体/链接/引用/分割线", () => {
+    const md = [
+      "## 小节标题",
+      "",
+      "> 引用 **加粗** 与 *斜体* 和 `代码`",
+      "",
+      "链接 [青锋剑](https://example.com) ![图](a.png)",
+      "---",
+    ].join("\n")
+    const plain = stripMarkdownForPlainText(md)
+    expect(plain).toContain("小节标题")
+    expect(plain).toContain("引用 加粗 与 斜体 和 代码")
+    expect(plain).toContain("链接 青锋剑")
+    expect(plain).not.toContain("**")
+    expect(plain).not.toContain("https://")
+    expect(plain).not.toContain("---")
+  })
+
+  it("exportNovelTxt 原子写盘（默认 UTF-8 BOM + 全角首行缩进 + 草稿计数），空范围返回失败", async () => {
+    setupMixedChapters()
+    const ok = await exportNovelTxt({
+      projectPath: PROJECT,
+      exportPath: `${OUT}/manuscript.txt`,
+      mode: "range",
+      startChapter: 1,
+      endChapter: 3,
+      includeDrafts: true,
+    })
+    expect(ok.success).toBe(true)
+    expect(ok.chapterCount).toBe(3)
+    expect(ok.draftCount).toBe(1)
+    const written = fsState.writes.find((w) => w.path === `${OUT}/manuscript.txt`)
+    expect(written?.content.startsWith("\uFEFF")).toBe(true)
+    expect(written?.content).toContain("第一章 开局\n\n\u3000\u3000第一章正文。")
+    expect(written?.content).toContain("【草稿】第三章 未定")
+    expect(written?.content).not.toContain("归档内容")
+
+    const empty = await exportNovelTxt({
+      projectPath: PROJECT,
+      exportPath: `${OUT}/empty.txt`,
+      mode: "range",
+      startChapter: 99,
+      endChapter: 100,
+    })
+    expect(empty.success).toBe(false)
+    expect(empty.chapterCount).toBe(0)
+  })
+
+  it("exportNovelPdf 先做路径数据区校验（非法不触碰 IPC），合法时复用 export_pdf 命令", async () => {
+    setupMixedChapters()
+    const invokeMock = vi.mocked(invoke)
+    invokeMock.mockClear()
+
+    // 项目内数据区拦截 → 不触碰 IPC
+    const blocked = await exportNovelPdf({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/.novel/bad.pdf`,
+    })
+    expect(blocked.success).toBe(false)
+    expect(invokeMock).not.toHaveBeenCalled()
+
+    // 项目外绝对路径放行 → 调 export_pdf
+    invokeMock.mockResolvedValueOnce({
+      target: "D:/backups/novel.pdf",
+      pages: 6,
+      paragraphs: 7,
+      font: "NotoSerifCJKsc-Regular.otf",
+      line_height_ratio: 1.5,
+      bytes_written: 8192,
+    })
+    const ok = await exportNovelPdf({
+      projectPath: PROJECT,
+      exportPath: "D:/backups/novel.pdf",
+      title: "长夜书",
+      author: "林深",
+      mode: "range",
+      startChapter: 1,
+      endChapter: 2,
+    })
+    expect(ok.success).toBe(true)
+    expect(ok.chapterCount).toBe(2)
+    expect(ok.draftCount).toBe(0)
+    expect(ok.message).toContain("6 页")
+    expect(invokeMock).toHaveBeenCalledWith(
+      "export_pdf",
+      expect.objectContaining({
+        projectPath: PROJECT,
+        target: "D:/backups/novel.pdf",
+        title: "长夜书",
+        paragraphs: ["作者：林深", "第一章 开局", "第一章正文。", "第二章 暗流", "第二章正文。"],
+      }),
+    )
   })
 })

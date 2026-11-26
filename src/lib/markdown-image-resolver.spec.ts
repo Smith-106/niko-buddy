@@ -56,6 +56,7 @@ vi.mock("@milkdown/react", async (importOriginal) => {
 import {
   resolveMarkdownImageSrc,
   resolveMarkdownImageSrcAsync,
+  resolveSafeProjectImagePath,
   sharedRemarkPlugins,
   sharedRehypePlugins,
 } from "./markdown-image-resolver"
@@ -73,12 +74,18 @@ describe("resolveMarkdownImageSrc", () => {
     expect(resolveMarkdownImageSrc("", "/p")).toBe("")
   })
 
-  it("passes through external and data URIs", () => {
+  it("passes through safe external/raster-data URIs and blocks file://, SVG data URIs, and javascript:", () => {
     expect(resolveMarkdownImageSrc("https://x/y.png", "/p")).toBe("https://x/y.png")
     expect(resolveMarkdownImageSrc("data:image/png;base64,abc", "/p")).toBe("data:image/png;base64,abc")
     expect(resolveMarkdownImageSrc("blob:http://x/1", "/p")).toBe("blob:http://x/1")
-    expect(resolveMarkdownImageSrc("file:///tmp/x.png", "/p")).toBe("file:///tmp/x.png")
+    expect(resolveMarkdownImageSrc("file:///tmp/x.png", "/p")).toBe("")
     expect(resolveMarkdownImageSrc("tauri://local/x.png", "/p")).toBe("tauri://local/x.png")
+    expect(resolveMarkdownImageSrc("data:image/svg+xml;base64,PHN2Zz4=", "/p")).toBe("")
+    expect(resolveMarkdownImageSrc("data:image/svg+xml,<svg onload=alert(1)>", "/p")).toBe("")
+    expect(resolveMarkdownImageSrc("data:text/html,<script>alert(1)</script>", "/p")).toBe("")
+    expect(resolveMarkdownImageSrc("javascript:alert(1)", "/p")).toBe("")
+    expect(resolveMarkdownImageSrc("  javascript:alert(1)", null)).toBe("")
+    expect(resolveMarkdownImageSrc("vbscript:msgbox(1)", null)).toBe("")
   })
 
   it("returns the source unchanged without a project", () => {
@@ -90,23 +97,103 @@ describe("resolveMarkdownImageSrc", () => {
     expect(resolveMarkdownImageSrc("a.png", "/p")).toBe("a.png")
   })
 
-  it("converts absolute paths directly", () => {
+  it("allows in-project absolute paths (POSIX and case-insensitive Windows drives)", () => {
     mocks.isTauri.mockReturnValue(true)
-    expect(resolveMarkdownImageSrc("/abs/x.png", "/p")).toBe("asset:///abs/x.png")
-    expect(resolveMarkdownImageSrc("C:\\img\\x.png", "/p")).toBe("asset://C:\\img\\x.png")
-    expect(resolveMarkdownImageSrc("\\\\server\\share\\x.png", "/p")).toBe("asset://\\\\server\\share\\x.png")
+    expect(resolveMarkdownImageSrc("/p/QM/x.png", "/p")).toBe("asset:///p/QM/x.png")
+    expect(resolveMarkdownImageSrc("C:\\proj\\QM\\x.png", "C:\\proj")).toBe("asset://C:/proj/QM/x.png")
+    expect(resolveMarkdownImageSrc("c:/PROJ/raw/assets/img.png", "C:\\proj\\")).toBe(
+      "asset://c:/PROJ/raw/assets/img.png",
+    )
+    expect(mocks.convertFileSrc).toHaveBeenCalledTimes(3)
+  })
+
+  it("blocks out-of-project absolute paths, prefix collisions, UNC, drive-relative, traversal, encoded traversal, and control chars", () => {
+    mocks.isTauri.mockReturnValue(true)
+    const blocked: Array<[string, string]> = [
+      // 项目外绝对路径
+      ["/abs/x.png", "/p"],
+      ["/etc/passwd", "/p"],
+      ["C:\\img\\x.png", "C:\\proj"],
+      ["D:\\proj\\x.png", "C:\\proj"],
+      // 前缀碰撞与项目根本体
+      ["/p2/x.png", "/p"],
+      ["/p", "/p"],
+      ["/P/x.png", "/p"],
+      ["C:\\proj2\\x.png", "C:\\proj"],
+      ["C:\\proj", "C:\\proj"],
+      // UNC 与 Windows 设备路径
+      ["\\\\server\\share\\x.png", "/p"],
+      ["//server/share/x.png", "C:\\proj"],
+      ["\\/server/share/x.png", "/p"],
+      ["/\\server\\share\\x.png", "/p"],
+      ["\\\\?\\C:\\proj\\x.png", "C:\\proj"],
+      ["\\\\.\\pipe\\x.png", "C:\\proj"],
+      ["//?/C:/proj/x.png", "C:\\proj"],
+      ["//./C:/proj/x.png", "C:\\proj"],
+      // Windows 盘符相对路径
+      ["C:foo.png", "C:\\proj"],
+      ["C:", "C:\\proj"],
+      // `..` 目录穿越
+      ["../secret.png", "/p"],
+      ["media/../../secret.png", "/p"],
+      ["/p/../p2/x.png", "/p"],
+      ["C:\\proj\\..\\secret.png", "C:\\proj"],
+      // URL 编码穿越与控制字符
+      ["%2e%2e/secret.png", "/p"],
+      ["%2E%2E/secret.png", "/p"],
+      ["media/%2e./secret.png", "/p"],
+      ["media/.%2e/secret.png", "/p"],
+      ["media%2f..%2fsecret.png", "/p"],
+      ["media%5csecret.png", "/p"],
+      ["media/a%00.png", "/p"],
+      ["media/a\0b.png", "/p"],
+      ["media/a\nb.png", "/p"],
+      ["media/a\x7fb.png", "/p"],
+      // 退化相对路径与非法项目根
+      [".", "/p"],
+      ["./", "/p"],
+      ["media/a.png", "/"],
+    ]
+
+    for (const [rawSrc, projectPath] of blocked) {
+      expect(resolveMarkdownImageSrc(rawSrc, projectPath), `should block ${rawSrc} under ${projectPath}`).toBe("")
+    }
+    expect(mocks.convertFileSrc).not.toHaveBeenCalled()
+  })
+
+  it("blocks dangerous schemes, traversal, UNC, and absolute paths even without project or outside tauri", () => {
+    mocks.isTauri.mockReturnValue(false)
+    expect(resolveMarkdownImageSrc("file:///etc/passwd", null)).toBe("")
+    expect(resolveMarkdownImageSrc("../secret.png", null)).toBe("")
+    expect(resolveMarkdownImageSrc("\\\\server\\share\\x.png", null)).toBe("")
+    expect(resolveMarkdownImageSrc("\\\\?\\C:\\Windows\\win.ini", "/p")).toBe("")
+    expect(resolveMarkdownImageSrc("/etc/passwd", null)).toBe("")
+    expect(resolveMarkdownImageSrc("/etc/passwd", "/p")).toBe("")
   })
 
   it("joins wiki-relative paths under the project wiki root and strips ./", () => {
     mocks.isTauri.mockReturnValue(true)
     expect(resolveMarkdownImageSrc("media/a/img-1.png", "/p")).toBe("asset:///p/wiki/media/a/img-1.png")
     expect(resolveMarkdownImageSrc("./media/b.png", "C:\\proj")).toBe("asset://C:/proj/wiki/media/b.png")
+    expect(resolveMarkdownImageSrc("media/%E5%9B%BE%201.png", "/p")).toBe("asset:///p/wiki/media/%E5%9B%BE%201.png")
     expect(mocks.convertFileSrc).toHaveBeenCalledWith("C:/proj/wiki/media/b.png")
   })
 })
 
+describe("resolveSafeProjectImagePath", () => {
+  it("returns null on empty inputs or degenerate roots", () => {
+    expect(resolveSafeProjectImagePath("", "/p")).toBeNull()
+    expect(resolveSafeProjectImagePath("a.png", "")).toBeNull()
+    expect(resolveSafeProjectImagePath("a.png", ".")).toBeNull()
+    expect(resolveSafeProjectImagePath("a.png", "/")).toBeNull()
+    expect(resolveSafeProjectImagePath("C:/Windows/win.ini", "C:/")).toBeNull()
+    expect(resolveSafeProjectImagePath("C:\\Windows\\win.ini", "C:\\")).toBeNull()
+    expect(resolveSafeProjectImagePath("media/a.png", "c:")).toBeNull()
+  })
+})
+
 describe("resolveMarkdownImageSrcAsync", () => {
-  it("mirrors the sync behavior with the same early returns", async () => {
+  it("delegates to sync resolver with identical boundary enforcement", async () => {
     mocks.isTauri.mockReturnValue(false)
     await expect(resolveMarkdownImageSrcAsync("x.png", "/p")).resolves.toBe("x.png")
     await expect(resolveMarkdownImageSrcAsync("x.png", null)).resolves.toBe("x.png")
@@ -114,7 +201,8 @@ describe("resolveMarkdownImageSrcAsync", () => {
     await expect(resolveMarkdownImageSrcAsync("", "/p")).resolves.toBe("")
     mocks.isTauri.mockReturnValue(true)
     await expect(resolveMarkdownImageSrcAsync("media/c.png", "/p")).resolves.toBe("asset:///p/wiki/media/c.png")
-    await expect(resolveMarkdownImageSrcAsync("/abs/d.png", "/p")).resolves.toBe("asset:///abs/d.png")
+    await expect(resolveMarkdownImageSrcAsync("/p/raw/d.png", "/p")).resolves.toBe("asset:///p/raw/d.png")
+    await expect(resolveMarkdownImageSrcAsync("/abs/d.png", "/p")).resolves.toBe("")
   })
 })
 
@@ -245,6 +333,7 @@ describe("真实数学依赖集成", () => {
   it("执行实际 Mermaid 动态数学与 DOMPurify sanitize 分支并记录能力", async () => {
     const moduleUrl = pathToFileURL(resolve(process.cwd(), "node_modules/mermaid/dist/chunks/mermaid.core/chunk-DU6HZSFF.mjs"))
     expect(moduleUrl.protocol).toBe("file:")
+    // eslint-disable-next-line no-unsanitized/method -- 测试固定本地依赖 chunk 路径，无外部不可信输入
     const module: unknown = await import(moduleUrl.href)
     if (typeof module !== "object" || module === null || !("renderKatexSanitized" in module) || typeof module.renderKatexSanitized !== "function") {
       throw new Error("actual Mermaid renderKatexSanitized export unavailable")

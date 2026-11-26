@@ -101,6 +101,9 @@ export async function deleteNovelSourceMemory(
   const snapshotNumber = getChapterSnapshotNumberFromDeletedSource(input)
   if (snapshotNumber === null) return
   const { deleteChapterSnapshots } = await import("@/lib/novel/chapter-ingest")
-  await deleteChapterSnapshots(projectPath, snapshotNumber)
+  const snapshotDeleted = input.pagePath
+    ? await deleteChapterSnapshots(projectPath, snapshotNumber, { chapterPath: input.pagePath })
+    : await deleteChapterSnapshots(projectPath, snapshotNumber)
+  if (snapshotDeleted === false) return
   await cleanupDeletedSourceEntities(projectPath, snapshotNumber)
 }

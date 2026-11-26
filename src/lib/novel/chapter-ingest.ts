@@ -1,4 +1,4 @@
-﻿import { readFile } from "@/commands/fs"
+import { readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, type StreamCallbacks } from "@/lib/llm-client"
@@ -23,9 +23,13 @@ export {
 // W1（chapter-ingest 拆分第 5 步）：快照持久化原语已拆至 ./chapter-ingest-snapshot-io。
 // 本地 import 供内部调用点使用，并 re-export 保持既有 import 面不变（70 个消费方零改动）。
 import {
+  archiveSnapshotJson,
   backupSnapshotBeforeOverwrite,
+  readSnapshotForReplacement,
   saveSnapshot,
+  withSnapshotWriteLock,
 } from "./chapter-ingest-snapshot-io"
+import { assertUniqueFinalChapterSource } from "./snapshot-scanner"
 export {
   backupSnapshotBeforeOverwrite,
   cleanupDeletedChapterResidualEntities,
@@ -97,6 +101,7 @@ export {
   extractSnapshotWithLLM,
   normalizeOutlineIngestError,
   restoreSnapshotHistory,
+  type DeleteChapterSnapshotsOptions,
 } from "./chapter-ingest-extraction"
 // (A)-2（chapter-ingest 二次拆分第 1 步）：ingestChapter 的前置解析与守卫已拆至
 // ./chapter-ingest-ingest-guards（判定顺序与 failReason 字面值零变化）。
@@ -109,7 +114,7 @@ import {
   type IngestSourceBinding,
   type IngestSourceRead,
 } from "./chapter-ingest-commit"
-import { runIngestProjections } from "./chapter-ingest-projections"
+import { recoverInterruptedCommunitySummaryAttempts, runIngestProjections, type RunIngestProjectionsResult } from "./chapter-ingest-projections"
 import { resolveNovelModel } from "./model-resolver"
 // S5 首拆切片 #2（chapter-ingest 拆分第 2 步）：快照预览纯函数簇已拆至 ./snapshot-preview。
 // 本地 import 供内部调用点使用，并 re-export 保持既有 import 面不变。
@@ -119,7 +124,7 @@ export {
   backupCommunitySummariesLastGood,
   restoreCommunitySummariesLastGood,
 } from "./community-summary-recovery"
-import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionState } from "./character-cognition"
+import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionFoldPreservingTelemetry } from "./character-cognition"
 import { createEmptyCharacterStateStore, loadCharacterStates, saveCharacterStates } from "./character-state"
 import { createEmptyForeshadowingStore, loadForeshadowingTracker, saveForeshadowingTracker } from "./foreshadowing-tracker"
 import { createEmptyEmotionalArcStore, loadEmotionalArcs, saveEmotionalArcs } from "./emotional-arcs"
@@ -141,18 +146,22 @@ import { clearTemporalFactsCache } from "./context-engine"
 import { sliceChapterForReview } from "./chapter-window"
 import {
   appendProjectionAuditEntry,
-  saveProjectionStatusLedger,
+  type ProjectionAuditEntry,
+  emptyLedger,
+  mergeProjectionLedgerDelta,
+  recordProjectionStatus,
   registerProjections,
   shouldRetryLedgerSave,
   PROJECTION_REGISTRY,
   type ProjectionStatusLedger,
+  withProjectionStoreWriteLock,
 } from "./projection-status-ledger"
 // B2（守门四件套接线 · projection-self-heal 派生）：跳过集合与门槛的唯一事实源。
 // mayEnterFoldReplay(projection, isRebuildable)：isSelfHealSkipClass 命中 →
 // false（禁入自愈重算）；其余交由 isAutoRebuildableProjection 既有门槛。
 import { computeCheckpointDigest, computeCheckpointDigestOf } from "./checkpoint-digest"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
-import { shadowWriteCanon, replayPendingQueue } from "./canon-dual-write"
+import { shadowWriteCanon, replayPendingQueue, defaultCanonDualWriteDeps } from "./canon-dual-write"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict" | "truth_authority_conflict"
@@ -264,6 +273,7 @@ export type IngestFailReason =
   | "not_chapter"
   | "not_final"
   | "invalid_chapter_number"
+  | "duplicate_chapter_number"
   | "extract_failed"
   | "cancelled"
   /** 提交前同路径完整内容与本次提取读取不一致（本次不提交）。 */
@@ -278,6 +288,11 @@ export type IngestFailReason =
  */
 export const REBUILD_REEMBED_SOURCE = "snapshot.summary" as const
 
+export interface IngestProjectionError {
+  stage: "source_fence" | "projection_runner"
+  message: string
+}
+
 export interface IngestResult {
   snapshot: ChapterSnapshot | null
   failReason?: IngestFailReason
@@ -291,9 +306,11 @@ export interface IngestResult {
   /**
    * R4（方案 a）：finally 账本落盘（含恰好 1 次重试）是否最终失败。
    * true = 两次写盘均失败但主链未阻断（snapshot 照常返回），调用方可凭此标记
-   * 触发下次入口自愈收敛；false = 落盘成功；省略 = 未进入投影落盘段。
+   * 触发下次入口自愈收敛；false = 落盘成功；省略 = 本次未得到明确落盘结果。
    */
   ledgerSaveFailed?: boolean
+  /** 提取已提交，但投影围栏或 runner 异常；不伪造单个投影的失败凭证。 */
+  projectionError?: IngestProjectionError
   /**
    * 本次提交点实际绑定的无正文源引用（仅成功路径；早退失败/跳过不携带）。
    * 缺失 = 未绑定，不能读作 bound。legacy 无 sourceRead 直调 commit 时为 null。
@@ -303,6 +320,27 @@ export interface IngestResult {
   canonOutcome?: CanonDualWriteOutcome
   /** 本次提交点瞬时 receipt（源 SHA + 实际写入 snapshot 身份/JSON SHA + Canon outcome）。 */
   receipt?: IngestCommitReceipt
+  /** facts.json 读写失败标志（仅 committed 路径携带；拒绝/早退不携带）。 */
+  factsStoreFailed?: boolean
+  /** 本次投影落盘失败的投影 id（committed 路径；全成功 = 空数组）。 */
+  failedProjections?: readonly string[]
+  /** 本次实际 committed 的投影 id（ledger 记 committed 时列入）。 */
+  committedProjections?: readonly string[]
+  /** deferred（异步）已调度但本次未验证结果的投影 id；不并入 failed。 */
+  pendingProjections?: readonly string[]
+  /** sync 持久化链 receipt（extraction 归档 + 物化快照身份/JSON SHA；无持久化链不携带）。 */
+  projectionReceipt?: IngestProjectionReceipt
+}
+
+/**
+ * sync 阶段持久化链 receipt：extraction 归档路径 + saveSnapshot 实际写盘的
+ * snapshotId/revision + 同序列化 JSON SHA。不含正文。
+ */
+export interface IngestProjectionReceipt {
+  extractionHistoryPath: string
+  snapshotId: string
+  revision: number
+  snapshotJsonSha256: string
 }
 
 /**
@@ -330,6 +368,16 @@ export interface IngestChapterOptions {
    * 缺省 → 入口取一次墙钟全链下传; 传入固定值 → ingest 全链确定性 (可测)。
    */
   now?: string
+  /**
+   * 批处理回读验证用：传入 true 时 async 社区摘要也同步等待结果。
+   * 缺省 → 保持普通异步 defer 语义（结果计入 pendingProjections）。
+   */
+  awaitCommunitySummary?: boolean
+  /**
+   * 显式单章再摄取：提交前在快照写锁内复核所选文件是该章号唯一正式源。
+   * 仅 handleReingest 传入 true；自动/保存路径不改默认策略。
+   */
+  requireUniqueFinalChapter?: boolean
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -379,7 +427,7 @@ export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise
 
   const episodeOps = facts.length > 0
     ? await Promise.all(
-        facts.map(async (fact, i) => {
+        facts.map(async (fact) => {
           const content = { chapter: snapshot.chapterNumber, fact }
           const digest = await computeCheckpointDigestOf(content)
           return {
@@ -389,7 +437,7 @@ export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise
             canonPayload: {
               kind: "episode" as const,
               episode: {
-                id: `ch${snapshot.chapterNumber}-fact${i}`,
+                id: `ch${snapshot.chapterNumber}-ep-${digest.slice(0, 12)}`,
                 chapter_number: snapshot.chapterNumber,
                 entity_id: snapshot.chapterId, // DEBT-20260820-16: ChapterSnapshot 无 entityId 字段，以 chapterId 作 entity_id（章节级实体）。fact 作为章节快照的事实片段，其归属实体为章节本身——此映射在 canon DDL v3 冻结下是唯一可靠来源。若未来 snapshot schema 新增 entityId 字段，应改为该字段。
                 summary: fact,
@@ -405,7 +453,7 @@ export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise
   const modalityOps = await Promise.all(
     [...beliefFacts.map((f) => ({ ...f, modality: "belief" as const })),
      ...hypothesisFacts.map((f) => ({ ...f, modality: "hypothesis" as const }))].map(
-      async (mf, i) => {
+      async (mf) => {
         const content = {
           chapter: snapshot.chapterNumber,
           modality: mf.modality,
@@ -431,7 +479,7 @@ export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise
               caused_by: "snapshot-modality-facts",
               new_edges: [
                 {
-                  id: `ch${snapshot.chapterNumber}-modality${i}`,
+                  id: `ch${snapshot.chapterNumber}-mod-${digest.slice(0, 12)}`,
                   source_id: mf.subject,
                   target_id: mf.object,
                   predicate: mf.predicate,
@@ -492,9 +540,22 @@ export async function runCanonDualWriteHookOutcome(
   try {
     const ops = await buildCanonDualWriteOps(snapshot)
     if (ops.length === 0) return { status: "skipped", reason: "no_facts" }
-    // E-05 (C-4/C-6): T16 钩子传 promoteChannel="canon-dual-write" ——
+    // E-05 (C-4/C-6) + R3-M01: T16 钩子传 promoteChannel="canon-dual-write" 与真实 snapshot.revision ——
     // reconcile 一致时对 episode 类 ops 批量晋升（凭证层落盘 + 事件日志）。
-    const report = await shadowWriteCanon(deps, projectPath, ops, now, "canon-dual-write")
+    const snapshotRevision =
+      typeof snapshot.revision === "number" &&
+      Number.isInteger(snapshot.revision) &&
+      snapshot.revision >= 1
+        ? snapshot.revision
+        : 1
+    const report = await shadowWriteCanon(
+      deps,
+      projectPath,
+      ops,
+      now,
+      "canon-dual-write",
+      snapshotRevision,
+    )
     if (report.queued > 0) {
       logger.warn("Chapter Ingest", `Canon dual-write: ${report.queued}/${ops.length} ops queued (non-fatal)`)
     }
@@ -515,22 +576,30 @@ export async function runCanonDualWriteHookOutcome(
 }
 
 /**
- * R4（真相库失败投影账本可见与入口自愈收敛加固，方案 a）：finally 账本落盘
+ * R4（真相库失败投影账本可见与入口自愈收敛加固，方案 a）：finally 账本增量合并
  * （含恰好 1 次重试）。是否重试由 projection-status-ledger 的纯函数
  * shouldRetryLedgerSave(0) 判定（attempt 语义：首次失败 attempt=0，可再试 1 次）。
  *
  * 永不抛错：首次成功返回 true；首次失败则 warn 后重试一次，重试成功返回 true，
  * 两次均失败记 warn 并返回 false（调用方记 IngestResult.ledgerSaveFailed=true，
- * 主链不阻断，下次 ingest 入口自愈收敛）。幂等：落盘内容为同一 ledger 文档的
- * 全量覆写，重试不收窄提交边界、不引入跨文件事务。
+ * 主链不阻断，下次 ingest 入口自愈收敛）。每次都在账本锁内将同一份增量合并到
+ * 最新文档，保留其他写入且不重复追加已落盘的补写审计。
  */
 export async function saveProjectionLedgerWithSingleRetry(
   projectPath: string,
   ledger: ProjectionStatusLedger,
-): Promise<boolean> {
+  expected?: ProjectionStatusLedger["chapters"],
+): Promise<boolean | "superseded"> {
+  const save = async (): Promise<true | "superseded"> => {
+    if (expected === undefined) {
+      await mergeProjectionLedgerDelta(projectPath, ledger)
+      return true
+    }
+    const applied = await mergeProjectionLedgerDelta(projectPath, ledger, expected)
+    return applied.size > 0 ? true : "superseded"
+  }
   try {
-    await saveProjectionStatusLedger(projectPath, ledger)
-    return true
+    return await save()
   } catch (firstErr) {
     logger.warn("Chapter Ingest", "ProjectionStatusLedger save failed, retrying once (non-fatal)", {
       error: toErrorMessage(firstErr),
@@ -538,28 +607,107 @@ export async function saveProjectionLedgerWithSingleRetry(
   }
   if (!shouldRetryLedgerSave(0)) return false
   try {
-    await saveProjectionStatusLedger(projectPath, ledger)
-    return true
+    return await save()
   } catch (retryErr) {
     logger.warn("Chapter Ingest", "ProjectionStatusLedger save failed", { error: toErrorMessage(retryErr) })
     return false
   }
 }
 
-export async function ingestChapter(
+async function bindIngestSource(
+  chapterPath: string,
+  { chapterNumber, body, content }: { chapterNumber: number; body: string; content: string },
+): Promise<IngestSourceRead> {
+  return {
+    readPath: chapterPath,
+    chapterNumber,
+    originalContent: content,
+    bodySha256: await computeCheckpointDigest(body),
+    contentSha256: await computeCheckpointDigest(content),
+  }
+}
+
+export type PreparedChapterIngest = {
+  snapshot: ChapterSnapshot
+  source: IngestSourceBinding
+}
+
+/** 阶段 1（桌面确认前）：解析目标 + 绑定源摘要 + LLM 提取。纯读无写。 */
+export async function prepareChapterIngest(
+  projectPath: string,
+  chapterPath: string,
+  chapterNumber: number,
+  signal?: AbortSignal,
+): Promise<PreparedChapterIngest> {
+  const t = await resolveIngestTarget(projectPath, chapterPath)
+  if (!t.ok) throw new Error(t.result.failReason ?? "novel_mode_disabled")
+  if (t.fm.type !== "chapter") throw new Error("not_chapter")
+  if (t.chapterNumber !== chapterNumber || !Number.isSafeInteger(chapterNumber)) throw new Error("source_chapter_mismatch")
+  if (!t.body.trim()) throw new Error("empty_chapter_body")
+  if (signal?.aborted) throw new Error("cancelled")
+  const { readPath, chapterNumber: sourceChapter, bodySha256, contentSha256 } = await bindIngestSource(chapterPath, t)
+  await assertUniqueFinalChapterSource(t.pp, readPath, sourceChapter)
+  if (signal?.aborted) throw new Error("cancelled")
+  const snapshot = await extractSnapshotWithLLM(chapterNumber, t.body, t.runtimeLlmConfig, signal)
+  if (signal?.aborted) throw new Error("cancelled")
+  if (!snapshot || snapshot.chapterNumber !== chapterNumber) throw new Error("extract_failed")
+  return { snapshot, source: { readPath, chapterNumber: sourceChapter, bodySha256, contentSha256 } }
+}
+
+export function ingestChapter(
   projectPath: string,
   chapterPath: string,
   _reviewModel?: string,
   signal?: AbortSignal,
   options: IngestChapterOptions = {},
 ): Promise<IngestResult> {
+  return ingestChapterInternal(projectPath, chapterPath, signal, options)
+}
+
+export function commitPreparedChapterIngest(
+  projectPath: string,
+  prepared: PreparedChapterIngest,
+  beforeFormalEffects?: () => Promise<void>,
+): Promise<IngestResult> {
+  return ingestChapterInternal(projectPath, prepared.source.readPath, undefined, {
+    canonDualWriteDeps: defaultCanonDualWriteDeps(), awaitCommunitySummary: true, requireUniqueFinalChapter: true,
+  }, prepared, beforeFormalEffects)
+}
+
+async function ingestChapterInternal(
+  projectPath: string,
+  chapterPath: string,
+  signal: AbortSignal | undefined,
+  options: IngestChapterOptions = {},
+  prepared?: PreparedChapterIngest,
+  beforeFormalEffects?: () => Promise<void>,
+): Promise<IngestResult> {
   // (A)-2：前置解析与 5 个早退判定已抽至 ./chapter-ingest-ingest-guards。
   // 判定顺序与 failReason 字面值、以及「novelMode 关闭时不带 failReason」的
   // 形状差异均为既有对外契约，搬迁零改动。
-  const target = await resolveIngestTarget(projectPath, chapterPath, options)
+  const target = await resolveIngestTarget(projectPath, chapterPath, options, { requireExtractionModel: !prepared, expectedContentSha256: prepared?.source.contentSha256 })
   if (!target.ok) return target.result
   const { pp, runtimeLlmConfig, llmConfig, novelConfig, chapterNumber, body, content } = target
   const fm = target.fm
+
+  // 同一 read 的完整内容/正文摘要（原始字符串直接 hash，无 trim/slice/二次提取 read）。
+  // readPath 是本函数自己的 chapterPath 实参，即 resolveIngestTarget 传给 readFile 的
+  // 同一个字符串；originalContent 只在本地 sourceRead 中存在，不落盘、不发布。
+  // 预先提取的 ready 批次（阶段 1）以同一 exact 源字节校验——源被改动则
+  // source_changed 拒绝，绝不重提取、不静默放行。校验在 Canon replay/自愈/任何正式效果之前。
+  const sourceRead = await bindIngestSource(chapterPath, { chapterNumber, body, content })
+  if (prepared && (prepared.source.chapterNumber !== chapterNumber
+    || prepared.snapshot.chapterNumber !== chapterNumber
+    || prepared.source.bodySha256 !== sourceRead.bodySha256
+    || prepared.source.contentSha256 !== sourceRead.contentSha256)) {
+    return { snapshot: null, failReason: "source_changed" as IngestFailReason }
+  }
+
+  const verifySourceIdentity = options.requireUniqueFinalChapter
+    ? () => assertUniqueFinalChapterSource(pp, chapterPath, chapterNumber)
+    : undefined
+  await verifySourceIdentity?.()
+  await beforeFormalEffects?.()
 
   // 55 号设计 W2-3 (54⑤ 收尾): replayPendingQueue 独立触发 — 每次 ingest 开头
   // 先重放积压双写队列 (LLM 提取前), 避免积压写无限延迟; 失败仅 warn 不阻断。
@@ -585,6 +733,7 @@ export async function ingestChapter(
   // R4（方案 a）：自愈结果进 IngestResult.selfHeal 可观测（成功/异常两路均赋值）。
   let entrySelfHeal: ProjectionSelfHealResult = { attempted: false, healed: [] }
   try {
+    await recoverInterruptedCommunitySummaryAttempts(pp)
     entrySelfHeal = await selfHealFailedProjections(pp, { now: options.now })
     if (entrySelfHeal.healed.length > 0) {
       logger.info(
@@ -601,19 +750,9 @@ export async function ingestChapter(
 
   if (signal?.aborted) return { snapshot: null, failReason: "cancelled" }
 
-  // 同一 read 的完整内容/正文摘要（原始字符串直接 hash，无 trim/slice/二次提取 read）。
-  // readPath 是本函数自己的 chapterPath 实参，即 resolveIngestTarget 传给 readFile 的
-  // 同一个字符串；originalContent 只在本地 sourceRead 中存在，不落盘、不发布。
-  const sourceRead: IngestSourceRead = {
-    readPath: chapterPath,
-    chapterNumber,
-    originalContent: content,
-    bodySha256: await computeCheckpointDigest(body),
-    contentSha256: await computeCheckpointDigest(content),
-  }
-  let extractedSnapshot
-  try {
-    extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal)
+  let extractedSnapshot = prepared?.snapshot
+  if (!prepared) try {
+    extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal) ?? undefined
   } catch (err) {
     // R4 共识（qwen+glm）: 流中途取消/超时会抛出（而不是走上面的 signal.aborted 分支），
     // 使取消变成 reject。取消是已建模的 failReason，应如实返回；其它错误继续抛出。
@@ -628,29 +767,51 @@ export async function ingestChapter(
     return { snapshot: null, failReason: "extract_failed" as IngestFailReason }
   }
 
-  let committedReceipt: Extract<CommitIngestSnapshotResult, { status: "committed" }> | null = null
-  /* v8 ignore next */
-  if (snapshot) {
-    // (A)-3：提交点（实体链接/校验 → 快照落盘 → 摄取产物 → memory-op 预演
-    // → facts-store → canon 双写钩子）已抽至 ./chapter-ingest-commit。
-    // 三个非致命 try/catch 的吞错边界与日志文案零变化。
-    // runCanonDualWriteHook 以依赖注入传入，避免母模块 ↔ 本模块运行时循环。
-    // 提交前源守卫（sourceRead + 同一 signal）在本调用内执行；changed/unavailable/
-    // cancelled 是本次提交的明确拒绝，早退形状保持 { snapshot: null, failReason }。
-    const commitResult: CommitIngestSnapshotResult = await commitIngestSnapshot({
-      pp,
-      snapshot,
-      fm: fm as Record<string, unknown>,
-      canonDualWriteDeps: options.canonDualWriteDeps,
-      runCanonDualWriteHook: runCanonDualWriteHookOutcome,
-      sourceRead,
-      signal,
-    })
-    if (commitResult.status !== "committed") {
-      const failReason: IngestFailReason = commitResult.status
-      return { snapshot: null, failReason }
+  // (A)-3：提交点（实体链接/校验 → 快照落盘 → 摄取产物 → memory-op 预演
+  // → facts-store → canon 双写钩子）已抽至 ./chapter-ingest-commit。
+  // 三个非致命 try/catch 的吞错边界与日志文案零变化。
+  // runCanonDualWriteHook 以依赖注入传入，避免母模块 ↔ 本模块运行时循环。
+  // 提交前源守卫（sourceRead + 同一 signal）在本调用内执行；changed/unavailable/
+  // cancelled 是本次提交的明确拒绝，早退形状保持 { snapshot: null, failReason }。
+  let reservedPendingChapters: ProjectionStatusLedger["chapters"] | undefined
+  const buildIngestStatusDelta = (status: "pending" | "failed", error?: string, attemptId?: string) => {
+    let delta = recordProjectionStatus(emptyLedger(), chapterNumber, "chapter_ingest_output", status, error)
+    delta = recordProjectionStatus(delta, chapterNumber, "sync_snapshot_to_memory", status, error)
+    if (attemptId !== undefined) {
+      const cells = delta.chapters[String(chapterNumber)]
+      if (cells?.chapter_ingest_output) cells.chapter_ingest_output.attemptId = attemptId
+      if (cells?.sync_snapshot_to_memory) cells.sync_snapshot_to_memory.attemptId = attemptId
     }
-    committedReceipt = commitResult
+    return delta
+  }
+  const persistIngestStatus = (
+    status: "pending" | "failed",
+    error?: string,
+    expected?: ProjectionStatusLedger["chapters"],
+  ) => saveProjectionLedgerWithSingleRetry(pp, buildIngestStatusDelta(status, error), expected)
+  const commitResult: CommitIngestSnapshotResult = await commitIngestSnapshot({
+    pp,
+    snapshot,
+    fm: fm as Record<string, unknown>,
+    canonDualWriteDeps: options.canonDualWriteDeps,
+    runCanonDualWriteHook: runCanonDualWriteHookOutcome,
+    sourceRead,
+    signal,
+    verifySourceIdentity,
+    onPersistenceStart: verifySourceIdentity ? async () => {
+      const pendingDelta = buildIngestStatusDelta("pending", undefined, crypto.randomUUID())
+      if (await saveProjectionLedgerWithSingleRetry(pp, pendingDelta) !== true) {
+        throw new Error("Could not save the reingest reservation; the current snapshot was not replaced")
+      }
+      reservedPendingChapters = pendingDelta.chapters
+    } : undefined,
+    onPersistenceFailure: async (error) => {
+      await persistIngestStatus("failed", error, reservedPendingChapters)
+    },
+  })
+  if (commitResult.status !== "committed") {
+    const failReason: IngestFailReason = commitResult.status
+    return { snapshot: null, failReason }
   }
 
   const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig
@@ -663,34 +824,80 @@ export async function ingestChapter(
   // runProjection 仍遍历 PROJECTION_REGISTRY（四路径同源），单投影失败只记 ledger
   // 后继续循环；ledger 落盘在 finally（含 1 次重试）。三个母模块函数以依赖注入传入，
   // 避免母模块 ↔ 本模块运行时循环依赖。
-  const projectionRun = await runIngestProjections({
-    pp,
-    chapterPath,
-    chapterNo: chapterNumber,
-    content,
-    fm,
-    snapshot,
-    embCfg,
-    llmConfig,
-    novelConfig,
-    options: {
-      ...(options.now !== undefined ? { now: options.now } : {}),
-      ...(options.onCommunitySummaryError !== undefined ? { onCommunitySummaryError: options.onCommunitySummaryError } : {}),
-    },
-    exportStructuredMemoryToWiki,
-    syncSnapshotToMemory,
-    saveProjectionLedgerWithSingleRetry,
+  // 同章写锁围栏：orphan extraction（同一章号并发写入者）不得在 sync SHA 拒绝前
+  // 抢先更新 vector/graph/store；过期 writer 在围栏内第一步即被拒。
+  let projectionStage: IngestProjectionError["stage"] = "source_fence"
+  const lockedProjectionRun: RunIngestProjectionsResult = await withSnapshotWriteLock(pp, chapterNumber, async () => {
+    // 任一投影写之前再次核对 current 仍是 extraction commit 写盘字节。
+    const extractionSha256 = commitResult.receipt?.snapshotJsonSha256AtExtractionCommit
+    if (extractionSha256) {
+      await readMatchingExtraction(pp, chapterNumber, extractionSha256)
+    }
+    projectionStage = "projection_runner"
+    return runIngestProjections({
+      pp,
+      chapterPath,
+      chapterNo: chapterNumber,
+      content,
+      fm,
+      snapshot: commitResult.snapshot,
+      embCfg,
+      llmConfig,
+      novelConfig,
+      options: {
+        ...(options.now !== undefined ? { now: options.now } : {}),
+        ...(options.onCommunitySummaryError !== undefined ? { onCommunitySummaryError: options.onCommunitySummaryError } : {}),
+        ...(options.awaitCommunitySummary !== undefined ? { awaitCommunitySummary: options.awaitCommunitySummary } : {}),
+      },
+      exportStructuredMemoryToWiki,
+      syncSnapshotToMemory: (path, extract) =>
+        syncSnapshotToMemoryUnlocked(path, extract, undefined, extractionSha256, { skipDirectStoreFolds: true }),
+      saveProjectionLedgerWithSingleRetry,
+    })
+  }).catch(async (err): Promise<RunIngestProjectionsResult> => {
+    // 提取写入回执仍有效；包装层无法证明投影或账本结果。
+    const message = toErrorMessage(err)
+    if (reservedPendingChapters !== undefined) {
+      await persistIngestStatus("failed", message, reservedPendingChapters)
+    }
+    logger.warn("Chapter Ingest", "Committed snapshot projections could not be verified", { stage: projectionStage, error: message })
+    return {
+      memorySyncedAt: undefined,
+      failedProjections: [],
+      pendingProjections: [],
+      committedProjections: [],
+      projectionError: { stage: projectionStage, message },
+    }
   })
-  const memorySyncedAt = projectionRun.memorySyncedAt
-  const ledgerSaveFailed = projectionRun.ledgerSaveFailed
+
+  // 长耗时 awaitCommunitySummary 在释放章锁后执行，避免阻塞同章后续写入或触发锁看门狗。
+  const projectionRun: RunIngestProjectionsResult = lockedProjectionRun.finalizeAwaitedCommunitySummary
+    ? await lockedProjectionRun.finalizeAwaitedCommunitySummary().catch((err): RunIngestProjectionsResult => {
+        const message = toErrorMessage(err)
+        logger.warn("Chapter Ingest", "Committed snapshot projections could not be verified", { stage: "projection_runner", error: message })
+        return {
+          memorySyncedAt: undefined,
+          failedProjections: [],
+          pendingProjections: [],
+          committedProjections: [],
+          projectionError: { stage: "projection_runner", message },
+        }
+      })
+    : lockedProjectionRun
 
   return {
-    snapshot: { ...snapshot, memorySyncedAt },
+    snapshot: { ...snapshot, memorySyncedAt: projectionRun.memorySyncedAt },
     selfHeal: entrySelfHeal,
-    ledgerSaveFailed,
-    ...(committedReceipt?.sourceBinding ? { sourceBinding: committedReceipt.sourceBinding } : {}),
-    ...(committedReceipt ? { canonOutcome: committedReceipt.canonOutcome } : {}),
-    ...(committedReceipt?.receipt ? { receipt: committedReceipt.receipt } : {}),
+    ...(projectionRun.ledgerSaveFailed !== undefined ? { ledgerSaveFailed: projectionRun.ledgerSaveFailed } : {}),
+    ...(projectionRun.projectionError ? { projectionError: projectionRun.projectionError } : {}),
+    factsStoreFailed: commitResult.factsStoreFailed,
+    failedProjections: projectionRun.failedProjections,
+    committedProjections: projectionRun.committedProjections,
+    pendingProjections: projectionRun.pendingProjections,
+    ...(projectionRun.projectionReceipt ? { projectionReceipt: projectionRun.projectionReceipt } : {}),
+    ...(commitResult.sourceBinding ? { sourceBinding: commitResult.sourceBinding } : {}),
+    canonOutcome: commitResult.canonOutcome,
+    ...(commitResult.receipt ? { receipt: commitResult.receipt } : {}),
   }
 }
 
@@ -711,11 +918,11 @@ export const ingestChapterPipeline = createChapterPipeline({ ingestChapter })
 
 export async function exportStructuredMemoryToWiki(projectPath: string, snapshot: ChapterSnapshot): Promise<string[]> {
   const pp = normalizePath(projectPath)
-  const snapshots = await loadValidMemorySnapshots(pp, snapshot)
-  if (snapshots.length === 0) {
-    return []
-  }
-  return writeStructuredMemoryDocuments(pp, snapshots)
+  return withProjectionStoreWriteLock(pp, async () => {
+    const snapshots = await loadValidMemorySnapshots(pp, snapshot)
+    if (snapshots.length === 0) return []
+    return writeStructuredMemoryDocuments(pp, snapshots)
+  })
 }
 
 
@@ -748,9 +955,30 @@ export interface SyncSnapshotToMemoryResult {
    * 文件名；空数组 = 健康（正常无漂移不误报）。
    */
   driftSuspected: string[]
+  /** sync 直写三类中失败的投影 id（全成功 = []）。 */
+  failedProjections: string[]
+  /** 持久化链 receipt：仅 expected SHA 校验通过且完成归档+物化落盘时携带。 */
+  projectionReceipt?: IngestProjectionReceipt
 }
 
 // backup/restoreCommunitySummariesLastGood 已拆至 ./community-summary-recovery（S5 切片 #3）。
+
+/**
+ * 严格链共享核对：current 必须仍是 extraction commit 实际写盘的那份（raw SHA
+ * 严格比对），缺失或不符 → 拒绝，绝不拿过期/外来 current 物化下一 revision。
+ * 投影围栏与 strict sync 复用同一判定（保持 pre-save/external 读栅栏）。
+ */
+async function readMatchingExtraction(
+  pp: string,
+  chapterNumber: number,
+  expectedSha256: string,
+): Promise<{ raw: string; snapshot: ChapterSnapshot }> {
+  const current = await readSnapshotForReplacement(pp, chapterNumber)
+  if (!current || (await computeCheckpointDigest(current.raw)) !== expectedSha256) {
+    throw new Error("Current snapshot no longer matches the extraction commit.")
+  }
+  return current
+}
 
 export async function syncSnapshotToMemory(
   projectPath: string,
@@ -758,7 +986,30 @@ export async function syncSnapshotToMemory(
   onDataVersionBump?: () => void,
 ): Promise<SyncSnapshotToMemoryResult> {
   const pp = normalizePath(projectPath)
-  const currentSnapshot = await readCurrentSnapshot(pp, snapshot.chapterNumber)
+  return withSnapshotWriteLock(pp, snapshot.chapterNumber, () =>
+    syncSnapshotToMemoryUnlocked(pp, snapshot, onDataVersionBump, undefined))
+}
+
+async function syncSnapshotToMemoryUnlocked(
+  pp: string,
+  snapshot: ChapterSnapshot,
+  onDataVersionBump: (() => void) | undefined,
+  expectedExtractionSha256: string | undefined,
+  options?: { skipDirectStoreFolds?: boolean },
+): Promise<SyncSnapshotToMemoryResult> {
+  let extractionHistoryPath: string | undefined
+  let currentSnapshot: ChapterSnapshot | null
+  if (expectedExtractionSha256 !== undefined) {
+    // 严格链：current 必须仍是 extraction commit 实际写盘的那份（raw SHA 严格
+    // 比对），缺失或不符 → 拒绝 sync，绝不拿过期/外来 current 物化下一 revision。
+    const current = await readMatchingExtraction(pp, snapshot.chapterNumber, expectedExtractionSha256)
+    currentSnapshot = current.snapshot
+    // 归档 exact extraction wire JSON（isHistorical=true），先于一切 wiki 写。
+    extractionHistoryPath = await archiveSnapshotJson(
+      pp, snapshot.chapterNumber, JSON.stringify({ ...JSON.parse(current.raw), isHistorical: true }, null, 2))
+  } else {
+    currentSnapshot = await readCurrentSnapshot(pp, snapshot.chapterNumber)
+  }
   const memorySyncedAt = new Date().toISOString()
   const normalizedSnapshot = normalizeChapterSnapshot(
     { ...snapshot, memorySyncedAt },
@@ -770,8 +1021,12 @@ export async function syncSnapshotToMemory(
   }
   const syncedSnapshot = materializeNextCurrentSnapshot(normalizedSnapshot, currentSnapshot)
 
-  const writtenEntityPaths = await writeSnapshotToWiki(pp, syncedSnapshot)
-  await cleanupSupersededEntityFiles(pp, syncedSnapshot, writtenEntityPaths)
+  // 叶子 best-effort 部分失败经 reportFailure 上报——graph 写不完整时不再执行
+  // 清理（避免在部分写盘基础上误删仍被引用的旧实体文件）。
+  const failedProjections: string[] = []
+  const reportGraphFailure = () => {
+    if (!failedProjections.includes("graph_entity_pages")) failedProjections.push("graph_entity_pages")
+  }
 
   // PERF-NEW-08 / ARCH-005 (odyssey-improve DC-3+DC-4+maintainability-M):
   // The previous inline block here duplicated cleanupSupersededEntityFiles
@@ -790,46 +1045,67 @@ export async function syncSnapshotToMemory(
   // fold，P2-IMP-08 边界保留：其余 6 类不经本路径，由 drift 采样 + IMP-15 自愈
   // 兜底）。ctx 传空对象——保留既有 sync 语义（无 now → 保留输入时间戳；
   // aliasMaps 按快照自建）；shouldApply 保留三类条件接线语义。
-  for (const id of syncFoldProjectionIds()) {
-    const entry = PROJECTION_REGISTRY[id]
-    if (!entry?.applyToStore || !entry.load || !entry.save || !entry.createEmpty) continue
-    if (entry.shouldApply && !entry.shouldApply(syncedSnapshot)) continue
-    // #6①（三模型共识 2026-09-07）：per-class 审计记账——成功写 committed、
-    // 失败写 failed+error（失败不阻断循环，审计 append 自身 non-fatal）。
-    // 统一 sync_snapshot_to_memory 总事件由 runProjection 路径保留。
-    const startedAt = Date.now()
-    try {
-      const loaded = await entry.load(pp)
-      const base = loaded ?? entry.createEmpty({})
-      await entry.save(pp, entry.applyToStore(base, syncedSnapshot, {}))
-      await appendProjectionAuditEntry(pp, {
-        projection: id,
-        chapter: syncedSnapshot.chapterNumber,
-        status: "committed",
-        durationMs: Date.now() - startedAt,
-        timestamp: new Date().toISOString(),
-      })
-    } catch (err) {
+  const foldAudit: ProjectionAuditEntry[] = []
+  let saved: ChapterSnapshot
+  try {
+    // 同步快照和确定性投影都在同一写锁内，先提交快照。
+    saved = await withProjectionStoreWriteLock(pp, async () => {
+      if (expectedExtractionSha256 === undefined) {
+        await backupSnapshotBeforeOverwrite(pp, syncedSnapshot.chapterNumber)
+      } else {
+        await readMatchingExtraction(pp, syncedSnapshot.chapterNumber, expectedExtractionSha256)
+      }
+      const committedSnapshot = await saveSnapshot(pp, syncedSnapshot)
+      if (!options?.skipDirectStoreFolds) {
+        for (const id of syncFoldProjectionIds()) {
+          const entry = PROJECTION_REGISTRY[id]
+          if (!entry) continue
+          const { load, createEmpty, applyToStore, save } = entry
+          if (!load || !createEmpty || !applyToStore || !save) continue
+          if (entry.shouldApply && !entry.shouldApply(syncedSnapshot)) continue
+          const startedAt = Date.now()
+          let status: ProjectionAuditEntry["status"] = "committed"
+          let error: string | undefined
+          try {
+            const loaded = await load(pp)
+            await save(pp, applyToStore(loaded ?? createEmpty({}), syncedSnapshot, {}))
+          } catch (err) {
+            failedProjections.push(id)
+            status = "failed"
+            error = toErrorMessage(err)
+          }
+          foldAudit.push({
+            projection: id, chapter: syncedSnapshot.chapterNumber, status,
+            durationMs: Date.now() - startedAt, timestamp: new Date().toISOString(),
+            ...(error !== undefined ? { error } : {}),
+          })
+        }
+      }
+      return committedSnapshot
+    })
+  } finally {
+    for (const event of foldAudit) {
       try {
-        await appendProjectionAuditEntry(pp, {
-          projection: id,
-          chapter: syncedSnapshot.chapterNumber,
-          status: "failed",
-          durationMs: Date.now() - startedAt,
-          error: toErrorMessage(err),
-          timestamp: new Date().toISOString(),
-        })
-      } catch (auditErr) {
-        // 审计 append 失败绝不断 sync 主流程
+        await appendProjectionAuditEntry(pp, event)
+      } catch (err) {
         // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
-        logger.warn("Chapter Ingest", "projection audit append failed (non-fatal)", { projection: id, error: toErrorMessage(auditErr) })
+        logger.warn("Chapter Ingest", "projection audit append failed (non-fatal)", { projection: event.projection, error: toErrorMessage(err) })
       }
     }
   }
-
-  await backupSnapshotBeforeOverwrite(pp, syncedSnapshot.chapterNumber)
-  await saveSnapshot(pp, syncedSnapshot)
+  const writtenEntityPaths = await writeSnapshotToWiki(pp, syncedSnapshot, reportGraphFailure)
+  if (!failedProjections.includes("graph_entity_pages")) {
+    await cleanupSupersededEntityFiles(pp, syncedSnapshot, writtenEntityPaths, reportGraphFailure)
+  }
   const memoryPagePaths = await exportStructuredMemoryToWiki(pp, syncedSnapshot)
+  // Post-commit recheck（严格链）：save 先于 graph/wiki 写，stale writer 可在
+  // 写期间覆盖 current —— 若 current 已不再是刚提交的那份，账本不得宣称 committed。
+  if (expectedExtractionSha256 !== undefined) {
+    const postWrite = await readSnapshotForReplacement(pp, syncedSnapshot.chapterNumber)
+    if (!postWrite || postWrite.snapshot.snapshotId !== saved.snapshotId || postWrite.snapshot.revision !== saved.revision) {
+      failedProjections.push("sync_snapshot_to_memory")
+    }
+  }
   // ARCH-005/EG-006 (REG-001 sibling): syncSnapshotToMemory rewrites the
   // current snapshot + entity pages + cognition/character/foreshadow stores,
   // so the mtime-keyed temporalFactsCache may hold pre-sync facts. clearGraphCache
@@ -855,7 +1131,24 @@ export async function syncSnapshotToMemory(
     driftSuspected = repair.stillDriftedFiles.filter((f) => unfolded.has(f))
   }
 
-  return { writtenEntityPaths, memoryPagePaths, memorySyncedAt, driftSuspected }
+  return {
+    writtenEntityPaths,
+    memoryPagePaths,
+    memorySyncedAt,
+    driftSuspected,
+    failedProjections,
+    ...(extractionHistoryPath !== undefined && saved.snapshotId && saved.revision !== undefined
+      && !failedProjections.includes("sync_snapshot_to_memory")
+      ? {
+          projectionReceipt: {
+            extractionHistoryPath,
+            snapshotId: saved.snapshotId,
+            revision: saved.revision,
+            snapshotJsonSha256: await computeCheckpointDigest(JSON.stringify(saved, null, 2)),
+          },
+        }
+      : {}),
+  }
 }
 
 
@@ -912,7 +1205,7 @@ registerProjections({
     createEmpty: () => emptyCognitionState(),
     applyToStore: (store, snapshot, ctx) =>
       mergeCognitionFromSnapshot(store, snapshot, registryAliasMaps(ctx, snapshot)),
-    save: saveCognitionState,
+    save: saveCognitionFoldPreservingTelemetry,
     shouldApply: (snapshot) => snapshot.knowledgeChanges.length > 0,
     syncDirectWrite: true,
   }),

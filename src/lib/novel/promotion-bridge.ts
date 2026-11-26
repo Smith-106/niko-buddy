@@ -54,7 +54,9 @@ import { normalizePath } from "@/lib/path-utils"
 import { logger, toErrorMessage } from "@/lib/utils"
 import { createAtomicJsonStore } from "./projection-store"
 import { parseFactsSubject } from "./chapter-ingest"
+import { isMissingFile } from "./chapter-ingest-utils"
 import { computeCheckpointDigest } from "./checkpoint-digest"
+import { withProjectLock } from "./novel-locks"
 
 // ──────────────────────────────────────────────────────────────────────────
 // 类型（DA-12：缺回写字段 = 类型层不可逆）
@@ -181,6 +183,40 @@ export interface PromotionAuditReport {
   consistent: boolean
 }
 
+/** 晋升重试队列持久化条目（R3-M01：携带完整 PromoteInput 载荷，供 replayPromotionRetryQueue 重放）。 */
+export interface PromotionRetryEntry {
+  replayKey: string
+  channel: PromotionChannel
+  chapterId: string
+  chapterNumber: number
+  revision: number
+  entity?: string
+  input: PromoteInput
+  reason: string
+  attempts: number
+  nextRetryAt: number
+  enqueuedAt: number
+}
+
+/** `replayPromotionRetryQueue` 汇总报告（R3-M01）。 */
+export interface PromotionRetryReplayReport {
+  attempted: number
+  succeeded: number
+  failed: number
+  deferred: number
+  deadLettered: number
+  remaining: number
+}
+
+const PROMOTION_RETRY_BASE_MS = 30_000
+const PROMOTION_RETRY_MAX_MS = 30 * 60_000
+const PROMOTION_RETRY_DEFAULT_MAX_ATTEMPTS = 5
+
+function computePromotionRetryBackoffMs(attempts: number): number {
+  const power = Math.max(0, Math.floor(attempts) - 1)
+  return Math.min(PROMOTION_RETRY_BASE_MS * Math.pow(2, power), PROMOTION_RETRY_MAX_MS)
+}
+
 /** 终稿内容摘要前缀（finalSnapshot 引用级，不存全文——铁律③）。 */
 export async function sha256Prefix(content: string, prefixLen = 16): Promise<string> {
   const digest = await computeCheckpointDigest(content)
@@ -287,7 +323,7 @@ export function resolvePromotionEntity(fact: string | undefined, chapterId: stri
 const promotionsStore = createAtomicJsonStore<PromotionStore>(
   "promotions.json",
   () => ({ records: {} }),
-  { currentVersion: 1, onMissing: "empty", onCorrupt: "empty" },
+  { currentVersion: 1, onMissing: "empty", onCorrupt: "throw" },
 )
 
 /** 晋升事件日志路径（append-only 审计，BND-PRM-09）。 */
@@ -305,17 +341,22 @@ export function promotionRetryPath(projectPath: string): string {
   return `${normalizePath(projectPath)}/.novel/promotion-retry.jsonl`
 }
 
-/** 追加一行到 JSONL（读-拼-原子写回，镜像 snapshotLegacyWriter 先例）。 */
+/** 追加一行到 JSONL（R3-M01：短锁防并发丢行；仅真 ENOENT 视为空新建，其余 IO 异常 fail-closed 上抛）。 */
 async function appendJsonl(path: string, line: unknown): Promise<void> {
-  const dir = path.slice(0, path.lastIndexOf("/"))
-  await createDirectory(dir)
-  let existing = ""
-  try {
-    existing = await readFile(path)
-  } catch {
-    // 文件不存在，新建
-  }
-  await writeFileAtomic(path, existing + JSON.stringify(line) + "\n")
+  const normPath = normalizePath(path)
+  await withProjectLock(`promotion-jsonl:${normPath}`, async () => {
+    const dir = normPath.slice(0, normPath.lastIndexOf("/"))
+    await createDirectory(dir)
+    let existing = ""
+    try {
+      existing = await readFile(normPath)
+    } catch (err) {
+      if (!(await isMissingFile(normPath, err))) {
+        throw err
+      }
+    }
+    await writeFileAtomic(normPath, existing + JSON.stringify(line) + "\n")
+  })
 }
 
 /** 追加晋升事件（append-only；写失败 warn 不阻断晋升主路径——事件层允许间隙）。 */
@@ -351,29 +392,71 @@ export async function appendFoldConflictLog(
   }
 }
 
-/** 入重试队列（C-12：replayKey 幂等去重 + 退避计数）。 */
+/** 入重试队列（C-12 / R3-M01：仅瞬态 IO 失败入队，携带完整 PromoteInput 载荷供重放）。 */
 export async function enqueuePromotionRetry(
   projectPath: string,
   input: PromoteInput,
   reason: string,
+  now: number = Date.now(),
 ): Promise<void> {
   try {
-    const line = {
-      replayKey: computePromotionReplayKey(input.channel, input.chapterId, input.entity ?? input.chapterId, input.revision),
+    const entity = input.entity ?? input.chapterId
+    const line: PromotionRetryEntry = {
+      replayKey: computePromotionReplayKey(input.channel, input.chapterId, entity, input.revision),
       channel: input.channel,
       chapterId: input.chapterId,
       chapterNumber: input.chapterNumber,
       revision: input.revision,
       entity: input.entity,
+      input: {
+        ...input,
+        projectPath: normalizePath(input.projectPath),
+        ...(input.gateContext ? { gateContext: { ...input.gateContext } } : {}),
+        ...(input.trustSource ? { trustSource: { ...input.trustSource } } : {}),
+      },
       reason,
       attempts: 1,
-      nextRetryAt: Date.now() + 30_000,
-      enqueuedAt: Date.now(),
+      nextRetryAt: now + computePromotionRetryBackoffMs(1),
+      enqueuedAt: now,
     }
     await appendJsonl(promotionRetryPath(projectPath), line)
   } catch (err) {
     logger.warn("promotion-bridge", `retry enqueue failed (non-fatal): ${toErrorMessage(err)}`)
   }
+}
+
+/**
+ * R3-M01: 解析下一条修订号（供 formal-writeback 通道防二次修订 replayKey 碰撞）。
+ * - 同 channel + chapterId + entity 已有相同 contentDigestPrefix → 复用该 revision（同内容重放幂等）；
+ * - 存在旧版记录但 contentDigestPrefix 已变化 → 返回 maxRevision + 1；
+ * - 无既有记录 → 返回 1。
+ */
+export async function resolveNextPromotionRevision(
+  projectPath: string,
+  channel: PromotionChannel,
+  chapterId: string,
+  entity: string,
+  contentDigestPrefix: string,
+): Promise<number> {
+  const store = await promotionsStore.load(projectPath)
+  const prefix = `${channel}:${chapterId}:${entity}:`
+  let maxRevision = 0
+  for (const record of Object.values(store.records)) {
+    if (record.channel !== channel) continue
+    if (!record.replayKey.startsWith(prefix)) continue
+    if (
+      contentDigestPrefix &&
+      record.finalSnapshot?.contentDigestPrefix === contentDigestPrefix &&
+      typeof record.sourceRef?.revision === "number" &&
+      record.sourceRef.revision >= 1
+    ) {
+      return record.sourceRef.revision
+    }
+    if (typeof record.sourceRef?.revision === "number" && record.sourceRef.revision > maxRevision) {
+      maxRevision = record.sourceRef.revision
+    }
+  }
+  return maxRevision > 0 ? maxRevision + 1 : 1
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -399,120 +482,401 @@ export const inMemoryCapabilitySink: CapabilitySink = {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// 编排（promote：查键幂等 → 门控 → 落盘 → 事件）
+// 编排（promote：三段短锁 + 补写 sink + 严禁 BLOCK 入重试队列）
 // ──────────────────────────────────────────────────────────────────────────
 
-/**
- * 晋升编排入口（三桥共享）。
- *
- * 1. 查键幂等：replayKey 命中既有 record → 返回既有（可重放语义，验收 3）。
- * 2. 门控求值：evaluateGate → BLOCK → ambiguity_block 事件 + 入重试队列。
- * 3. 原子落盘：promotions.json（createAtomicJsonStore，写失败旧文件完好）。
- * 4. 事件：promote_success / promote_replayed。
- * 5. CapabilitySink 写入（幂等；失败 → 入重试队列，不回滚 record——凭证先行）。
- */
-export async function promote(input: PromoteInput, sink: CapabilitySink = inMemoryCapabilitySink): Promise<PromoteResult> {
+async function promoteInternal(
+  input: PromoteInput,
+  sink: CapabilitySink,
+  enqueueRetryOnFailure: boolean,
+): Promise<PromoteResult> {
+  const pp = normalizePath(input.projectPath)
+  const lockKey = `promotions:${pp}`
   const entity = input.entity ?? input.chapterId
   const replayKey = computePromotionReplayKey(input.channel, input.chapterId, entity, input.revision)
-  const store = await promotionsStore.load(input.projectPath)
-  const existing = store.records[replayKey]
-  if (existing) {
+  const nowIso = new Date().toISOString()
+
+  type Phase1Outcome =
+    | { kind: "replayed"; record: PromotionRecord }
+    | { kind: "backfill"; record: PromotionRecord }
+    | { kind: "blocked"; reason: string }
+    | { kind: "created"; record: PromotionRecord }
+    | { kind: "save_failed"; err: unknown }
+
+  // 阶段 1（短锁 promotions:${pp}）：查键幂等 / 门控 / 首次原子落盘，绝不持锁执行外部 sink IO
+  const phase1: Phase1Outcome = await withProjectLock(lockKey, async () => {
+    const store = await promotionsStore.load(input.projectPath)
+    const existing = store.records[replayKey]
+    if (existing) {
+      if (existing.targetRef?.entryId) {
+        return { kind: "replayed" as const, record: existing }
+      }
+      // 既有 record 缺 targetRef.entryId → 释放锁后进入阶段 2 补写 sink
+      return { kind: "backfill" as const, record: existing }
+    }
+
+    const gateCtx: GateContext = {
+      channel: input.channel,
+      draftStatus: input.gateContext?.draftStatus,
+      acceptTimestamp: input.acceptTimestamp ?? input.gateContext?.acceptTimestamp,
+      isFinalChapter: input.gateContext?.isFinalChapter,
+      decisionGatesPass: input.gateContext?.decisionGatesPass,
+      consistencyP0: input.gateContext?.consistencyP0,
+      dualWriteConsistent: input.gateContext?.dualWriteConsistent,
+      rangeValid: input.gateContext?.rangeValid,
+      snapshotReadable: input.gateContext?.snapshotReadable,
+      manualFinal: input.gateContext?.manualFinal,
+      ambiguous: input.gateContext?.ambiguous,
+    }
+    const verdict = evaluateGate(input.channel, gateCtx)
+    if (verdict.verdict === "BLOCK") {
+      return { kind: "blocked" as const, reason: verdict.reason ?? "gate-blocked" }
+    }
+
+    const record: PromotionRecord = {
+      channel: input.channel,
+      sourceRef: { chapterId: input.chapterId, chapterNumber: input.chapterNumber, revision: input.revision },
+      targetRef: {},
+      acceptTimestamp: input.acceptTimestamp ?? "",
+      replayKey,
+      gatePass: {
+        decisionGates: input.gateContext?.decisionGatesPass !== false,
+        consistencyP0: input.gateContext?.consistencyP0 !== false,
+        manualFinal: input.gateContext?.manualFinal === true,
+        evaluatedAt: nowIso,
+      },
+      finalSnapshot: {
+        chapterId: input.chapterId,
+        contentDigestPrefix: input.contentDigestPrefix ?? "",
+        extractedAt: nowIso,
+      },
+      // E-06 (C-3): 缺省 trustSource 修正——unknown license 按 GOV-TRUST 保守默认
+      // 应为 blocked（原 reference_only 与「未知/未声明 → blocked」相反）；
+      // 仅新记录生效，不回改历史记录（hy3 F-10 migration 注记）。
+      trustSource: input.trustSource ?? { adrTrust: "blocked", license: "unknown" },
+      status: "promoted",
+      recordedAt: nowIso,
+    }
+
+    const next: PromotionStore = { records: { ...store.records, [replayKey]: record } }
+    try {
+      await promotionsStore.save(input.projectPath, next)
+    } catch (err) {
+      return { kind: "save_failed" as const, err }
+    }
+    return { kind: "created" as const, record }
+  })
+
+  if (phase1.kind === "replayed") {
     await appendPromotionEvent(input.projectPath, {
       type: "promote_replayed",
       replayKey,
       channel: input.channel,
       detail: "same replayKey → same PromotionRecord (idempotent replay)",
-      ts: new Date().toISOString(),
+      ts: nowIso,
     })
-    return { record: existing, replayed: true }
+    return { record: phase1.record, replayed: true }
   }
 
-  const gateCtx: GateContext = {
-    channel: input.channel,
-    draftStatus: input.gateContext?.draftStatus,
-    acceptTimestamp: input.acceptTimestamp ?? input.gateContext?.acceptTimestamp,
-    isFinalChapter: input.gateContext?.isFinalChapter,
-    decisionGatesPass: input.gateContext?.decisionGatesPass,
-    consistencyP0: input.gateContext?.consistencyP0,
-    dualWriteConsistent: input.gateContext?.dualWriteConsistent,
-    rangeValid: input.gateContext?.rangeValid,
-    snapshotReadable: input.gateContext?.snapshotReadable,
-    manualFinal: input.gateContext?.manualFinal,
-    ambiguous: input.gateContext?.ambiguous,
-  }
-  const verdict = evaluateGate(input.channel, gateCtx)
-  if (verdict.verdict === "BLOCK") {
+  if (phase1.kind === "blocked") {
+    // R3-M01: 策略门控 BLOCK 绝不进入瞬态重试队列，仅写 ambiguity_block 审计事件
     await appendPromotionEvent(input.projectPath, {
       type: "ambiguity_block",
       replayKey,
       channel: input.channel,
-      detail: verdict.reason,
-      ts: new Date().toISOString(),
+      detail: phase1.reason,
+      ts: nowIso,
     })
-    await enqueuePromotionRetry(input.projectPath, input, verdict.reason ?? "gate-blocked")
-    return { record: null as unknown as PromotionRecord, replayed: false, blocked: { reason: verdict.reason ?? "gate-blocked" } }
+    return { record: null as unknown as PromotionRecord, replayed: false, blocked: { reason: phase1.reason } }
   }
 
-  const nowIso = new Date().toISOString()
-  const record: PromotionRecord = {
-    channel: input.channel,
-    sourceRef: { chapterId: input.chapterId, chapterNumber: input.chapterNumber, revision: input.revision },
-    targetRef: {},
-    acceptTimestamp: input.acceptTimestamp ?? "",
-    replayKey,
-    gatePass: {
-      decisionGates: input.gateContext?.decisionGatesPass !== false,
-      consistencyP0: input.gateContext?.consistencyP0 !== false,
-      manualFinal: input.gateContext?.manualFinal === true,
-      evaluatedAt: nowIso,
-    },
-    finalSnapshot: {
-      chapterId: input.chapterId,
-      contentDigestPrefix: input.contentDigestPrefix ?? "",
-      extractedAt: nowIso,
-    },
-    // E-06 (C-3): 缺省 trustSource 修正——unknown license 按 GOV-TRUST 保守默认
-    // 应为 blocked（原 reference_only 与「未知/未声明 → blocked」相反）；
-    // 仅新记录生效，不回改历史记录（hy3 F-10 migration 注记）。
-    trustSource: input.trustSource ?? { adrTrust: "blocked", license: "unknown" },
-    status: "promoted",
-    recordedAt: nowIso,
-  }
-
-  // 原子提交点（DA-G3）：写失败旧文件完好 = 结构上无半成品
-  const next: PromotionStore = { records: { ...store.records, [replayKey]: record } }
-  try {
-    await promotionsStore.save(input.projectPath, next)
-  } catch (err) {
+  if (phase1.kind === "save_failed") {
     await appendPromotionEvent(input.projectPath, {
       type: "promote_failed",
       replayKey,
       channel: input.channel,
-      detail: `atomic save failed: ${toErrorMessage(err)}`,
+      detail: `atomic save failed: ${toErrorMessage(phase1.err)}`,
       ts: nowIso,
     })
-    await enqueuePromotionRetry(input.projectPath, input, `atomic-save-failed: ${toErrorMessage(err)}`)
-    throw err
+    if (enqueueRetryOnFailure) {
+      await enqueuePromotionRetry(input.projectPath, input, `atomic-save-failed: ${toErrorMessage(phase1.err)}`)
+    }
+    throw phase1.err
   }
 
-  // CapabilitySink 写入（幂等；失败入队重放，不回滚 record——凭证先行，C-13）
+  // 阶段 2（锁外）：执行外部 CapabilitySink 写入（失败入队重放，不回滚已落盘 record——凭证先行，C-13）
+  const targetRecord = phase1.record
+  let finalRecord: PromotionRecord = targetRecord
+  let written: { entryId: string; hash: string } | null = null
   try {
-    const written = await sink.write(input.projectPath, record)
-    record.targetRef = { entryId: written.entryId }
-    const withTarget: PromotionStore = { records: { ...next.records, [replayKey]: record } }
-    await promotionsStore.save(input.projectPath, withTarget)
+    written = await sink.write(input.projectPath, targetRecord)
   } catch (err) {
-    await enqueuePromotionRetry(input.projectPath, input, `sink-write-failed: ${toErrorMessage(err)}`)
+    if (enqueueRetryOnFailure) {
+      await enqueuePromotionRetry(input.projectPath, input, `sink-write-failed: ${toErrorMessage(err)}`)
+    }
   }
 
+  // 阶段 3（短锁 promotions:${pp}）：重读最新 store，仅合并写入该 replayKey 的 targetRef.entryId
+  if (written !== null) {
+    const entryId = written.entryId
+    try {
+      finalRecord = await withProjectLock(lockKey, async () => {
+        const latestStore = await promotionsStore.load(input.projectPath)
+        const latest = latestStore.records[replayKey] ?? targetRecord
+        const merged: PromotionRecord = {
+          ...latest,
+          targetRef: { ...latest.targetRef, entryId },
+        }
+        await promotionsStore.save(input.projectPath, {
+          records: { ...latestStore.records, [replayKey]: merged },
+        })
+        return merged
+      })
+    } catch (err) {
+      if (enqueueRetryOnFailure) {
+        await enqueuePromotionRetry(input.projectPath, input, `sink-ref-save-failed: ${toErrorMessage(err)}`)
+      }
+    }
+  }
+
+  const isBackfill = phase1.kind === "backfill"
   await appendPromotionEvent(input.projectPath, {
-    type: "promote_success",
+    type: isBackfill ? "promote_replayed" : "promote_success",
     replayKey,
     channel: input.channel,
-    detail: `entity=${entity} revision=${input.revision}`,
+    detail: isBackfill
+      ? `backfill sink entryId=${finalRecord.targetRef.entryId ?? "pending"}`
+      : `entity=${entity} revision=${input.revision}`,
     ts: nowIso,
   })
-  return { record, replayed: false }
+  return { record: finalRecord, replayed: isBackfill }
+}
+
+/**
+ * 晋升编排入口（三桥共享）。
+ *
+ * 1. 查键幂等（短锁）：replayKey 命中既有完整 record → 返回既有；缺 targetRef.entryId → 补写 sink。
+ * 2. 门控求值：evaluateGate → BLOCK → ambiguity_block 事件，绝不入重试队列。
+ * 3. 原子落盘（短锁）：promotions.json（createAtomicJsonStore，损坏 fail-closed）。
+ * 4. 锁外 CapabilitySink 写入（幂等；失败入重试队列，不回滚 record——凭证先行）。
+ * 5. 短锁合并写回 targetRef.entryId，避免覆盖并发写入的其他 replayKey。
+ */
+export async function promote(
+  input: PromoteInput,
+  sink: CapabilitySink = inMemoryCapabilitySink,
+): Promise<PromoteResult> {
+  return promoteInternal(input, sink, true)
+}
+
+function parsePromotionRetryLines(raw: string, projectPath: string): PromotionRetryEntry[] {
+  const byKey = new Map<string, PromotionRetryEntry>()
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      const parsed = JSON.parse(trimmed) as Partial<PromotionRetryEntry>
+      if (!parsed || typeof parsed.replayKey !== "string" || !parsed.replayKey) continue
+      const input: PromoteInput | null =
+        parsed.input &&
+        typeof parsed.input === "object" &&
+        typeof parsed.input.channel === "string" &&
+        typeof parsed.input.chapterId === "string"
+          ? {
+              ...parsed.input,
+              projectPath: parsed.input.projectPath || projectPath,
+            }
+          : typeof parsed.channel === "string" &&
+              typeof parsed.chapterId === "string" &&
+              typeof parsed.chapterNumber === "number" &&
+              typeof parsed.revision === "number"
+            ? {
+                channel: parsed.channel,
+                projectPath,
+                chapterId: parsed.chapterId,
+                chapterNumber: parsed.chapterNumber,
+                revision: parsed.revision,
+                entity: parsed.entity,
+              }
+            : null
+      if (!input) continue
+      const normalized: PromotionRetryEntry = {
+        replayKey: parsed.replayKey,
+        channel: input.channel,
+        chapterId: input.chapterId,
+        chapterNumber: input.chapterNumber,
+        revision: input.revision,
+        entity: input.entity,
+        input,
+        reason: typeof parsed.reason === "string" ? parsed.reason : "unknown",
+        attempts: typeof parsed.attempts === "number" && Number.isFinite(parsed.attempts) && parsed.attempts >= 1 ? Math.floor(parsed.attempts) : 1,
+        nextRetryAt: typeof parsed.nextRetryAt === "number" && Number.isFinite(parsed.nextRetryAt) ? parsed.nextRetryAt : 0,
+        enqueuedAt: typeof parsed.enqueuedAt === "number" && Number.isFinite(parsed.enqueuedAt) ? parsed.enqueuedAt : 0,
+      }
+      // 按 replayKey 去重取最新项
+      byKey.delete(normalized.replayKey)
+      byKey.set(normalized.replayKey, normalized)
+    } catch (err) {
+      logger.warn("promotion-bridge", `skipping malformed promotion retry line: ${toErrorMessage(err)}`)
+    }
+  }
+  return [...byKey.values()]
+}
+
+/**
+ * R3-M01: 重放 `.novel/promotion-retry.jsonl` 瞬态失败队列。
+ *
+ * 三段无嵌套锁（严守 novel-locks 单锁铁律）：
+ *   - Phase A（持 `promotion-jsonl:<retryPath>` 短锁）：读取并按 replayKey 去重，筛出到期且未超限项；
+ *   - Phase B（锁外）：逐条调用 `promoteInternal(..., false)` 重放，成功出队，失败递增退避或转死信；
+ *   - Phase C（持 `promotion-jsonl:<retryPath>` 短锁）：重读最新队列合并并发新入队项后原子重写。
+ */
+export async function replayPromotionRetryQueue(
+  projectPath: string,
+  sink: CapabilitySink = inMemoryCapabilitySink,
+  options: { now?: number; maxAttempts?: number } = {},
+): Promise<PromotionRetryReplayReport> {
+  const now = options.now ?? Date.now()
+  const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? PROMOTION_RETRY_DEFAULT_MAX_ATTEMPTS))
+  const retryPath = normalizePath(promotionRetryPath(projectPath))
+  const lockKey = `promotion-jsonl:${retryPath}`
+
+  const dueEntries: PromotionRetryEntry[] = []
+  const deferredEntries: PromotionRetryEntry[] = []
+  const processedSnapshot = new Map<string, number>()
+  let preDeadLettered = 0
+  let fileMissing = false
+
+  // Phase A（短锁）：加载并分区
+  await withProjectLock(lockKey, async () => {
+    let raw: string
+    try {
+      raw = await readFile(retryPath)
+    } catch (err) {
+      if (await isMissingFile(retryPath, err)) {
+        fileMissing = true
+        return
+      }
+      throw err
+    }
+    if (!raw.trim()) return
+    const entries = parsePromotionRetryLines(raw, projectPath)
+    for (const entry of entries) {
+      processedSnapshot.set(entry.replayKey, entry.enqueuedAt)
+      if (entry.attempts >= maxAttempts) {
+        preDeadLettered += 1
+        continue
+      }
+      if (now < entry.nextRetryAt) {
+        deferredEntries.push(entry)
+        continue
+      }
+      dueEntries.push(entry)
+    }
+  })
+
+  if (fileMissing || (dueEntries.length === 0 && preDeadLettered === 0)) {
+    return {
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      deferred: deferredEntries.length,
+      deadLettered: 0,
+      remaining: deferredEntries.length,
+    }
+  }
+
+  // Phase B（锁外）：重放全部到期项
+  let attempted = 0
+  let succeeded = 0
+  let failed = 0
+  let deadLettered = preDeadLettered
+  const rescheduledByKey = new Map<string, PromotionRetryEntry>()
+
+  for (const entry of dueEntries) {
+    attempted += 1
+    try {
+      const res = await promoteInternal(entry.input, sink, false)
+      if (res.blocked) {
+        // 策略阻断不可重试，直接死信出队
+        deadLettered += 1
+        continue
+      }
+      if (res.record?.targetRef?.entryId) {
+        succeeded += 1
+        continue
+      }
+      // sink 写入仍未补齐 entryId
+      failed += 1
+      const nextAttempts = entry.attempts + 1
+      if (nextAttempts >= maxAttempts) {
+        deadLettered += 1
+      } else {
+        rescheduledByKey.set(entry.replayKey, {
+          ...entry,
+          attempts: nextAttempts,
+          nextRetryAt: now + computePromotionRetryBackoffMs(nextAttempts),
+          reason: "sink-write-incomplete",
+        })
+      }
+    } catch (err) {
+      failed += 1
+      const nextAttempts = entry.attempts + 1
+      if (nextAttempts >= maxAttempts) {
+        deadLettered += 1
+      } else {
+        rescheduledByKey.set(entry.replayKey, {
+          ...entry,
+          attempts: nextAttempts,
+          nextRetryAt: now + computePromotionRetryBackoffMs(nextAttempts),
+          reason: toErrorMessage(err),
+        })
+      }
+    }
+  }
+
+  // Phase C（短锁）：重读最新队列保留并发新项并原子重写
+  const remainingCount = await withProjectLock(lockKey, async () => {
+    let latestEntries: PromotionRetryEntry[] = []
+    try {
+      const latestRaw = await readFile(retryPath)
+      if (latestRaw.trim()) {
+        latestEntries = parsePromotionRetryLines(latestRaw, projectPath)
+      }
+    } catch (err) {
+      if (!(await isMissingFile(retryPath, err))) {
+        throw err
+      }
+    }
+
+    const nextQueue = new Map<string, PromotionRetryEntry>()
+    for (const entry of deferredEntries) {
+      nextQueue.set(entry.replayKey, entry)
+    }
+    for (const [key, entry] of rescheduledByKey) {
+      nextQueue.set(key, entry)
+    }
+    for (const entry of latestEntries) {
+      const seenEnqueuedAt = processedSnapshot.get(entry.replayKey)
+      if (seenEnqueuedAt === undefined || entry.enqueuedAt > seenEnqueuedAt) {
+        nextQueue.set(entry.replayKey, entry)
+      }
+    }
+
+    const serialized = [...nextQueue.values()].map((item) => JSON.stringify(item)).join("\n")
+    const dir = retryPath.slice(0, retryPath.lastIndexOf("/"))
+    await createDirectory(dir)
+    await writeFileAtomic(retryPath, serialized ? `${serialized}\n` : "")
+    return nextQueue.size
+  })
+
+  return {
+    attempted,
+    succeeded,
+    failed,
+    deferred: deferredEntries.length,
+    deadLettered,
+    remaining: remainingCount,
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -6,7 +6,8 @@ import {
 } from "./export-history-view"
 import type { PdfExportHistoryEntry } from "./pdf-export-gate"
 
-vi.mock("@/commands/fs", () => ({
+vi.mock("@/commands/fs", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/commands/fs")>(),
   fileExists: vi.fn(async () => false),
   readFile: vi.fn(async () => {
     throw new Error("not found")

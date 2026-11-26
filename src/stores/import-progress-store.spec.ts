@@ -110,30 +110,27 @@ describe("import progress store 全路径", () => {
     expect(useImportProgressStore.getState().tasks[0]!.cancelling).toBe(true)
   })
 
-  it("cancelTask 中止控制器、置 cancelled，并在 3s 后自动 clearTask", () => {
-    vi.useFakeTimers()
-    try {
-      const ac = new AbortController()
-      const abortSpy = vi.spyOn(ac, "abort")
-      const id = useImportProgressStore.getState().startTask({
-        projectPath: "E:/Novel",
-        kind: "chapter",
-        total: 1,
-        abortController: ac,
-      })
-      useImportProgressStore.getState().cancelTask(id)
-      expect(abortSpy).toHaveBeenCalledTimes(1)
-      const task = useImportProgressStore.getState().tasks[0]!
-      expect(task.status).toBe("cancelled")
-      expect(task.cancelling).toBe(false)
-      // 3 秒延迟后从列表移除
-      vi.advanceTimersByTime(2999)
-      expect(useImportProgressStore.getState().tasks).toHaveLength(1)
-      vi.advanceTimersByTime(1)
-      expect(useImportProgressStore.getState().tasks).toEqual([])
-    } finally {
-      vi.useRealTimers()
-    }
+  it("cancelTask 有 abortController 时置 cancelling=true 并中止控制器，待 finishTask 落定终态", () => {
+    const ac = new AbortController()
+    const abortSpy = vi.spyOn(ac, "abort")
+    const id = useImportProgressStore.getState().startTask({
+      projectPath: "E:/Novel",
+      kind: "chapter",
+      total: 1,
+      abortController: ac,
+    })
+    useImportProgressStore.getState().cancelTask(id)
+    // 幂等：重复取消不重复触发 abort
+    useImportProgressStore.getState().cancelTask(id)
+    expect(abortSpy).toHaveBeenCalledTimes(1)
+    const task = useImportProgressStore.getState().tasks[0]!
+    expect(task.status).toBe("running")
+    expect(task.cancelling).toBe(true)
+
+    useImportProgressStore.getState().finishTask(id, "cancelled", { message: "已取消" })
+    const settled = useImportProgressStore.getState().tasks[0]!
+    expect(settled.status).toBe("cancelled")
+    expect(settled.cancelling).toBe(false)
   })
 
   it("cancelTask 无 abortController 的任务不抛错仍置 cancelled", () => {
@@ -184,5 +181,31 @@ describe("import progress store 全路径", () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+})
+
+describe("cancelTask unified cancelling transition", () => {
+  it("所有带 abortController 的 kind 运行态统一走 markCancelling + abort，不提前清任务", () => {
+    const store = useImportProgressStore.getState()
+    const batchId = store.startTask({ projectPath: "/p", kind: "batch_extraction", total: 2, currentTitle: "", abortController: new AbortController() })
+    const outlineId = store.startTask({ projectPath: "/p", kind: "outline_generation", total: 1, currentTitle: "", abortController: new AbortController() })
+    const batchController = useImportProgressStore.getState().tasks.find(t => t.id === batchId)?.abortController
+    const outlineController = useImportProgressStore.getState().tasks.find(t => t.id === outlineId)?.abortController
+    useImportProgressStore.getState().cancelTask(batchId)
+    useImportProgressStore.getState().cancelTask(batchId)
+    expect(batchController?.signal.aborted).toBe(true)
+    expect(outlineController?.signal.aborted).toBe(false)
+    const batchTask = useImportProgressStore.getState().tasks.find(t => t.id === batchId)
+    expect(batchTask?.status).toBe("running")
+    expect(batchTask?.cancelling).toBe(true)
+
+    useImportProgressStore.getState().cancelTask(outlineId)
+    expect(outlineController?.signal.aborted).toBe(true)
+    const outlineTask = useImportProgressStore.getState().tasks.find(t => t.id === outlineId)
+    expect(outlineTask?.status).toBe("running")
+    expect(outlineTask?.cancelling).toBe(true)
+
+    useImportProgressStore.getState().finishTask(batchId, "cancelled", { completed: 0, total: 2, currentTitle: "", message: "" })
+    expect(useImportProgressStore.getState().tasks.find(t => t.id === outlineId)?.status).toBe("running")
   })
 })

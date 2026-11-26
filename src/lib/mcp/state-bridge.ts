@@ -637,12 +637,14 @@ export async function handleStateRequest(
         // 慢链路（真实检索网络 / 大项目首次构建）可能超过状态桥 15s 兜底；
         // 先同步校验项目与章身份，再登记异步任务立即返回 jobId 供 Rust 轮询。
         const prepared = await prepareContextInspect(payload, deps)
+        if ([...inspectJobs.values()].filter(job => job.status === "running").length >= MAX_INSPECT_JOBS) {
+          return { ok: false, error: "在途 context.inspect 任务已达上限，请稍后重试" }
+        }
         const jobId = nextInspectJobId()
         const startedAt = Date.now()
         inspectJobs.set(jobId, { status: "running", startedAt })
         pruneInspectJobsIfNeeded()
-        void deps
-          .inspectContext(prepared)
+        void (async () => deps.inspectContext(prepared))()
           .then((value) => {
             inspectJobs.set(jobId, { status: "done", startedAt, finishedAt: Date.now(), value })
           })

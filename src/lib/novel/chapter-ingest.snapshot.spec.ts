@@ -179,7 +179,7 @@ import {
   type ChapterSnapshot,
 } from "./chapter-ingest"
 import { PROJECTION_REGISTRY } from "./projection-status-ledger"
-import { saveSnapshot } from "./chapter-ingest-snapshot-io"
+import { saveSnapshot, withSnapshotWriteLock } from "./chapter-ingest-snapshot-io"
 import { computeCheckpointDigest } from "./checkpoint-digest"
 
 const PROJECT = "E:/Novel"
@@ -457,6 +457,25 @@ describe("restoreSnapshotHistory", () => {
     await expect(restoreSnapshotHistory(PROJECT, 1, "2026-06-01.snapshot.json")).rejects.toThrow("Invalid snapshot history file.")
   })
 
+  it.each([
+    ["path traversal name", "../evil.snapshot.json", undefined, "Invalid snapshot history file name."],
+    ["malformed JSON history file", "2026-06-01.snapshot.json", "{broken", /JSON|Unexpected|Expected/i],
+    ["non-object history snapshot", "2026-06-01.snapshot.json", "[]", "Invalid snapshot history file."],
+  ])("does not write any backup before rejecting %s", async (_kind, fileName, historyRaw, expectedError) => {
+    fsMocks.fileExists.mockImplementation(async (path: string) => String(path).endsWith(".novel/snapshots/001.snapshot.json"))
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      const p = String(path)
+      if (p.endsWith(`history/001/${fileName}`) && historyRaw !== undefined) return historyRaw
+      if (p.endsWith(".novel/snapshots/001.snapshot.json")) return JSON.stringify(snapshotRaw(1))
+      throw new Error("ENOENT")
+    })
+
+    await expect(restoreSnapshotHistory(PROJECT, 1, fileName)).rejects.toThrow(expectedError)
+    // 非法/损坏历史文件在读取或备份当前快照前即报错，绝不写盘任何历史备份或快照。
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(fsMocks.writeFilesAtomic).not.toHaveBeenCalled()
+  })
+
   it("restores a history snapshot with a bumped revision and calls the data-version bump callback", async () => {
     const onDataVersionBump = vi.fn()
     const restored = await restoreSnapshotHistory(PROJECT, 1, "2026-06-01T00-00-00.000Z.snapshot.json", onDataVersionBump)
@@ -525,6 +544,14 @@ describe("syncSnapshotToMemory", () => {
     expect(jsonWrites.some((p) => p.endsWith(".novel/character-states.json"))).toBe(true)
     expect(jsonWrites.some((p) => p.endsWith(".novel/foreshadowing-tracker.json"))).toBe(true)
     expect(jsonWrites.some((p) => p.endsWith(".novel/cognition-state.json"))).toBe(true)
+  })
+
+  it("does not publish memory projections when the snapshot write fails", async () => {
+    fsMocks.writeFilesAtomic.mockRejectedValueOnce(new Error("synthetic snapshot write failure"))
+    const snapshot = baseSnapshot(1, { knowledgeChanges: ["阿宁知道秘密"] })
+    await expect(syncSnapshotToMemory(PROJECT, snapshot)).rejects.toThrow("synthetic snapshot write failure")
+    expect(moduleMocks.writeSnapshotToWiki).not.toHaveBeenCalled()
+    expect(fsMocks.writeFileAtomic.mock.calls.some(([path]) => String(path).endsWith("cognition-state.json") || String(path).includes("/wiki/memory/"))).toBe(false)
   })
 
   it("skips cognition/character/foreshadow sync when the change lists are empty", async () => {
@@ -851,11 +878,15 @@ describe("deleteChapterSnapshots (rebuild path)", () => {
 
     await expect(deleteChapterSnapshots(PROJECT, 1, bump)).resolves.toBeUndefined()
 
-    // 三条路径都尝试过：前一条失败不会提前退出（catch 只记诊断）
+    // 快照 3 条 + R2-M03 chapter-ingest-output 4 条都尝试过：前一条失败不会提前退出（catch 只记诊断）
     expect(fsMocks.deleteFile).toHaveBeenCalledWith(`${PROJECT}/.novel/snapshots/001.snapshot.json`)
     expect(fsMocks.deleteFile).toHaveBeenCalledWith(`${PROJECT}/.novel/snapshots/001.snapshot.md`)
     expect(fsMocks.deleteFile).toHaveBeenCalledWith(`${PROJECT}/.novel/snapshots/history/001`)
-    expect(fsMocks.deleteFile).toHaveBeenCalledTimes(3)
+    expect(fsMocks.deleteFile).toHaveBeenCalledWith(`${PROJECT}/.novel/chapter-ingest-output/001.output.json`)
+    expect(fsMocks.deleteFile).toHaveBeenCalledWith(`${PROJECT}/.novel/chapter-ingest-output/001.wiki-patch.json`)
+    expect(fsMocks.deleteFile).toHaveBeenCalledWith(`${PROJECT}/.novel/chapter-ingest-output/001.search-index.json`)
+    expect(fsMocks.deleteFile).toHaveBeenCalledWith(`${PROJECT}/.novel/chapter-ingest-output/001.vector-index.json`)
+    expect(fsMocks.deleteFile).toHaveBeenCalledTimes(7)
     // 缺文件仍视为已删、删除失败非致命：rebuild 与 bump 照常执行
     expect(bump).toHaveBeenCalledTimes(1)
   })
@@ -884,7 +915,7 @@ describe("deleteChapterSnapshots (rebuild path)", () => {
       throw new Error("ENOENT")
     })
     moduleMocks.embedPage.mockImplementation(async (_pp: string, pageId: string) => {
-      if (pageId === "002") throw new Error("embed boom")
+      if (pageId === "chapter-002") throw new Error("embed boom")
       return undefined
     })
     await deleteChapterSnapshots(PROJECT, 1)
@@ -906,6 +937,41 @@ describe("deleteChapterSnapshots (rebuild path)", () => {
     })
     moduleMocks.writeSnapshotToWiki.mockRejectedValue(new Error("graph rebuild boom"))
     await expect(deleteChapterSnapshots(PROJECT, 1)).resolves.toBeUndefined()
+  })
+
+  it("serializes behind withSnapshotWriteLock for the same chapter", async () => {
+    const order: string[] = []
+    let lockEntered!: () => void
+    const entered = new Promise<void>((resolve) => { lockEntered = resolve })
+    let releaseLock!: () => void
+    const gate = new Promise<void>((resolve) => { releaseLock = resolve })
+
+    fsMocks.fileExists.mockImplementation(async () => {
+      order.push("delete-checked")
+      return false
+    })
+
+    const holder = withSnapshotWriteLock(PROJECT, 1, async () => {
+      lockEntered()
+      await gate
+      order.push("holder-finished")
+    })
+    await entered
+
+    const deleting = deleteChapterSnapshots(PROJECT, 1, vi.fn())
+    try {
+      await Promise.resolve()
+      await Promise.resolve()
+      // 写锁未释放前，deleteChapterSnapshots 不得进入删除或重建路径。
+      expect(order).toEqual([])
+      expect(fsMocks.fileExists).not.toHaveBeenCalled()
+      expect(fsMocks.deleteFile).not.toHaveBeenCalled()
+    } finally {
+      releaseLock()
+      await Promise.all([holder, deleting])
+    }
+    expect(order[0]).toBe("holder-finished")
+    expect(order).toContain("delete-checked")
   })
 })
 
@@ -1003,6 +1069,42 @@ describe("superseded-entity cleanup (cleanupSupersededEntityFiles)", () => {
     })
     await syncSnapshotToMemory(PROJECT, snapshot)
     expect(fsMocks.deleteFile).not.toHaveBeenCalled()
+  })
+
+  it("全路径比对：同名嵌套/顶层文件不再被 basename 误配；混引其他章节的文件永不删", async () => {
+    const snapshot = baseSnapshot(1, { revision: 2, snapshotId: "chapter-1-r2", supersedes: "chapter-1-r1" })
+    // 实际写出的只有嵌套 items/Same.md —— 顶层同名 Same.md 不得被 basename 误配成
+    // written 而跳过（flatten 旧 bug），嵌套同路径本身受 writtenPaths 全路径保护。
+    moduleMocks.writeSnapshotToWiki.mockResolvedValue([`${PROJECT}/wiki/entities/items/Same.md`])
+    fsMocks.listDirectory.mockResolvedValueOnce([
+      { name: "entities", path: `${PROJECT}/wiki/entities`, is_dir: true, children: [
+        { name: "Same.md", path: `${PROJECT}/wiki/entities/Same.md`, is_dir: false },
+        { name: "items", path: `${PROJECT}/wiki/entities/items`, is_dir: true, children: [
+          { name: "Same.md", path: `${PROJECT}/wiki/entities/items/Same.md`, is_dir: false },
+        ] },
+        { name: "characters", path: `${PROJECT}/wiki/entities/characters`, is_dir: true, children: [
+          { name: "Old.md", path: `${PROJECT}/wiki/entities/characters/Old.md`, is_dir: false },
+          { name: "Shared.md", path: `${PROJECT}/wiki/entities/characters/Shared.md`, is_dir: false },
+        ] },
+      ] },
+    ])
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      const p = String(path)
+      // 顶层同名文件：仅引用本章快照 → 孤儿，应删。
+      if (p.endsWith("wiki/entities/Same.md")) return "---\nsource: 001.snapshot.json\n---\n顶层同名旧页"
+      // 嵌套 stale：仅引用本章快照 → 孤儿，应删。
+      if (p.endsWith("wiki/entities/characters/Old.md")) return "---\nsource: 001.snapshot.json\n---\n嵌套旧页"
+      // 嵌套 mixed：引用了其他章节快照（002）→ 永不删，即便 metadata snapshot_id 命中 supersedes。
+      if (p.endsWith("wiki/entities/characters/Shared.md")) return "---\nsnapshot_id: chapter-1-r1\nsource: 001.snapshot.json 002.snapshot.json\n---\n混引页"
+      throw new Error("ENOENT")
+    })
+    await syncSnapshotToMemory(PROJECT, snapshot)
+    const deletes = fsMocks.deleteFile.mock.calls.map(([p]) => String(p))
+    // 精确删除两个孤儿路径：顶层同名 + 嵌套 stale。
+    expect(deletes).toEqual([
+      `${PROJECT}/wiki/entities/Same.md`,
+      `${PROJECT}/wiki/entities/characters/Old.md`,
+    ])
   })
 })
 describe("snapshot residual branches (L2A)", () => {

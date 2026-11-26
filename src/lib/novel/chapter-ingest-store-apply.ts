@@ -41,12 +41,13 @@ export function appendChapterOnce(chapters: number[], chapterNumber: number): nu
 }
 
 /**
- * ISS-20260708-003：fold 备注行追加公共合一（`[第N章XX] detail` 累积而非覆盖）。
- * 空 detail 不写行，保持原 notes 不变。
+ * ISS-20260708-003 / M2-07：fold 备注行追加公共合一（`[第N章XX] detail` 累积而非覆盖，
+ * 并按行精确去重保证重复 fold 幂等）。空 detail 不写行，保持原 notes 不变。
  */
 export function appendFoldNote(notes: string, chapterNumber: number, verb: string, detail: string): string {
   if (!detail) return notes
   const line = `[第${chapterNumber}章${verb}] ${detail}`
+  if (notes && notes.split("\n").includes(line)) return notes
   return notes ? `${notes}\n${line}` : line
 }
 

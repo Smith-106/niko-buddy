@@ -77,8 +77,9 @@ describe("先审后入库（C6）", () => {
     expect(verdict.reason).toContain("trust");
   });
 
-  it("缺许可证的来源一律拦截（不猜许可）", () => {
+  it("缺许可证或空白许可证的来源一律拦截（不猜许可）", () => {
     expect(auditRemotePayload("plain text", {}).allowed).toBe(false);
+    expect(auditRemotePayload("plain text", { license: "   " }).allowed).toBe(false);
   });
 
   it("后端拦截码可识别", () => {
@@ -152,5 +153,6 @@ describe("MCP 远程命令包装（invoke 转发）", () => {
     expect(result.allowed).toBe(false)
     expect(result.audit.reason).toContain("injection")
     expect(result.payload.audit_pending).toBe(true)
+    expect(result.payload.body).toBe("")
   })
 })

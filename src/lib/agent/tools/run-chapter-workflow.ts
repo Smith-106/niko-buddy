@@ -129,13 +129,16 @@ function isValidPlanChapterNumber(value: number | undefined): value is number {
 function resolvePlanChapterNumber(
   modelChapterNumber: number | undefined,
   structuredChapterNumber: number | undefined,
+  warnOnConflict = true,
 ): number | undefined {
   const model = isValidPlanChapterNumber(modelChapterNumber) ? modelChapterNumber : undefined
   const structured = isValidPlanChapterNumber(structuredChapterNumber) ? structuredChapterNumber : undefined
   if (model !== undefined && structured !== undefined && model !== structured) {
-    console.warn(
-      `[run-chapter-workflow] 章号不一致：模型参数=${model}、装配层结构化值=${structured}，本次不落盘计划（避免写错章后回读恒 miss）。`,
-    )
+    if (warnOnConflict) {
+      console.warn(
+        `[run-chapter-workflow] 章号不一致：模型参数=${model}、装配层结构化值=${structured}，本次不落盘计划（避免写错章后回读恒 miss）。`,
+      )
+    }
     return undefined
   }
   return structured ?? model
@@ -251,31 +254,24 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
       // 截断并加显式标记，保证传给生成链（deep-chapter-prompts 的 planBlueprintSection）
       // 的计划永不超长，也不会被标成「必须原样执行」的残缺权威文本。
       const planBlueprint = normalizePlanBlueprint(params.planBlueprint ?? options.getPlanBlueprint?.())
-      // TASK-004（DEC-R4=A）：把「模型这次带过来的计划」落一份供后续复用/审计。
-      // 这是「深章工具零写盘」边界里唯一一处**受控元数据写入例外**：只写计划原文
-      // （外加 source/savedAt 两个标记），不写任何运行状态（无 ok/status/rounds/正文/
-      // 审稿结论），也不参与本轮的生成决策——写的是下面同一个 planBlueprint 值，
-      // 写盘与否都不改变 runDeepChapterGeneration 的入参。
-      // 降级：写盘失败**不致命**，只记 warn 后继续生成（计划持久化是旁路，不是前置条件）。
-      if (planBlueprint) {
-        // RVF-03：写键优先取装配层结构化值（= 读键来源）；两值冲突则不落盘 + 记诊断。
-        const planChapterNumber = resolvePlanChapterNumber(
-          toNumber(params.chapterNumber),
-          toNumber(options.getFallbackParams?.().chapterNumber),
-        )
-        if (planChapterNumber !== undefined) {
-          try {
-            // source 缺省 "model"：本工具写入的永远是模型自拟文本，不得升格成用户确认。
-            await saveConfirmedPlan(options.projectPath, planChapterNumber, planBlueprint)
-          } catch (error) {
-            console.warn("[run-chapter-workflow] 计划持久化失败（非致命，不阻断生成）:", error)
-          }
+      // RVF-03 + R2 提升：在调用 runDeepChapterGeneration 之前解析结构化章号，
+      // 模型省略 chapterNumber 时自动回退至装配层结构化章号，同时保留计划落盘的冲突拒绝语义。
+      const rawChapterNumber = params.chapterNumber
+      const planChapterNumber = resolvePlanChapterNumber(
+        toNumber(rawChapterNumber),
+        toNumber(options.getFallbackParams?.().chapterNumber),
+        Boolean(planBlueprint),
+      )
+      if (planBlueprint && planChapterNumber !== undefined) {
+        try {
+          // source 缺省 "model"：本工具写入的永远是模型自拟文本，不得升格成用户确认。
+          await saveConfirmedPlan(options.projectPath, planChapterNumber, planBlueprint)
+        } catch (error) {
+          console.warn("[run-chapter-workflow] 计划持久化失败（非致命，不阻断生成）:", error)
         }
       }
-      // 本轮未接线：params.intent 仍只被 normalizeParams 解析、不传入生成链；
-      // 若将来接线，需同时提供消费点，不得只透传到结构体。
-      // （params.workflowMode 已接线：见下方 novelConfig 的 applyWorkflowModeDepth）
-      const rawChapterNumber = params.chapterNumber
+      const effectiveChapterNumber =
+        typeof rawChapterNumber === "number" ? rawChapterNumber : planChapterNumber
       // ISS-20260709-033: novelConfig 注入优先（getNovelConfig），缺省回退原惰性
       // store 读取（向后兼容，行为等价）。
       const injectedNovelConfig = options.getNovelConfig
@@ -288,7 +284,7 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
         {
           projectPath: options.projectPath,
           userRequest,
-          chapterNumber: typeof rawChapterNumber === "number" ? rawChapterNumber : undefined,
+          chapterNumber: effectiveChapterNumber,
           // F07: 已保存的章节计划原文（缺省 undefined → 生成链行为零变更；
           // 它是模型自拟文本，提示词侧按中性口径呈现，不冒充用户确认约束）。
           planBlueprint,

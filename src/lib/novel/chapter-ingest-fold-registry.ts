@@ -30,29 +30,29 @@ import { normalizePath } from "@/lib/path-utils"
 import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
 import { listEntityFiles } from "./entity-subdir-resolver"
+import { isMissingFile } from "./chapter-ingest-snapshot-io"
 import { writeSnapshotToWiki } from "./graph-adapter"
 import { buildAliasMapsFromSnapshot, ensureSnapshotIdentity } from "./chapter-snapshot-normalize"
 import { buildStructuredMemoryDocuments } from "./memory-rebuild"
+import { findChapterFileByNumber } from "./chapter-utils"
 import { extractFrontmatterNumber, extractFrontmatterString } from "./chapter-ingest-utils"
 import {
-  hasSnapshotSourceReference,
-  isOnlyCurrentChapterSource,
+  extractSnapshotSourceTokens,
   snapshotSourceFileNameCandidates,
 } from "./snapshot-paths"
 import {
-  appendProjectionAuditEntry,
+  emptyLedger,
   isAutoRebuildableProjection,
   loadProjectionStatusLedger,
-  recordProjectionAudit,
+  mergeProjectionLedgerDelta,
   recordProjectionStatus,
-  saveProjectionStatusLedger,
   syncDirectWriteProjectionIds,
   PROJECTION_CATEGORIES,
   PROJECTION_REGISTRY,
   type ProjectionAuditEntry,
   type ProjectionFoldContext,
   type ProjectionRegistryEntry,
-  type ProjectionStatusLedger,
+  withProjectionStoreWriteLock,
 } from "./projection-status-ledger"
 import { mayEnterFoldReplay } from "./projection-self-heal"
 import { loadValidMemorySnapshots } from "./chapter-ingest-history"
@@ -65,11 +65,14 @@ export async function writeStructuredMemoryDocuments(projectPath: string, snapsh
   const memoryDocuments = buildStructuredMemoryDocuments(snapshots)
 
   await createDirectory(memoryDir)
-  // PAT-IM1: 独立路径并行写（不同 fileName 互异），Promise.all 并发，writtenPaths 按 entries 原序回填保序。
+  // PAT-IM1: 独立路径并行写，writtenPaths 按 entries 原序回填保序。
   const memoryEntries = Object.entries(memoryDocuments)
-  await Promise.all(
+  const writes = await Promise.allSettled(
     memoryEntries.map(([fileName, content]) => writeFileAtomic(`${memoryDir}/${fileName}`, content)),
   )
+  // 持锁等本轮所有写入落定，避免失败后的迟到写入污染下一轮。
+  const failure = writes.find((write): write is PromiseRejectedResult => write.status === "rejected")
+  if (failure) throw failure.reason
   const writtenPaths: string[] = memoryEntries.map(([fileName]) => `${memoryDir}/${fileName}`)
   return writtenPaths
 }
@@ -118,19 +121,34 @@ export async function cleanupSupersededEntityFiles(
   projectPath: string,
   snapshot: ChapterSnapshot,
   writtenEntityPaths: string[],
+  onFailure?: (error: unknown) => void,
 ): Promise<void> {
   const entitiesDir = `${projectPath}/wiki/entities`
-  /* v8 ignore next */
-  const writtenFileNames = new Set(writtenEntityPaths.map((path) => path.split("/").pop() ?? ""))
+  // 全路径比对：同名嵌套/顶层文件不再被 basename 扁平误配（written 只保
+  // 实际写出的那条路径）。
+  const writtenPaths = new Set(writtenEntityPaths.map(normalizePath))
   const snapshotSourceFiles = new Set(snapshotSourceFileNameCandidates(snapshot.chapterNumber))
 
-  let oldEntityFiles: string[] = []
+  let oldEntityFiles: Array<{ name: string; path: string }> = []
   try {
     // listEntityFiles 递归聚合 entities/ 子目录+顶层散装（双态兼容物理分层）。
-    oldEntityFiles = (await listEntityFiles(projectPath)).map((f) => `${f.name}.md`)
+    oldEntityFiles = onFailure !== undefined
+      ? await listEntityFiles(projectPath, { failLoud: true })
+      : await listEntityFiles(projectPath)
   } catch (err) {
     // ISS-20260712-REL-1: 空 catch 收敛 — 记诊断，控制流不变（列目录失败即跳过清理）。
     logger.warn("Chapter Ingest", "list entities failed, skip superseded cleanup (non-fatal)", { error: toErrorMessage(err) })
+    // 目录不存在 = 无可清理项（既有 missing-dir 行为）；仅真实列表失败上报部分失败。
+    if (onFailure) {
+      let missing: boolean
+      try {
+        missing = await isMissingFile(entitiesDir, err)
+      } catch (metaErr) {
+        onFailure(metaErr)
+        return
+      }
+      if (!missing) onFailure(err)
+    }
     return
   }
 
@@ -142,38 +160,32 @@ export async function cleanupSupersededEntityFiles(
   // superseded set in parallel. Reads are independent (no cross-file
   // dependency); deletes target distinct files (safe to parallelize).
   const candidateFiles = oldEntityFiles
-    .filter((oldFile) => !writtenFileNames.has(oldFile))
-    .map((oldFile) => ({ oldFile, filePath: `${entitiesDir}/${oldFile}` }))
+    .map(({ path }) => normalizePath(path))
+    .filter((path) => !writtenPaths.has(path))
 
   const readResults = await Promise.all(
-    candidateFiles.map(async (entry) => {
+    candidateFiles.map(async (filePath) => {
       try {
-        const content = await readFile(entry.filePath)
-        return { entry, content, ok: true }
+        return { filePath, content: await readFile(filePath) }
       } catch (err) {
-        // ISS-20260709-025 PAT-IM2: 逐文件探针失败记诊断，控制流不变（ok:false 跳过）。
-        logger.warn("Chapter Ingest", "entity probe read failed, skip file (non-fatal)", { path: entry.filePath, error: toErrorMessage(err) })
-        return { entry, content: null, ok: false }
+        // ISS-20260709-025 PAT-IM2: 逐文件探针失败记诊断，控制流不变（content:null 跳过）。
+        logger.warn("Chapter Ingest", "entity probe read failed, skip file (non-fatal)", { path: filePath, error: toErrorMessage(err) })
+        onFailure?.(err)
+        return { filePath, content: null }
       }
     }),
   )
 
   const toDelete: string[] = []
-  for (const { entry, content, ok } of readResults) {
-    if (!ok || content === null) continue
-    if (shouldDeleteSupersededProjectionContent(content, snapshot)) {
-      toDelete.push(entry.filePath)
-      continue
-    }
-    // ISS-20260712-MAINT-4: exact token 匹配（防跨章节子串误伤）。
-    // 旧 `content.includes(候选)` 会把 "3.snapshot.json" 误判进
-    // "13.snapshot.json"；现经 has/isOnly* exact Set 口径：仅当内容引用的
-    // 全部 snapshot token 均属于当前章节候选时才删（混引永不删）。行为等价
-    // （孤儿判定语义不变），仅消除子串假阳性。
-    if (hasSnapshotSourceReference(content, snapshotSourceFiles)) {
-      if (isOnlyCurrentChapterSource(content, snapshotSourceFiles)) {
-        toDelete.push(entry.filePath)
-      }
+  for (const { filePath, content } of readResults) {
+    if (content === null) continue
+    // exact token 匹配（防跨章节子串误伤）：任一 source 属于其他章节即
+    // 跳过（混引永不删）；仅当引用全部属于本章候选，或内容经 metadata
+    // 判定为 superseded（保留既有 metadata 快捷删除）才删除。
+    const sources = extractSnapshotSourceTokens(content)
+    if (sources.some((source) => !snapshotSourceFiles.has(source))) continue
+    if (sources.length > 0 || shouldDeleteSupersededProjectionContent(content, snapshot)) {
+      toDelete.push(filePath)
     }
   }
 
@@ -184,6 +196,7 @@ export async function cleanupSupersededEntityFiles(
       } catch (err) {
         // ISS-20260712-REL-1: 空 catch 收敛 — 记诊断不改控制流（清理失败不阻断）。
         logger.warn("Chapter Ingest", "cleanup superseded entity failed (non-fatal)", { path: filePath, error: toErrorMessage(err) })
+        onFailure?.(err)
       }
     }),
   )
@@ -225,30 +238,31 @@ export function storeEntry<S>(
 // ── rebuildRegistryProjections ──
 export async function rebuildRegistryProjections(
   projectPath: string,
-  snapshots: ChapterSnapshot[],
   ctx: ProjectionFoldContext = { now: "" },
   onlyIds?: ReadonlySet<string>,
-): Promise<string[]> {
+  latestSnapshot?: ChapterSnapshot,
+): Promise<{ rebuilt: string[]; snapshots: ChapterSnapshot[] }> {
   const pp = normalizePath(projectPath)
-  const rebuilt: string[] = []
-  for (const [id, entry] of Object.entries(PROJECTION_REGISTRY)) {
-    if (!entry.rebuildable) continue
-    if (onlyIds && !onlyIds.has(id)) continue
-    if (entry.foldFromSnapshot && entry.save) {
-      await entry.save(pp, entry.foldFromSnapshot(snapshots, ctx))
-    } else if (entry.rebuildFromSnapshots) {
-      await entry.rebuildFromSnapshots(pp, snapshots, ctx)
-    } else {
-      /* v8 ignore next */ continue
+  return withProjectionStoreWriteLock(pp, async () => {
+    const snapshots = await loadValidMemorySnapshots(pp, latestSnapshot, { failOnUnreadableChapter: true })
+    const rebuilt: string[] = []
+    for (const [id, entry] of Object.entries(PROJECTION_REGISTRY)) {
+      if (!entry.rebuildable || (onlyIds && !onlyIds.has(id))) continue
+      if (entry.foldFromSnapshot && entry.save) {
+        await entry.save(pp, entry.foldFromSnapshot(snapshots, ctx))
+      } else if (entry.rebuildFromSnapshots) {
+        await entry.rebuildFromSnapshots(pp, snapshots, ctx)
+      } else {
+        continue
+      }
+      rebuilt.push(id)
     }
-    rebuilt.push(id)
-  }
-  return rebuilt
+    return { rebuilt, snapshots }
+  })
 }
 
 // ── rebuildFromCommittedSnapshot ──
 export async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?: ChapterSnapshot, options: { embeddingConfig?: EmbeddingConfig; now?: string } = {}): Promise<void> {
-  const snapshots = await loadValidMemorySnapshots(projectPath, latestSnapshot)
   // E-03 (C-3): rebuild 也是 fold 路径 — 入口取一次显式时间戳全链下传,
   // 缺省 "" (不引入隐式时钟; drift 检查传固定值保证可重放)。
   const foldCtx: ProjectionFoldContext = { now: options.now ?? "" }
@@ -258,7 +272,7 @@ export async function rebuildFromCommittedSnapshot(projectPath: string, latestSn
   // 引用），summary_structured_memory 经 rebuildFromSnapshots 钩子重建结构化
   // 记忆文档（原 9 段硬编码 + writeStructuredMemoryDocuments 直调收敛于此）。
   // 新增 fold_rebuildable 投影只需入表，rebuild 自动覆盖（F5 绝迹）。
-  await rebuildRegistryProjections(projectPath, snapshots, foldCtx)
+  const { snapshots } = await rebuildRegistryProjections(projectPath, foldCtx, undefined, latestSnapshot)
 
   // mutates_existing_non_rebuildable: graph entity pages — delete+re-fold.
   // Re-write every snapshot's entity pages from scratch; stale pages not
@@ -291,7 +305,12 @@ export async function rebuildFromCommittedSnapshot(projectPath: string, latestSn
           skippedNoSummary++
           continue
         }
-        const pageId = String(snapshot.chapterNumber).padStart(3, "0")
+        const pad3 = String(snapshot.chapterNumber).padStart(3, "0")
+        const chapterFilePath = await findChapterFileByNumber(projectPath, snapshot.chapterNumber)
+        const fileStem = chapterFilePath
+          ? normalizePath(chapterFilePath).split("/").pop()?.replace(/\.md$/i, "") ?? ""
+          : ""
+        const pageId = fileStem || `chapter-${pad3}`
         const title = snapshot.chapterTitle || pageId
         // Re-embed from the snapshot's summary (idempotent rebuild).
         await embedPage(projectPath, pageId, title, snapshot.summary ?? "", embCfg)
@@ -321,7 +340,7 @@ export async function rebuildDerivedMemoryFromSnapshots(
 export interface ProjectionSelfHealResult {
   /** 是否实际尝试了重建（false = 账本无可自愈的 failed 投影，误报护栏零动作）。 */
   attempted: boolean
-  /** 自愈成功重建的投影 id（账本对应 cell 已改记 committed + rebuild 审计）。 */
+  /** 自愈重建后在账本中成功合并为 committed 的投影 id。 */
   healed: string[]
   /** 自愈重建失败时的错误信息（failed 状态在账本保留可见，不静默降级）。 */
   error?: string
@@ -333,29 +352,27 @@ export async function selfHealFailedProjections(
   options: { now?: string } = {},
 ): Promise<ProjectionSelfHealResult> {
   const pp = normalizePath(projectPath)
-  let ledger: ProjectionStatusLedger = await loadProjectionStatusLedger(pp)
-  const failed: Array<{ chapter: number; projection: string }> = []
-  for (const [chapterKey, entries] of Object.entries(ledger.chapters)) {
-    for (const [projection, entry] of Object.entries(entries)) {
-      if (entry.status !== "failed") continue
-      if (PROJECTION_CATEGORIES[projection] !== "fold_rebuildable") continue
-      // B2（派生接线）：优先走 projection-self-heal 唯一事实源的门槛；
-      // 若其返回 false 则不再做第二次判定（不放宽、不二次准入）。
-      if (!mayEnterFoldReplay(projection, isAutoRebuildableProjection(projection))) continue
-      failed.push({ chapter: Number(chapterKey), projection })
-    }
-  }
-  if (failed.length === 0) return { attempted: false, healed: [] }
-  const startedAt = Date.now()
   try {
-    const snapshots = await loadValidMemorySnapshots(pp)
+    const ledger = await loadProjectionStatusLedger(pp)
+    const failed: Array<{ chapter: number; projection: string }> = []
+    for (const [chapterKey, entries] of Object.entries(ledger.chapters)) {
+      for (const [projection, entry] of Object.entries(entries)) {
+        if (entry.status !== "failed") continue
+        if (PROJECTION_CATEGORIES[projection] !== "fold_rebuildable") continue
+        // B2（派生接线）：优先走 projection-self-heal 唯一事实源的门槛；
+        // 若其返回 false 则不再做第二次判定（不放宽、不二次准入）。
+        if (!mayEnterFoldReplay(projection, isAutoRebuildableProjection(projection))) continue
+        failed.push({ chapter: Number(chapterKey), projection })
+      }
+    }
+    if (failed.length === 0) return { attempted: false, healed: [] }
+    const startedAt = Date.now()
     const only = new Set(failed.map((f) => f.projection))
-    const rebuilt = await rebuildRegistryProjections(pp, snapshots, { now: options.now ?? "" }, only)
+    const { rebuilt } = await rebuildRegistryProjections(pp, { now: options.now ?? "" }, only)
     const healed = failed.filter((f) => rebuilt.includes(f.projection))
+    let delta = emptyLedger()
     for (const f of healed) {
-      ledger = recordProjectionStatus(ledger, f.chapter, f.projection, "committed")
-      // F-005 纪律：先追加持久审计，再同步内存 trail（末尾 save 不会把
-      // 已落盘事件覆盖回去）；审计失败非致命，不阻断自愈。
+      delta = recordProjectionStatus(delta, f.chapter, f.projection, "committed")
       const auditEntry: ProjectionAuditEntry = {
         projection: f.projection,
         chapter: f.chapter,
@@ -363,17 +380,14 @@ export async function selfHealFailedProjections(
         durationMs: Date.now() - startedAt,
         timestamp: new Date().toISOString(),
       }
-      ledger = recordProjectionAudit(ledger, auditEntry)
-      try {
-        await appendProjectionAuditEntry(pp, auditEntry)
-      } catch (auditErr) {
-        /* 审计追加非致命（audit 永不阻断主链） */
-        // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
-        logger.warn("Chapter Ingest", "self-heal audit append failed (non-fatal)", { error: toErrorMessage(auditErr) })
-      }
+      delta = { ...delta, auditTrail: [...(delta.auditTrail ?? []), auditEntry] }
     }
-    await saveProjectionStatusLedger(pp, ledger)
-    return { attempted: true, healed: healed.map((f) => f.projection) }
+    // 治愈状态和对应审计一起落盘；并发更新的 cell 不记过期成功。
+    const applied = await mergeProjectionLedgerDelta(pp, delta, ledger.chapters)
+    return {
+      attempted: true,
+      healed: healed.filter(f => applied.has(delta.chapters[String(f.chapter)][f.projection])).map(f => f.projection),
+    }
   } catch (err) {
     const message = toErrorMessage(err)
     logger.warn("Chapter Ingest", "failed 投影自愈失败（非致命，账本保留 failed 状态）", { error: message })

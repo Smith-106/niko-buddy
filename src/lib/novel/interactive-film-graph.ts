@@ -175,15 +175,28 @@ export function exportInteractiveInk(graph: InteractiveStoryGraph): string {
   return lines.join("\n")
 }
 
-/** 导出单文件 HTML（零外部依赖；数据来自 graph 自身字段，文本经 escapeHtml）。 */
+/** 安全序列化 JSON 供内嵌 `<script type="application/json">` 使用，防 `</script>` 闭合与行分隔符注入。 */
+function serializeJsonForScriptTag(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029")
+}
+
+/** 导出单文件 HTML（零外部依赖；严格 CSP + JSON 数据标签 + 纯 DOM API 零 XSS）。 */
 export function exportInteractiveHtml(graph: InteractiveStoryGraph): string {
-  const nodesJson = encodeURIComponent(JSON.stringify(graph.nodes))
-  const edgesJson = encodeURIComponent(JSON.stringify(graph.edges))
-  const startId = encodeURIComponent(graph.startId)
+  const storyDataJson = serializeJsonForScriptTag({
+    startId: graph.startId,
+    nodes: graph.nodes,
+    edges: graph.edges,
+  })
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
 <title>互动影游</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; color: #222; line-height: 1.7; }
@@ -195,40 +208,81 @@ export function exportInteractiveHtml(graph: InteractiveStoryGraph): string {
 </head>
 <body>
 <main id="app"></main>
+<script id="story-data" type="application/json">${storyDataJson}</script>
 <script>
-var NODES = JSON.parse(decodeURIComponent("${nodesJson}"));
-var EDGES = JSON.parse(decodeURIComponent("${edgesJson}"));
-var START = decodeURIComponent("${startId}");
-var current = START;
-var path = [];
-function esc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-  });
-}
-function render() {
-  var node = NODES.find(function (n) { return n.id === current; });
-  var el = document.getElementById("app");
-  if (!node) { el.innerHTML = "<p>图缺失节点</p>"; return; }
-  var html = "<h2>" + esc(node.title) + "</h2><p>" + esc(node.text) + "</p>";
-  if (node.kind === "end") {
-    html += "<p><em>— 终 —</em></p><p><button data-choice onclick=\\"location.reload()\\">重新开始</button></p>";
-  } else {
-    EDGES.filter(function (e) { return e.from === current; }).forEach(function (e, i) {
-      html += "<button data-choice onclick=\\"go(" + i + ")\\">" + esc(e.choiceLabel || "继续") + "</button>";
-    });
+(function () {
+  var dataEl = document.getElementById("story-data");
+  var data = JSON.parse((dataEl && dataEl.textContent) || "{}");
+  var NODES = Array.isArray(data.nodes) ? data.nodes : [];
+  var EDGES = Array.isArray(data.edges) ? data.edges : [];
+  var START = typeof data.startId === "string" ? data.startId : "";
+  var current = START;
+  var path = [];
+
+  function createChoiceButton(label, handler) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("data-choice", "");
+    btn.textContent = label;
+    btn.addEventListener("click", handler);
+    return btn;
   }
-  el.innerHTML = html;
-}
-function go(i) {
-  var edges = EDGES.filter(function (e) { return e.from === current; });
-  var edge = edges[i];
-  if (!edge) return;
-  path.push(edge.to);
-  current = edge.to;
+
+  function render() {
+    var el = document.getElementById("app");
+    if (!el) return;
+    var node = NODES.find(function (n) { return n.id === current; });
+    if (!node) {
+      var missing = document.createElement("p");
+      missing.textContent = "图缺失节点";
+      el.replaceChildren(missing);
+      return;
+    }
+
+    var fragment = document.createDocumentFragment();
+    var heading = document.createElement("h2");
+    heading.textContent = node.title == null ? "" : String(node.title);
+    fragment.appendChild(heading);
+
+    var body = document.createElement("p");
+    body.textContent = node.text == null ? "" : String(node.text);
+    fragment.appendChild(body);
+
+    if (node.kind === "end") {
+      var endMarker = document.createElement("p");
+      var em = document.createElement("em");
+      em.textContent = "— 终 —";
+      endMarker.appendChild(em);
+      fragment.appendChild(endMarker);
+
+      var restartWrap = document.createElement("p");
+      restartWrap.appendChild(createChoiceButton("重新开始", function () {
+        current = START;
+        path = [];
+        render();
+      }));
+      fragment.appendChild(restartWrap);
+    } else {
+      EDGES.filter(function (e) { return e.from === current; }).forEach(function (e, i) {
+        var label = e.choiceLabel ? String(e.choiceLabel) : "继续";
+        fragment.appendChild(createChoiceButton(label, function () { go(i); }));
+      });
+    }
+
+    el.replaceChildren(fragment);
+  }
+
+  function go(i) {
+    var edges = EDGES.filter(function (e) { return e.from === current; });
+    var edge = edges[i];
+    if (!edge) return;
+    path.push(edge.to);
+    current = edge.to;
+    render();
+  }
+
   render();
-}
-render();
+})();
 </script>
 </body>
 </html>`

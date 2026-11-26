@@ -1184,8 +1184,7 @@ describe("handleStateRequest — context-inspect-start / poll 异步慢构建路
     expect(runningPoll).toEqual({ ok: true, value: { status: "running", jobId: startVal.jobId } })
 
     deferred.resolve({ inspectionId: "insp-async-1", contextPackBuilt: true })
-    await Promise.resolve()
-    await Promise.resolve()
+    await new Promise<void>((resolve) => setImmediate(resolve))
 
     const donePoll = await handleStateRequest(
       request({ op: "context-inspect-poll", params: { jobId: startVal.jobId } }),
@@ -1212,8 +1211,7 @@ describe("handleStateRequest — context-inspect-start / poll 异步慢构建路
     )
     expect(started.ok).toBe(true)
     const { jobId } = started.value as { jobId: string }
-    await Promise.resolve()
-    await Promise.resolve()
+    await new Promise<void>((resolve) => setImmediate(resolve))
 
     const failedPoll = await handleStateRequest(
       request({ op: "context-inspect-poll", params: { jobId } }),
@@ -1223,6 +1221,47 @@ describe("handleStateRequest — context-inspect-start / poll 异步慢构建路
       ok: true,
       value: { status: "failed", jobId, error: "需要检索网络授权" },
     })
+  })
+
+  it("在途 inspect 任务达上限时拒绝新任务，释放后可再起", async () => {
+    const deferred = deferredValue<unknown>()
+    const inspectCalls: unknown[] = []
+    const testDeps = deps({
+      inspectContext: async (input) => {
+        inspectCalls.push(input)
+        return await deferred.promise
+      },
+    })
+
+    // 16 个 running 任务把 MAX_INSPECT_JOBS 占满。
+    const jobIds: string[] = []
+    for (let i = 0; i < 16; i++) {
+      const started = await handleStateRequest(
+        request({ op: "context-inspect-start", params: { chapter: "1", includePack: true } }),
+        testDeps,
+      )
+      expect(started.ok).toBe(true)
+      jobIds.push((started.value as { jobId: string }).jobId)
+    }
+    expect(inspectCalls).toHaveLength(16)
+
+    // 第 17 个：容量拒绝，不再触发新的 inspect 调用。
+    const overflow = await handleStateRequest(
+      request({ op: "context-inspect-start", params: { chapter: "17", includePack: true } }),
+      testDeps,
+    )
+    expect(overflow.ok).toBe(false)
+    expect(inspectCalls).toHaveLength(16)
+
+    // 释放一个任务（完成）后，新任务可以再起。
+    deferred.resolve({ inspectionId: "done" })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const admitted = await handleStateRequest(
+      request({ op: "context-inspect-start", params: { chapter: "1", includePack: true } }),
+      testDeps,
+    )
+    expect(admitted.ok).toBe(true)
+    expect(inspectCalls).toHaveLength(17)
   })
 
   it("poll 缺 jobId 或未知 jobId（含前端重载丢失）立即报错", async () => {

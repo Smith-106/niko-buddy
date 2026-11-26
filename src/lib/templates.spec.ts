@@ -25,6 +25,12 @@ describe("templates", () => {
     for (const seed of demo.seedFiles!) {
       expect(seed.content).toContain("演示样例")
     }
+    // P1-02：演示第 1 章必须含规范 YAML frontmatter
+    const ch1 = demo.seedFiles!.find((s) => s.path === "wiki/chapters/chapter-001.md")
+    expect(ch1?.content.startsWith("---\n")).toBe(true)
+    expect(ch1?.content).toContain("type: chapter")
+    expect(ch1?.content).toContain("chapter_number: 1")
+    expect(ch1?.content).toContain("chapter_status: draft")
     // 普通模板无种子文件
     expect(getTemplate("general").seedFiles ?? []).toEqual([])
   })

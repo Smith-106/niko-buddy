@@ -52,6 +52,12 @@ describe("writeChapterDraft", () => {
     expect(writeDraft.mock.calls[0][3]).toMatchObject({ partial: true })
   })
 
+  it("普通采纳走既有策略：mcp:chapter.write 来源、无回执绑定", async () => {
+    writeDraft.mockResolvedValue({ id: "draft_1", chapterName: "第一章", content: "x" })
+    await writeChapterDraft("/proj", { chapterName: "第一章", content: "x" })
+    expect(writeDraft.mock.calls[0][3]).toEqual({ sourceConversationId: "mcp:chapter.write" })
+  })
+
   it("非布尔 partial 不当真（只认 true）", async () => {
     writeDraft.mockResolvedValue({ id: "draft_1", chapterName: "第一章", content: "x" })
     await writeChapterDraft("/proj", { chapterName: "第一章", content: "正文", partial: "yes" })

@@ -26,6 +26,7 @@
  */
 
 import fastDiff from "fast-diff"
+import { logger, toErrorMessage } from "@/lib/utils"
 import {
   canonPendingQueuePath,
   loadPendingQueue,
@@ -217,7 +218,8 @@ export async function twoPhaseReconcile(
     message: `replaying ${before.length} pending record(s) by digest`,
   })
 
-  const replayReport = await replayPendingQueue(deps, projectPath, now)
+  const immediateDigests = new Set(initial.divergences.map((d) => d.digest))
+  const replayReport = await replayPendingQueue(deps, projectPath, now, { immediateDigests })
 
   // ── 阶段 2：重放后重新对账（成功出队的 digest 视为已补齐） ──
   const after = await loadPendingQueue(deps, queuePath)
@@ -275,8 +277,11 @@ export async function twoPhaseReconcile(
         metricDistance: d.metric.distance,
       })),
     })
-    saveDivergenceTrace(projectPath, tracePayload).catch(() => {
-      // 非致命审计操作，写入失败不阻断主流程
+    saveDivergenceTrace(projectPath, tracePayload).catch((err) => {
+      // 非致命审计操作，写入失败记诊断但不阻断主流程
+      logger.warn("canon-reconcile", "saveDivergenceTrace rejected (non-fatal)", {
+        error: toErrorMessage(err),
+      })
     })
   }
 

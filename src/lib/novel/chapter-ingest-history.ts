@@ -11,9 +11,10 @@
  */
 import { listDirectory, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { isChapterPage, parseChapterNumber } from "./chapter-meta"
+import { isDraftChapterFile } from "./chapter-utils"
 import {
   buildSnapshotRevisionId,
   ensureSnapshotIdentity,
@@ -22,6 +23,7 @@ import {
   normalizeChapterSnapshot,
 } from "./chapter-snapshot-normalize"
 import { isValidMemorySnapshot } from "./memory-rebuild"
+import { isMissingFile } from "./chapter-ingest-utils"
 import { analyzeEditImpact } from "./edit-impact-analyzer"
 import { projectSnapshotForImpact, projectSnapshotToImpactStores } from "./snapshot-preview"
 import { clearTemporalFactsCache } from "./context-engine"
@@ -29,8 +31,9 @@ import { snapshotHistoryDir, snapshotJsonPath } from "./snapshot-paths"
 import {
   backupSnapshotBeforeOverwrite,
   listSnapshots,
-  loadSnapshot,
+  readSnapshotForReplacement,
   saveSnapshot,
+  withSnapshotWriteLock,
 } from "./chapter-ingest-snapshot-io"
 import type { ChapterSnapshot } from "./chapter-ingest"
 
@@ -44,17 +47,20 @@ export async function readCurrentSnapshot(
   projectPath: string,
   chapterNumber: number,
 ): Promise<ChapterSnapshot | null> {
+  const path = snapshotJsonPath(projectPath, chapterNumber)
+  let raw: string
   try {
-    const raw = await readFile(snapshotJsonPath(projectPath, chapterNumber))
-    const parsed = normalizeChapterSnapshot(JSON.parse(raw), {
-      chapterId: `chapter-${chapterNumber}`,
-      chapterNumber,
-    })
-    return parsed ? ensureSnapshotIdentity(parsed) : null
-  } catch {
-    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 218 })
-    return null
+    raw = await readFile(path)
+  } catch (err) {
+    if (await isMissingFile(path, err)) return null
+    throw err
   }
+  if (!raw.trim()) return null
+  const parsed = normalizeChapterSnapshot(JSON.parse(raw), {
+    chapterId: `chapter-${chapterNumber}`,
+    chapterNumber,
+  })
+  return parsed ? ensureSnapshotIdentity(parsed) : null
 }
 
 export function materializeNextCurrentSnapshot(
@@ -91,6 +97,8 @@ export function materializeRestoredCurrentSnapshot(
   })
 }
 
+const snapshotHistorySuffix = (name: string) => Number(name.match(/Z-(\d+)\.snapshot\.json$/)?.[1] ?? 0)
+
 export async function listSnapshotHistory(
   projectPath: string,
   chapterNumber: number,
@@ -104,62 +112,104 @@ export async function listSnapshotHistory(
       .map(node => ({
         fileName: node.name,
         path: node.path,
-        createdAt: node.name.replace(/\.snapshot\.json$/, "").replace(/-(\d{2})-(\d{2})-(\d{2})\.(\d{3})Z$/, ":$1:$2.$3Z"),
+        createdAt: node.name.replace(/\.snapshot\.json$/, "").replace(/Z-\d+$/, "Z").replace(/-(\d{2})-(\d{2})-(\d{2})\.(\d{3})Z$/, ":$1:$2.$3Z"),
       }))
-      .sort((a, b) => b.fileName.localeCompare(a.fileName))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || snapshotHistorySuffix(b.fileName) - snapshotHistorySuffix(a.fileName))
   } catch {
     logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1242 })
     return []
   }
 }
 
-export async function listActualChapterNumbers(projectPath: string): Promise<number[]> {
+async function collectChapterMdFiles(
+  nodes: Awaited<ReturnType<typeof listDirectory>>,
+): Promise<Array<{ name: string; path: string }>> {
+  const files: Array<{ name: string; path: string }> = []
+  for (const node of nodes) {
+    if (node.is_dir) {
+      let children: Awaited<ReturnType<typeof listDirectory>>
+      if (node.children !== undefined) {
+        children = node.children
+      } else {
+        try {
+          children = await listDirectory(node.path)
+        } catch (error) {
+          throw new Error(`Cannot list chapter subdirectory ${node.path}: ${toErrorMessage(error)}`)
+        }
+      }
+      files.push(...(await collectChapterMdFiles(children)))
+      continue
+    }
+    if (node.name.endsWith(".md") && !isDraftChapterFile(node.name)) {
+      files.push({ name: node.name, path: node.path })
+    }
+  }
+  return files
+}
+
+export async function listActualChapterNumbers(
+  projectPath: string,
+  options?: { failOnUnreadableChapter?: boolean },
+): Promise<number[]> {
   const pp = normalizePath(projectPath)
   const chaptersDir = `${pp}/wiki/chapters`
+  let nodes: Awaited<ReturnType<typeof listDirectory>>
   try {
-    const nodes = await listDirectory(chaptersDir)
-    const chapterNumbers = await Promise.all(
-      nodes
-        .filter((node) => !node.is_dir && node.name.endsWith(".md"))
-        .map(async (node) => {
-          try {
-            const parsed = parseFrontmatter(await readFile(node.path))
-            const frontmatter = parsed.frontmatter as Record<string, unknown> | null
-            if (!frontmatter || !isChapterPage(frontmatter)) {
-              return null
-            }
-            return parseChapterNumber(frontmatter.chapter_number)
-          } catch {
-            logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1425 })
-            return null
-          }
-        }),
-    )
-    return chapterNumbers.filter((chapterNumber): chapterNumber is number => Number.isFinite(chapterNumber))
-  } catch {
-    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1431 })
-    return []
+    nodes = await listDirectory(chaptersDir)
+  } catch (error) {
+    if (await isMissingFile(chaptersDir, error)) return []
+    throw new Error(`Cannot list chapter sources: ${toErrorMessage(error)}`)
   }
+  // M2-02: 递归展开分卷子目录并排除草稿文件；子目录读错 fail-loud 上抛，
+  // 防止不完整的章号集合收窄快照范围、错误重写派生记忆。
+  const mdFiles = await collectChapterMdFiles(nodes)
+  const chapterNumbers = await Promise.all(
+    mdFiles.map(async node => {
+      try {
+        const raw = await readFile(node.path, { exactUtf8: true })
+        const { frontmatter } = parseFrontmatter(raw.replace(/^\uFEFF/, ""))
+        return frontmatter && isChapterPage(frontmatter) ? parseChapterNumber(frontmatter.chapter_number) : null
+      } catch (error) {
+        if (options?.failOnUnreadableChapter) {
+          throw new Error(`Cannot read chapter source ${node.path}: ${toErrorMessage(error)}`)
+        }
+        logger.warn("Chapter Ingest", "Skipping unreadable chapter source during listing", { path: node.path, error: toErrorMessage(error) })
+        return null
+      }
+    }),
+  )
+  return chapterNumbers.filter((chapterNumber): chapterNumber is number => Number.isFinite(chapterNumber))
 }
 
 export async function loadValidMemorySnapshots(
   projectPath: string,
   latestSnapshot?: ChapterSnapshot,
+  options?: { failOnUnreadableChapter?: boolean },
 ): Promise<ChapterSnapshot[]> {
   const pp = normalizePath(projectPath)
-  const actualChapterNumbers = await listActualChapterNumbers(pp)
-  const snapshotNumbers = await listSnapshots(pp)
+  const actualChapterNumbers = await listActualChapterNumbers(pp, options)
+  const snapshotNumbers = await listSnapshots(pp, { failLoud: true })
   const snapshotMap = new Map<number, ChapterSnapshot>()
 
-  const loadedSnapshots = await Promise.all(snapshotNumbers.map((chapterNumber) => loadSnapshot(pp, chapterNumber)))
+  // Rebuilding from a partial set would overwrite last-good derived memory.
+  const loadedSnapshots = await Promise.all(snapshotNumbers.filter(chapterNumber => chapterNumber > 0).map(async chapterNumber => {
+    try {
+      const current = await readSnapshotForReplacement(pp, chapterNumber)
+      if (!current) throw new Error("Snapshot disappeared after listing.")
+      return current.snapshot
+    } catch (error) {
+      throw new Error(`Cannot rebuild memory from chapter ${chapterNumber}: ${toErrorMessage(error)}`)
+    }
+  }))
   for (const loadedSnapshot of loadedSnapshots) {
     if (isValidMemorySnapshot(loadedSnapshot, actualChapterNumbers)) {
       snapshotMap.set(loadedSnapshot.chapterNumber, loadedSnapshot)
     }
   }
 
-  if (isValidMemorySnapshot(latestSnapshot ?? null, actualChapterNumbers)) {
-    snapshotMap.set(latestSnapshot!.chapterNumber, latestSnapshot!)
+  if (latestSnapshot && !snapshotMap.has(latestSnapshot.chapterNumber)
+    && isValidMemorySnapshot(latestSnapshot, actualChapterNumbers)) {
+    snapshotMap.set(latestSnapshot.chapterNumber, latestSnapshot)
   }
 
   return [...snapshotMap.values()].sort((a, b) => a.chapterNumber - b.chapterNumber)
@@ -172,6 +222,13 @@ export async function saveEditedSnapshot(
   snapshot: ChapterSnapshot,
 ): Promise<{ requireConfirmation: boolean }> {
   const pp = normalizePath(projectPath)
+  return withSnapshotWriteLock(pp, snapshot.chapterNumber, () => saveEditedSnapshotUnlocked(pp, snapshot))
+}
+
+async function saveEditedSnapshotUnlocked(
+  pp: string,
+  snapshot: ChapterSnapshot,
+): Promise<{ requireConfirmation: boolean }> {
   const currentSnapshot = await readCurrentSnapshot(pp, snapshot.chapterNumber)
   const normalizedSnapshot = normalizeChapterSnapshot(snapshot, {
     chapterId: snapshot.chapterId,

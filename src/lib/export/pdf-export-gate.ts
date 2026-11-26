@@ -27,11 +27,28 @@ import { exportPdf, validateExportTarget, LINE_HEIGHT_RATIO, type PdfExportRepor
 import { computeCheckpointDigest } from "@/lib/novel/checkpoint-digest"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { isFinalChapter } from "@/lib/novel/chapter-meta"
+import { withProjectLock } from "@/lib/novel/novel-locks"
 import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
 import { normalizePath } from "@/lib/path-utils"
 
 export const EXPORT_HISTORY_FILE = "export-history.json"
 const EXPORT_HISTORY_VERSION = 1
+const MAX_MANUSCRIPT_EXPORT_HISTORY = 200
+
+/** 书稿导出中心持久化历史条目（P1-04，与单章确认 PDF 历史共存于 `.novel/export-history.json`）。 */
+export interface ManuscriptExportHistoryEntry {
+  id: string
+  format: "TXT" | "DOCX" | "EPUB" | "PDF"
+  path: string
+  chapterCount: number
+  draftCount: number
+  includeDrafts: boolean
+  startChapter: number | null
+  endChapter: number | null
+  success: boolean
+  message: string
+  exportedAt: string
+}
 
 /** 单条导出记录：项目 → 会话(Run) → 输入章节 → 确认版本 → PDF 的完整溯源链。 */
 export interface PdfExportHistoryEntry {
@@ -69,25 +86,103 @@ export interface PdfExportHistoryEntry {
 interface ExportHistoryFile {
   version: number
   entries: PdfExportHistoryEntry[]
+  manuscriptExports?: ManuscriptExportHistoryEntry[]
 }
 
 export function exportHistoryPath(projectPath: string): string {
   return `${normalizePath(projectPath)}/.novel/${EXPORT_HISTORY_FILE}`
 }
 
-/** 重启读回：磁盘 JSON → 历史条目（门禁 9）。文件缺失/损坏返回空历史，不抛错。 */
-export async function loadPdfExportHistory(projectPath: string): Promise<PdfExportHistoryEntry[]> {
+function exportHistoryLockKey(projectPath: string): string {
+  return `export-history:${normalizePath(projectPath)}`
+}
+
+function isValidManuscriptExportEntry(value: unknown): value is ManuscriptExportHistoryEntry {
+  if (!value || typeof value !== "object") return false
+  const e = value as Partial<ManuscriptExportHistoryEntry>
+  return (
+    typeof e.id === "string" &&
+    (e.format === "TXT" || e.format === "DOCX" || e.format === "EPUB" || e.format === "PDF") &&
+    typeof e.path === "string" &&
+    typeof e.chapterCount === "number" &&
+    typeof e.draftCount === "number" &&
+    typeof e.includeDrafts === "boolean" &&
+    (e.startChapter === null || typeof e.startChapter === "number") &&
+    (e.endChapter === null || typeof e.endChapter === "number") &&
+    typeof e.success === "boolean" &&
+    typeof e.message === "string" &&
+    typeof e.exportedAt === "string"
+  )
+}
+
+async function readExportHistoryFile(projectPath: string): Promise<ExportHistoryFile> {
   try {
     const raw = await readFile(exportHistoryPath(projectPath))
     const parsed = JSON.parse(raw) as Partial<ExportHistoryFile>
-    if (!Array.isArray(parsed.entries)) return []
-    return parsed.entries.filter(
-      (e): e is PdfExportHistoryEntry =>
-        typeof e?.id === "string" && typeof e?.target === "string",
-    )
-  } catch {
-    return []
+    const entries = Array.isArray(parsed.entries)
+      ? parsed.entries.filter(
+          (e): e is PdfExportHistoryEntry =>
+            typeof e?.id === "string" && typeof e?.target === "string",
+        )
+      : []
+    const manuscriptExports = Array.isArray(parsed.manuscriptExports)
+      ? parsed.manuscriptExports.filter(isValidManuscriptExportEntry)
+      : undefined
+    return {
+      version: EXPORT_HISTORY_VERSION,
+      entries,
+      ...(manuscriptExports !== undefined ? { manuscriptExports } : {}),
+    }
+  } catch (err) {
+    // 历史文件缺失或损坏时视为空历史，避免阻塞导出启动。
+    void err
+    return { version: EXPORT_HISTORY_VERSION, entries: [] }
   }
+}
+
+async function writeExportHistoryFile(projectPath: string, file: ExportHistoryFile): Promise<void> {
+  const historyPath = exportHistoryPath(projectPath)
+  const dir = historyPath.slice(0, historyPath.lastIndexOf("/"))
+  await createDirectory(dir)
+  const payload: ExportHistoryFile = {
+    version: EXPORT_HISTORY_VERSION,
+    entries: file.entries,
+    ...(file.manuscriptExports !== undefined ? { manuscriptExports: file.manuscriptExports } : {}),
+  }
+  await writeFileAtomic(historyPath, JSON.stringify(payload, null, 2))
+}
+
+/** 重启读回：磁盘 JSON → 历史条目（门禁 9）。文件缺失/损坏返回空历史，不抛错。 */
+export async function loadPdfExportHistory(projectPath: string): Promise<PdfExportHistoryEntry[]> {
+  const file = await readExportHistoryFile(projectPath)
+  return file.entries
+}
+
+/** 读取书稿导出中心持久化历史（`.novel/export-history.json` 的 `manuscriptExports` 视图）。 */
+export async function loadManuscriptExportHistory(
+  projectPath: string,
+): Promise<ManuscriptExportHistoryEntry[]> {
+  const file = await readExportHistoryFile(projectPath)
+  return file.manuscriptExports ?? []
+}
+
+/** 追加一条书稿导出历史（持 `export-history:${pp}` 锁并保留 `entries` 字段，返回更新后的完整列表）。 */
+export async function appendManuscriptExportHistory(
+  projectPath: string,
+  entry: ManuscriptExportHistoryEntry,
+): Promise<ManuscriptExportHistoryEntry[]> {
+  return withProjectLock(exportHistoryLockKey(projectPath), async () => {
+    const file = await readExportHistoryFile(projectPath)
+    const prev = file.manuscriptExports ?? []
+    const nextList = [...prev.filter((e) => e.id !== entry.id), entry].slice(
+      -MAX_MANUSCRIPT_EXPORT_HISTORY,
+    )
+    await writeExportHistoryFile(projectPath, {
+      ...file,
+      manuscriptExports: nextList,
+    })
+    return nextList
+  })
 }
 
 /**
@@ -100,23 +195,24 @@ export async function markExportHistorySourceMissing(input: {
   projectPath: string
   chapterPath: string
 }): Promise<number> {
-  const historyPath = exportHistoryPath(input.projectPath)
-  const existing = await loadPdfExportHistory(input.projectPath)
-  if (existing.length === 0) return 0
-  let marked = 0
-  const next = existing.map((e) => {
-    if (e.chapterPath === input.chapterPath && e.sourceMissing !== true) {
-      marked += 1
-      return { ...e, sourceMissing: true }
-    }
-    return e
+  return withProjectLock(exportHistoryLockKey(input.projectPath), async () => {
+    const file = await readExportHistoryFile(input.projectPath)
+    if (file.entries.length === 0) return 0
+    let marked = 0
+    const nextEntries = file.entries.map((e) => {
+      if (e.chapterPath === input.chapterPath && e.sourceMissing !== true) {
+        marked += 1
+        return { ...e, sourceMissing: true }
+      }
+      return e
+    })
+    if (marked === 0) return 0
+    await writeExportHistoryFile(input.projectPath, {
+      ...file,
+      entries: nextEntries,
+    })
+    return marked
   })
-  if (marked === 0) return 0
-  await writeFileAtomic(
-    historyPath,
-    JSON.stringify({ version: EXPORT_HISTORY_VERSION, entries: next }, null, 2),
-  )
-  return marked
 }
 
 /**
@@ -138,6 +234,17 @@ export async function assertChapterFinalForExport(
 }
 
 /**
+ * 从已通过确认门与 TOCTOU 校验的磁盘正文派生 PDF 段落。
+ * 忽略调用方传入的任意段落数组，确保导出内容与磁盘 `chapter_status=final` 正文同源。
+ */
+export function deriveVerifiedExportParagraphs(body: string): string[] {
+  return body
+    .split(/\r?\n+/)
+    .map((line) => line.trim().replace(/^#{1,6}\s+/, "").trim())
+    .filter((line) => line.length > 0)
+}
+
+/**
  * 确认导出通道：确认门 → 后端导出 → 成功后追加历史（失败不留完成记录，门禁 5）。
  * 同一目标同一内容重试返回既有记录（deduped，门禁 6）。
  */
@@ -146,10 +253,11 @@ export async function exportConfirmedChapterPdf(input: {
   chapterPath: string
   chapterTitle: string
   target: string
-  paragraphs: string[]
+  /** 仅作历史调用签名兼容保留；实际导出段落恒由已校验的磁盘正文派生。 */
+  paragraphs?: string[]
   readChapterContent: () => Promise<string>
 }): Promise<{ report: PdfExportReport; entry: PdfExportHistoryEntry }> {
-  const targetIssue = validateExportTarget(input.target)
+  const targetIssue = validateExportTarget(input.target, input.projectPath)
   if (targetIssue !== null) {
     throw new Error(`PDF_EXPORT_INVALID_TARGET: 导出目标不可用（${targetIssue}）`)
   }
@@ -157,12 +265,21 @@ export async function exportConfirmedChapterPdf(input: {
   const { confirmedDigest } = await assertChapterFinalForExport(input.readChapterContent)
   const content = await input.readChapterContent()
   const { body, frontmatter } = parseFrontmatter(content)
+  if (!isFinalChapter((frontmatter ?? {}) as Record<string, unknown>)) {
+    throw new Error(
+      "PDF_EXPORT_NOT_CONFIRMED: 确认门与导出之间章节状态不再为 final，已阻断本次导出。请重新确认后再导出。",
+    )
+  }
   const contentDigest = (await computeCheckpointDigest(body)).slice(0, 16)
   // TOCTOU：确认门与导出之间章节内容不得变化，否则阻断（门禁 1/4）。
   if (confirmedDigest !== contentDigest) {
     throw new Error(
       "PDF_EXPORT_CONTENT_CHANGED: 确认门与导出之间章节内容发生变化，已阻断本次导出。请重新确认后再导出。",
     )
+  }
+  const verifiedParagraphs = deriveVerifiedExportParagraphs(body)
+  if (verifiedParagraphs.length === 0) {
+    throw new Error("PDF_EXPORT_EMPTY_BODY: 已确认章节正文为空，无法导出 PDF。")
   }
   const chapterNumberRaw = (frontmatter ?? {})["chapter_number"]
   const chapterNumber =
@@ -172,9 +289,7 @@ export async function exportConfirmedChapterPdf(input: {
         ? Number(chapterNumberRaw)
         : null
 
-  // 门禁 6：幂等键命中则直接返回既有记录（仍重新走后端？不——同一内容同一目标
-  // 无需重复渲染，直接返回既有记录；内容变了则 digest 变，键不命中，正常导出）。
-  const historyPath = exportHistoryPath(input.projectPath)
+  // 门禁 6：幂等键命中则直接返回既有记录（同一内容同一目标无需重复渲染）。
   const existing = await loadPdfExportHistory(input.projectPath)
   const id = `${input.target}::${contentDigest}`
   const hit = existing.find((e) => e.id === id)
@@ -183,7 +298,7 @@ export async function exportConfirmedChapterPdf(input: {
       report: {
         target: hit.target,
         pages: hit.pages,
-        paragraphs: input.paragraphs.length,
+        paragraphs: verifiedParagraphs.length,
         font: hit.font,
         line_height_ratio: LINE_HEIGHT_RATIO,
         bytes_written: hit.bytesWritten,
@@ -203,18 +318,19 @@ export async function exportConfirmedChapterPdf(input: {
       conversationId = status.current_task?.conversation_id ?? ""
       userRequest = status.current_task?.user_request ?? ""
     }
-  } catch {
+  } catch (err) {
     // status.json 缺失不阻断导出（章节 final 即确认态），溯源字段留空。
+    void err
   }
 
   const report = await exportPdf(
     input.projectPath,
     input.target,
     input.chapterTitle,
-    input.paragraphs,
+    verifiedParagraphs,
   )
 
-  // 门禁 5：只有后端成功才落历史。
+  // 门禁 5：只有后端成功才落历史；持 export-history 锁重读最新文件以保留并发写入的 manuscriptExports。
   const entry: PdfExportHistoryEntry = {
     id,
     target: report.target,
@@ -231,12 +347,15 @@ export async function exportConfirmedChapterPdf(input: {
     font: report.font,
     exportedAt: new Date().toISOString(),
   }
-  const dir = historyPath.slice(0, historyPath.lastIndexOf("/"))
-  await createDirectory(dir)
-  const next: ExportHistoryFile = {
-    version: EXPORT_HISTORY_VERSION,
-    entries: [...existing, entry],
-  }
-  await writeFileAtomic(historyPath, JSON.stringify(next, null, 2))
+  await withProjectLock(exportHistoryLockKey(input.projectPath), async () => {
+    const latest = await readExportHistoryFile(input.projectPath)
+    const entries = latest.entries.some((e) => e.id === entry.id)
+      ? latest.entries
+      : [...latest.entries, entry]
+    await writeExportHistoryFile(input.projectPath, {
+      ...latest,
+      entries,
+    })
+  })
   return { report, entry }
 }

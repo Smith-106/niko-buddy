@@ -391,7 +391,7 @@ describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作
     expect(ops[0]!.canonPayload).toEqual({
       kind: "episode",
       episode: {
-        id: "ch1-fact0",
+        id: `ch1-ep-${digest0.slice(0, 12)}`,
         chapter_number: 1,
         entity_id: "chapter-1",
         summary: facts[0],
@@ -401,7 +401,7 @@ describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作
     expect(ops[1]!.canonPayload).toEqual({
       kind: "episode",
       episode: {
-        id: "ch1-fact1",
+        id: `ch1-ep-${digest1.slice(0, 12)}`,
         chapter_number: 1,
         entity_id: "chapter-1",
         summary: facts[1],
@@ -514,7 +514,7 @@ describe("runCanonDualWriteHook（单点双写钩子）", () => {
     expect(deps.writeLegacy).toHaveBeenCalledTimes(2)
     const digest0 = await computeCheckpointDigestOf({ chapter: 1, fact: facts[0] })
     expect((deps.writeCanon.mock.calls[0]![1] as { episode: unknown }).episode).toEqual({
-      id: "ch1-fact0",
+      id: `ch1-ep-${digest0.slice(0, 12)}`,
       chapter_number: 1,
       entity_id: "chapter-1",
       summary: facts[0],
@@ -704,7 +704,7 @@ describe("ingestChapter — 提交点实源绑定与归一化消费者连接", (
         "18370a812865156b414f1f66ec75cea0ee5ad8596cbfcf9b13052458c59cbb2e",
         "93adf5bbc3c90c03b01ff8afac38d1a571e1cb1961df653c973df8cf14ba707f",
       ],
-      canonPayloadDigest: "acbc1240566d0547fbfdb770b340625aa96152a81245e7ce9e99e2e1b2f4f676",
+      canonPayloadDigest: "2a42d6ddf5277f96d8c24560d0ae077a73b82bb5bb59b35cc2d09351773b1a01",
     })
     expect(await computeCheckpointDigestOf(opsAfter.map((op) => op.canonPayload)))
       .toBe(await computeCheckpointDigestOf(opsBefore.map((op) => op.canonPayload)))
@@ -751,14 +751,31 @@ describe("ingestChapter — 提交点实源绑定与归一化消费者连接", (
   it("snapshot revision 7、Canon 写响应 max_revision 23、正文 revision unknown 分域可见", async () => {
     mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
-      revision: 7,
+      revision: 99,
+      snapshotId: "untrusted",
       newCanonFacts: ["主角佩剑名为黑剑"],
     }))
+    // 盘上 r6 为可信 predecessor：模型自称的 revision/snapshotId 一律不采信，
+    // committed 快照身份自既有 current 物化（r6 → r7）。
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path === `${PROJECT}/.novel/snapshots/001.snapshot.json`) {
+        return JSON.stringify({
+          chapterNumber: 1,
+          chapterId: "chapter-1",
+          revision: 6,
+          snapshotId: "chapter-1-r6",
+          isHistorical: false,
+        })
+      }
+      if (path.endsWith(".wiki-patch.json")) return JSON.stringify({ sharedWiki: true, entries: [] })
+      throw new Error("ENOENT: no such file or directory")
+    })
     const writeCanon = vi.fn(async () => ({ ok: true, revision: 23 }))
     const deps = makeDeps({ writeCanon })
 
     const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, undefined, { canonDualWriteDeps: deps })
     expect(result.receipt?.snapshotRevisionAtExtractionCommit).toBe(7)
+    expect(result.receipt?.snapshotIdAtExtractionCommit).toBe("chapter-1-r7")
     expect(result.canonOutcome?.status).toBe("completed")
     const outcome = result.canonOutcome
     if (outcome?.status !== "completed") throw new Error("expected completed canon outcome")

@@ -66,8 +66,8 @@ describe("startPipelineTask 参数校验", () => {
     expect(res.ok).toBe(false)
   })
 
-  it("chapterNumber 必须是正整数", () => {
-    for (const bad of [0, -1, 1.5, "abc", Number.NaN]) {
+  it("chapterNumber 必须是显式的安全正整数", () => {
+    for (const bad of [0, -1, 1.5, "abc", Number.NaN, Number.MAX_SAFE_INTEGER + 1, "9007199254740992", true, [1]]) {
       const res = startPipelineTask({ userRequest: "写一章", chapterNumber: bad })
       expect(res.ok, `chapterNumber=${String(bad)} 应被拒`).toBe(false)
     }
@@ -146,6 +146,7 @@ function fakeDoneResult(finalContent: string): DeepChapterGenerationResult {
     retryCount: 0,
     partial: false,
     partialReason: null,
+    finalConsistencyReviewed: true,
   }
 }
 
@@ -218,7 +219,10 @@ describe("startPipelineTask 成功路径与快照（增补）", () => {
     await flushPipeline()
     await flushPipeline()
     const snap = getPipelineTask(res.taskId)
-    expect(snap).toMatchObject({ status: "failed", stage: "failed", error: "模型挂了" })
+    expect(snap).toMatchObject({ status: "failed", stage: "failed" })
+    // 上游错误原文不外泄：快照保留的是「阶段」安全描述。
+    expect(snap?.error).toContain("阶段失败")
+    expect(snap?.error).not.toContain("模型挂了")
     expect(snap?.finishedAt).toBeGreaterThan(0)
   })
 
@@ -337,6 +341,57 @@ describe("一窗口全流程：批量与编排任务的参数门", () => {
     if (!noKey.ok) expect(noKey.error).toContain("apiKey")
     setWiki(null, null)
   })
+
+  it("runner 同步抛错也落 failed（不冒泡出 registerTask）", async () => {
+    setWiki("/proj", "test-key")
+    try {
+      runDeepChapterGeneration.mockImplementation(() => {
+        throw new Error("sync boom")
+      })
+      const res = startPipelineTask({ userRequest: "写一章", chapterNumber: 1 })
+      expect(res.ok).toBe(true)
+      if (!res.ok) return
+      await flushPipeline()
+      const task = getPipelineTask(res.taskId)
+      expect(task?.status).toBe("failed")
+      expect(task?.error).toContain("阶段失败")
+      expect(task?.error).not.toContain("sync boom")
+    } finally {
+      setWiki(null, null)
+    }
+  })
+
+  it("running 容量上限：32 在途时新起任务与整批均被拒且不挤占", async () => {
+    setWiki("/proj", "test-key")
+    try {
+      // 32 个永不完成的 running 任务把容量占满。
+      runDeepChapterGeneration.mockImplementation(() => new Promise<never>(() => {}))
+      const ids: string[] = []
+      for (let i = 0; i < 32; i++) {
+        const res = startPipelineTask({ userRequest: `第${i}章`, chapterNumber: i + 1 })
+        expect(res.ok).toBe(true)
+        if (res.ok) ids.push(res.taskId)
+      }
+      expect(runDeepChapterGeneration).toHaveBeenCalledTimes(32)
+
+      // 第 33 个单章任务：capacity 拒绝，不进 registerTask。
+      const single = startPipelineTask({ userRequest: "超额章", chapterNumber: 99 })
+      expect(single.ok).toBe(false)
+      if (!single.ok) expect(single.error).toContain("已达上限")
+
+      // 整批 2 个同样拒绝，且不部分启动。
+      const batch = startPipelineBatch({ requests: [{ userRequest: "a" }, { userRequest: "b" }] })
+      expect(batch.ok).toBe(false)
+      if (!batch.ok) expect(batch.error).toContain("已达上限")
+      expect(runDeepChapterGeneration).toHaveBeenCalledTimes(32)
+      // 既有 32 个任务原样 running，未被逐出。
+      for (const id of ids) {
+        expect(getPipelineTask(id)?.status).toBe("running")
+      }
+    } finally {
+      setWiki(null, null)
+    }
+  })
 })
 
 // ===== DEBT-20261108-01：workflowMode 必须落到管线真实在读的开关 =====
@@ -424,6 +479,9 @@ describe("startPipelineTask 落草稿（G1）", () => {
       contentChars: 4,
     })
     expect(snap?.gates?.overall).toBe("pass")
+    // A01：语义审查实跑 + 门全过 → 草稿回执 passed（writeChapterDraft 第三参）。
+    expect(writeChapterDraft.mock.calls[0][2]).toBe("passed")
+    expect(snap?.adoptionGate).toBe("passed")
   })
 
   it("C1-2 空稿不落草稿、如实失败", async () => {
@@ -473,6 +531,10 @@ describe("startPipelineTask 落草稿（G1）", () => {
     })
     expect(snap?.gates?.overall).toBe("pass")
     expect(snap?.error).toBeUndefined()
+    // A01：partial 回执优先于门结论；partialReason 随快照透传。
+    expect(writeChapterDraft.mock.calls[0][2]).toBe("partial")
+    expect(snap?.adoptionGate).toBe("partial")
+    expect(snap?.partialReason).toBe("incomplete_output")
     expect(JSON.stringify(snap)).not.toContain("正文")
   })
 
@@ -485,14 +547,17 @@ describe("startPipelineTask 落草稿（G1）", () => {
     await flushPipeline()
     await flushPipeline()
     const snap = getPipelineTask(res.taskId)
-    expect(snap).toMatchObject({ status: "failed", error: "EACCES: 落盘失败" })
+    // 写盘失败的快照：阶段标为 writing_draft，错误为安全描述（不透出 OS/路径细节）。
+    expect(snap).toMatchObject({ status: "failed", lastStage: "writing_draft" })
+    expect(snap?.error).toBe("任务在 writing_draft 阶段失败，请在应用内查看详情。")
+    expect(snap?.error).not.toContain("EACCES")
     expect(snap?.artifactPath).toBeUndefined()
     expect(snap?.gates?.overall).toBe("pass")
     expect(snap?.partial).toBe(false)
   })
 
   it("C1-5 无 chapterNumber 时用 userRequest 前 40 字作 chapterName", async () => {
-    const longRequest = "续".repeat(60)
+    const longRequest = `写第3章${"续".repeat(60)}`
     runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("正文")))
     const res = startPipelineTask({ userRequest: longRequest })
     expect(res.ok).toBe(true)
@@ -503,6 +568,8 @@ describe("startPipelineTask 落草稿（G1）", () => {
     const params = writeChapterDraft.mock.calls[0][1] as { chapterName: string }
     expect(params.chapterName.length).toBe(40)
     expect(params.chapterName).toBe(longRequest.slice(0, 40))
+    expect(writeChapterDraft.mock.calls[0][2]).toBe("unassessed")
+    expect(getPipelineTask(res.taskId)).toMatchObject({ status: "done", adoptionGate: "unassessed" })
   })
 
   it("C1-6 同一章号的两个任务各自落一次（不做跨任务去重）", async () => {
@@ -543,5 +610,63 @@ describe("startPipelineTask 落草稿（G1）", () => {
     expect(snap?.artifactPath).toBeUndefined()
     expect(snap?.finishedAt).toBeGreaterThan(0)
     expect(writeChapterDraft).not.toHaveBeenCalled()
+  })
+})
+
+describe("startPipelineTask 落草稿（G1）A01 回执状态", () => {
+  beforeEach(() => {
+    setWiki("/proj", "test-key")
+  })
+  afterEach(() => {
+    setWiki(null, null)
+  })
+  it.each<[string, (r: DeepChapterGenerationResult) => DeepChapterGenerationResult, string]>([
+    [
+      "consistency failed",
+      (r) => ({
+        ...r,
+        decisionGates: {
+          ...r.decisionGates,
+          consistency: { ...r.decisionGates.consistency, status: "failed" as const, verdict: "fail" as const },
+          overall: "fail" as const,
+        },
+      }),
+      "blocked",
+    ],
+    [
+      "manual review required",
+      (r) => ({ ...r, manualReviewRequired: true }),
+      "manual_review",
+    ],
+    [
+      "finalConsistencyReviewed false",
+      (r) => ({ ...r, finalConsistencyReviewed: false }),
+      "unassessed",
+    ],
+    [
+      "consistency pending",
+      (r) => ({
+        ...r,
+        decisionGates: {
+          ...r.decisionGates,
+          consistency: { ...r.decisionGates.consistency, status: "pending", verdict: "pending" },
+          overall: "pending",
+        },
+      }),
+      "unassessed",
+    ],
+  ])("A01 回执状态:%s → %s", async (_name, mutate, expected) => {
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(mutate(fakeDoneResult("正文"))))
+    const res = startPipelineTask({ userRequest: "写第三章", chapterNumber: 3 })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    await flushPipeline()
+    await flushPipeline()
+    expect(writeChapterDraft).toHaveBeenCalledTimes(1)
+    expect(writeChapterDraft.mock.calls[0][2]).toBe(expected)
+    const snap = getPipelineTask(res.taskId)
+    expect(snap?.status).toBe("done")
+    expect(snap?.artifactPath).toBe("/proj/.qm-drafts/draft_1.md")
+    expect(snap?.adoptionGate).toBe(expected)
   })
 })

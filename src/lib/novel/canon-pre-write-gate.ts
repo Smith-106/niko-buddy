@@ -39,6 +39,7 @@ export interface PreWriteGateInput {
     digest?: string
     validAt?: number | null
     invalidAt?: number | null
+    modality?: string | null
   }>
   existingEdges: ReadonlyArray<{
     id: string
@@ -48,6 +49,7 @@ export interface PreWriteGateInput {
     digest?: string
     validAt?: number | null
     invalidAt?: number | null
+    modality?: string | null
   }>
 }
 
@@ -79,22 +81,29 @@ export interface PreWriteGateConfig {
 /** 默认写前 gate 模式: warn-only (additive 观察期, 零行为变更)。 */
 export const DEFAULT_PRE_WRITE_GATE_MODE = "warn" as const
 
-/** 有效区间重叠: 未封顶视为延伸到未来。 */
+/** 仅 assertive 或缺省模态参与正史矛盾判定；belief/hypothesis 等认知模态豁免。 */
+function isAssertiveModality(modality?: string | null): boolean {
+  return modality == null || modality === "" || modality === "assertive"
+}
+
+/** 有效区间重叠（半开区间 [validAt, invalidAt)，未封顶视为 +∞；空区间恒 false）。 */
 export function preWriteIntervalsOverlap(
   a: { validAt?: number | null; invalidAt?: number | null },
   b: { validAt?: number | null; invalidAt?: number | null },
 ): boolean {
-  const aStart = a.validAt ?? Number.MIN_SAFE_INTEGER
-  const bStart = b.validAt ?? Number.MIN_SAFE_INTEGER
-  if (a.invalidAt == null && b.invalidAt == null) return true
-  if (a.invalidAt != null && b.invalidAt == null) return bStart <= a.invalidAt
-  if (a.invalidAt == null && b.invalidAt != null) return aStart <= b.invalidAt
-  return aStart <= b!.invalidAt! && bStart <= a!.invalidAt!
+  const aStart = a.validAt ?? Number.NEGATIVE_INFINITY
+  const aEnd = a.invalidAt ?? Number.POSITIVE_INFINITY
+  const bStart = b.validAt ?? Number.NEGATIVE_INFINITY
+  const bEnd = b.invalidAt ?? Number.POSITIVE_INFINITY
+  // 空区间（start >= end 或含 NaN）不与任何区间重叠。
+  if (!(aStart < aEnd) || !(bStart < bEnd)) return false
+  return aStart < bEnd && bStart < aEnd
 }
 
 /**
  * checkCanonPreWrite (53 号报告 P1-2 权威入口, 纯函数):
- *  - digest 非空且与现存边重合 + 区间重叠 → DUPLICATE (幂等跳过);
+ *  - digest 非空且与现存边重合 + 区间重叠 → DUPLICATE (幂等跳过，对所有模态生效);
+ *  - 非 assertive 模态（belief/hypothesis 等）跳过矛盾判定（不判 BLOCK/WARN）;
  *  - 同 sourceId+predicate 异 target + 区间重叠 → BLOCK (硬冲突, 镜像
  *    lore-weave L1 axiom 硬锁; warn mode 下降级 WARN);
  *  - 同端点同 predicate 异值但区间不重叠 → WARN (软冲突, 时态递进合法);
@@ -109,12 +118,21 @@ export function checkCanonPreWrite(
   const conflicts: PreWriteGateResult["conflicts"] = []
   const notes: string[] = []
   const mode = config.mode ?? "warn"
+  // R3-M05: 保留同批次已检查的新边，使同章内多条事实可两两互检（发现单章内部自相矛盾）
+  const batchSeenEdges: Array<PreWriteGateInput["newEdges"][number]> = []
+
   for (const ne of input.newEdges) {
-    // DUPLICATE: digest 幂等键
+    // DUPLICATE: digest 幂等键（所有模态均保留幂等去重；先查现有边再查同批次前序边）
     if (ne.digest) {
-      const dup = input.existingEdges.find(
+      const dupExisting = input.existingEdges.find(
         (e) => e.digest === ne.digest && preWriteIntervalsOverlap(e, ne),
       )
+      const dupBatch = dupExisting
+        ? undefined
+        : batchSeenEdges.find(
+            (e) => e.id !== ne.id && e.digest === ne.digest && preWriteIntervalsOverlap(e, ne),
+          )
+      const dup = dupExisting ?? dupBatch
       if (dup) {
         conflicts.push({
           newEdgeId: ne.id,
@@ -125,31 +143,73 @@ export function checkCanonPreWrite(
         continue
       }
     }
-    // BLOCK: 同 source+predicate 异 target + 区间重叠
-    const contradict = input.existingEdges.find(
+    // 非断言态豁免：仅双方均为 assertive/缺省时判定 BLOCK/WARN 矛盾
+    if (!isAssertiveModality(ne.modality)) {
+      batchSeenEdges.push(ne)
+      continue
+    }
+    // BLOCK: 同 source+predicate 异 target + 区间重叠（过滤 e.id !== ne.id 避免自比误报；
+    // 先查现存边，再查同批次已接收新边以拦截单章内部自相矛盾）
+    const contradictExisting = input.existingEdges.find(
       (e) =>
+        e.id !== ne.id &&
+        isAssertiveModality(e.modality) &&
         e.sourceId === ne.sourceId &&
         e.predicate === ne.predicate &&
         e.targetId !== ne.targetId &&
         preWriteIntervalsOverlap(e, ne),
     )
-    if (contradict) {
+    if (contradictExisting) {
       conflicts.push({
         newEdgeId: ne.id,
-        existingEdgeId: contradict.id,
+        existingEdgeId: contradictExisting.id,
         code: "block_endpoint_conflict",
         reason: "BLOCK：同端点同 predicate 异值且有效区间重叠（L1 硬冲突，需 supersede 而非平写）",
       })
+      batchSeenEdges.push(ne)
       continue
     }
-    // WARN: 同 source+predicate 异 target 但区间不重叠 (时态递进合法)
-    const soft = input.existingEdges.find(
+    const contradictBatch = batchSeenEdges.find(
       (e) =>
+        e.id !== ne.id &&
+        isAssertiveModality(e.modality) &&
+        e.sourceId === ne.sourceId &&
+        e.predicate === ne.predicate &&
+        e.targetId !== ne.targetId &&
+        preWriteIntervalsOverlap(e, ne),
+    )
+    if (contradictBatch) {
+      conflicts.push({
+        newEdgeId: ne.id,
+        existingEdgeId: contradictBatch.id,
+        code: "block_endpoint_conflict",
+        reason: "BLOCK：同批次内同端点同 predicate 异值且有效区间重叠（L1 硬冲突，单章内部自相矛盾）",
+      })
+      batchSeenEdges.push(ne)
+      continue
+    }
+    // WARN: 同 source+predicate 异 target 但区间不重叠 (时态递进合法；同样过滤自比并覆盖批内互检)
+    const softExisting = input.existingEdges.find(
+      (e) =>
+        e.id !== ne.id &&
+        isAssertiveModality(e.modality) &&
         e.sourceId === ne.sourceId &&
         e.predicate === ne.predicate &&
         e.targetId !== ne.targetId &&
         !preWriteIntervalsOverlap(e, ne),
     )
+    const softBatch = softExisting
+      ? undefined
+      : batchSeenEdges.find(
+          (e) =>
+            e.id !== ne.id &&
+            isAssertiveModality(e.modality) &&
+            e.sourceId === ne.sourceId &&
+            e.predicate === ne.predicate &&
+            e.targetId !== ne.targetId &&
+            !preWriteIntervalsOverlap(e, ne),
+        )
+    const soft = softExisting ?? softBatch
     if (soft) {
       conflicts.push({
         newEdgeId: ne.id,
@@ -157,8 +217,8 @@ export function checkCanonPreWrite(
         code: "warn_temporal_advance",
         reason: "WARN：同端点同 predicate 异值但区间不重叠（时态递进，建议确认）",
       })
-      continue
     }
+    batchSeenEdges.push(ne)
   }
   if (conflicts.length > 0) {
     notes.push(`写前 gate 命中 ${conflicts.length} 处（mode=${mode}）`)

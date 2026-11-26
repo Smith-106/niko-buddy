@@ -234,3 +234,56 @@ describe("setOfflineMode", () => {
     expect(mem["niko-buddy-offline-mode"]).toBe("0")
   })
 })
+
+describe("finalChapterSave 清理与切项目复位（R2-U04）", () => {
+  it("setProject 切项目时清空陈旧 finalChapterSave；同项目更新保留", () => {
+    reset({
+      project: { name: "A", path: "C:\\novels\\a" } as never,
+      finalChapterSave: {
+        projectPath: "C:/novels/a",
+        filePath: "C:/novels/a/wiki/chapters/ch1.md",
+        saving: false,
+        phase: "saved",
+      },
+    })
+
+    // 同一路径不同斜杠更新 project 对象时保留 finalChapterSave
+    state().setProject({ name: "A", path: "C:/novels/a" } as never)
+    expect(state().finalChapterSave?.phase).toBe("saved")
+
+    // 切换到项目 B 时自动清空
+    state().setProject({ name: "B", path: "C:/novels/b" } as never)
+    expect(state().finalChapterSave).toBeNull()
+  })
+
+  it("clearFinalChapterSaveForPath 归一化匹配且非 saving 时清空，saving 期或异路径保留", () => {
+    reset({
+      finalChapterSave: {
+        projectPath: "C:/novels/a",
+        filePath: "C:\\novels\\a\\wiki\\chapters\\ch1.md",
+        saving: false,
+        phase: "saved",
+      },
+    })
+
+    // 异路径不清空
+    state().clearFinalChapterSaveForPath("C:/novels/a/wiki/chapters/ch2.md")
+    expect(state().finalChapterSave).not.toBeNull()
+
+    // 归一化同路径且非 saving 清空
+    state().clearFinalChapterSaveForPath("C:/novels/a/wiki/chapters/ch1.md")
+    expect(state().finalChapterSave).toBeNull()
+
+    // saving 态不清空
+    reset({
+      finalChapterSave: {
+        projectPath: "C:/novels/a",
+        filePath: "C:/novels/a/wiki/chapters/ch1.md",
+        saving: true,
+        phase: "saving",
+      },
+    })
+    state().clearFinalChapterSaveForPath("C:/novels/a/wiki/chapters/ch1.md")
+    expect(state().finalChapterSave?.phase).toBe("saving")
+  })
+})

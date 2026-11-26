@@ -29,6 +29,9 @@ const sourceFs = vi.hoisted(() => ({
   chapterSequence: [] as Array<string | Error>,
 }))
 
+/** 进程内 FS 映像：writeFileAtomic/writeFilesAtomic/deleteFile 成功落盘才入图，readFile 优先服务。 */
+const fsFiles = vi.hoisted(() => ({ enabled: false, map: new Map<string, string>() }))
+
 /**
  * MF-01: 显式 chapterPath 保持稳定正文（初始 read 与提交前同路径复查同源），
  * unrelated paths 仍走各用例原本的 per-test 行为（ENOENT/错误/wiki-patch）。
@@ -58,14 +61,28 @@ vi.mock("@/commands/fs", async (importOriginal) => {
           if (typeof queued === "string") return Promise.resolve(queued)
           if (sourceFs.chapterSource !== null) return Promise.resolve(sourceFs.chapterSource)
         }
+        if (fsFiles.enabled && fsFiles.map.has(p)) return Promise.resolve(fsFiles.map.get(p)!)
         return fsMocks.readFile(path)
       },
-      writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
-      writeFilesAtomic: (...args: unknown[]) => fsMocks.writeFilesAtomic(...args),
+      writeFileAtomic: (...args: unknown[]) =>
+        Promise.resolve(fsMocks.writeFileAtomic(...args)).then(() => {
+          if (fsFiles.enabled) fsFiles.map.set(String(args[0]), String(args[1]))
+        }),
+      writeFilesAtomic: (...args: unknown[]) =>
+        Promise.resolve(fsMocks.writeFilesAtomic(...args)).then(() => {
+          if (fsFiles.enabled) for (const [p, c] of args[0] as Array<[string, string]>) {
+            fsFiles.map.set(String(p), String(c))
+          }
+        }),
       listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
-      fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
+      fileExists: (...args: unknown[]) =>
+        Promise.resolve(fsMocks.fileExists(...args)).then(r =>
+          Boolean(r) || (fsFiles.enabled && fsFiles.map.has(String(args[0])))),
       createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
-      deleteFile: (...args: unknown[]) => fsMocks.deleteFile(...args),
+      deleteFile: (...args: unknown[]) =>
+        Promise.resolve(fsMocks.deleteFile(...args)).then(() => {
+          if (fsFiles.enabled) fsFiles.map.delete(String(args[0]))
+        }),
     
   }
 })
@@ -208,6 +225,7 @@ import {
 } from "./chapter-ingest"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { computeCheckpointDigest } from "./checkpoint-digest"
+import { addFact, emptyFactsFile, recordEpisode, saveFactsFile } from "./facts-store"
 
 const PROJECT = "E:/Novel"
 const CHAPTER_PATH = sourceFs.chapterPath
@@ -277,6 +295,8 @@ beforeEach(() => {
   sourceFs.chapterPath = "E:/Novel/wiki/chapters/chapter-001.md"
   sourceFs.chapterSource = null
   sourceFs.chapterSequence = []
+  fsFiles.enabled = true
+  fsFiles.map.clear()
   storeState.novelMode = true
   storeState.llmConfig = { provider: "custom", model: "extract-model", customEndpoint: "http://localhost:11434", apiKey: "" } as LlmConfig
   storeState.novelConfig = {
@@ -332,6 +352,16 @@ describe("ingestChapter — early guard branches", () => {
     mockChapterSource("---\ntype: note\ntitle: 笔记\n---\n\n正文")
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "not_chapter" })
+  })
+
+  it("accepts a final chapter file prefixed with a UTF-8 BOM (\\uFEFF)", async () => {
+    const withBom = `\uFEFF${chapterContent()}`
+    mockChapterSource(withBom)
+    mockLlmJsonResponse(llmSnapshotJson())
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+    expect(result.failReason).toBeUndefined()
+    expect(result.snapshot?.chapterNumber).toBe(1)
+    expect(result.receipt?.contentSha256).toBe(await computeCheckpointDigest(withBom))
   })
 
   it("returns failReason not_final when the chapter status is not final", async () => {
@@ -549,6 +579,7 @@ describe("ingestChapter — full success path with projections", () => {
       "第1章 开局",
       expect.any(String),
       { enabled: true, model: "emb-model" },
+      expect.any(Function),
     )
   })
 
@@ -557,7 +588,7 @@ describe("ingestChapter — full success path with projections", () => {
     mockLlmJsonResponse(llmSnapshotJson())
     storeState.embeddingConfig = { enabled: true, model: "emb-model" }
     await ingestChapter(PROJECT, CHAPTER_PATH)
-    expect(moduleMocks.embedPage).toHaveBeenCalledWith(PROJECT, "chapter-001", "chapter-001", expect.any(String), expect.anything())
+    expect(moduleMocks.embedPage).toHaveBeenCalledWith(PROJECT, "chapter-001", "chapter-001", expect.any(String), expect.anything(), expect.any(Function))
   })
 
   it("renders every non-empty snapshot section into the markdown snapshot", async () => {
@@ -749,7 +780,7 @@ describe("ingestChapter — community summary rebuild", () => {
     moduleMocks.shouldRebuildCommunitySummaries.mockReturnValue(true)
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot).not.toBeNull()
-    expect(moduleMocks.generateCommunitySummaries).toHaveBeenCalledWith(PROJECT, storeState.llmConfig, storeState.novelConfig)
+    expect(moduleMocks.generateCommunitySummaries).toHaveBeenCalledWith(PROJECT, storeState.llmConfig, storeState.novelConfig, storeState.embeddingConfig, expect.any(Function))
   })
 
   it("fires and forgets when communitySummaryAsync is on", async () => {
@@ -797,7 +828,7 @@ describe("ingestChapter — options DI", () => {
     storeState.novelMode = false // must be overridden by options.novelMode
     const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, undefined, options)
     expect(result.snapshot).not.toBeNull()
-    expect(moduleMocks.embedPage).toHaveBeenCalledWith(PROJECT, "chapter-001", "第1章 开局", expect.any(String), options.embeddingConfig)
+    expect(moduleMocks.embedPage).toHaveBeenCalledWith(PROJECT, "chapter-001", "第1章 开局", expect.any(String), options.embeddingConfig, expect.any(Function))
   })
 })
 
@@ -1605,5 +1636,251 @@ describe("ingestChapter — 提交前实源绑定与严格源变化拒绝", () =
     const published = JSON.stringify({ sourceBinding: result.sourceBinding, receipt: result.receipt })
     expect(published).not.toContain("正文内容")
     expect(published).not.toContain("originalContent")
+  })
+})
+
+describe("ingestChapter — 快照持久化链（严格链 r2 → r3 commit → r4 sync）", () => {
+  const SNAP_PATH = "E:/Novel/.novel/snapshots/001.snapshot.json"
+  const HISTORY_DIR = "E:/Novel/.novel/snapshots/history/001"
+  const FACTS_PATH = "E:/Novel/.novel/facts.json"
+
+  beforeEach(() => {
+    fsFiles.enabled = true
+  })
+
+  const r2Json = JSON.stringify({
+    chapterId: "chapter-1",
+    chapterNumber: 1,
+    summary: "旧版摘要",
+    characters: [],
+    locations: [],
+    organizations: [],
+    items: [],
+    events: [],
+    characterStateChanges: [],
+    relationshipChanges: [],
+    knowledgeChanges: [],
+    foreshadowingChanges: [],
+    newCanonFacts: [],
+    timelineEvents: [],
+    conflicts: [],
+    endingHook: "",
+    graphNodes: [],
+    graphEdges: [],
+    revision: 2,
+    snapshotId: "chapter-1-r2",
+    isHistorical: false,
+  }, null, 2)
+
+  it("既有 r2 current → r3 提交 receipt + r4 投影 receipt，旧当前与新 extraction 各自归档可独立回读", async () => {
+    fsFiles.map.set(SNAP_PATH, r2Json)
+    // 同章同 wording fact 种子：精确 replay key 命中 → 复用行、episode 已含 → facts 零重写。
+    let seeded = emptyFactsFile()
+    seeded = addFact(seeded, {
+      subject: "主角佩剑名为黑剑", predicate: "状态",
+      object: "主角佩剑名为黑剑", valid_at: 1, source: "chapter-ingest newCanonFacts",
+    })
+    seeded = recordEpisode(seeded, 1, [seeded.facts[0]!.id])
+    const seededFactsJson = saveFactsFile(seeded)
+    fsFiles.map.set(FACTS_PATH, seededFactsJson)
+    mockChapterSource(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson())
+    // 归档占用名探针：history 目录首个 fileExists 命中 → 该批归档走 -1 后缀（同名不覆盖）。
+    let historyExistsCalls = 0
+    fsMocks.fileExists.mockImplementation(async (p: unknown) => {
+      if (String(p).startsWith(`${HISTORY_DIR}/`)) {
+        historyExistsCalls += 1
+        return historyExistsCalls === 1
+      }
+      return false
+    })
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+
+    expect(result.snapshot).not.toBeNull()
+    // 返回体保持 pre-commit 形状（不带提交后身份）；r3 经 receipt/归档 JSON 核验。
+    expect(result.snapshot!.revision).toBeUndefined()
+    expect(result.snapshot!.snapshotId).toBeUndefined()
+    expect(result.failedProjections).toEqual([])
+    expect(result.factsStoreFailed).toBe(false)
+    expect(result.ledgerSaveFailed).toBe(false)
+    // 提交 receipt：r3 身份 + 源 SHA（全文/正文分别可重算）。
+    const receipt = result.receipt
+    expect(receipt?.snapshotIdAtExtractionCommit).toBe("chapter-1-r3")
+    expect(receipt?.snapshotRevisionAtExtractionCommit).toBe(3)
+    expect(receipt?.contentSha256).toBe(await computeCheckpointDigest(chapterContent()))
+    expect(receipt?.bodySha256).toBe(await computeCheckpointDigest(parseFrontmatter(chapterContent()).body))
+    // 投影 receipt：sync 物化 r4 落盘，raw SHA 与盘上字节一致。
+    const projectionReceipt = result.projectionReceipt
+    expect(projectionReceipt?.snapshotId).toBe("chapter-1-r4")
+    expect(projectionReceipt?.revision).toBe(4)
+    expect(projectionReceipt?.extractionHistoryPath.startsWith(`${HISTORY_DIR}/`)).toBe(true)
+    expect(projectionReceipt?.extractionHistoryPath.endsWith(".snapshot.json")).toBe(true)
+    const currentRaw = fsFiles.map.get(SNAP_PATH)!
+    expect(await computeCheckpointDigest(currentRaw)).toBe(projectionReceipt!.snapshotJsonSha256)
+    const current = JSON.parse(currentRaw) as { revision: number; snapshotId: string; supersedes?: string; isHistorical?: boolean }
+    expect(current.revision).toBe(4)
+    expect(current.snapshotId).toBe("chapter-1-r4")
+    expect(current.supersedes).toBe("chapter-1-r3")
+    expect(current.isHistorical).toBe(false)
+    // 双归档：旧 r2 + extraction r3 各自为独立历史文件，均 isHistorical=true；
+    // 占用名探针使其中一份走 -N 后缀（同名不覆盖）。
+    const historyFiles = [...fsFiles.map.keys()].filter(k => k.startsWith(`${HISTORY_DIR}/`) && k.endsWith(".snapshot.json"))
+    expect(historyFiles.length).toBe(2)
+    expect(historyFiles.some(k => /-\d+\.snapshot\.json$/.test(k))).toBe(true)
+    const archived = historyFiles.map(k => JSON.parse(fsFiles.map.get(k)!) as { revision: number; isHistorical?: boolean })
+    expect(archived.map(a => a.revision).sort()).toEqual([2, 3])
+    expect(archived.every(a => a.isHistorical === true)).toBe(true)
+    // 反转 history 标志还原 extraction 序列化 → 与 receipt 快照 SHA 一致。
+    const r3Archived = JSON.parse(fsFiles.map.get(projectionReceipt!.extractionHistoryPath)!) as Record<string, unknown>
+    expect(await computeCheckpointDigest(JSON.stringify({ ...r3Archived, isHistorical: false }, null, 2)))
+      .toBe(receipt!.snapshotJsonSha256AtExtractionCommit)
+    // 归档先于落盘：r2 归档写先于 r3 saveSnapshot 批量写；r3 extraction 归档先于 r4 sync 批量写。
+    const historyWriteOrders = fsMocks.writeFileAtomic.mock.calls
+      .map((call, i) => ({ p: String(call[0]), order: fsMocks.writeFileAtomic.mock.invocationCallOrder[i]! }))
+      .filter(({ p }) => p.startsWith(`${HISTORY_DIR}/`))
+    const batchWriteOrders = fsMocks.writeFilesAtomic.mock.invocationCallOrder
+    expect(historyWriteOrders.length).toBe(2)
+    expect(batchWriteOrders.length).toBe(2)
+    expect(historyWriteOrders[0]!.order).toBeLessThan(batchWriteOrders[0]!)
+    expect(historyWriteOrders[1]!.order).toBeLessThan(batchWriteOrders[1]!)
+    // 投影账本持久化且 sync 记 committed（按 ledger schema 解析 chapters 结构）。
+    const ledgerJson = fsFiles.map.get("E:/Novel/.novel/projection-status.json")
+    const ledger = JSON.parse(ledgerJson!) as { chapters?: Record<string, Record<string, { status?: string }>> }
+    expect(ledger.chapters?.["1"]?.sync_snapshot_to_memory?.status).toBe("committed")
+    // replay 命中既有行 + episode → facts.json 字节零重写。
+    expect(fsFiles.map.get(FACTS_PATH)).toBe(seededFactsJson)
+    // receipt 不携带正文。
+    expect(JSON.stringify(result.receipt)).not.toContain("正文内容")
+    expect(JSON.stringify(result.receipt)).not.toContain("originalContent")
+  })
+
+  it("归档写拒绝 → ingest 失败、旧 current 字节不变且无 commit/output/Canon", async () => {
+    fsFiles.map.set(SNAP_PATH, r2Json)
+    mockChapterSource(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson())
+    fsMocks.writeFileAtomic.mockImplementation(async (p: unknown) => {
+      if (String(p).includes("/history/")) throw new Error("archive denied")
+      return undefined
+    })
+
+    await expect(ingestChapter(PROJECT, CHAPTER_PATH)).rejects.toThrow("archive denied")
+    expect(fsFiles.map.get(SNAP_PATH)).toBe(r2Json)
+    expect(fsMocks.writeFilesAtomic).not.toHaveBeenCalled()
+    expect([...fsFiles.map.keys()].some(k => k.includes("chapter-ingest-output"))).toBe(false)
+    expect([...fsFiles.map.keys()].some(k => k.includes("canon"))).toBe(false)
+  })
+
+  it("归档等待期间源切换 → source_changed 且旧 current 字节不变", async () => {
+    fsFiles.map.set(SNAP_PATH, r2Json)
+    const v1 = chapterContent()
+    mockChapterSourceSequence([v1, v1, `${v1}外部改写`])
+    mockLlmJsonResponse(llmSnapshotJson())
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+
+    expect(result.snapshot).toBeNull()
+    expect(result.failReason).toBe("source_changed")
+    expect(fsFiles.map.get(SNAP_PATH)).toBe(r2Json)
+    expect(fsMocks.writeFilesAtomic).not.toHaveBeenCalled()
+  })
+
+  it("stale writer：commit 后投影前 current 被改写 → 投影整段未验证且零投影写，receipt 保留 r3", async () => {
+    fsFiles.map.set(SNAP_PATH, r2Json)
+    mockChapterSource(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson())
+    storeState.embeddingConfig = { enabled: true, model: "mock-embedding" }
+    const r9Json = JSON.stringify({
+      ...JSON.parse(r2Json),
+      revision: 9,
+      snapshotId: "chapter-1-r9",
+    }, null, 2)
+    // 在 facts 写盘这一刻，模拟外部 stale writer 已把 current 改写为 r9。
+    fsMocks.writeFileAtomic.mockImplementation(async (p: unknown) => {
+      if (String(p) === FACTS_PATH) fsFiles.map.set(SNAP_PATH, r9Json)
+      return undefined
+    })
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+
+    expect(result.snapshot).not.toBeNull()
+    // genuine extraction receipt（r3）保留，不因投影被拒而丢弃。
+    expect(result.receipt?.snapshotIdAtExtractionCommit).toBe("chapter-1-r3")
+    expect(result.projectionReceipt).toBeUndefined()
+    expect(result.projectionError).toEqual({
+      stage: "source_fence",
+      message: "Current snapshot no longer matches the extraction commit.",
+    })
+    expect(result.failedProjections).toEqual([])
+    expect(result.committedProjections).toEqual([])
+    expect(result.pendingProjections).toEqual([])
+    expect(result).not.toHaveProperty("ledgerSaveFailed")
+    // 过期写入者不得动任何投影：graph/patch/fold 直写均未发生。
+    expect(moduleMocks.embedPage).not.toHaveBeenCalled()
+    expect(moduleMocks.writeSnapshotToWiki).not.toHaveBeenCalled()
+    expect(moduleMocks.writePatchFieldsToWiki).not.toHaveBeenCalled()
+    expect(fsMocks.writeFileAtomic.mock.calls.map(([p]) => String(p))).not.toContain(`${PROJECT}/.novel/projection-status.json`)
+    // current 精确保持 r9（stale writer 的字节未被覆盖）。
+    expect(fsFiles.map.get(SNAP_PATH)).toBe(r9Json)
+  })
+
+  it("graph 叶子部分失败经 reportFailure 上报 → failedProjections + ledger 均记 failed，receipt 保留", async () => {
+    fsFiles.map.set(SNAP_PATH, r2Json)
+    mockChapterSource(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson())
+    // best-effort 叶子真实语义：调用可选失败回调上报部分失败，自身仍成功返回。
+    moduleMocks.writeSnapshotToWiki.mockImplementation(
+      async (_pp: unknown, _s: unknown, report?: (e: unknown) => void) => {
+        report?.(new Error("partial graph write"))
+        return []
+      },
+    )
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+
+    expect(result.snapshot).not.toBeNull()
+    // genuine extraction receipt 保留（r3 提交点不受派生投影失败影响）。
+    expect(result.receipt).toBeDefined()
+    expect(result.receipt?.snapshotIdAtExtractionCommit).toBe("chapter-1-r3")
+    expect(result.failedProjections).toContain("graph_entity_pages")
+    expect(result.failedProjections).toContain("sync_snapshot_to_memory")
+    // 盘上账本按 ledger schema 解析：graph 与 sync 均记 failed，非 committed。
+    const ledgerJson = fsFiles.map.get("E:/Novel/.novel/projection-status.json")
+    const ledger = JSON.parse(ledgerJson!) as { chapters?: Record<string, Record<string, { status?: string }>> }
+    expect(ledger.chapters?.["1"]?.graph_entity_pages?.status).toBe("failed")
+    expect(ledger.chapters?.["1"]?.sync_snapshot_to_memory?.status).toBe("failed")
+    // r2 extraction 归档不被投影失败回滚，仍留在 history。
+    const historyFiles = [...fsFiles.map.keys()].filter(k => k.startsWith(`${HISTORY_DIR}/`))
+    expect(historyFiles.length).toBeGreaterThan(0)
+  })
+
+  it("sync 内 stale writer：graph 写与 save 之间 current 被改写 → pre-save 复核拒绝、r9 保留", async () => {
+    fsFiles.map.set(SNAP_PATH, r2Json)
+    mockChapterSource(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson())
+    const r9Json = JSON.stringify({
+      ...JSON.parse(r2Json),
+      revision: 9,
+      snapshotId: "chapter-1-r9",
+    }, null, 2)
+    // 第 2 次 graph 调用（sync 内部）时，模拟外部写入者已把 current 改写为 r9。
+    let graphCalls = 0
+    moduleMocks.writeSnapshotToWiki.mockImplementation(async () => {
+      graphCalls++
+      if (graphCalls === 2) fsFiles.map.set(SNAP_PATH, r9Json)
+      return []
+    })
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+
+    expect(result.snapshot).not.toBeNull()
+    // genuine extraction receipt（r3）保留。
+    expect(result.receipt).toBeDefined()
+    expect(result.receipt?.snapshotIdAtExtractionCommit).toBe("chapter-1-r3")
+    // sync 未持久化：projectionReceipt 缺席，failedProjections 记 sync。
+    expect(result.projectionReceipt).toBeUndefined()
+    expect(result.failedProjections).toContain("sync_snapshot_to_memory")
+    // stale writer 的 r9 字节未被过期 sync 覆盖。
+    expect(fsFiles.map.get(SNAP_PATH)).toBe(r9Json)
   })
 })

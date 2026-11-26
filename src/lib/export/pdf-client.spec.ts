@@ -69,6 +69,22 @@ describe("pdf-client.ts 数据区判据（路径段口径）", () => {
     expect(isPathInsideDataSection("exports/book.pdf")).toBe(false)
   })
 
+  it("P1-04: 2 参 validateExportTarget(path, projectPath) 放行项目外绝对路径，拦截项目内数据区与大小写盘符变体", () => {
+    // 项目外绝对路径即便祖先目录名为 backups 或 QM 也应放行
+    expect(validateExportTarget("D:/backups/book.pdf", "E:/Novel")).toBeNull()
+    expect(validateExportTarget("D:/QM/my-book.pdf", "E:/Novel")).toBeNull()
+    // 项目内数据区（含 Windows 盘符大小写差异与反斜杠）必须硬拦
+    expect(validateExportTarget("e:/novel/QM/book.pdf", "E:/Novel")).toBe("pdfexport.path.outsideData")
+    expect(validateExportTarget("E:\\Novel\\.novel\\book.pdf", "E:/Novel")).toBe("pdfexport.path.outsideData")
+    expect(validateExportTarget("E:/Novel/backups/book.pdf", "E:/Novel")).toBe("pdfexport.path.outsideData")
+    // 项目内非数据区允许
+    expect(validateExportTarget("E:/Novel/exports/book.pdf", "E:/Novel")).toBeNull()
+    // 相对路径命中数据区段仍拦截
+    expect(validateExportTarget("QM/book.pdf", "E:/Novel")).toBe("pdfexport.path.outsideData")
+    // `..` 路径段恒拦截
+    expect(validateExportTarget("D:/backups/../book.pdf", "E:/Novel")).toBe("pdfexport.path.outsideData")
+  })
+
   it("后端越界错误可识别：Error / 非 Error 两种入参同判据", () => {
     expect(isPathInsideDataSectionError(new Error(`${PATH_INSIDE_DATA_SECTION_PREFIX}: nope`))).toBe(true)
     expect(isPathInsideDataSectionError(`${PATH_INSIDE_DATA_SECTION_PREFIX}: nope`)).toBe(true)

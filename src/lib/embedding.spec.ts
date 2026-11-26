@@ -5,6 +5,7 @@ import type { FileNode } from "@/types/wiki"
 const fsState = vi.hoisted(() => ({
   readFile: vi.fn(),
   listDirectory: vi.fn(),
+  writeFileAtomic: vi.fn(),
 }))
 const invokeMock = vi.hoisted(() => vi.fn())
 const fetchMock = vi.hoisted(() => vi.fn())
@@ -37,7 +38,7 @@ import {
   searchByEmbedding,
   triggerIdleCompaction,
 } from "./embedding"
-import { chunkFingerprint } from "@/lib/chunk-fingerprint"
+import { ChunkFingerprintIndex, chunkFingerprint } from "@/lib/chunk-fingerprint"
 import { chunkMarkdown } from "@/lib/text-chunker"
 import { useWikiStore } from "@/stores/wiki-store"
 
@@ -80,6 +81,7 @@ beforeEach(() => {
   invokeMock.mockReset()
   fsState.readFile.mockReset()
   fsState.listDirectory.mockReset()
+  fsState.writeFileAtomic.mockReset()
 })
 
 afterEach(() => {
@@ -375,9 +377,35 @@ describe("embedPage", () => {
 
   it("skips failed chunks and logs when nothing was indexed", async () => {
     fetchMock.mockResolvedValue(new Response("no", { status: 500 }))
+    const onFailure = vi.fn()
     const content = "---\ntitle: T\n---\n\n# T\n\n" + "body text ".repeat(200)
-    await embedPage("/P", "alpha", "T", content, cfg({ maxChunkChars: 300 }))
+    await embedPage("/P", "alpha", "T", content, cfg({ maxChunkChars: 300 }), onFailure)
+    // 全部失败且无任何覆盖 → 一次失败回调。
+    expect(onFailure).toHaveBeenCalledTimes(1)
     expect(invokeMock).not.toHaveBeenCalled()
+  })
+
+  it.each([0, 1])("does not report a failed duplicate at index %i when its fingerprint is covered", async failedIndex => {
+    const repeated = "Identical passage. ".repeat(20).trim()
+    // 两个同文 chunk（同标题同正文 → 同指纹）：一个失败请求被成功行覆盖。
+    const content = `## First\n\n${repeated}\n\n## First\n\n${repeated}\n`
+    const onFailure = vi.fn()
+    let i = 0
+    fetchMock.mockImplementation(async () =>
+      i++ === failedIndex
+        ? new Response("unavailable", { status: 503 })
+        : okJsonResponse({ data: [{ embedding: [1, 2] }] }),
+    )
+    await embedPage("/P", "alpha", "Alpha", content, cfg(), onFailure)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // 同文指纹已被成功行覆盖 → 失败请求计 deduped，不上报。
+    expect(onFailure).not.toHaveBeenCalled()
+    const upsert = invokeMock.mock.calls.find((c) => c[0] === "vector_upsert_chunks")
+    expect(upsert?.[1].chunks).toHaveLength(1)
+    expect(upsert?.[1].chunks[0]).toEqual(
+      expect.objectContaining({ chunk_index: 1 - failedIndex }),
+    )
+    expect(String(upsert?.[1].chunks[0].chunk_text)).toContain(repeated)
   })
 
   it("handles empty title and headingless content gracefully", async () => {
@@ -666,7 +694,7 @@ describe("跨页去重与对账 覆盖补齐", () => {
     fsState.listDirectory.mockResolvedValue(wikiTree("/P"))
     fsState.readFile.mockImplementation(async (path: string) =>
       String(path).endsWith("alpha.md")
-        ? "---\ntitle: Alpha\n---\n\n# Alpha\n\ncontent ".repeat(50)
+        ? "---\ntitle: Alpha\n---\n\n# Alpha\n\n## A\n\n" + "alpha-a ".repeat(40) + "\n\n## B\n\n" + "alpha-b ".repeat(40)
         : "---\ntitle: Beta\n---\n\n# Beta\n\ncontent ".repeat(50),
     )
     fetchMock
@@ -724,5 +752,130 @@ describe("跨页去重与对账 覆盖补齐", () => {
     if (outcome?.status === "failed") {
       expect(outcome.error).toContain("reconcile-down-UNIQUE")
     }
+  })
+})
+
+describe("K-5 错误保留、局部日志与指纹索引并发 FIFO 队列", () => {
+  it("部分 chunk 失败后后续 chunk 成功时，不覆盖已上报的最后一条错误；全成功时清零", async () => {
+    const content = `## A\n\n${"alpha-part ".repeat(35)}\n\n## B\n\n${"beta-part ".repeat(35)}\n\n## C\n\n${"gamma-part ".repeat(35)}`
+    let call = 0
+    fetchMock.mockImplementation(async () => {
+      const idx = call++
+      if (idx === 0) return new Response("chunk-0-fail", { status: 500, statusText: "Internal Server Error" })
+      if (idx === 1) return new Response("chunk-1-fail", { status: 502, statusText: "Bad Gateway" })
+      return okJsonResponse({ data: [{ embedding: [1, 2] }] })
+    })
+
+    await embedPage("/P-partial-err", "p1", "Title", content, cfg({ maxChunkChars: 300, overlapChunkChars: 20 }))
+    // 最后一个 chunk 成功，但前面有失败：应保留最后一条非 null 错误（502），不得被 null 覆盖
+    expect(getLastEmbeddingError()).toContain("API 502 Bad Gateway")
+
+    // 下一轮全部成功 → 清空 lastEmbeddingError 为 null
+    fetchMock.mockImplementation(async () => okJsonResponse({ data: [{ embedding: [3, 4] }] }))
+    await embedPage("/P-partial-err", "p2", "Title2", "fresh unique body ".repeat(20), cfg())
+    expect(getLastEmbeddingError()).toBeNull()
+  })
+
+  it("fetchEmbedding 传 onError 时，console.warn 打印当次局部错误而不误读全局 lastEmbeddingError", async () => {
+    // 先把全局 lastEmbeddingError 设为陈旧值
+    fetchMock.mockResolvedValueOnce(new Response("stale-global-marker", { status: 401, statusText: "Unauthorized" }))
+    await fetchEmbedding("seed", cfg())
+    expect(getLastEmbeddingError()).toContain("stale-global-marker")
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const captured: Array<string | null> = []
+    try {
+      fetchMock.mockResolvedValueOnce(new Response("local-503-marker", { status: 503, statusText: "Service Unavailable" }))
+      await fetchEmbedding("current", cfg(), 3, (msg) => captured.push(msg))
+
+      expect(captured).toHaveLength(1)
+      expect(captured[0]).toContain("local-503-marker")
+      // 全局仍保留旧值（因为传了 onError）
+      expect(getLastEmbeddingError()).toContain("stale-global-marker")
+      // 警告日志必须是局部消息，而非陈旧全局消息
+      const warnText = warnSpy.mock.calls.map((c) => String(c[0])).join("\n")
+      expect(warnText).toContain("local-503-marker")
+      expect(warnText).not.toContain("stale-global-marker")
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it("同项目并发 embedPage 与 removePageEmbedding 串行零丢写（含斜杠归一化）、异常后释放队列且跨项目不阻塞", async () => {
+    // 用内存磁盘模拟 vector-fingerprints.json 持久化（折叠重复斜杠以贴近真实文件系统语义）
+    const disk = new Map<string, string>()
+    const diskKey = (p: string) => p.replace(/\\/g, "/").replace(/\/+/g, "/")
+    fsState.readFile.mockImplementation(async (p: string) => {
+      const k = diskKey(p)
+      if (disk.has(k)) return disk.get(k)!
+      throw new Error("ENOENT")
+    })
+    fsState.writeFileAtomic.mockImplementation(async (p: string, content: string) => {
+      disk.set(diskKey(p), content)
+    })
+
+    // 1. 同项目并发（路径含反斜杠与尾斜杠变体）：embed(pageA) → embed(pageB) → remove(pageA)
+    let releaseA!: () => void
+    const gateA = new Promise<void>((r) => {
+      releaseA = r
+    })
+    const events: string[] = []
+    fetchMock.mockImplementation(async (_url: string, init: { body: string }) => {
+      const input = String(JSON.parse(init.body).input)
+      if (input.includes("PAGE_A_BODY")) {
+        events.push("fetch-A-start")
+        await gateA
+        events.push("fetch-A-end")
+      } else if (input.includes("PAGE_B_BODY")) {
+        events.push("fetch-B")
+      } else if (input.includes("OTHER_PROJ_BODY")) {
+        events.push("fetch-other-proj")
+      }
+      return okJsonResponse({ data: [{ embedding: [1, 2] }] })
+    })
+
+    const pA = embedPage("/P-race/", "pageA", "A", "PAGE_A_BODY ".repeat(15), cfg())
+    // 等待 A 进入临界区
+    await vi.waitFor(() => expect(events).toContain("fetch-A-start"))
+
+    // 同项目 B（用反斜杠路径）与 remove(pageA) 排队；另一项目 /P-other 应立即并发执行不阻塞
+    const pB = embedPage("\\P-race", "pageB", "B", "PAGE_B_BODY ".repeat(15), cfg())
+    const pRemoveA = removePageEmbedding("/P-race", "pageA")
+    const pOther = embedPage("/P-other", "pageX", "X", "OTHER_PROJ_BODY ".repeat(15), cfg())
+
+    // 跨项目不阻塞：A 尚未释放时 /P-other 已能独立完成，而同项目 B 仍在等待 A
+    await pOther
+    expect(events).toContain("fetch-other-proj")
+    expect(events).not.toContain("fetch-B")
+
+    releaseA()
+    await Promise.all([pA, pB, pRemoveA])
+
+    // 最终磁盘上：pageB 的指纹完整保留（未被 pageA 或 remove(pageA) 覆盖丢失），pageA 指纹已清理
+    const raw = disk.get("/P-race/.niko-buddy/vector-fingerprints.json")
+    expect(raw).toBeTruthy()
+    const parsed = JSON.parse(raw!) as { fingerprints: Record<string, string[]> }
+    const owners = Object.values(parsed.fingerprints).flat()
+    expect(owners).toContain("pageB")
+    expect(owners).not.toContain("pageA")
+
+    // 2. 异常后释放队列：首次 load 抛错不卡死同项目后续 embedPage
+    const loadSpy = vi.spyOn(ChunkFingerprintIndex, "load").mockRejectedValueOnce(new Error("index-boom"))
+    try {
+      await expect(
+        embedPage("/P-race", "pageFail", "Fail", "FAIL_BODY ".repeat(15), cfg()),
+      ).rejects.toThrow("index-boom")
+    } finally {
+      loadSpy.mockRestore()
+    }
+    await expect(
+      embedPage("/P-race", "pageC", "C", "PAGE_C_BODY ".repeat(15), cfg()),
+    ).resolves.toBeUndefined()
+    const afterRaw = disk.get("/P-race/.niko-buddy/vector-fingerprints.json")
+    const afterOwners = Object.values(
+      (JSON.parse(afterRaw!) as { fingerprints: Record<string, string[]> }).fingerprints,
+    ).flat()
+    expect(afterOwners).toContain("pageB")
+    expect(afterOwners).toContain("pageC")
   })
 })

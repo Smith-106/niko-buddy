@@ -1,6 +1,5 @@
-import type { NovelReviewResult, DimensionReviewResult, SixReviewDimensionKey, MeasurementFingerprint } from "@/lib/novel"
+import type { NovelReviewResult, DimensionReviewResult, SixReviewDimensionKey, MeasurementFingerprint, VerifiedRebuildReceipt } from "@/lib/novel"
 import type { LintResult } from "@/lib/lint"
-
 export const CHAT_DOCK_POSITION_KEY = "niko-buddy-chat-dock-position"
 export const OFFLINE_MODE_KEY = "niko-buddy-offline-mode"
 export const UI_FONT_SIZE_SCALE_KEY = "niko-buddy-ui-font-size-scale"
@@ -625,7 +624,10 @@ export type FinalChapterSavePhase =
   | "reviewing"
   | "saved"
   | "reingesting"
+  | "reingest_verified"
+  | "reingest_unverified"
   | "ingested"
+  | "ingest_incomplete"
   | "blocked_by_review"
   | "ingest_failed"
   | "ingest_no_llm"
@@ -640,6 +642,7 @@ export interface FinalChapterSaveState extends BaseTaskState {
   saving: boolean
   phase: FinalChapterSavePhase | null
   params?: Record<string, string | number>
+  reingestReceipt?: VerifiedRebuildReceipt
 }
 
 export interface LintRunState extends AsyncTaskState {

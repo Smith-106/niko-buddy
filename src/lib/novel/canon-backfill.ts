@@ -69,17 +69,17 @@ export function snapshotsDir(projectPath: string): string {
 }
 
 /**
- * 正文章快照文件名匹配（严格 `^(\d{3})\.snapshot\.json$`）：
- * - `001.snapshot.json` → 1 … 匹配；
+ * 正文章快照文件名匹配（严格 `^(\d{3,})\.snapshot\.json$`，支持 >=1000 章）：
+ * - `001.snapshot.json` → 1、`1000.snapshot.json` → 1000 … 匹配；
  * - `outline-001.snapshot.json`（大纲）、`.snapshot.md`（人读版）、history/ 子目录
  *   内带时间戳文件名、任何含路径分隔符/父目录片段的名字 → 一律不匹配。
  * 返回 null 表示非可回填条目。
  */
 export function parseChapterSnapshotFileName(name: string): number | null {
-  const m = /^(\d{3})\.snapshot\.json$/.exec(name)
+  const m = /^(\d{3,})\.snapshot\.json$/.exec(name)
   if (!m) return null
   const n = Number(m[1])
-  return n >= 1 ? n : null
+  return Number.isSafeInteger(n) && n >= 1 ? n : null
 }
 
 /** 快照目录条目（结构化最小面；兼容 fs `FileNode`）。 */
@@ -198,41 +198,92 @@ export async function loadBackfillSnapshot(
 /**
  * 从历史快照派生双写操作集 —— 与 T16 `buildCanonDualWriteOps` 逐字段同构：
  *
- * - `content = { chapter: snapshot.chapterNumber, fact }`
- * - `digest = SHA-256(stableStringify(content))`（T07 幂等键，键序稳定 JSON）
- * - `canonPayload = { kind: "episode", episode: { id: "ch{n}-fact{i}",
- *   chapter_number: n, entity_id: snapshot.chapterId, summary: fact, digest } }`
- * - `legacyPayload = { kind: "snapshot_fact", chapterNumber: n, fact }`
+ * - assertive 事实：`content = { chapter: snapshot.chapterNumber, fact }`，
+ *   `digest = SHA-256(stableStringify(content))`，
+ *   `episode.id = ch{n}-ep-{digest.slice(0, 12)}`（content-digest ID，消除槽位漂移）。
+ * - 模态事实（`beliefFacts` / `hypothesisFacts`）：派生 `supersede` new_edges 边 ops，
+ *   `edge.id = ch{n}-mod-{digest.slice(0, 12)}`、`modality = belief | hypothesis`。
  *
- * 同构的意义：实时双写与离线回填对同一 `(chapter, fact)` 产出**相同幂等键**，
- * canon_store 按 `(chapter_number, digest)` 去重后两路来源收敛为单行——
- * 重放回填绝不产生重复事实，也绝不覆盖既有行。
+ * 同构的意义：实时双写与离线回填对同一事实产出**相同幂等键与内容 ID**，
+ * canon_store 去重后两路来源收敛为单行——重放回填绝不产生重复事实。
  */
 export async function buildBackfillOps(snapshot: ChapterSnapshot): Promise<CanonDualWriteOp[]> {
   const facts = snapshot.newCanonFacts ?? []
-  if (facts.length === 0) return []
+  const beliefFacts = snapshot.beliefFacts ?? []
+  const hypothesisFacts = snapshot.hypothesisFacts ?? []
+  if (facts.length === 0 && beliefFacts.length === 0 && hypothesisFacts.length === 0) return []
 
-  return Promise.all(
-    facts.map(async (fact, i) => {
-      const content = { chapter: snapshot.chapterNumber, fact }
+  const episodeOps: CanonDualWriteOp[] = facts.length > 0
+    ? await Promise.all(
+        facts.map(async (fact) => {
+          const content = { chapter: snapshot.chapterNumber, fact }
+          const digest = await computeCheckpointDigestOf(content)
+          return {
+            digest,
+            content,
+            legacyPayload: { kind: "snapshot_fact", chapterNumber: snapshot.chapterNumber, fact },
+            canonPayload: {
+              kind: "episode" as const,
+              episode: {
+                id: `ch${snapshot.chapterNumber}-ep-${digest.slice(0, 12)}`,
+                chapter_number: snapshot.chapterNumber,
+                entity_id: snapshot.chapterId, // DEBT-20260820-16: ChapterSnapshot 无 entityId 字段，以 chapterId 作 entity_id（章节级实体）。
+                summary: fact,
+                digest,
+              },
+            },
+          }
+        }),
+      )
+    : []
+
+  const modalityOps: CanonDualWriteOp[] = await Promise.all(
+    [
+      ...beliefFacts.map((f) => ({ ...f, modality: "belief" as const })),
+      ...hypothesisFacts.map((f) => ({ ...f, modality: "hypothesis" as const })),
+    ].map(async (mf) => {
+      const content = {
+        chapter: snapshot.chapterNumber,
+        modality: mf.modality,
+        fact: `${mf.subject}${mf.predicate}${mf.object}`,
+      }
       const digest = await computeCheckpointDigestOf(content)
       return {
         digest,
         content,
-        legacyPayload: { kind: "snapshot_fact", chapterNumber: snapshot.chapterNumber, fact },
+        legacyPayload: {
+          kind: "snapshot_modality_fact",
+          chapterNumber: snapshot.chapterNumber,
+          modality: mf.modality,
+          subject: mf.subject,
+          predicate: mf.predicate,
+          object: mf.object,
+        },
         canonPayload: {
-          kind: "episode" as const,
-          episode: {
-            id: `ch${snapshot.chapterNumber}-fact${i}`,
-            chapter_number: snapshot.chapterNumber,
-            entity_id: snapshot.chapterId, // DEBT-20260820-16: ChapterSnapshot 无 entityId 字段，以 chapterId 作 entity_id（章节级实体）。,
-            summary: fact,
-            digest,
+          kind: "supersede" as const,
+          request: {
+            old_edge_ids: [],
+            cap_chapter: snapshot.chapterNumber,
+            caused_by: "snapshot-modality-facts",
+            new_edges: [
+              {
+                id: `ch${snapshot.chapterNumber}-mod-${digest.slice(0, 12)}`,
+                source_id: mf.subject,
+                target_id: mf.object,
+                predicate: mf.predicate,
+                edge_kind: "world_fact",
+                valid_at: snapshot.chapterNumber,
+                modality: mf.modality,
+                digest,
+              },
+            ],
           },
         },
       }
     }),
   )
+
+  return [...episodeOps, ...modalityOps]
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -307,7 +358,8 @@ export async function detectSupersedeDivergences(
   chapter: number,
   ops: CanonDualWriteOp[],
 ): Promise<SupersedeDivergence[]> {
-  if (ops.length === 0) return []
+  const episodeOps = ops.filter((op) => op.canonPayload.kind === "episode")
+  if (episodeOps.length === 0) return []
 
   // 查询已存 episodes
   let existing: Array<{ id: string; digest: string }>
@@ -320,25 +372,52 @@ export async function detectSupersedeDivergences(
   }
   if (existing.length === 0) return []
 
-  // 按槽位索引建索引：episode id = "ch{n}-fact{i}" → 提取 i
+  // 1) 历史兼容：旧槽位格式 episode id = "ch{n}-fact{i}" → 按槽位 i 对比
   const existingBySlot = new Map<number, string>()
+  const existingDigestEntries: Array<{ id: string; digest: string }> = []
+  const existingAllDigests = new Set<string>()
   for (const ep of existing) {
-    const m = /^ch\d+-fact(\d+)$/.exec(ep.id)
-    if (m) {
-      const slot = Number(m[1])
+    if (ep.digest) existingAllDigests.add(ep.digest)
+    const legacyMatch = /^ch\d+-fact(\d+)$/.exec(ep.id)
+    if (legacyMatch) {
+      const slot = Number(legacyMatch[1])
       existingBySlot.set(slot, ep.digest)
+    } else if (/^ch\d+-ep-[0-9a-f]{12}$/i.test(ep.id)) {
+      existingDigestEntries.push(ep)
     }
   }
 
-  // 比较新 ops 的 digest
   const divergences: SupersedeDivergence[] = []
-  for (let i = 0; i < ops.length; i++) {
-    const op = ops[i]!
+  const recordedOldDigests = new Set<string>()
+  const newEpisodeDigests: string[] = []
+  const newEpisodeDigestSet = new Set<string>()
+  for (let i = 0; i < episodeOps.length; i++) {
+    const op = episodeOps[i]!
     const newDigest = op.digest
     if (!newDigest) continue
+    newEpisodeDigests.push(newDigest)
+    newEpisodeDigestSet.add(newDigest)
     const oldDigest = existingBySlot.get(i)
     if (oldDigest != null && oldDigest !== newDigest) {
       divergences.push({ slot: i, oldDigest, newDigest })
+      recordedOldDigests.add(oldDigest)
+    }
+  }
+
+  // 2) 新格式 content-digest ID（ch{n}-ep-{hash12}）：按 digest 集合差检测失效旧事实，
+  //    消除重排导致的假阳性分歧。
+  if (existingDigestEntries.length > 0 && newEpisodeDigests.length > 0) {
+    const addedDigests = newEpisodeDigests.filter((d) => !existingAllDigests.has(d))
+    let addCursor = 0
+    for (let idx = 0; idx < existingDigestEntries.length; idx++) {
+      const ep = existingDigestEntries[idx]!
+      if (!ep.digest || newEpisodeDigestSet.has(ep.digest) || recordedOldDigests.has(ep.digest)) {
+        continue
+      }
+      const pairedNewDigest = addedDigests[addCursor] ?? newEpisodeDigests[0]!
+      addCursor += 1
+      divergences.push({ slot: idx, oldDigest: ep.digest, newDigest: pairedNewDigest })
+      recordedOldDigests.add(ep.digest)
     }
   }
 
@@ -554,9 +633,13 @@ export async function backfillCanonHistory(
     // revision 取 ChapterSnapshot.revision（C-2 权威字段，单调修订链）。
     // 失败/歧义 → promote 内部入 promotion-retry 队列 + warn（非致命，幂等重放收敛）。
     if (report.reconcile.consistent) {
-      const revision = typeof snapshot.revision === "number" ? snapshot.revision : 1
+      const revision =
+        typeof snapshot.revision === "number" &&
+        Number.isInteger(snapshot.revision) &&
+        snapshot.revision >= 1
+          ? snapshot.revision
+          : 1
       for (const op of ops) {
-        /* v8 ignore next -- 台账 canon-backfill.ts L559：ops 只来自 buildBackfillOps，其唯一构造点硬编码 kind:"episode" */
         if (op.canonPayload.kind !== "episode") continue
         const ep = op.canonPayload.episode
         const chapterId =
@@ -575,6 +658,10 @@ export async function backfillCanonHistory(
             `canon-backfill invalid chapter_number ${JSON.stringify(ep.chapter_number)} -> fallback chapter ${chapter}`,
           )
         }
+        const episodeEntity =
+          typeof ep.id === "string" && ep.id.trim().length > 0
+            ? ep.id.trim()
+            : (op.digest ? `ch${chapterNumber}-ep-${op.digest.slice(0, 12)}` : chapterId)
         try {
           await promote({
             channel: "canon-backfill",
@@ -582,7 +669,7 @@ export async function backfillCanonHistory(
             chapterId,
             chapterNumber,
             revision,
-            entity: chapterId,
+            entity: episodeEntity,
             gateContext: { rangeValid: true, snapshotReadable: true },
             contentDigestPrefix: op.digest ? op.digest.slice(0, 16) : undefined,
           })

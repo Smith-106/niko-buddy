@@ -19,7 +19,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
-import { BACKOFF_BASE_MS, replayPendingQueue, type CanonDualWriteDeps } from "./canon-dual-write"
+import { computeBackoffMs, replayPendingQueue, type CanonDualWriteDeps } from "./canon-dual-write"
 import { projectEdges, type CanonFact, type RawCanonEdge } from "./canon-graph-client"
 import {
   SOURCE_AWARE_MERGE_EVALUATION,
@@ -150,7 +150,7 @@ function makeFsDeps(
   return {
     listSnapshotsDir: async () => entries,
     readSnapshotText: async (p: string) => {
-      const m = /(\d{3})\.snapshot\.json$/.exec(p)
+      const m = /(\d{3,})\.snapshot\.json$/.exec(p)
       const ch = m ? Number(m[1]) : NaN
       if (!(ch in files)) throw new Error(`ENOENT: ${p}`)
       return files[ch]
@@ -205,9 +205,11 @@ describe("snapshotsDir / parseChapterSnapshotFileName", () => {
     expect(snapshotsDir("C:\\proj\\demo")).toBe(`C:/proj/demo/${SNAPSHOTS_DIR_SEGMENT}`)
   })
 
-  it("正文章快照名匹配并解析章节号", () => {
+  it("正文章快照名匹配并解析章节号（含 >=1000 章）", () => {
     expect(parseChapterSnapshotFileName("001.snapshot.json")).toBe(1)
     expect(parseChapterSnapshotFileName("012.snapshot.json")).toBe(12)
+    expect(parseChapterSnapshotFileName("1000.snapshot.json")).toBe(1000)
+    expect(parseChapterSnapshotFileName("12345.snapshot.json")).toBe(12345)
   })
 
   it("outline/md/history/遍历名一律拒绝", () => {
@@ -352,7 +354,7 @@ describe("buildBackfillOps", () => {
       expect(op.canonPayload).toEqual({
         kind: "episode",
         episode: {
-          id: `ch2-fact${i}`,
+          id: `ch2-ep-${op.digest!.slice(0, 12)}`,
           chapter_number: 2,
           entity_id: "chapter-2",
           summary: snap.newCanonFacts[i],
@@ -360,6 +362,58 @@ describe("buildBackfillOps", () => {
         },
       })
     }
+  })
+
+  it("R2-M07: beliefFacts / hypothesisFacts 派生模态 supersede 边，id 为 ch{n}-mod-{digest.slice(0,12)}", async () => {
+    const snap = {
+      ...mkSnapshot(4, ["正史事实"]),
+      beliefFacts: [{ subject: "林澈", predicate: "认为", object: "黑塔已被摧毁" }],
+      hypothesisFacts: [{ subject: "苏未晞", predicate: "猜测", object: "密道通向地宫" }],
+    }
+    const ops = await buildBackfillOps(snap)
+    expect(ops).toHaveLength(3)
+
+    const beliefOp = ops[1]!
+    expect(beliefOp.canonPayload.kind).toBe("supersede")
+    const beliefDigest = await computeCheckpointDigestOf({
+      chapter: 4,
+      modality: "belief",
+      fact: "林澈认为黑塔已被摧毁",
+    })
+    expect(beliefOp.digest).toBe(beliefDigest)
+    expect(beliefOp.canonPayload).toEqual({
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 4,
+        caused_by: "snapshot-modality-facts",
+        new_edges: [
+          {
+            id: `ch4-mod-${beliefDigest.slice(0, 12)}`,
+            source_id: "林澈",
+            target_id: "黑塔已被摧毁",
+            predicate: "认为",
+            edge_kind: "world_fact",
+            valid_at: 4,
+            modality: "belief",
+            digest: beliefDigest,
+          },
+        ],
+      },
+    })
+
+    const hypOp = ops[2]!
+    const hypDigest = await computeCheckpointDigestOf({
+      chapter: 4,
+      modality: "hypothesis",
+      fact: "苏未晞猜测密道通向地宫",
+    })
+    expect(hypOp.digest).toBe(hypDigest)
+    const hypReq = (hypOp.canonPayload as { kind: "supersede"; request: { new_edges: Array<{ id: string; modality: string }> } }).request
+    expect(hypReq.new_edges[0]).toMatchObject({
+      id: `ch4-mod-${hypDigest.slice(0, 12)}`,
+      modality: "hypothesis",
+    })
   })
 
   it("不同章节的相同事实文本 → 不同 digest（chapter 参与键）；同章重复事实 → 同 digest", async () => {
@@ -468,7 +522,18 @@ describe("backfillCanonHistory", () => {
 
   it("写失败 → 落持久待写队列（digest 幂等 + 注入 now 的退避），T15 重放补齐后 store 完整", async () => {
     const { store, dualWrite } = makeHarness()
-    store.canonFailCount = 1
+    let blockFactA = true
+    const baseWriteCanon = dualWrite.writeCanon
+    dualWrite.writeCanon = async (pp, payload) => {
+      if (
+        blockFactA &&
+        payload.kind === "episode" &&
+        (payload.episode as { summary?: string }).summary === "事实A"
+      ) {
+        return { ok: false, error: "canon crash" }
+      }
+      return baseWriteCanon(pp, payload)
+    }
     const queueRef = { text: "" }
     dualWrite.queueRead = async () => queueRef.text
     dualWrite.queueWrite = async (_p, contents) => {
@@ -485,16 +550,16 @@ describe("backfillCanonHistory", () => {
     expect(report.divergences).toHaveLength(1)
     expect(report.perChapter[0]).toMatchObject({ status: "backfilled", factCount: 2, written: 1, queued: 1 })
 
-    // 队列记录：digest 幂等键 + nextRetryAt = now + BASE（注入时钟生效）
+    // 队列记录：digest 幂等键 + 经 twoPhaseReconcile 立即重放一次仍失败后退避升级（attempts=2）
     const lines = queueRef.text.trim().split("\n").filter(Boolean)
     expect(lines).toHaveLength(1)
     const rec = JSON.parse(lines[0]!) as { digest: string; attempts: number; nextRetryAt: number }
-    expect(rec.attempts).toBe(1)
-    expect(rec.nextRetryAt).toBe(NOW + BACKOFF_BASE_MS)
+    expect(rec.attempts).toBe(2)
+    expect(rec.nextRetryAt).toBe(NOW + computeBackoffMs(2))
     expect(store.rows.size).toBe(1)
 
     // 故障恢复：T15 replayPendingQueue 补齐（离线续跑，无新增机制）
-    store.canonFailCount = 0
+    blockFactA = false
     const replay = await replayPendingQueue(dualWrite, PROJECT, rec.nextRetryAt + 1)
     expect(replay.succeeded).toBe(1)
     expect(replay.remaining).toBe(0)
@@ -636,11 +701,11 @@ describe("detectSupersedeDivergences (T1-T3 分歧三分类)", () => {
     expect(divs).toEqual([])
   })
 
-  it("T2: 同槽位同 digest → 无分歧（幂等）", async () => {
+  it("T2: 同槽位同 digest → 无分歧（幂等，兼容新 ch{n}-ep-{hash12} 与旧 ch{n}-fact{i}）", async () => {
     const ops = await buildBackfillOps(mkSnapshotForTest(1, ["事实A"]))
     const existingDigest = ops[0]!.digest!
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
-      episodes: [{ id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: existingDigest }],
+      episodes: [{ id: `ch1-ep-${existingDigest.slice(0, 12)}`, chapter_number: 1, entity_id: "x", summary: "", digest: existingDigest }],
       total: 1,
       max_revision: 1,
     })
@@ -648,12 +713,12 @@ describe("detectSupersedeDivergences (T1-T3 分歧三分类)", () => {
     expect(divs).toEqual([])
   })
 
-  it("T3: 同槽位不同 digest → 分歧（multi-divergence）", async () => {
+  it("T3: 同槽位不同 digest → 分歧（multi-divergence，兼容新 ch{n}-ep-{hash12}）", async () => {
     const ops = await buildBackfillOps(mkSnapshotForTest(1, ["事实A", "事实B"]))
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
       episodes: [
-        { id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: "old-digest-0" },
-        { id: "ch1-fact1", chapter_number: 1, entity_id: "x", summary: "", digest: "old-digest-1" },
+        { id: "ch1-ep-aaaaaaaaaaaa", chapter_number: 1, entity_id: "x", summary: "", digest: "old-digest-0" },
+        { id: "ch1-ep-bbbbbbbbbbbb", chapter_number: 1, entity_id: "x", summary: "", digest: "old-digest-1" },
       ],
       total: 2,
       max_revision: 2,
@@ -662,6 +727,30 @@ describe("detectSupersedeDivergences (T1-T3 分歧三分类)", () => {
     expect(divs).toHaveLength(2)
     expect(divs[0]).toEqual({ slot: 0, oldDigest: "old-digest-0", newDigest: ops[0]!.digest })
     expect(divs[1]).toEqual({ slot: 1, oldDigest: "old-digest-1", newDigest: ops[1]!.digest })
+  })
+
+  it("R2-M07 历史兼容：旧 ch1-fact0 仍按槽位检出分歧，新格式重排顺序零误报", async () => {
+    const ops = await buildBackfillOps(mkSnapshotForTest(1, ["事实B", "事实A"]))
+    const dA = await computeCheckpointDigestOf({ chapter: 1, fact: "事实A" })
+    const dB = await computeCheckpointDigestOf({ chapter: 1, fact: "事实B" })
+    vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValueOnce({
+      episodes: [
+        { id: `ch1-ep-${dA.slice(0, 12)}`, chapter_number: 1, entity_id: "x", summary: "", digest: dA },
+        { id: `ch1-ep-${dB.slice(0, 12)}`, chapter_number: 1, entity_id: "x", summary: "", digest: dB },
+      ],
+      total: 2,
+      max_revision: 2,
+    })
+    expect(await detectSupersedeDivergences(PROJECT, 1, ops)).toEqual([])
+
+    vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValueOnce({
+      episodes: [{ id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: "legacy-old" }],
+      total: 1,
+      max_revision: 1,
+    })
+    expect(await detectSupersedeDivergences(PROJECT, 1, ops)).toEqual([
+      { slot: 0, oldDigest: "legacy-old", newDigest: ops[0]!.digest },
+    ])
   })
 
   it("空 ops → 短路返回空（不查库）", async () => {
@@ -756,7 +845,7 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
 
     // 第二次回填：模拟已存 episode 同 digest
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
-      episodes: [{ id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: firstDigest }],
+      episodes: [{ id: `ch1-ep-${firstDigest.slice(0, 12)}`, chapter_number: 1, entity_id: "x", summary: "", digest: firstDigest }],
       total: 0,
       max_revision: 1,
     })
@@ -780,7 +869,7 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
 
     // 第三次编辑：事实A改为事实A'（新 snapshot）
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
-      episodes: [{ id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: oldDigest }],
+      episodes: [{ id: `ch1-ep-${oldDigest.slice(0, 12)}`, chapter_number: 1, entity_id: "x", summary: "", digest: oldDigest }],
       total: 0,
       max_revision: 1,
     })
@@ -795,7 +884,7 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
 
   it("T10: 失败入队重放——supersede op 也写队列，digest 幂等", async () => {
     const { store, dualWrite } = makeHarness()
-    store.canonFailCount = 2 // 让前两个 op 失败
+    store.canonFailCount = 4 // 初始 2 次 + twoPhaseReconcile 立即重放 2 次均失败，留在持久队列
     const queueRef = { text: "" }
     dualWrite.queueRead = async () => queueRef.text
     dualWrite.queueWrite = async (_p, contents) => {
@@ -805,7 +894,7 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
     // 模拟已存 episode 有旧 digest
     const oldDigest = await computeCheckpointDigestOf({ chapter: 1, fact: "事实A" })
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
-      episodes: [{ id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: oldDigest }],
+      episodes: [{ id: `ch1-ep-${oldDigest.slice(0, 12)}`, chapter_number: 1, entity_id: "x", summary: "", digest: oldDigest }],
       total: 0,
       max_revision: 1,
     })
@@ -829,9 +918,9 @@ describe("backfillCanonHistory supersede 集成 (T7-T10)", () => {
     })
     expect(supersedeLine).toBeDefined()
 
-    // 重放补齐
+    // 重放补齐（两次失败后退避至 computeBackoffMs(2)）
     store.canonFailCount = 0
-    const replay = await replayPendingQueue(dualWrite, PROJECT, NOW + BACKOFF_BASE_MS + 1)
+    const replay = await replayPendingQueue(dualWrite, PROJECT, NOW + computeBackoffMs(2) + 1)
     expect(replay.succeeded).toBeGreaterThanOrEqual(2)
     expect(replay.remaining).toBe(0)
   })
@@ -951,5 +1040,91 @@ describe("backfillCanonHistory E-05 晋升接线容错", () => {
       warn.mock.calls.some(([, message]) => /promotionAudit failed \(non-fatal\)/.test(message)),
     ).toBe(true)
     warn.mockRestore()
+  })
+})
+
+describe("R2-M07：1000+ 章回填与 beliefFacts/hypothesisFacts 模态边回填", () => {
+  it("发现并回填 1000.snapshot.json 且生成 ch1000-ep-{hash12} ID", async () => {
+    const { store, dualWrite } = makeHarness()
+    const deps = makeFsDeps(
+      {
+        1000: snapshotJson(1000, ["第一千章决战"]),
+      },
+      dualWrite,
+    )
+    const report = await backfillCanonHistory(deps, PROJECT, {}, 1_000)
+    expect(report.selectedChapters).toEqual([1000])
+    expect(report.factsWritten).toBe(1)
+    const ep = [...store.rows.values()][0] as { id?: string; chapter_number: number; digest: string }
+    expect(ep.chapter_number).toBe(1000)
+    expect(ep.id).toBe(`ch1000-ep-${ep.digest.slice(0, 12)}`)
+  })
+
+  it("同时回填 beliefFacts 与 hypothesisFacts 为 ch{n}-mod-{hash12} supersede 模态边", async () => {
+    const writtenPayloads: Array<{ kind: string; request?: { new_edges: Array<Record<string, unknown>> } }> = []
+    const { dualWrite } = makeHarness()
+    const origWriteCanon = dualWrite.writeCanon
+    const spyDualWrite: CanonDualWriteDeps = {
+      ...dualWrite,
+      writeCanon: async (pp, payload) => {
+        writtenPayloads.push(payload as { kind: string; request?: { new_edges: Array<Record<string, unknown>> } })
+        return origWriteCanon(pp, payload)
+      },
+    }
+    const deps = makeFsDeps(
+      {
+        5: JSON.stringify({
+          chapterNumber: 5,
+          newCanonFacts: ["第五章正史事实"],
+          beliefFacts: [{ subject: "林晚", predicate: "认为", object: "沈舟隐藏身份" }],
+          hypothesisFacts: [{ subject: "沈舟", predicate: "猜测", object: "密室在城北" }],
+        }),
+      },
+      spyDualWrite,
+    )
+    const report = await backfillCanonHistory(deps, PROJECT, {}, 1_000)
+    expect(report.selectedChapters).toEqual([5])
+    expect(report.factsWritten).toBe(3)
+    const supersedeEdges = writtenPayloads
+      .filter((p) => p.kind === "supersede")
+      .flatMap((p) => p.request?.new_edges ?? [])
+    expect(supersedeEdges).toHaveLength(2)
+    expect(supersedeEdges[0]!.modality).toBe("belief")
+    expect(supersedeEdges[0]!.id).toMatch(/^ch5-mod-[0-9a-f]{12}$/)
+    expect(supersedeEdges[1]!.modality).toBe("hypothesis")
+    expect(supersedeEdges[1]!.id).toMatch(/^ch5-mod-[0-9a-f]{12}$/)
+  })
+
+  it("R3-M01: 同章多事实回填以 episode.id 为 entity + snapshot.revision 晋升，各自生成唯一 replayKey", async () => {
+    const promotionBridge = await import("./promotion-bridge")
+    const promoteSpy = vi
+      .spyOn(promotionBridge, "promote")
+      .mockResolvedValue({ record: {} as never, replayed: false })
+    try {
+      const { dualWrite } = makeHarness()
+      const deps = makeFsDeps(
+        {
+          7: JSON.stringify({
+            chapterId: "chapter-7",
+            chapterNumber: 7,
+            revision: 3,
+            newCanonFacts: ["事实甲", "事实乙"],
+          }),
+        },
+        dualWrite,
+      )
+      const report = await backfillCanonHistory(deps, PROJECT, {}, 1_000)
+      expect(report.factsWritten).toBe(2)
+      expect(promoteSpy).toHaveBeenCalledTimes(2)
+      const firstCall = promoteSpy.mock.calls[0]![0]
+      const secondCall = promoteSpy.mock.calls[1]![0]
+      expect(firstCall.revision).toBe(3)
+      expect(secondCall.revision).toBe(3)
+      expect(firstCall.entity).toMatch(/^ch7-ep-[0-9a-f]{12}$/)
+      expect(secondCall.entity).toMatch(/^ch7-ep-[0-9a-f]{12}$/)
+      expect(firstCall.entity).not.toBe(secondCall.entity)
+    } finally {
+      promoteSpy.mockRestore()
+    }
   })
 })
