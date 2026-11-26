@@ -7,6 +7,30 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.30.0] - 2026-11-26
+
+> 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
+
+### Added
+
+- **官方 Google Antigravity 订阅交互式 ACP 工作台**：新增 Rust `antigravity_acp` 后端与前端 `AntigravityAcpView` / `antigravity-acp-store` 交互工作台，直连未修改的官方 `agy acp` 进程，提供人工权限确认、流式正文输出、安全 Markdown 排版（`SafeMarkdownProse`）、本地「存为草稿」兜底、待审草稿实时角标、五项快捷预填指令（`AntigravityAcpQuickActions`）与本地 MCP 配置漂移实时恢复横幅。
+- **零 API Key 全书生命周期 MCP 工具链**：新增 7 项零 LLM MCP 工具（`draft.list`、`draft.read`、`rules.get`、`gate.check_mechanical`、`context.prepare_write`、`director.check` 与受控 `outline.write`），补齐 `mechanical-gate`、`context-inspection` 与 `state-bridge` 零 LLM 桥接，并在外部控制设置页支持一键写入 Antigravity `mcp_config.json` 配置。
+
+### Changed
+
+- **退役旧版 `antigravity-cli` 后台封装并收敛零 Key 健康判定**：按 Google Antigravity 服务条款合规要求彻底退役旧版无头 `antigravity-cli` 后台封装与预设入口，收敛 `has-usable-llm` / `llm-health` 零 API Key 健康判定与无 LLM 环境下的社区摘要跳过守卫。
+- **零 API Key 新手引导与双语对齐**：更新欢迎页（`WelcomeScreen`）与新建项目对话框（`CreateProjectDialog`）对 Antigravity 订阅免 Key 使用路径的指引，保持 `zh.json` / `en.json` 1:1 键位与文案对齐。
+
+### Fixed
+
+- **协议安全、ToS 合规与 Draft-first 边界加固**：声明真实的 `niko-buddy` ACP 客户端身份，加固回环 Streamable HTTP MCP 传输与不向前端暴露 Bearer 令牌的本地 MCP 配置 SHA-256 漂移追踪；为 ACP 协议读取增加 16 MiB 有界标准输出上限与 UTF-8 安全密钥脱敏；为 `SafeMarkdownProse` 补齐 WebView2 安全链接协议过滤。
+- **零 LLM 审查降级与无死锁草稿采纳**：修复无 API Key 环境下章节审查（`review-adapter`）的机械检查提前返回路径，确保未评估草稿如实记录元数据且不阻断正式采纳（Accept）。
+
+### 交付与分支说明
+
+- 本版为 `master` 主干源码版本登记，完成官方 Google Antigravity 订阅合规适配与零 LLM 写作闭环。按 P16 规则将手写业务变更与生成产物/锁文件严格分批提交：手写提交为 `858c787b`（Rust Antigravity ACP 后端、零 LLM MCP 工具与协议安全加固）、`cc1f46e7`（退役旧版 `antigravity-cli` 封装与零 Key 健康判定）、`d528fd0f`（零 LLM 全书生命周期 MCP 桥接、机械门控与审查降级）、`7f8dd46d`（Antigravity 交互工作台、安全 Markdown 排版与零 Key 引导），生成产物同步提交为 `b6fa379f`（Tauri 命令参考与模块索引），随后单独登记 2.30.0 版本清单与锁文件同步提交。
+- 本次仅推进 `master` 主干源码版本号与变更日志并推送至 `smith`，尚未创建或推送签名 Release Tag `v2.30.0`，不宣称已产出或真机验收新安装包。
+
 ## [2.29.0] - 2026-11-26
 
 > 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。

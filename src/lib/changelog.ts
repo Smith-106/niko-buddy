@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.30.0（2026-11-26）：官方 Google Antigravity 订阅合规适配与零 LLM 写作闭环。
+    version: "2.30.0",
+    date: "2026-11-26",
+    highlights: {
+      en: [
+        "Added the official Google Antigravity subscription interactive ACP workspace: connect directly to unmodified agy acp with manual permission approval, live streaming prose, safe Markdown rendering, local Save-as-Draft fallback, a live pending drafts badge, five interactive pre-fill quick actions, and real-time stale local MCP recovery banners.",
+        "Completed zero-API-key MCP book lifecycle tooling with seven new zero-LLM tools (draft.list, draft.read, rules.get, gate.check_mechanical, context.prepare_write, director.check, and controlled outline.write), loopback Streamable HTTP transport hardening, and one-click Antigravity mcp_config.json registration.",
+        "Enforced strict Google Antigravity ToS compliance and Draft-first security: retired the legacy antigravity-cli background wrapper, declared honest niko-buddy client identity, added SHA-256 local MCP drift detection without exposing Bearer tokens to the UI, enforced a bounded 16 MiB stdout protocol reader, UTF-8-safe secret redaction, and WebView2-safe Markdown URL filtering.",
+        "Enabled zero-API-key onboarding and zero-deadlock draft adoption: chapter review cleanly returns mechanical checks when no API key is configured, community summaries skip missing LLM calls, unassessed drafts stay honest without blocking Accept, Welcome and New Project screens highlight Antigravity usage, and zh/en localization stays 1:1 aligned.",
+      ],
+      zh: [
+        "新增官方 Google Antigravity 订阅交互式 ACP 工作台：直连未修改的官方 agy acp 进程，支持人工权限确认、流式正文输出、安全 Markdown 排版、本地存为草稿兜底、待审草稿实时角标、五项快捷预填指令与本地 MCP 配置漂移实时恢复横幅。",
+        "补齐零 API Key 全书生命周期 MCP 工具链：新增 draft.list、draft.read、rules.get、gate.check_mechanical、context.prepare_write、director.check 与受控 outline.write 共 7 项零 LLM 工具，加固回环 Streamable HTTP 传输，并支持一键写入 Antigravity mcp_config.json 配置。",
+        "严格落实 Google Antigravity 服务条款合规与 Draft-first 安全边界：彻底退役旧版 antigravity-cli 后台封装，声明真实的 niko-buddy 客户端身份，新增不向前端暴露 Bearer 令牌的本地 MCP 配置 SHA-256 漂移追踪，并加固 16 MiB 有界标准输出协议读取、UTF-8 安全密钥脱敏与 WebView2 安全 Markdown 链接过滤。",
+        "打通零 API Key 新手引导与无死锁草稿采纳闭环：无密钥环境下章节审查干净返回机械检查结果，社区摘要自动跳过 LLM 依赖，未评估草稿如实标注且不阻断采纳操作，同步更新欢迎页与新建项目指引并保持中英双语文案 1:1 对齐。",
+      ],
+    },
+  },
+  {
     // 2.29.0（2026-11-26）：全栈安全与引擎加固、书稿导入导出闭环、无障碍与工程治理升级。
     version: "2.29.0",
     date: "2026-11-26",

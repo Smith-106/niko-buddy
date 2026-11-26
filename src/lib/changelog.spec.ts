@@ -8,8 +8,8 @@ describe("changelog", () => {
 
     // 上限已放开：头部是当前最新发布链，不再冻结在 2.6.3
     expect(versions.slice(0, 10)).toEqual([
-      "2.29.0", "2.28.1", "2.28.0", "2.27.6", "2.27.5", "2.27.3", "2.27.2", "2.27.1",
-      "2.27.0", "2.26.5",
+      "2.30.0", "2.29.0", "2.28.1", "2.28.0", "2.27.6", "2.27.5", "2.27.3", "2.27.2", "2.27.1",
+      "2.27.0",
     ])
     // 2.6.3 发布后整体后移的中段链保持可见
     expect(versions).toEqual(expect.arrayContaining([
@@ -132,6 +132,25 @@ describe("changelog", () => {
     expect(currentVersionChangelog("1.0.33")).toEqual([]) // patch > 32: not merged
     expect(currentVersionChangelog("2.0.13")).toEqual([]) // 2.0.x beyond the merged block
     expect(currentVersionChangelog("0.9.1")).toEqual([]) // no matching entry
+  })
+
+  it("returns the 2.30.0 changelog entry with balanced zh/en highlights and zero backticks", () => {
+    const entries = currentVersionChangelog("2.30.0")
+    expect(entries).toHaveLength(1)
+
+    const release = entries[0]!
+    expect(release.version).toBe("2.30.0")
+    expect(release.highlights.en.length).toBeGreaterThanOrEqual(4)
+    expect(release.highlights.zh.length).toBe(release.highlights.en.length)
+
+    const en = release.highlights.en.join("\n")
+    const zh = release.highlights.zh.join("\n")
+    expect(en).toContain("Antigravity")
+    expect(en).toContain("ACP")
+    expect(zh).toContain("Antigravity")
+    expect(zh).toContain("ACP")
+    expect(en).not.toContain("`")
+    expect(zh).not.toContain("`")
   })
 })
 

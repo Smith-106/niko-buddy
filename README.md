@@ -15,24 +15,26 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.29.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.30.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
 > 版本摘要口径：本文件按版本摘选要点，并非逐版完整记录 —— v2.26.5、v2.27.0 等条目未在此逐版列出；完整逐版历史见 [CHANGELOG.md](CHANGELOG.md) 与 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-## v2.29.0（全栈安全与引擎加固、书稿导入导出闭环与工程治理，当前主干版本）
+## v2.30.0（官方 Google Antigravity 订阅合规适配与零 LLM 写作闭环，当前主干版本）
 
 **当前主干版本（2026-11-26 登记）**：版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源，实际发布产物与下载资产见 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-本版汇总三轮多专家全栈评估与加固交付，涵盖书稿导入导出闭环、桌面安全最小权限与全仓工程治理升级：
+本版完成官方 Google Antigravity 订阅合规适配与零 API Key 写作闭环，严格遵循 Google Antigravity 服务条款与 Draft-first 安全边界：
 
-- **整本导入、多格式导出与 v2 备份**：新增整本 TXT 自动分章导入与批量抽取（单批 60 章、自定义章号范围、跳过/覆盖/顺延冲突处理与实时进度）；打通 TXT/DOCX/EPUB/PDF 真实导出与持久化历史；全书稿备份升级至 v2 格式覆盖正文、元数据与 Canon。
-- **写作主链、记忆与安全控制面加固**：严守 Draft-first（追读债迁入采纳锁原子落盘）与 `Consistency(P0) > Anti-AI(P1) > Quality(P2)` 优先级；`assetProtocol.scope` 收窄为 `[]` 并改为按项目动态授权；补齐 MCP `Host`/`Origin` 校验、Canon 自动压实、全仓 Mutex poison 恢复与 Rust Clippy 零告警。
-- **作家向体验与工程治理**：响应式模型分工视图、WCAG Level A 无障碍清零与中英 i18n 对齐；启用 ESLint 分层门禁与 CI 离线治理门，退役 `mod.ts` 并将 `fast-diff` 提升至生产 `dependencies`。
+- **官方 Antigravity 订阅交互式 ACP 工作台**：直连未修改的官方 `agy acp` 进程，提供人工权限确认、流式正文输出、安全 Markdown 排版（WebView2 安全链接过滤）、本地「存为草稿」兜底、待审草稿实时角标、五项快捷预填指令与本地 MCP 配置漂移实时恢复横幅。
+- **零 API Key 全书生命周期 MCP 工具链**：新增 `draft.list`、`draft.read`、`rules.get`、`gate.check_mechanical`、`context.prepare_write`、`director.check` 与受控 `outline.write` 共 7 项零 LLM 工具，加固回环 Streamable HTTP 传输，并支持一键写入 Antigravity `mcp_config.json` 配置。
+- **合规安全加固与零 Key 无死锁闭环**：彻底退役旧版 `antigravity-cli` 后台封装，声明真实 `niko-buddy` 客户端身份，补齐不向前端暴露 Bearer 令牌的本地 MCP SHA-256 漂移追踪、16 MiB 有界协议读取与 UTF-8 安全脱敏；无 API Key 环境下章节审查干净返回机械检查结果、社区摘要自动跳过 LLM 依赖、未评估草稿如实标注且不阻断采纳，同步更新欢迎页/新建项目指引与中英双语 1:1 对齐。
 
-**v2.27.3–v2.28.1 累计面向用户演进：**
+**v2.27.3–v2.29.0 累计面向用户演进：**
+
+- **v2.29.0（2026-11-26）**：汇总三轮多专家全栈评估与加固交付——新增整本 TXT 自动分章导入与批量抽取（单批 60 章）、TXT/DOCX/EPUB/PDF 真实导出与 v2 全书稿备份；严守 Draft-first（追读债迁入采纳锁原子落盘）与门控优先级；`assetProtocol.scope` 收窄为 `[]` 动态按项目授权，补齐 MCP `Host`/`Origin` 校验、Canon 自动压实与 Rust Clippy 零告警；重构响应式模型分工视图、清零 WCAG Level A 无障碍缺陷，启用 ESLint 分层门禁与 CI 离线治理门。
 
 - **v2.28.1（2026-11-22）**：`searchWiki` 增加同路径并发去重与缓存失效守卫；`context.inspect` 改为异步启动与 250ms 有界轮询，优化大项目检索性能与稳定性。
 - **v2.28.0（2026-11-21）**：新增只读 MCP 工具 `context.inspect`（回读章节公开配置、精确正文来源、审查窗口、上下文包与六维审稿基座提示词，正文或配置变化时自动拒绝过期快照）；升级 Zod 4.6.7 与 KaTeX 0.18.2 安全依赖；修复故事推演共享提示的过期计时归属。
@@ -752,7 +754,7 @@ sequenceDiagram
 > 注：v2.7.8 是 v2.7 系列收官（notes-only，安装包沿用 v2.7.7），属历史记录，不代表当前版本。
 > 注：CI 发布构建当前只有 Windows x64 一个活跃 matrix 目标（[build.yml](.github/workflows/build.yml) 的 `matrix.include` 仅 `windows-x64` / `windows-latest`；2026-10-14 用户指令锁定 Windows-only，macOS/Linux 条目已移除，条件步骤不等于活跃目标）；macOS/Linux 是否正式发版以 Releases 实际资产为准。
 > 当前版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源；**本段不硬编码版本三元组**，本文件其余段落出现的版本编号均为叙述性摘选（顶部徽章/版本摘要不构成版本权威）。
-> 源码 tip ≠ 已发布安装包：当前主干版本为 v2.29.0（含三轮多专家全栈安全与引擎加固、整本导入/多格式导出与 v2 备份闭环、无障碍与工程治理升级，以及 v2.27.3–v2.28.1 累计修复与功能）；源码层与发行包仍是不同层，版本权威仍以三份 manifest 为准，当前发布状态与交付资产以上方 v2.29.0 节与 [Releases](https://github.com/Smith-106/niko-buddy/releases) 为准。
+> 源码 tip ≠ 已发布安装包：当前主干版本为 v2.30.0（含官方 Google Antigravity 订阅合规适配与零 LLM 写作闭环、v2.29.0 三轮多专家全栈加固与书稿导入导出闭环，以及 v2.27.3–v2.28.1 累计修复与功能）；源码层与发行包仍是不同层，版本权威仍以三份 manifest 为准，当前发布状态与交付资产以上方 v2.30.0 节与 [Releases](https://github.com/Smith-106/niko-buddy/releases) 为准。
 
 ### 安装方式
 
