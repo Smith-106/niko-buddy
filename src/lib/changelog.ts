@@ -15,140 +15,123 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.29.0（2026-11-26）：全栈安全与引擎加固、书稿导入导出闭环、无障碍与工程治理升级。
+    version: "2.29.0",
+    date: "2026-11-26",
+    highlights: {
+      en: [
+        "Added whole-TXT manuscript split-import and batch knowledge extraction (up to 60 chapters per batch, custom chapter range, skip/overwrite/relocate conflict handling, live progress, and cancel/resume).",
+        "Completed real TXT, DOCX, EPUB, and PDF manuscript export with persistent export history, and upgraded full-manuscript backups to v2 covering chapters, project metadata, and Canon records.",
+        "Hardened the writing pipeline and memory integrity: kept chase-debt tracking strictly Draft-first, fixed non-blocking quality warnings from deadlocking draft adoption, upgraded multi-model consensus dual-track routing, and isolated per-project retrieval indices.",
+        "Polished writer-facing UI and accessibility: refreshed Model Routes with reactive status updates, replaced developer jargon with writer language, fixed WCAG Level A keyboard and dialog semantics, preserved editor state across layout switches, and aligned zh/en localization.",
+        "Hardened desktop security and engineering governance: narrowed assetProtocol.scope to per-project dynamic grants, enforced MCP Host/Origin validation and PBKDF2 v2 credential vault, added Canon auto-compaction with zero Rust Clippy warnings, enabled tiered ESLint gates, and promoted fast-diff to production dependencies.",
+      ],
+      zh: [
+        "新增整本 TXT 自动分章导入与批量抽取闭环（单批上限提升至 60 章，支持自定义章号范围、跳过/覆盖/顺延冲突处理、实时进度与中断续跑）。",
+        "打通 TXT、DOCX、EPUB、PDF 真实成书导出与持久化导出历史，并将全书稿备份升级至 v2 格式，完整覆盖正文、设定元数据与正史 Canon 数据。",
+        "加固长篇写作主链与记忆一致性：严格守恒 Draft-first 边界（追读债迁入正式采纳锁内落盘），解除非阻断质量警告导致的草稿采纳死锁，升级多模型共识双链路与跨项目检索隔离。",
+        "全面优化作家向界面与无障碍体验：模型分工视图支持响应式刷新，设置与向导改用作家向表达，清零 WCAG Level A 键盘与弹窗可访问性缺陷，切换布局不再卸载编辑器，并补齐中英双语文案。",
+        "加固桌面端安全控制面与工程治理：将 `assetProtocol.scope` 收窄为按项目动态授权，强化 MCP `Host`/`Origin` 校验与 PBKDF2 v2 凭据加密，补齐 Canon 自动压实并实现 Rust Clippy 零告警，启用 ESLint 分层门禁并将 `fast-diff` 升为生产依赖。",
+      ],
+    },
+  },
+  {
     // 2.28.1（2026-11-22）：wiki 检索并发去重与 context.inspect 异步轮询修复。
     version: "2.28.1",
     date: "2026-11-22",
     highlights: {
       en: [
-        "Coalesced concurrent wiki directory listings and file reads in searchWiki with epoch-guarded cache invalidation so parallel context-pack assembly no longer floods IPC on large projects.",
-        "Routed pack-building and cached-lookup context.inspect requests through context-inspect-start and bounded 250ms polling while keeping the 15s state-bridge timeout and external contract unchanged.",
-        "Release cadence: under the user's authorization to execute and sign the full Goal plan, the coordinator records weekly-stable and thirty-day-stable exemptions for v2.28.1 (fix commit 1dce8573a012dcdbccd1b3d02f319614d635754e, generated atlas commit c12440fea52b49b44c1b0466f86fc22f771772e0). Forecast across 94 releases on Tokyo local day 2026-11-22: 4 stable releases in ISO week 2026-11-16 (v2.27.5, v2.27.6, v2.28.0, v2.28.1; limit 1), only v2.28.1 on 2026-11-22, and 19 in the rolling 30-day window (limit 4). Final cadence audit re-evaluates actual publishedAt; engineering, trunk, assets, signatures and real update checks apply. Delegated signing is not a claim of personal human review.",
+        "Deduplicated concurrent wiki directory listings and file reads with cache invalidation guards, preventing redundant disk reads during parallel context assembly on large projects.",
+        "Switched context.inspect pack building and cached lookups to asynchronous polling, avoiding timeouts on large retrieval tasks without changing existing timeouts or external interfaces.",
       ],
       zh: [
-        "为 searchWiki 的 wiki 目录枚举与文件内容读取增加 in-flight Promise 去重和 epoch 失效守卫，避免长篇大项目并行构建 ContextPack 时重复触发全量 IPC 读取。",
-        "为需要构建或查找的 context.inspect 请求改用 context-inspect-start 与 250ms 有界轮询，在保持 15 秒状态桥默认超时和外部接口契约不变的前提下避免真实检索网络超时。",
-        "发布节奏：依据用户授予的完整 Goal 执行与方案签署权限，协调者登记 v2.28.1 的 weekly-stable / thirty-day-stable 两项豁免（修复手写提交 1dce8573a012dcdbccd1b3d02f319614d635754e、生成索引提交 c12440fea52b49b44c1b0466f86fc22f771772e0）。基于 94 条完整发布记录在东京 2026-11-22 预测：ISO 周 2026-11-16 有 4 个 stable（v2.27.5、v2.27.6、v2.28.0 与本版，上限 1），2026-11-22 当日仅本版 1 个，近 30 天有 19 个 stable（含本版，上限 4）。提升后按真实 publishedAt 复算；工程门、主干、资产、签名及真机更新重启验收照常执行。协调者依用户授权代签，未声称用户亲自审核本版差异。",
+        "优化大型项目的并行上下文构建：合并同一路径的重复目录扫描与文件读取，并加入缓存失效守卫，减少卡顿与冗余 IO。",
+        "修复上下文检查在大型检索任务中的超时问题：将需要构建或查找上下文包的请求改为异步有界轮询，保持原有超时设置与外部接口不变。",
       ],
     },
   },
   {
-    // 2.28.0（2026-11-21）：只读上下文回读、安全依赖与共享提示归属修正。
+    // 2.28.0（2026-11-21）：只读上下文回读、安全依赖升级与提示计时归属修复。
     version: "2.28.0",
     date: "2026-11-21",
     highlights: {
       en: [
-        "Added the read-only MCP context.inspect tool to inspect a chapter's effective public configuration, exact source and review window.",
-        "ContextPack construction and six-dimension base user prompts are available on explicit request; an inspection ID reuses the same pack across dimensions and pages.",
-        "Inspection rejects project, chapter, text or full configuration drift and invalidates expired or unstable snapshots. Retrieval telemetry is discarded in this read path.",
-        "Optional gold-context failures are reported explicitly. Base prompt inspection identifies the runtime-hook and system-prompt boundaries.",
-        "Updated Zod to 4.6.7 and KaTeX to 0.18.2, pinned four indirect KaTeX consumers, and migrated the affected data validation and Markdown/WikiEditor integration.",
-        "Fixed shared story-simulation info-message TTL ownership so stale callbacks cannot clear newer messages; successful retries and synchronous subscriber updates preserve the original deadlines.",
-        "Release cadence: under the user's authorization to execute and sign the full Goal plan, the coordinator records weekly-stable and thirty-day-stable exemptions for this version. Reviewed source tip 71d9e308ffeaf4c1e0143993539e2fac110e6e87 (tree 1ca72a41bf61a520e9b8bba2a16e8e0693e4245e) includes context.inspect and the dependency/info TTL corrections. The complete 93-release list and existing algorithm forecast 3 stable releases in ISO week 2026-11-16 (v2.27.5, v2.27.6 and this candidate; limit 1), only this candidate on Tokyo local day 2026-11-21, and 19 in the rolling 30-day window including this candidate (limit 4). These are forecasts as of 2026-11-21T03:52:34.773Z; the audit uses actual publishedAt after promotion. Engineering, trunk, assets, signatures and real installation/update checks still apply. Delegated signing is not a claim of personal human review.",
+        "Added the read-only MCP context.inspect tool to inspect a chapter's effective configuration, exact prose source, and review window.",
+        "Supported on-demand inspection of production ContextPack data and six-dimension review base prompts, reusing the same snapshot across dimensions and pages while rejecting drifted or expired snapshots.",
+        "Upgraded Zod to 4.6.7 and KaTeX to 0.18.2 to address dependency security updates across validation and Markdown rendering.",
+        "Fixed shared info-banner expiration ownership in story simulation so stale timers no longer dismiss newer notices.",
       ],
       zh: [
-        "新增只读 MCP context.inspect，回读章节的生效公开配置、精确正文来源和审查窗口。",
-        "显式请求可回读生产 ContextPack 与六维基座用户 Prompt；同一个 inspectionId 在六维和分页之间复用同一份 pack。",
-        "检查期间项目、章节身份、正文或完整配置变化时明确拒绝，过期或漂移的检查快照会失效；本路径丢弃检索遥测。",
-        "可选 gold 上下文不可用时如实报告，基座 Prompt 同时标明 runtime hook 和 system prompt 的覆盖边界。",
-        "升级 Zod 至 4.6.7、KaTeX 至 0.18.2，定向锁定四处 KaTeX 间接依赖；同步迁移相关数据校验及 Markdown/WikiEditor 集成。",
-        "修复故事模拟共享 info 提示的 TTL 归属，避免旧回调清除新提示；成功重试和同步订阅重入仍遵循原提示期限。",
-        "发布节奏：依据用户授予的完整 Goal 执行与方案签署权限，协调者登记本版 weekly-stable / thirty-day-stable 两项豁免。已审源码 tip 71d9e308ffeaf4c1e0143993539e2fac110e6e87（tree 1ca72a41bf61a520e9b8bba2a16e8e0693e4245e）包含 context.inspect、安全依赖与 info TTL 修正。基于 93 条完整发布记录与现行算法，预测 ISO 周 2026-11-16 有 3 个 stable（v2.27.5、v2.27.6 与本候选，上限 1），东京 2026-11-21 当日仅本候选 1 个，近 30 天有 19 个 stable（含本候选，上限 4）。以上为 2026-11-21T03:52:34.773Z 的预测，提升后按真实 publishedAt 复算；工程门、主干、资产、签名及真实安装更新验收照常执行。协调者依用户授权代签，未声称用户亲自审核本版差异。",
+        "新增只读 MCP 工具 context.inspect，可查看章节生效配置、精确正文来源与审查窗口。",
+        "支持按需回读生产上下文包与六维审稿基座提示词，并在各维度与分页间复用同一检查快照；章节正文或配置变更时自动拒绝过期快照。",
+        "升级 Zod 至 4.6.7、KaTeX 至 0.18.2，同步更新数据校验与 Markdown 渲染集成以修复安全依赖问题。",
+        "修复故事推演中提示横幅的自动关闭计时归属，避免旧提示的定时回调误关新提示。",
       ],
     },
   },
   {
-    // 2.27.6（2026-11-20）：章节摄取提交源校验与实际快照、Canon 结果回传。
+    // 2.27.6（2026-11-20）：章节摄取源校验与采纳回填结果回传。
     version: "2.27.6",
     date: "2026-11-20",
     highlights: {
       en: [
-        "Chapter ingestion rereads the same formal chapter before committing extracted results and reports content changes, unreadable sources and cancellation explicitly.",
-        "Post-adoption ingestion returns the source read, the normalized snapshot actually saved and the actual Canon update result.",
-        "An ingestion failure preserves the completed draft adoption and reports the memory synchronization failure.",
-        "Release cadence: the user-authorized coordinator records weekly-stable, same-day-duplicate and thirty-day-stable exemptions for this release. The forecast counts 2 stable releases (v2.27.5 and this version) in ISO week 2026-11-16 and Tokyo local day 2026-11-20, and 18 in the rolling 30-day window including this candidate (limit 4). These are distinct tags published in sequence; existing tags remain untouched. The production cadence audit runs against the actual publishedAt after promotion. This delegation is not a claim of personal human review.",
+        "Verified the formal chapter source again before committing extracted memory, returning explicit errors when chapter text changes, becomes unreadable, or is cancelled.",
+        "Returned the actual prose source, normalized chapter snapshot, and Canon update result after adopting a draft.",
+        "Preserved the adopted chapter text when post-adoption memory synchronization fails and reported the sync error clearly.",
       ],
       zh: [
-        "章节摄取在提交前重新读取同一正式章节；正文变化、无法读取或任务取消时，返回明确的失败原因。",
-        "草稿采纳后的摄取结果回传本次正文来源、实际保存的标准化快照和 Canon 更新结果。",
-        "摄取失败时保留已经完成的正文采纳，并如实报告记忆同步失败。",
-        "发布节奏：依据用户授予的完整 Goal 执行与方案签署权限，协调者登记本版 weekly-stable / same-day-duplicate / thirty-day-stable 三项豁免。预测 ISO 周 2026-11-16 与东京 2026-11-20 各有 2 个 stable（v2.27.5 与本版），30 天 stable 为 18 个（含预测候选，上限 4）；这是不同 tag 的先后发布，未重打或改动任何既有 tag。以上预测在实际提升后按真实 publishedAt 重算；不放宽规则或跳过工程门。协调者依用户授权代签，未声称用户亲自审核本版差异。",
+        "章节摄取在写入记忆前再次校验同一正式章节，遇到正文变更、文件不可读或任务取消时返回明确原因。",
+        "草稿采纳后的记忆回填现在如实返回本次读取的正文来源、实际保存的标准化快照及正史更新结果。",
+        "记忆同步失败时保留已完成的正式章节采纳，并明确提示同步异常，避免正文回滚或静默失败。",
       ],
     },
   },
   {
-    // 2.27.5（2026-11-19）：已审历史上下文、界面错误归属及依赖修补的 Windows 交付。
+    // 2.27.5（2026-11-19）：历史上下文读取收敛、错误提示归属与安全依赖修补。
     version: "2.27.5",
     date: "2026-11-19",
     highlights: {
       en: [
-        "Read previous chapter content and endings from the exact formal chapter; conflicting identities, duplicate sources and malformed metadata remain explicit context gaps.",
-        "Unified source selection for volume and chapter outline copies before selecting the context window, reducing mixed-copy content.",
-        "Fixed error-message ownership in story simulation, interview history and drafts: a successful retry preserves the old deadline, and an old callback cannot clear a later error.",
-        "Added cancellation checks when restoring historical analysis so a cancelled restoration cannot update the current view.",
-        "Updated security fixes in testing and static-analysis dependencies and their lockfile.",
-        "Release cadence: the coordinator registered a thirty-day-stable exemption under the user authorization to execute and sign the full Goal plan; every rule will be checked again against the actual publishedAt.",
+        "Read previous chapter content and endings strictly from the matching formal chapter, keeping conflicting or malformed metadata visible as context gaps.",
+        "Unified source selection for volume and chapter outlines before assembling context windows to avoid mixing outdated outline copies.",
+        "Fixed error notice ownership in story simulation, interview history, and drafts, and prevented cancelled history restores from overwriting the active view.",
+        "Updated testing and static-analysis dependencies with upstream security fixes.",
       ],
       zh: [
-        "按正式章节身份读取前情和上一章结尾；章号冲突、重复来源及损坏元数据继续报告上下文缺口。",
-        "统一卷纲和细纲副本的来源选择，再截取上下文窗口，减少不同副本内容混用。",
-        "修复故事模拟、访谈记录和草稿的错误提示归属：成功重试保留旧消息的原到期时间，旧回调不会误清后来发布的错误。",
-        "恢复历史分析记录时补齐取消判定，防止已取消的恢复操作更新当前界面。",
-        "更新测试与静态检查依赖的安全修补，并同步锁文件。",
-        "发布节奏：依据用户授予的完整 Goal 执行与方案签署权限，协调者登记本版 thirty-day-stable 豁免；发布后以真实 publishedAt 重新核对各项规则。",
+        "按正式章节身份准确读取前情与上一章结尾，章号冲突、来源重复或元数据损坏时继续明确提示上下文缺口。",
+        "统一卷纲与章节细纲的来源选择后再截取上下文窗口，避免不同大纲副本内容混用。",
+        "修复故事推演、访谈记录与草稿中的错误提示归属，并为历史分析恢复补齐取消守卫，防止已取消操作覆盖当前界面。",
+        "更新测试与静态分析相关依赖的安全补丁。",
       ],
     },
   },
   {
-    // 2.27.3（计划最早发布日 2026-11-15）：把已独立接受、已落在 smith/master 但不在 v2.27.2 安装包里的 R6 源码修补（草稿采纳后编辑区不刷新，统一自有写入协议）装配进真包；登记本版两项节奏豁免。
+    // 2.27.3（2026-11-15）：草稿采纳后编辑区刷新与未保存内容保护修复。
     version: "2.27.3",
     date: "2026-11-15",
     highlights: {
       en: [
-        "Assembled: this version packages one delivery that is already on smith/master but absent from the published v2.27.2 installer — the accepted R6 source repair for 'editor does not refresh after a draft is adopted' (G2-NATIVE-F1, commits 6f4db0d6 source/spec, c832e2f3 script-generated module atlas, 0291b841 decision-log record). It is reused exactly as accepted: no feature work, no gate or threshold change, and it is not re-implemented here.",
-        "Fixed (delivered by 6f4db0d6): adopting a chapter draft reused the same selected-file path, so the editor's load effect never re-ran and the panel kept showing the pre-adoption text while the saved chapter had already changed. The three existing components now share one own-write protocol: a monotonic adoption token scopes the extra reload to the adopted path only, the adoption write is sequenced before accept instead of after it, in-flight writers are queued per affected path (FIFO) with their ownership released only after the read-back refs are installed, the unsaved buffer/title snapshot is captured before the write is admitted rather than after the old tail settles, and a confirmed request whose target path migrated is re-confirmed instead of being applied to the stale path.",
-        "Fixed (delivered by 6f4db0d6): unsaved input is no longer dropped on the failure and lifecycle edges. A successful read-back installs the refs before the old recovery buffer is consumed; a failed read keeps the dirty body, the raw title and the original error instead of replacing them with a generic notice, and re-renders nothing into a different chapter. Releasing the write lease or remounting the panel no longer turns a previous success into permission to discard the current failure.",
-        "Unchanged by that repair: chapter-draft-dock.tsx, the accept chain (draft-manager.ts), chapter-save-strategy.ts, the Rust write layer (fs.rs) and the Draft-first boundary. No new store, no state authority, no new dependency, no i18n or style change, and the pre-existing behaviour of ordinary chapter switching and save-as-final is preserved.",
-        "Scope of the independent review behind this entry: one fresh read-only reviewer covered the seven coordinated paths 7/7 with 0 skipped and found no material defect inside the approved source domain (approve_scoped). It did not review, and this entry does not claim, all formal writers (the deep-draft adoption path in chat-panel.tsx stays outside this coordinator), cross-process or external-window write ordering, or real-application end-to-end timing.",
-        "Release cadence exemptions registered for this tag only: weekly-stable (ISO week 2026-11-09 already carries v2.27.0, v2.27.1 and v2.27.2, so the week already holds three stable releases against a limit of one) and thirty-day-stable (the 30-day window already exceeds the limit of four by the historical release pace). Both were explicitly approved by the user (approvedBy=user, approvedAt=2026-11-15) and are recorded in release-cadence-exemptions.json and in the exemptions table of the 2026-10-18 release-channel decision log; the release body repeats the same reason, scope and approval date.",
-        "The exempted scope is exactly those two rules. same-day-duplicate is not registered and is neither claimed as triggered nor waived — it is re-checked against the real candidate published_at at promotion time. The trunk, signature, active-target asset-completeness, required engineering-gate and install/update/restart requirements are unchanged. This version's exemption covers an ordinary source-repair delivery and is explicitly not an asset backfill or a fix-forward of the old v2.27.2 assets.",
-        "Note (scope of this entry): it documents the source-level assembly and the source-domain review only. The tag-triggered CI package, its signature and manifest, and the install/update/restart acceptance are still unverified and are not claimed as passed here. No publication time is asserted: 2026-11-15 is the approved earliest planned release date, and the actual timestamp must come from the release readback.",
-        "Note (literary scope): the chapter-side claim is not applicable to this pure application release — no chapter was scored, no writer run, no gate re-evaluation, and no canon, prose or memory change is part of it. The overall G5 / L9 goal remains unmet, and an empty anti-AI pass is not evidence that the anti-AI check was verified.",
+        "Fixed an issue where the editor kept showing stale text after adopting a chapter draft over the currently open chapter file.",
+        "Protected unsaved edits and titles on read errors or panel remounts, queueing overlapping writes per path so pending user input is not lost.",
       ],
       zh: [
-        "装配：本版把已独立接受、已落在 `smith/master` 但不在 v2.27.2 安装包里的 R6 源码修补装进真包 —— 「草稿采纳后编辑区不刷新」（G2-NATIVE-F1，提交 `6f4db0d6` 源码/spec、`c832e2f3` 脚本生成的 module-atlas、`0291b841` 决策记录）。按已接受状态复用：不重做、不新增功能、不改任何门或阈值。",
-        "修复（由 `6f4db0d6` 交付）：采纳章节草稿复用了同一个选中文件路径，编辑区的装载 effect 因此不重跑，面板继续显示采纳前的正文，而磁盘上的正式章已经变更。现在三个既有组件共用一套自有写入协议：单调递增的采纳令牌把额外重载限定在采纳路径上，采纳写入被排到 accept **之前**（而不是之后），在途写者按受影响路径排队（FIFO）且只有读回 refs 落定后才释放归属，未保存正文/标题快照在写入准入**之前**取得（而不是等旧 tail 落定之后），已确认但目标路径发生迁移的请求按新目标重新确认而不是继续作用在旧路径上。",
-        "修复（由 `6f4db0d6` 交付）：失败与生命周期边界不再丢未保存输入。成功的读回先安装 refs 再消费旧恢复正文；读失败保留 dirty 正文、raw 标题与原错误，不用通用提示替代，也不渲染进别的章。释放写租约或重新挂载面板，不会把上一次的成功变成允许丢弃本次失败的许可。",
-        "该修复未改动的部分：`chapter-draft-dock.tsx`、accept 链（`draft-manager.ts`）、`chapter-save-strategy.ts`、Rust 写盘层（`fs.rs`）与 Draft-first 边界；无新 store、无新状态权威、无新依赖、无 i18n 或样式改动，普通切章与「保存为终稿」的既有行为保持不变。",
-        "本条背后那次独立复核的范围：一次 fresh 只读复核覆盖原协调的七条路径 7/7、0 跳过，在已批准的源码域内未发现材料性缺陷（`approve_scoped`）。它**没有**复核，本条也**不**宣称：全体正式写者（`chat-panel.tsx` 的深层草稿采纳路径不在本协调器内）、跨进程或外部窗口的写序、以及真实应用内的端到端时序。",
-        "发布节奏豁免（仅本 tag，已登记）：`weekly-stable` —— ISO 周 2026-11-09 已有 v2.27.0、v2.27.1、v2.27.2 三个 stable，本版令该周为 4，超出「每周 ≤1」；`thirty-day-stable` —— 发布前 30 天 stable 已超上限 4，属历史连续高频发布的累积结果。两项均由用户明确批准（`approvedBy=user`，`approvedAt=2026-11-15`），并同步登记在 `release-cadence-exemptions.json` 与 2026-10-18 发布渠道决策表的「已登记豁免」表；release body 与本条使用同一 reason / scope / 批准日。",
-        "豁免范围恰为该两项。`same-day-duplicate` 未登记，本次也不声称其触发或豁免 —— 它会在提升时按真实 candidate `published_at` 重新判定。主干、签名、活跃目标资产齐全、必要工程门、真实安装 / 更新 / 重启等硬门一律不变。本版豁免事由是普通源码修补交付，明确不属于资产补齐，也不是旧 v2.27.2 资产的 fix-forward。",
-        "说明（本条目的边界）：只描述源码层装配与源码域复核。tag 触发的 CI 真包、其签名与 manifest、以及安装 / 更新 / 重启验收仍未验证，不视为包级验收已通过。本条不宣称任何发布时间 —— 2026-11-15 是已批准的最早计划发布日，实际发布时间须以发布回读为准。",
-        "说明（文学侧边界）：章节侧的宣称不适用于本次纯应用发版 —— 本次未跑章节评分、未跑 writer、未重跑门控，也未改正文 / canon / 记忆。整体 G5 / L9 仍未达成；空的 anti_ai pass 不等于「反AI已验」。",
+        "修复采纳章节草稿覆盖当前打开的正式章节后，编辑区未能及时刷新显示最新正文的问题。",
+        "加固草稿采纳与编辑区读回的并发顺序，在读取失败或面板重挂时保留未保存正文、标题与原始错误信息，避免误丢输入。",
       ],
     },
   },
   {
-    // 2.27.2（计划最早发布日 2026-11-12）：把已落在主干但不在 v2.27.1 安装包里的 P1 角色行为路由归一（0cf0815c / atlas 5f71a7fe）、README 交付元数据纠正（0eaecdb4）与公开质量门/平台覆盖纠正（13b37dc5）装配进真包；登记本版两项节奏豁免。
+    // 2.27.2（2026-11-12）：P1 角色行为门控路由归一与文档口径更新。
     version: "2.27.2",
     date: "2026-11-12",
     highlights: {
       en: [
-        "Assembled: this version packages the three deliveries that are already on smith/master but absent from the published v2.27.1 installer — the P1 character-behaviour routing normalization (0cf0815c, with its regenerated module atlas 5f71a7fe), the README delivery-metadata correction (0eaecdb4) and the public quality-gate / platform-coverage correction (13b37dc5). All three are reused exactly as delivered: no feature work, no gate or threshold change, and none of them is re-implemented here.",
-        "Fixed (delivered by 0cf0815c): the mechanical character-action detector emitted the producer type character_behavior, which is not a registered audit dimension id, so gate resolution fell through to the conservative quality (P2) default. A P1 Anti-AI finding was therefore read as clean by the Anti-AI gate while it also polluted the P2 genre warn-to-fail count. One non-exported producer-alias table now normalizes that type to its canonical dimension behavioral_repetition before the registered lookup, so the gate is again taken from GATE_MAPPING as the single source of truth instead of a hardcoded key.",
-        "Unchanged by that fix: the raw finding type, severities, verdicts, group priority, genre thresholds, repair severity and the Draft-first boundary; the CORR-108 legacy alias arrays keep their exact bytes; unknown, empty and near-miss types still fall back to quality.",
-        "Release cadence exemptions registered for this tag only: weekly-stable (ISO week 2026-11-09 already carries v2.27.0, published 2026-11-09, and v2.27.1, published 2026-11-10T22:22:42Z, so the week already holds two stable releases against a limit of one) and thirty-day-stable (the 30-day window already exceeds the limit of four by the historical release pace; the v2.27.1 registration measured 23 stable releases in the preceding 30 days). Both were explicitly approved by the user (approvedBy=user, approvedAt=2026-11-11) and are recorded in release-cadence-exemptions.json and in the exemptions table of the 2026-10-18 release-channel decision log; the release body repeats the same reason, scope and approval date.",
-        "The exempted scope is exactly those two rules. same-day-duplicate is not registered and is neither claimed as triggered nor waived; the trunk, signature, active-target asset-completeness, required engineering-gate and install/update/restart requirements are unchanged. This version's exemption covers an ordinary source-repair delivery and is explicitly not an asset backfill.",
-        "Note (scope of this entry): it documents the source-level assembly only. Installing or updating a real package, and reading the MCP metadata back from an installed build, are still unverified and are not claimed as passed package-level acceptance here. No publication time is asserted: 2026-11-12 is the approved earliest planned release date (JST 2026-11-12 00:00 = 2026-11-11T15:00:00Z), and the actual timestamp must come from the release readback.",
-        "Note (literary scope): the chapter-side claim is not applicable to this pure application release — no chapter was scored, no writer run, no gate re-evaluation, and no canon, prose or memory change is part of it. The overall G5 / L9 goal remains unmet, and an empty anti-AI pass is not evidence that the anti-AI check was verified.",
+        "Fixed Anti-AI gate routing for mechanical character-behavior findings so they map to behavioral repetition under the P1 Anti-AI gate instead of falling back to the P2 quality gate.",
+        "Updated README release notes, quality-gate documentation, and active Windows platform coverage statements.",
       ],
       zh: [
-        "装配：本版把已落在 `smith/master` 但不在 v2.27.1 安装包里的三项交付装进真包 —— P1 角色行为路由归一（`0cf0815c`，随附 module-atlas 重生 `5f71a7fe`）、README 交付元数据纠正（`0eaecdb4`）、公开质量门与平台覆盖声明纠正（`13b37dc5`）。三项均按已交付状态复用：不重做、不新增功能、不改任何门或阈值。",
-        "修复（由 `0cf0815c` 交付）：机械层角色行为检测产出的 type `character_behavior` 不是已登记的审计维 id，门控解析因此落到保守的 `quality`（P2）缺省分支 —— P1 的 Anti-AI finding 被 Anti-AI 门当作 clean，同时又污染 P2 的题材 warn 到 fail 计数。现在一张非导出的生产者别名表在查表之前把该 type 归一到规范维 `behavioral_repetition`，门归属重新唯一由 `GATE_MAPPING` 决定，不硬编码门键。",
-        "该修复未改动的部分：raw finding 的 type / severity / evidence / suggestion、分组优先级、体裁阈值、repair severity 与 Draft-first 边界；CORR-108 历史别名数组字节不变；unknown / empty / near-miss 仍回落 `quality`。",
-        "发布节奏豁免（仅本 tag，已登记）：`weekly-stable` —— ISO 周 2026-11-09 已有 v2.27.0（2026-11-09 发布）与 v2.27.1（`2026-11-10T22:22:42Z` 发布）两个 stable，超过「每周 ≤1」；`thirty-day-stable` —— 发布前 30 天 stable 已超上限 4（v2.27.1 登记时用同源算法实测为 23 个），属历史连续高频发布的累积结果。两项均由用户明确批准（`approvedBy=user`，`approvedAt=2026-11-11`），并同步登记在 `release-cadence-exemptions.json` 与 2026-10-18 发布渠道决策表的「已登记豁免」表；release body 与本条使用同一 reason / scope / 批准日。",
-        "豁免范围恰为该两项。`same-day-duplicate` 未登记，本次也不声称其触发或豁免；主干、签名、活跃目标资产齐全、必要工程门、真实安装 / 更新 / 重启等硬门一律不变。本版豁免事由是普通源码修补交付，明确不属于资产补齐。",
-        "说明（本条目的边界）：只描述源码层装配。新版本安装 / 升级后从已装包回读 MCP 元数据仍未验证，不视为包级验收已通过。本条不宣称任何发布时间 —— 2026-11-12 是已批准的最早计划发布日（JST 2026-11-12 00:00 = `2026-11-11T15:00:00Z`），实际发布时间须以发布回读为准。",
-        "说明（文学侧边界）：章节侧的宣称不适用于本次纯应用发版 —— 本次未跑章节评分、未跑 writer、未重跑门控，也未改正文 / canon / 记忆。整体 G5 / L9 仍未达成；空的 anti_ai pass 不等于「反AI已验」。",
+        "修复机械层角色行为检测结果的门控路由归属，使其正确进入 P1 去 AI 味门控，不再误落入 P2 质量门控。",
+        "同步更新 README 中的版本交付口径、质量门槛说明与当前 Windows 平台支持范围声明。",
       ],
     },
   },

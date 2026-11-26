@@ -214,7 +214,7 @@
 
 ## 当前执行视图
 
-- **当前主干版本**：`v2.28.1`（`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 三处 manifest 与 `src/lib/changelog.ts`、`CHANGELOG.md` 保持单源一致，由 `npm run consistency` 机械校验）。近期主干演进覆盖应用内 MCP 控制面与 `context.inspect` 只读回读、主控三档权能闭环、草稿采纳与编辑区刷新协调、章节摄取源校验、`searchWiki` 并发去重与异步状态桥轮询修复；工程治理层完成 `src/lib/novel/index.ts` 单一公开 barrel 收敛（`mod.ts` 退役）、`src/test-helpers/` 测试脚手架隔离、ESLint Tier 1/Tier 2 分层门禁、前后端一致门禁词法加固（含 `invokeFs`/`invokeCanon` 别名与必填形参漏传拦截）、Module Atlas barrel 符号级消费归因及 CI `rust-clippy` 强门接入。
+- **当前主干版本**：`v2.29.0`（`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 三处 manifest 与 `src/lib/changelog.ts`、`CHANGELOG.md` 保持单源一致，由 `npm run consistency` 机械校验）。近期主干演进覆盖三轮多专家全栈加固（整本 TXT 分章导入与批量抽取闭环、TXT/DOCX/EPUB/PDF 真实导出与 v2 全书稿备份、Draft-first 与门控优先级守恒、Canon 自动压实、`assetProtocol.scope = []` 按项目动态授权与 MCP/Rust 安全控制面清零 Clippy 告警、WCAG Level A 无障碍与中英 i18n 对齐），以及既有应用内 MCP `context.inspect` 只读回读与 `searchWiki` 并发去重；工程治理层完成 `src/lib/novel/index.ts` 单一公开 barrel 收敛（`mod.ts` 退役）、`fast-diff` 升入生产 `dependencies`、`src/test-helpers/` 测试脚手架隔离、ESLint Tier 1/Tier 2 分层门禁、前后端一致门禁词法加固（含 `invokeFs`/`invokeCanon` 别名与必填形参漏传拦截）、Module Atlas barrel 符号级消费归因及 CI `rust-clippy` 强门接入。
 - **历史 Stage 脉络**：早期按 `1 Authority Realignment → 2 Release Readiness → 3 Core Stabilization → 4 High-ROI Enhancements → 5 Optional Sidecar` 推进（Stage 2 在 `b51ab03` / v2.2.24 strict PASS，Stage 3/4/5 与 v2.3.2–v2.4.2 加固、Wave-0/Wave-1/W1、v2.7–v2.28 系列均已归档落入主干）。历史路线与交付归档见 `@../.workflow/project.md` 与 `@../docs/niko-buddy-codex-delivery/09-implementation-plan.md`。
 
 ## 验收与证据

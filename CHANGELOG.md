@@ -7,6 +7,32 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.29.0] - 2026-11-26
+
+> 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
+
+### Added
+
+- **整本导入与批量抽取闭环**：新增整本 TXT 自动分章导入与批量知识抽取流程，支持自定义章号范围、单批上限 60 章、同名章跳过/覆盖/顺延冲突策略、实时进度持久化与中断恢复。
+- **真实多格式成书导出与 v2 全书稿备份**：打通 TXT、DOCX、EPUB、PDF 真实导出管线及持久化导出历史；全书稿备份升级至 v2 契约，完整覆盖 `QM/`、`.novel/` 与 `canon/` 正史数据库。
+- **工程治理与静态门禁**：启用 `eslint.config.js` 分层规则与 CI 离线治理三门（`guard-consensus-antigoals` / `check-curation-debt` / `verify-governance-anchors`），接入 Rust `cargo clippy --all-targets -- -D warnings` 强门禁，新增 Ed25519 Windows 发行资产校验与治理回归测试。
+
+### Changed
+
+- **作家向 UI、无障碍与双语收敛**：重构模型分工（`ModelRoutesView`）为响应式实时状态视图，主控/设置/向导统一作家向语言并去除内部工程代号；清零 WCAG Level A 键盘导航、ARIA 角色与对话框焦点管理缺陷；`WritingWorkspace` 改为单树挂载防止切换布局时卸载编辑器；补齐 `zh.json` / `en.json` 键位与口径对齐。
+- **上下文引擎与多模型共识升级**：升级 `ContextEngine`、深章上下文装配、多模型共识双链路与检索来源管线；优化大项目 `.novel` 浅层列目录与社区摘要并发策略，避免冗余 Embedding 与大书树截断。
+- **核心模块收敛与依赖层级修正**：退役冗余兼容入口 `src/lib/novel/mod.ts` 并统一收口至 `src/lib/novel/index.ts`；将测试脚手架迁入 `src/test-helpers/`；核验 `src/lib/novel/canon-reconcile.ts` 运行时直接依赖后，将 `fast-diff` 由 `devDependencies` 提升至 `dependencies`。
+
+### Fixed
+
+- **桌面端安全控制面与最小权限加固**：将 `src-tauri/tauri.conf.json` 的 `assetProtocol.scope` 由 `["**"]` 收窄为 `[]` 并改为建项/开项经 `canonicalize` 动态 `allow_directory`；移除未使用的窗口创建权限；修复 `agent_gate_policy` 路径规则与 Windows OneDrive/WOF 重解析点兼容（收敛为 `IsReparseTagNameSurrogate`）；引入 60s 单次内容 SHA-256 锁定回滚凭据解除新建章节回滚死锁；补齐 MCP `Host`/`Origin` 校验、会话上限与退出停服，全仓 Rust 互斥锁补齐 poison 恢复，Rust Clippy 与编译器告警清零。
+- **Draft-first 边界与门控不变量修复**：将 `chase_debt` 创建与计息移出草稿生成期并迁入采纳锁内与 `status.json` 原子落盘；解除非阻断 Quality 题材警告升级与 `collectBlockingIssues` 之间的永久采纳死锁，守恒 `Consistency(P0) > Anti-AI(P1) > Quality(P2)`；加固 `chapter-ingest` 写锁、回滚校验与 `reconcile_chunks` 社区摘要命名空间豁免；修复 `DiagnosticsCenter` / `CopyButton` 跨项目与卸载竞态。
+
+### 交付与分支说明
+
+- 本版为 `master` 主干源码版本登记，涵盖三轮多专家全栈加固与产品能力闭环。按 P16 规则将手写业务变更与生成产物/锁文件严格分批提交：手写提交为 `48b11516`（Rust 安全与 Canon）、`a3331cd9`（写作主链与共识）、`6361333b`（记忆/正史/导入导出数据层）、`9136e716`（前端 UI/无障碍/i18n）、`b805d598`（工程治理/CI/`fast-diff` 依赖层级）、`1110d922`（文档与决策日志），生成产物与权限 Schema 同步提交为 `217c5980`，随后单独登记 2.29.0 版本清单与锁文件同步提交。
+- 本次仅推进 `master` 主干版本号与变更日志并推送至 `smith`，尚未创建或推送签名 Release Tag `v2.29.0`，不宣称已产出或真机验收新安装包；桌面真机 `assetProtocol` 切项目冒烟（`DEBT-20261126-02`）与远端签名发版仍按发布流程单独执行。
+
 ## [2.28.1] - 2026-11-22
 
 > 日期为版本登记日，实际发布时间以 Release 回读为准。

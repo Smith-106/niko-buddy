@@ -15,24 +15,26 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.28.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.29.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
 > 版本摘要口径：本文件按版本摘选要点，并非逐版完整记录 —— v2.26.5、v2.27.0 等条目未在此逐版列出；完整逐版历史见 [CHANGELOG.md](CHANGELOG.md) 与 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-## v2.28.1（检索并发去重与上下文检查异步轮询，当前稳定版）
+## v2.29.0（全栈安全与引擎加固、书稿导入导出闭环与工程治理，当前主干版本）
 
-**当前稳定版（2026-11-22 登记）**：版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源，实际发布产物与下载资产见 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
+**当前主干版本（2026-11-26 登记）**：版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源，实际发布产物与下载资产见 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-本版重点优化大型长篇项目的上下文检索并发性能与只读检查稳定性：
+本版汇总三轮多专家全栈评估与加固交付，涵盖书稿导入导出闭环、桌面安全最小权限与全仓工程治理升级：
 
-- **检索并发去重**：`searchWiki` 对同路径的目录枚举与文件内容读取增加并发去重与缓存失效守卫，避免大型项目并行组装上下文包时重复触发全量 IPC 读取。
-- **`context.inspect` 异步轮询**：对需要构建或查找上下文包的只读检查请求改用异步启动与 250ms 有界轮询，在保持默认状态桥超时与外部契约不变的前提下避免真实检索超时。
+- **整本导入、多格式导出与 v2 备份**：新增整本 TXT 自动分章导入与批量抽取（单批 60 章、自定义章号范围、跳过/覆盖/顺延冲突处理与实时进度）；打通 TXT/DOCX/EPUB/PDF 真实导出与持久化历史；全书稿备份升级至 v2 格式覆盖正文、元数据与 Canon。
+- **写作主链、记忆与安全控制面加固**：严守 Draft-first（追读债迁入采纳锁原子落盘）与 `Consistency(P0) > Anti-AI(P1) > Quality(P2)` 优先级；`assetProtocol.scope` 收窄为 `[]` 并改为按项目动态授权；补齐 MCP `Host`/`Origin` 校验、Canon 自动压实、全仓 Mutex poison 恢复与 Rust Clippy 零告警。
+- **作家向体验与工程治理**：响应式模型分工视图、WCAG Level A 无障碍清零与中英 i18n 对齐；启用 ESLint 分层门禁与 CI 离线治理门，退役 `mod.ts` 并将 `fast-diff` 提升至生产 `dependencies`。
 
-**v2.27.3–v2.28.0 累计面向用户演进：**
+**v2.27.3–v2.28.1 累计面向用户演进：**
 
+- **v2.28.1（2026-11-22）**：`searchWiki` 增加同路径并发去重与缓存失效守卫；`context.inspect` 改为异步启动与 250ms 有界轮询，优化大项目检索性能与稳定性。
 - **v2.28.0（2026-11-21）**：新增只读 MCP 工具 `context.inspect`（回读章节公开配置、精确正文来源、审查窗口、上下文包与六维审稿基座提示词，正文或配置变化时自动拒绝过期快照）；升级 Zod 4.6.7 与 KaTeX 0.18.2 安全依赖；修复故事推演共享提示的过期计时归属。
 - **v2.27.6（2026-11-20）**：章节摄取提交前重新读取并校验同一正式章节，遇到正文变更、不可读或取消时返回明确原因；采纳后回传正文来源、标准化快照与 Canon 更新结果，摄取失败时保留已完成的草稿采纳并明确提示。
 - **v2.27.5（2026-11-19）**：按正式章节身份读取前情与上一章结尾，统一卷纲与细纲来源选择；修复故事推演、访谈记录与草稿的错误提示归属，并为历史分析恢复补齐取消判定。
@@ -750,7 +752,7 @@ sequenceDiagram
 > 注：v2.7.8 是 v2.7 系列收官（notes-only，安装包沿用 v2.7.7），属历史记录，不代表当前版本。
 > 注：CI 发布构建当前只有 Windows x64 一个活跃 matrix 目标（[build.yml](.github/workflows/build.yml) 的 `matrix.include` 仅 `windows-x64` / `windows-latest`；2026-10-14 用户指令锁定 Windows-only，macOS/Linux 条目已移除，条件步骤不等于活跃目标）；macOS/Linux 是否正式发版以 Releases 实际资产为准。
 > 当前版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源；**本段不硬编码版本三元组**，本文件其余段落出现的版本编号均为叙述性摘选（顶部徽章/版本摘要不构成版本权威）。
-> 源码 tip ≠ 已发布安装包：当前主干版本为 v2.28.1（含 `searchWiki` 检索并发去重、`context.inspect` 异步轮询以及 v2.27.3–v2.28.0 累计修复与功能）；源码层与发行包仍是不同层，版本权威仍以三份 manifest 为准，当前发布状态与交付资产以上方 v2.28.1 节与 [Releases](https://github.com/Smith-106/niko-buddy/releases) 为准。
+> 源码 tip ≠ 已发布安装包：当前主干版本为 v2.29.0（含三轮多专家全栈安全与引擎加固、整本导入/多格式导出与 v2 备份闭环、无障碍与工程治理升级，以及 v2.27.3–v2.28.1 累计修复与功能）；源码层与发行包仍是不同层，版本权威仍以三份 manifest 为准，当前发布状态与交付资产以上方 v2.29.0 节与 [Releases](https://github.com/Smith-106/niko-buddy/releases) 为准。
 
 ### 安装方式
 
