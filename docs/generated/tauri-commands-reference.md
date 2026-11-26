@@ -1,9 +1,9 @@
 # Tauri 命令参考（自动生成）
 
 > 生成时间：2026-11-26（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**133**（`generate_handler!` 块）；未注册声明（死命令）：**0**
+> 注册数：**140**（`generate_handler!` 块）；未注册声明（死命令）：**0**
 
-## 注册命令（133）
+## 注册命令（140）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
@@ -11,9 +11,16 @@
 | `confirm_gate_loop_state` | agent_gate | ✓ |
 | `confirm_gate_pending` | agent_gate | ✓ |
 | `confirm_gate_resolve` | agent_gate | ✓ |
+| `antigravity_acp_authenticate` | antigravity_acp | ✓ |
+| `antigravity_acp_cancel` | antigravity_acp | ✓ |
+| `antigravity_acp_connect` | antigravity_acp | ✓ |
+| `antigravity_acp_disconnect` | antigravity_acp | ✓ |
+| `antigravity_acp_new_session` | antigravity_acp | ✓ |
+| `antigravity_acp_prompt` | antigravity_acp | ✓ |
+| `antigravity_acp_respond_permission` | antigravity_acp | ✓ |
+| `antigravity_acp_set_config_option` | antigravity_acp | ✓ |
+| `antigravity_acp_status` | antigravity_acp | ✓ |
 | `antigravity_cli_detect` | antigravity_cli | ✓ |
-| `antigravity_cli_kill` | antigravity_cli | ✓ |
-| `antigravity_cli_spawn` | antigravity_cli | ✓ |
 | `app_lock_set_passphrase` | app_lock::api | ✓ |
 | `app_lock_state` | app_lock::api | ✓ |
 | `app_lock_verify` | app_lock::api | ✓ |
