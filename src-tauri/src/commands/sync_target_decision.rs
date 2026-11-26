@@ -51,17 +51,135 @@ pub struct SyncConfig {
     pub enabled: bool,
 }
 
+/// 脱敏同步相关 URL：隐藏 userinfo 凭据（复用 `proxy::redact_url`）、剥离 query/fragment，
+/// 并将控制字符替换为空格，确保错误消息绝不回显原始 query 或凭据。
+pub(crate) fn redact_sync_url(raw: &str) -> String {
+    let without_query = raw.split(['?', '#']).next().unwrap_or(raw);
+    let redacted = crate::proxy::redact_url(without_query);
+    let sanitized: String = redacted
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    if without_query.len() < raw.len() {
+        format!("{sanitized}?***")
+    } else {
+        sanitized
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "[::1]"
+}
+
+/// 校验同步路径前缀（允许空串；非空时拒绝 `\`、`:`、控制字符、前导 `/` 及任意非法段）。
+pub(crate) fn validate_relative_posix_prefix(raw: &str, field_name: &str) -> Result<(), String> {
+    if raw.is_empty() {
+        return Ok(());
+    }
+    if raw.starts_with('/')
+        || raw.contains('\\')
+        || raw.contains(':')
+        || raw.chars().any(|c| c == '\0' || c.is_control())
+    {
+        return Err(format!(
+            "[sync_target] {field_name} must be a relative POSIX path without '\\', ':' or control chars"
+        ));
+    }
+    for segment in raw.split('/') {
+        crate::agent_gate_policy::validate_safe_single_segment(segment, field_name)
+            .map_err(|e| format!("[sync_target] invalid {field_name}: {e}"))?;
+    }
+    Ok(())
+}
+
 /// 配置校验（纯函数）。
 pub fn validate_config(config: &SyncConfig) -> Result<(), String> {
-    if !(config.endpoint.starts_with("https://") || config.endpoint.starts_with("http://")) {
-        return Err("[sync_target] endpoint must be an http(s) URL".to_string());
+    let endpoint = &config.endpoint;
+    if endpoint.is_empty() {
+        return Err("[sync_target] endpoint must not be empty".to_string());
     }
-    if config.endpoint.contains(' ') {
-        return Err("[sync_target] endpoint must not contain spaces".to_string());
+    if endpoint
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace())
+    {
+        return Err(format!(
+            "[sync_target] endpoint must not contain whitespace or control characters: {}",
+            redact_sync_url(endpoint)
+        ));
     }
-    if config.root.contains("..") || config.root.starts_with('/') {
-        return Err("[sync_target] root must be a relative path without '..'".to_string());
+    let Some((scheme, after_scheme)) = endpoint.split_once("://") else {
+        return Err(format!(
+            "[sync_target] endpoint must be an http(s) URL: {}",
+            redact_sync_url(endpoint)
+        ));
+    };
+    if !scheme.eq_ignore_ascii_case("https") && !scheme.eq_ignore_ascii_case("http") {
+        return Err(format!(
+            "[sync_target] endpoint must be an http(s) URL: {}",
+            redact_sync_url(endpoint)
+        ));
     }
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    if authority.contains('@') {
+        return Err(format!(
+            "[sync_target] endpoint must not embed userinfo credentials: {}",
+            redact_sync_url(endpoint)
+        ));
+    }
+    let host = if let Some(rest) = authority.strip_prefix('[') {
+        let Some((ipv6_host, after_bracket)) = rest.split_once(']') else {
+            return Err(format!(
+                "[sync_target] endpoint has malformed IPv6 host: {}",
+                redact_sync_url(endpoint)
+            ));
+        };
+        if !after_bracket.is_empty() {
+            let Some(port_str) = after_bracket.strip_prefix(':') else {
+                return Err(format!(
+                    "[sync_target] endpoint has malformed authority: {}",
+                    redact_sync_url(endpoint)
+                ));
+            };
+            if port_str.is_empty() || port_str.parse::<u16>().is_err() {
+                return Err(format!(
+                    "[sync_target] endpoint has invalid port: {}",
+                    redact_sync_url(endpoint)
+                ));
+            }
+        }
+        ipv6_host
+    } else if let Some((h, port_str)) = authority.rsplit_once(':') {
+        if port_str.is_empty() || port_str.parse::<u16>().is_err() {
+            return Err(format!(
+                "[sync_target] endpoint has invalid port: {}",
+                redact_sync_url(endpoint)
+            ));
+        }
+        h
+    } else {
+        authority
+    };
+    if host.is_empty() {
+        return Err(format!(
+            "[sync_target] endpoint must have a non-empty host: {}",
+            redact_sync_url(endpoint)
+        ));
+    }
+    if scheme.eq_ignore_ascii_case("http") && !is_loopback_host(host) {
+        return Err(format!(
+            "[sync_target] non-loopback endpoint must use https://: {}",
+            redact_sync_url(endpoint)
+        ));
+    }
+
+    validate_relative_posix_prefix(&config.root, "root")?;
+
     if !config.credential_ref.starts_with("nb:") {
         return Err(
             "[sync_target] credential_ref must look like nb:<domain>:<account>".to_string(),
@@ -589,10 +707,13 @@ fn collect_relative_files(root: &Path, out: &mut BTreeSet<String>) -> Result<(),
     if !root.is_dir() {
         return Ok(());
     }
-    for entry in walkdir::WalkDir::new(root).follow_links(false) {
+    for entry in walkdir::WalkDir::new(root)
+        .follow_links(false)
+        .max_depth(64)
+    {
         let entry =
             entry.map_err(|e| format!("[sync_target] walk {} failed: {e}", root.display()))?;
-        if !entry.file_type().is_file() {
+        if entry.path_is_symlink() || !entry.file_type().is_file() {
             continue;
         }
         let relative = entry
@@ -710,6 +831,7 @@ pub struct SyncItemRecord {
 ///   2. `items_from_records` 按 batch_id 过滤 → 两条批次各自显示 push+pull 并集项；
 ///   3. `apply_item_decisions_impl` 的 `.rev().find(...)` 永远命中后写的那条
 ///      （push 批次的 base 语义被静默替换）。
+///
 /// 所以键形为 `<manifest_id>@<ts>@<direction>`。
 pub fn batch_id_of(manifest_id: &str, ts: &str, direction: &str) -> String {
     format!("{manifest_id}@{ts}@{direction}")
@@ -1064,20 +1186,23 @@ pub struct SyncItemDecisionResult {
     pub error: Option<String>,
 }
 
-/// 相对路径守卫：不得绝对、不得含 `..`、不得含反斜杠或空段（防路径穿越）。
+/// 相对路径守卫：不得绝对、不得含 `..`、控制字符、`:`、反斜杠、空段、尾点/尾空格或 Windows 保留名。
 pub fn assert_safe_relative_path(path: &str) -> Result<(), String> {
     if path.is_empty() {
         return Err("[sync_target] item path must not be empty".to_string());
     }
-    if path.starts_with('/') || path.contains('\\') || path.contains(':') {
+    if path.starts_with('/')
+        || path.contains('\\')
+        || path.contains(':')
+        || path.chars().any(|c| c == '\0' || c.is_control())
+    {
         return Err(format!(
             "[sync_target] item path must be a relative POSIX path: {path}"
         ));
     }
     for segment in path.split('/') {
-        if segment.is_empty() || segment == "." || segment == ".." {
-            return Err(format!("[sync_target] malformed item path: {path}"));
-        }
+        crate::agent_gate_policy::validate_safe_single_segment(segment, "item path segment")
+            .map_err(|e| format!("[sync_target] malformed item path '{path}': {e}"))?;
     }
     Ok(())
 }
@@ -1120,6 +1245,7 @@ pub fn apply_item_decisions_impl(
     requests: &[SyncItemDecisionRequest],
     decided_at: &str,
 ) -> Result<Vec<SyncItemDecisionResult>, String> {
+    crate::agent_gate_policy::validate_safe_single_segment(manifest_id, "manifest_id")?;
     let actor = actor.trim();
     if actor.is_empty() {
         return Err(
@@ -1224,6 +1350,17 @@ fn apply_single_item(
         })?,
     };
     let source = source_root.join(&request.path);
+    crate::agent_gate_policy::assert_no_symlink_in_ancestors(project_path, &source)?;
+    let source_meta = fs::symlink_metadata(&source)
+        .map_err(|e| format!("[sync_target] read {} failed: {e}", source.display()))?;
+    if crate::agent_gate_policy::metadata_is_symlink_or_reparse_point(&source_meta)
+        || !source_meta.is_file()
+    {
+        return Err(format!(
+            "[sync_target] source is not a regular file: {}",
+            source.display()
+        ));
+    }
     let bytes = fs::read(&source)
         .map_err(|e| format!("[sync_target] read {} failed: {e}", source.display()))?;
     let destination = project_path
@@ -1231,11 +1368,14 @@ fn apply_single_item(
         .join(sanitize_batch_token(batch_id))
         .join(&request.path);
     assert_local_target_allowed(&destination)?;
+    let _mutation = crate::commands::fs::lock_file_mutations()?;
+    crate::agent_gate_policy::assert_no_symlink_in_ancestors(project_path, &destination)?;
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("[sync_target] create {} failed: {e}", parent.display()))?;
     }
-    fs::write(&destination, &bytes)
+    crate::agent_gate_policy::assert_no_symlink_in_ancestors(project_path, &destination)?;
+    crate::commands::fs::write_atomic_physical_bytes(&destination, &bytes)
         .map_err(|e| format!("[sync_target] write {} failed: {e}", destination.display()))?;
     let relative = destination
         .strip_prefix(project_path)
@@ -1737,6 +1877,201 @@ mod g2b_tests {
             .join(sanitize_batch_token(&batch_id_of("demo", ts, "conflict")))
             .join("a.md")
             .exists());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn validate_config_enforces_https_userinfo_control_chars_and_root_segments() {
+        let base = SyncConfig {
+            endpoint: "https://dav.example.com/webdav".to_string(),
+            root: "niko-buddy/backups".to_string(),
+            credential_ref: "nb:webdav:proj-1".to_string(),
+            enabled: true,
+        };
+        validate_config(&base).expect("https remote endpoint should pass");
+
+        // loopback 允许 http://（兼容本地冒烟与本地 WebDAV）。
+        for loopback in [
+            "http://127.0.0.1:8792",
+            "http://localhost:8080/dav",
+            "http://[::1]:8080/dav",
+        ] {
+            validate_config(&SyncConfig {
+                endpoint: loopback.to_string(),
+                ..base.clone()
+            })
+            .expect("loopback http endpoint should pass");
+        }
+
+        // 非 loopback 拒绝 http://。
+        let non_loopback_err = validate_config(&SyncConfig {
+            endpoint: "http://dav.example.com/webdav".to_string(),
+            ..base.clone()
+        })
+        .expect_err("non-loopback http must be rejected");
+        assert!(non_loopback_err.contains("https://"), "{non_loopback_err}");
+
+        // userinfo 与 query 绝不能在报错中回显。
+        let userinfo_err = validate_config(&SyncConfig {
+            endpoint: "https://alice:hunter2-secret@dav.example.com/dav?sig=query-secret"
+                .to_string(),
+            ..base.clone()
+        })
+        .expect_err("userinfo must be rejected");
+        assert!(!userinfo_err.contains("hunter2-secret"), "{userinfo_err}");
+        assert!(!userinfo_err.contains("query-secret"), "{userinfo_err}");
+        assert!(userinfo_err.contains("***@"), "{userinfo_err}");
+
+        // 含空白/控制字符 URL 必须拒绝。
+        for bad_ep in [
+            "https://dav.example.com/a\r\nb",
+            "https://dav.example.com/a\tb",
+            "https://dav.example.com/a b",
+            "https://dav.example.com/a\0b",
+            "https:///missing-host",
+            "https://:443/missing-host",
+        ] {
+            assert!(
+                validate_config(&SyncConfig {
+                    endpoint: bad_ep.to_string(),
+                    ..base.clone()
+                })
+                .is_err(),
+                "bad endpoint must be rejected: {bad_ep:?}"
+            );
+        }
+
+        // root 含 \、:、控制字符、前导 /、空段、. / ..、尾点、保留名均拒绝。
+        for bad_root in [
+            r"a\b",
+            "a:b",
+            "a\nb",
+            "/leading",
+            "a//b",
+            "a/./b",
+            "a/../b",
+            "a/CON",
+            "a/trailing.",
+            "a/trailing ",
+        ] {
+            assert!(
+                validate_config(&SyncConfig {
+                    root: bad_root.to_string(),
+                    ..base.clone()
+                })
+                .is_err(),
+                "bad root must be rejected: {bad_root:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_item_decisions_rejects_bad_manifest_id_and_symlink_ancestors() {
+        let root = temp_dir("guard-manifest-symlink");
+        let ts = "20261102170000";
+
+        // 非法 manifest_id 在入口即拒绝。
+        for bad_id in ["../x", "a/b", "CON", "id.", "id ", "bad\nid"] {
+            assert!(
+                apply_item_decisions_impl(
+                    &root,
+                    bad_id,
+                    1,
+                    "conflict",
+                    ts,
+                    "device-b",
+                    "niko",
+                    &[SyncItemDecisionRequest {
+                        path: "a.md".to_string(),
+                        decision: PICK_KEEP_BOTH.to_string(),
+                    }],
+                    "2026-11-02T17:00:01Z",
+                )
+                .is_err(),
+                "malicious manifest_id must be rejected: {bad_id:?}"
+            );
+        }
+
+        // assert_safe_relative_path 拒绝保留名、控制字符、冒号、尾点/空格。
+        for bad_rel in [
+            "CON.md",
+            "sub/NUL",
+            "a:b.md",
+            "sub/file.",
+            "sub/file ",
+            "a\nb",
+        ] {
+            assert!(
+                assert_safe_relative_path(bad_rel).is_err(),
+                "bad relative path must be rejected: {bad_rel:?}"
+            );
+        }
+
+        // apply_single_item 拒绝 .novel/resolutions 祖先符号链接并阻止写盘逃逸。
+        let outside = temp_dir("guard-manifest-outside");
+        fs::create_dir_all(root.join(".novel/snapshots/remote-demo-rev-1")).expect("base dir");
+        fs::create_dir_all(root.join(".novel/snapshots/remote-demo-rev-2")).expect("mine dir");
+        fs::create_dir_all(root.join(".novel/.conflict-device-b-20261102170000"))
+            .expect("theirs dir");
+        fs::write(
+            root.join(".novel/.conflict-device-b-20261102170000/a.md"),
+            b"theirs-payload",
+        )
+        .expect("w");
+        append_journal(
+            &root,
+            &SyncJournalEntry {
+                base_rev: Some(1),
+                base_content_hash: Some("a".repeat(64)),
+                ..journal_entry("demo", 2, "conflict", ts)
+            },
+        )
+        .expect("journal");
+
+        let res_link = root.join(".novel/resolutions");
+        let linked = {
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(&outside, &res_link).is_ok()
+            }
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_dir(&outside, &res_link).is_ok()
+                    || std::process::Command::new("cmd")
+                        .args([
+                            "/c",
+                            "mklink",
+                            "/J",
+                            &res_link.to_string_lossy(),
+                            &outside.to_string_lossy(),
+                        ])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                        .is_ok_and(|s| s.success())
+            }
+        };
+        if linked {
+            let results = apply_item_decisions_impl(
+                &root,
+                "demo",
+                2,
+                "conflict",
+                ts,
+                "device-b",
+                "niko",
+                &[SyncItemDecisionRequest {
+                    path: "a.md".to_string(),
+                    decision: PICK_THEIRS.to_string(),
+                }],
+                "2026-11-02T17:00:01Z",
+            )
+            .expect("apply returns item-level error");
+            assert_eq!(results[0].status, ITEM_STATUS_ERROR);
+            let _ = fs::remove_dir(&res_link);
+        }
+
+        fs::remove_dir_all(&outside).ok();
         fs::remove_dir_all(&root).ok();
     }
 }

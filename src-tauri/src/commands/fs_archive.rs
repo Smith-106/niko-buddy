@@ -13,11 +13,53 @@
 use std::fs;
 use std::io::Read as IoRead;
 
+/// 单个文本/XML ZIP 条目解压上限（32 MiB）与单次文档提取总字节预算（256 MiB）。
+pub(crate) const MAX_ZIP_TEXT_ENTRY_BYTES: u64 = 32 * 1024 * 1024;
+pub(crate) const MAX_ZIP_TOTAL_TEXT_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_ARCHIVE_TEXT_ENTRIES: usize = 4096;
+
+/// 流式有界读取 ZIP 文本条目，同时执行单条目上限与共享总解压字节预算。
+pub(crate) fn read_zip_file_with_budget(
+    archive: &mut zip::ZipArchive<fs::File>,
+    name: &str,
+    per_entry_limit: u64,
+    total_read: &mut u64,
+    total_limit: u64,
+) -> Result<Option<String>, String> {
+    let file = match archive.by_name(name) {
+        Ok(f) => f,
+        Err(zip::result::ZipError::FileNotFound) => return Ok(None),
+        Err(e) => return Err(format!("Failed to open zip entry '{name}': {e}")),
+    };
+    let remaining = total_limit.saturating_sub(*total_read);
+    let cap = per_entry_limit.min(remaining);
+    let mut bytes = Vec::new();
+    file.take(cap.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Failed to read zip entry '{name}': {e}"))?;
+    if (bytes.len() as u64) > cap {
+        return Err(format!(
+            "ZIP entry '{name}' exceeds extraction budget (entry_limit={per_entry_limit}, total_limit={total_limit})"
+        ));
+    }
+    *total_read = total_read.saturating_add(bytes.len() as u64);
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|e| format!("ZIP entry '{name}' is not valid UTF-8: {e}"))
+}
+
+#[allow(dead_code)]
 pub(crate) fn read_zip_file(archive: &mut zip::ZipArchive<fs::File>, name: &str) -> Option<String> {
-    let mut file = archive.by_name(name).ok()?;
-    let mut content = String::new();
-    file.read_to_string(&mut content).ok()?;
-    Some(content)
+    let mut total = 0u64;
+    read_zip_file_with_budget(
+        archive,
+        name,
+        MAX_ZIP_TEXT_ENTRY_BYTES,
+        &mut total,
+        MAX_ZIP_TEXT_ENTRY_BYTES,
+    )
+    .ok()
+    .flatten()
 }
 
 pub(crate) fn decode_xml_entities(text: &str) -> String {
@@ -34,8 +76,21 @@ pub(crate) fn decode_xml_entities(text: &str) -> String {
 pub(crate) fn extract_docx_markdown(
     archive: &mut zip::ZipArchive<fs::File>,
 ) -> Result<String, String> {
-    let xml = read_zip_file(archive, "word/document.xml")
-        .ok_or_else(|| "No document.xml found".to_string())?;
+    if archive.len() > MAX_ARCHIVE_TEXT_ENTRIES {
+        return Err(format!(
+            "DOCX archive has {} entries, exceeding limit {MAX_ARCHIVE_TEXT_ENTRIES}",
+            archive.len()
+        ));
+    }
+    let mut total_read = 0u64;
+    let xml = read_zip_file_with_budget(
+        archive,
+        "word/document.xml",
+        MAX_ZIP_TEXT_ENTRY_BYTES,
+        &mut total_read,
+        MAX_ZIP_TOTAL_TEXT_BYTES,
+    )?
+    .ok_or_else(|| "No document.xml found".to_string())?;
 
     let mut result = String::new();
     let mut i = 0;
@@ -185,7 +240,7 @@ pub(crate) fn extract_docx_markdown(
                         result.push_str(&table_row.join(" | "));
                         result.push_str(" |\n");
                         if is_first_table_row {
-                            result.push_str("|");
+                            result.push('|');
                             for _ in &table_row {
                                 result.push_str(" --- |");
                             }
@@ -221,8 +276,14 @@ pub(crate) fn extract_docx_markdown(
 pub(crate) fn extract_pptx_markdown(
     archive: &mut zip::ZipArchive<fs::File>,
 ) -> Result<String, String> {
+    if archive.len() > MAX_ARCHIVE_TEXT_ENTRIES {
+        return Err(format!(
+            "PPTX archive has {} entries, exceeding limit {MAX_ARCHIVE_TEXT_ENTRIES}",
+            archive.len()
+        ));
+    }
     let mut slide_names: Vec<String> = (0..archive.len())
-        .filter_map(|i| archive.by_index(i).ok().map(|f| f.name().to_string()))
+        .filter_map(|i| archive.by_index_raw(i).ok().map(|f| f.name().to_string()))
         .filter(|n| n.starts_with("ppt/slides/slide") && n.ends_with(".xml"))
         .collect();
 
@@ -242,9 +303,16 @@ pub(crate) fn extract_pptx_markdown(
     });
 
     let mut result = String::new();
+    let mut total_read = 0u64;
 
     for (idx, slide_name) in slide_names.iter().enumerate() {
-        let xml = match read_zip_file(archive, slide_name) {
+        let xml = match read_zip_file_with_budget(
+            archive,
+            slide_name,
+            MAX_ZIP_TEXT_ENTRY_BYTES,
+            &mut total_read,
+            MAX_ZIP_TOTAL_TEXT_BYTES,
+        )? {
             Some(x) => x,
             None => continue,
         };
@@ -292,8 +360,21 @@ pub(crate) fn extract_pptx_markdown(
 
 /// Extract OpenDocument format text (basic).
 pub(crate) fn extract_odf_text(archive: &mut zip::ZipArchive<fs::File>) -> Result<String, String> {
-    let xml =
-        read_zip_file(archive, "content.xml").ok_or_else(|| "No content.xml found".to_string())?;
+    if archive.len() > MAX_ARCHIVE_TEXT_ENTRIES {
+        return Err(format!(
+            "ODF archive has {} entries, exceeding limit {MAX_ARCHIVE_TEXT_ENTRIES}",
+            archive.len()
+        ));
+    }
+    let mut total_read = 0u64;
+    let xml = read_zip_file_with_budget(
+        archive,
+        "content.xml",
+        MAX_ZIP_TEXT_ENTRY_BYTES,
+        &mut total_read,
+        MAX_ZIP_TOTAL_TEXT_BYTES,
+    )?
+    .ok_or_else(|| "No content.xml found".to_string())?;
 
     let mut result = String::new();
     let mut in_tag = false;
@@ -352,7 +433,9 @@ pub(crate) fn extract_html_file(path: &str) -> Result<String, String> {
 pub(crate) fn strip_html_script_style(html: &str) -> String {
     fn strip_tag_blocks(html: &str, tag: &str) -> String {
         let mut out = String::with_capacity(html.len());
-        let lower = html.to_lowercase();
+        // 使用 to_ascii_lowercase() 保证字节长度与 UTF-8 切片偏移与原串严格 1:1 对齐，
+        // 避免如 'İ' (U+0130, 2B -> "i\u{0307}", 3B) 等字符触发字节越界/非边界 panic。
+        let lower = html.to_ascii_lowercase();
         let open = format!("<{tag}");
         let close = format!("</{tag}");
         let mut pos = 0usize;
@@ -376,11 +459,10 @@ pub(crate) fn strip_html_script_style(html: &str) -> String {
                 break;
             };
             let close_start = content + c_rel;
-            let close_gt = match lower[close_start..].find('>') {
-                Some(g) => close_start + g,
-                None => html.len(),
+            let Some(g) = lower[close_start..].find('>') else {
+                break;
             };
-            pos = close_gt.saturating_add(1);
+            pos = close_start + g + 1;
         }
         out
     }
@@ -716,5 +798,43 @@ mod tests {
         let err = extract_html_file(&p).unwrap_err();
         let _ = fs::remove_dir_all(&dir);
         assert!(err.contains("Failed to read"), "{err}");
+    }
+
+    #[test]
+    fn strip_html_script_style_handles_turkish_dotted_i_without_panic() {
+        // 'İ' (U+0130) 在 to_lowercase() 下从 2 字节膨胀为 3 字节；to_ascii_lowercase() 保持偏移一致不 panic。
+        let html = "\u{0130}stanbul<SCRIPT>var evil = 1;</SCRIPT><p>\u{0130}kinci</p><STYLE>p{}</STYLE><script>unclosed</script";
+        let stripped = strip_html_script_style(html);
+        assert!(stripped.contains("\u{0130}stanbul"), "{stripped}");
+        assert!(stripped.contains("\u{0130}kinci"), "{stripped}");
+        assert!(!stripped.contains("evil"), "{stripped}");
+        assert!(!stripped.contains("p{}"), "{stripped}");
+    }
+
+    #[test]
+    fn read_zip_file_with_budget_enforces_streaming_limit() {
+        use std::io::Write;
+        let dir = make_temp_dir("zip-budget");
+        let zp = dir.join("sample.zip");
+        {
+            let f = fs::File::create(&zp).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            let opts = zip::write::SimpleFileOptions::default();
+            w.start_file("a.txt", opts).unwrap();
+            w.write_all(&[b'x'; 64]).unwrap();
+            w.finish().unwrap();
+        }
+        let mut archive = zip::ZipArchive::new(fs::File::open(&zp).unwrap()).unwrap();
+        let mut total = 0u64;
+        let err = read_zip_file_with_budget(&mut archive, "a.txt", 32, &mut total, 128)
+            .expect_err("超过单条目预算必须拒绝");
+        assert!(err.contains("exceeds extraction budget"), "{err}");
+        let mut total_ok = 0u64;
+        let ok = read_zip_file_with_budget(&mut archive, "a.txt", 64, &mut total_ok, 64)
+            .expect("边界内应成功")
+            .expect("条目存在");
+        assert_eq!(ok.len(), 64);
+        assert_eq!(total_ok, 64);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

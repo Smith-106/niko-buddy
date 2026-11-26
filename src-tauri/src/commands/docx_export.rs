@@ -18,12 +18,14 @@
 //! * XML text is escaped by `docx-rs` internally (RunChild::Text), so no manual
 //!   escaping is needed.
 
-use std::fs::File;
-use std::io::BufWriter;
+use std::io::Cursor;
+use std::path::Path;
 
 use docx_rs::{Docx, Paragraph, Run};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
+
+use crate::panic_guard::run_guarded;
 
 /// A single chapter to export: `title` becomes a Heading1 paragraph, `body` is
 /// split on blank lines into body paragraphs.
@@ -38,7 +40,7 @@ pub struct NovelChapter {
 #[serde(rename_all = "camelCase")]
 pub struct DocxExportResult {
     pub success: bool,
-    pub export_path: String,
+    pub exported_path: String,
     pub chapter_count: usize,
     pub message: String,
 }
@@ -110,6 +112,8 @@ fn build_and_write_docx(
     if export_path.trim().is_empty() {
         return Err("export_path must not be empty".to_string());
     }
+    let target = Path::new(export_path);
+    crate::pdf_export::assert_standalone_export_path_safe(target)?;
 
     let mut docx = Docx::new();
     let count = chapters.len();
@@ -134,15 +138,26 @@ fn build_and_write_docx(
         }
     }
 
-    let file = File::create(export_path).map_err(|e| format!("failed to create docx file: {e}"))?;
-    let mut writer = BufWriter::new(file);
+    let mut cursor = Cursor::new(Vec::new());
     docx.build()
-        .pack(&mut writer)
+        .pack(&mut cursor)
         .map_err(|e| format!("failed to pack docx: {e}"))?;
+    let bytes = cursor.into_inner();
+
+    {
+        let _mutation = crate::commands::fs::lock_file_mutations()?;
+        crate::pdf_export::assert_standalone_export_path_safe(target)?;
+        if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create docx parent directory: {e}"))?;
+        }
+        crate::commands::fs::write_atomic_physical_bytes(target, &bytes)
+            .map_err(|e| format!("failed to create docx file: {e}"))?;
+    }
 
     Ok(DocxExportResult {
         success: true,
-        export_path: export_path.to_string(),
+        exported_path: export_path.to_string(),
         chapter_count: count,
         message: format!("exported {count} chapters to {export_path}"),
     })
@@ -169,13 +184,15 @@ pub async fn export_novel_docx(
     // 进度由构建侧按章上报，转为真实分片进度（命令签名/事件名/载荷不变）。
     let app_task = app.clone();
     tokio::task::spawn_blocking(move || {
-        let report = |current: usize, total: usize| {
-            let _ = app_task.emit(
-                "docx-export-progress",
-                DocxExportProgress { current, total },
-            );
-        };
-        build_and_write_docx(&chapters, &export_path, Some(&report))
+        run_guarded("export_novel_docx", || {
+            let report = |current: usize, total: usize| {
+                let _ = app_task.emit(
+                    "docx-export-progress",
+                    DocxExportProgress { current, total },
+                );
+            };
+            build_and_write_docx(&chapters, &export_path, Some(&report))
+        })
     })
     .await
     .map_err(|e| format!("failed to pack docx: 构建任务异常: {e}"))?
@@ -186,7 +203,6 @@ pub async fn export_novel_docx(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
 
     fn chapters_fixture() -> Vec<NovelChapter> {
         vec![
@@ -211,7 +227,15 @@ mod tests {
             .expect("export should succeed");
         assert!(result.success);
         assert_eq!(result.chapter_count, 2);
-        assert_eq!(result.export_path, path_str);
+        assert_eq!(result.exported_path, path_str);
+
+        // 契约核验：camelCase 序列化为 exportedPath（与 EpubExportResult 统一）
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(
+            json.get("exportedPath").and_then(|v| v.as_str()),
+            Some(path_str.as_str())
+        );
+        assert!(json.get("exportPath").is_none());
 
         // Verify the file is a valid zip (DOCX is a zip container).
         let bytes = std::fs::read(&path).expect("file should exist");
@@ -326,5 +350,40 @@ mod tests {
         docx.build().pack(&mut cursor).unwrap();
         let bytes = cursor.into_inner();
         assert_eq!(&bytes[0..2], b"PK");
+    }
+
+    #[test]
+    fn export_novel_docx_rejects_data_section_targets() {
+        let base = std::env::temp_dir().join(format!("niko-docx-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let project = base.join("book-proj");
+        std::fs::create_dir_all(project.join(".novel")).unwrap();
+
+        for bad in [
+            project.join("QM/book.docx").to_string_lossy().to_string(),
+            project.join("wiki/book.docx").to_string_lossy().to_string(),
+            project
+                .join("backups/book.docx")
+                .to_string_lossy()
+                .to_string(),
+            ".novel/book.docx".to_string(),
+            ".niko-buddy/book.docx".to_string(),
+            "../escape.docx".to_string(),
+        ] {
+            assert!(
+                build_and_write_docx(&chapters_fixture(), &bad, None).is_err(),
+                "expected docx export to reject {bad:?}"
+            );
+        }
+
+        // 项目外合法目录（如 Backups/book.docx）应放行并成功写入
+        let ext_backups = base.join("Backups");
+        std::fs::create_dir_all(&ext_backups).unwrap();
+        let ok_path = ext_backups.join("book.docx");
+        let res = build_and_write_docx(&chapters_fixture(), &ok_path.to_string_lossy(), None)
+            .expect("项目外 Backups/book.docx 应放行");
+        assert!(res.success);
+        assert!(ok_path.is_file());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

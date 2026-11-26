@@ -37,13 +37,29 @@ const MIGRATION_STEPS: [(&str, &str); 3] = [
 // ── Tauri commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn create_project(name: String, path: String) -> Result<WikiProject, String> {
-    run_guarded("create_project", || create_project_impl(name, path))
+pub async fn create_project(
+    app: AppHandle,
+    name: String,
+    path: String,
+) -> Result<WikiProject, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_guarded("create_project", || {
+            let project = create_project_impl(name, path)?;
+            allow_project_asset_scope(&app, Path::new(&project.path));
+            Ok(project)
+        })
+    })
+    .await
+    .map_err(|e| format!("create_project blocking task join error: {e}"))?
 }
 
 #[tauri::command]
-pub fn open_project(app: AppHandle, path: String) -> Result<WikiProject, String> {
-    run_guarded("open_project", || open_project_impl(&app, &path))
+pub async fn open_project(app: AppHandle, path: String) -> Result<WikiProject, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_guarded("open_project", || open_project_impl(&app, &path))
+    })
+    .await
+    .map_err(|e| format!("open_project blocking task join error: {e}"))?
 }
 
 #[tauri::command]
@@ -64,13 +80,135 @@ pub async fn open_file_location(app: AppHandle, path: String) -> Result<(), Stri
     .map_err(|e| format!("open_file_location blocking task join error: {e}"))?
 }
 
+/// 将确认门绑定到真实项目根目录（规范化失败时回退原路径）。
+fn bind_gate_project_root(root: &Path) {
+    let canonical = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    crate::agent_gate::set_gate_project_root(canonical);
+}
+
+/// 将已打开/创建的项目根加入 WebView `assetProtocol` 动态目录白名单（R-4v2）。
+/// 仅追加允许目录，严禁调用 `forbid_directory`（否则切回已访问项目会被永久禁止）。
+fn allow_project_asset_scope(app: &AppHandle, root: &Path) {
+    use tauri::Manager;
+    let scope = app.asset_protocol_scope();
+    match fs::canonicalize(root) {
+        Ok(canonical) => {
+            if let Err(e) = scope.allow_directory(&canonical, true) {
+                log::warn!(
+                    "[asset-scope] failed to allow canonical directory '{}': {e}",
+                    canonical.display()
+                );
+            }
+            // Windows 上 `fs::canonicalize` 返回 `\\?\` 逐字路径；同时注册去除前缀的常规形态，
+            // 确保前端 `convertFileSrc` 与底层作用域比对在双模式下均可命中。
+            #[cfg(windows)]
+            {
+                let canonical_str = canonical.to_string_lossy();
+                let plain = if let Some(unc) = canonical_str.strip_prefix(r"\\?\UNC\") {
+                    Some(PathBuf::from(format!(r"\\{unc}")))
+                } else {
+                    canonical_str.strip_prefix(r"\\?\").map(PathBuf::from)
+                };
+                if let Some(plain) = plain.filter(|p| p != &canonical) {
+                    if let Err(e) = scope.allow_directory(&plain, true) {
+                        log::warn!(
+                            "[asset-scope] failed to allow normalized directory '{}': {e}",
+                            plain.display()
+                        );
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!(
+                "[asset-scope] canonicalize failed for '{}', falling back to raw root: {e}",
+                root.display()
+            );
+            if let Err(allow_err) = scope.allow_directory(root, true) {
+                log::warn!(
+                    "[asset-scope] failed to allow fallback directory '{}': {allow_err}",
+                    root.display()
+                );
+            }
+        }
+    }
+}
+
 // ── Implementation: create_project ──────────────────────────────────────────
 
 pub fn create_project_impl(name: String, path: String) -> Result<WikiProject, String> {
-    let root = Path::new(&path).join(&name);
+    let safe_name =
+        crate::agent_gate_policy::validate_safe_single_segment(&name, "project name")?.to_string();
 
-    if root.exists() {
-        return Err(format!("目录已存在：'{}'", root.display()));
+    if path.trim().is_empty() {
+        return Err("项目父目录路径不能为空".to_string());
+    }
+    if path.chars().any(|c| c == '\0' || c.is_control()) {
+        return Err("项目父目录路径不允许包含控制字符或 NUL".to_string());
+    }
+    let parent_path = Path::new(&path);
+    if path.replace('\\', "/").split('/').any(|seg| seg == "..")
+        || parent_path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(format!("项目父目录路径不允许包含 '..'：'{path}'"));
+    }
+    // 沿完整祖先链向上回溯直至根目录，拒绝路径中任意已存在祖先为符号链接或 Windows Junction，
+    // 并验证最深已存在祖先必须是普通目录（移除命中首个已存在祖先即 break 的短路漏洞）。
+    let mut existing_ancestor: Option<&Path> = Some(parent_path);
+    let mut checked_deepest_existing = false;
+    while let Some(candidate) = existing_ancestor {
+        #[cfg(target_os = "macos")]
+        if matches!(candidate.to_str(), Some("/var" | "/tmp" | "/etc")) {
+            existing_ancestor = candidate.parent().filter(|p| !p.as_os_str().is_empty());
+            continue;
+        }
+        match fs::symlink_metadata(candidate) {
+            Ok(meta) => {
+                if crate::agent_gate_policy::metadata_is_symlink_or_reparse_point(&meta) {
+                    return Err(format!(
+                        "项目父目录不允许为符号链接或重解析点：'{}'",
+                        candidate.display()
+                    ));
+                }
+                if !checked_deepest_existing {
+                    if !meta.is_dir() {
+                        return Err(format!("项目父路径不是目录：'{}'", candidate.display()));
+                    }
+                    checked_deepest_existing = true;
+                }
+                existing_ancestor = candidate.parent().filter(|p| !p.as_os_str().is_empty());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                existing_ancestor = candidate.parent().filter(|p| !p.as_os_str().is_empty());
+            }
+            Err(e) => {
+                return Err(format!(
+                    "检查项目父目录 '{}' 失败：{}",
+                    candidate.display(),
+                    e
+                ));
+            }
+        }
+    }
+
+    let root = parent_path.join(&safe_name);
+
+    match fs::symlink_metadata(&root) {
+        Ok(meta) => {
+            if crate::agent_gate_policy::metadata_is_symlink_or_reparse_point(&meta) {
+                return Err(format!(
+                    "目标项目路径不允许为符号链接或重解析点：'{}'",
+                    root.display()
+                ));
+            }
+            return Err(format!("目录已存在：'{}'", root.display()));
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(format!("检查项目目标路径 '{}' 失败：{}", root.display(), e));
+        }
     }
 
     // Bootstrap the standard directory layout.
@@ -116,6 +254,8 @@ pub fn create_project_impl(name: String, path: String) -> Result<WikiProject, St
     // .obsidian — compatibility layer for Obsidian users
     bootstrap_obsidian_config(&root)?;
 
+    bind_gate_project_root(&root);
+
     Ok(WikiProject {
         name,
         // Normalise to forward slashes so the TS layer gets a consistent path.
@@ -130,6 +270,8 @@ fn open_project_impl(app: &AppHandle, path: &str) -> Result<WikiProject, String>
 
     validate_wiki_project_root(root)?;
     migrate_project_dirs(root)?;
+    bind_gate_project_root(root);
+    allow_project_asset_scope(app, root);
 
     // 架构-1：启动（或切换）status.json 独立监听。失败不阻断项目打开
     // （仅日志降级）——事件监听是增强能力，不是打开项目的硬依赖。
@@ -497,17 +639,21 @@ fn rollback_merges(records: &[MergeRecord]) -> usize {
     let mut rolled_back = 0usize;
     for record in records.iter().rev() {
         for (src, backup) in record.backed_up.iter().rev() {
-            if backup.exists() && !src.exists() && ensure_parent_dir(src).is_ok() {
-                if fs::rename(backup, src).is_ok() {
-                    rolled_back += 1;
-                }
+            if backup.exists()
+                && !src.exists()
+                && ensure_parent_dir(src).is_ok()
+                && fs::rename(backup, src).is_ok()
+            {
+                rolled_back += 1;
             }
         }
         for (src, dst) in record.moved_in.iter().rev() {
-            if dst.exists() && !src.exists() && ensure_parent_dir(src).is_ok() {
-                if fs::rename(dst, src).is_ok() {
-                    rolled_back += 1;
-                }
+            if dst.exists()
+                && !src.exists()
+                && ensure_parent_dir(src).is_ok()
+                && fs::rename(dst, src).is_ok()
+            {
+                rolled_back += 1;
             }
         }
     }
@@ -1474,5 +1620,185 @@ mod migration_tests {
             "current-version",
             "新目录版本不受影响"
         );
+    }
+
+    // ── R-4v2：Capabilities 精简与 assetProtocol 作用域契约 ───────────────
+
+    #[test]
+    fn capabilities_default_excludes_unused_window_creation_permissions() {
+        let cap_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities/default.json");
+        let raw = fs::read_to_string(&cap_path).expect("read capabilities/default.json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&raw).expect("parse capabilities/default.json");
+        let permissions = parsed
+            .get("permissions")
+            .and_then(|v| v.as_array())
+            .expect("permissions array");
+        for forbidden in [
+            "core:window:allow-create",
+            "core:webview:allow-create-webview-window",
+        ] {
+            assert!(
+                !permissions.iter().any(|p| p.as_str() == Some(forbidden)),
+                "capabilities/default.json 不得包含未使用的高危窗口创建权限: {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn tauri_conf_asset_protocol_scope_excludes_wildcard_all() {
+        let conf_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
+        let raw = fs::read_to_string(&conf_path).expect("read tauri.conf.json");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).expect("parse tauri.conf.json");
+        let asset_protocol = parsed
+            .pointer("/app/security/assetProtocol")
+            .expect("app.security.assetProtocol");
+        assert_eq!(
+            asset_protocol.get("enable").and_then(|v| v.as_bool()),
+            Some(true),
+            "assetProtocol.enable 须保持启用以便按项目动态放行"
+        );
+        let scope = asset_protocol
+            .get("scope")
+            .and_then(|v| v.as_array())
+            .expect("assetProtocol.scope array");
+        assert!(
+            !scope.iter().any(|entry| entry.as_str() == Some("**")),
+            "assetProtocol.scope 不得包含全盘通配 \"**\""
+        );
+        assert!(
+            scope.is_empty(),
+            "assetProtocol.scope 静态白名单应为空，由项目打开/创建时动态放行: {scope:?}"
+        );
+    }
+
+    #[test]
+    fn create_project_impl_rejects_traversal_reserved_names_and_bad_parent_paths() {
+        let _serial = crate::agent_gate::gate_test_serial();
+        let parent = TempRoot::new("r2-s13-proj");
+        let parent_str = parent.path().to_string_lossy().to_string();
+
+        for bad_name in [
+            "",
+            "   ",
+            " lead",
+            "trail ",
+            ".",
+            "..",
+            "../escape",
+            "a/b",
+            r"a\b",
+            "CON",
+            "nul.md",
+            "COM1",
+            "bad.",
+            "a:b",
+            "a\0b",
+        ] {
+            assert!(
+                create_project_impl(bad_name.to_string(), parent_str.clone()).is_err(),
+                "非法项目名必须拒绝: {bad_name:?}"
+            );
+        }
+
+        for bad_parent in [
+            "".to_string(),
+            "   ".to_string(),
+            format!("{parent_str}\0tail"),
+            format!("{parent_str}/../escape"),
+        ] {
+            assert!(
+                create_project_impl("valid-book".to_string(), bad_parent.clone()).is_err(),
+                "非法父路径必须拒绝: {bad_parent:?}"
+            );
+        }
+
+        // 若首个已存在祖先是普通文件或符号链接/Junction，即使父路径下含多层尚未创建的子目录也必须拒绝。
+        let blocker_file = parent.path().join("not-a-dir");
+        fs::write(&blocker_file, "x").unwrap();
+        let under_file = blocker_file.join("nested").join("sub");
+        assert!(create_project_impl(
+            "valid-book".to_string(),
+            under_file.to_string_lossy().into()
+        )
+        .is_err());
+
+        let outside = TempRoot::new("r2-s13-outside");
+        let link_ancestor = parent.path().join("linked-ancestor");
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(outside.path(), &link_ancestor).is_ok();
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_dir(outside.path(), &link_ancestor).is_ok()
+            || std::process::Command::new("cmd")
+                .args([
+                    "/c",
+                    "mklink",
+                    "/J",
+                    &link_ancestor.to_string_lossy(),
+                    &outside.path().to_string_lossy(),
+                ])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+        if linked {
+            let nested_under_link = link_ancestor.join("uncreated").join("deep");
+            assert!(
+                create_project_impl(
+                    "valid-book".to_string(),
+                    nested_under_link.to_string_lossy().into(),
+                )
+                .is_err(),
+                "经由符号链接/Junction 祖先建目录必须拒绝"
+            );
+            assert!(!outside.path().join("uncreated").exists());
+            #[cfg(windows)]
+            let _ = fs::remove_dir(&link_ancestor);
+        }
+    }
+
+    #[test]
+    fn create_project_impl_rejects_higher_ancestor_symlink_through_existing_subdir() {
+        let _serial = crate::agent_gate::gate_test_serial();
+        let parent = TempRoot::new("r3-proj-high-link");
+        let outside = TempRoot::new("r3-proj-high-outside");
+        let existing_sub = outside.path().join("existing-real-dir");
+        fs::create_dir_all(&existing_sub).unwrap();
+
+        let link_ancestor = parent.path().join("linked-high-ancestor");
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(outside.path(), &link_ancestor).is_ok();
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_dir(outside.path(), &link_ancestor).is_ok()
+            || std::process::Command::new("cmd")
+                .args([
+                    "/c",
+                    "mklink",
+                    "/J",
+                    &link_ancestor.to_string_lossy(),
+                    &outside.path().to_string_lossy(),
+                ])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+
+        if linked {
+            // 首个已存在祖先 existing-real-dir 是普通目录，但更高层祖先 linked-high-ancestor 是软链/Junction；
+            // 必须沿完整祖先链继续向上回溯并拦截，绝不可在首个已存在目录处短路放行。
+            let nested_under_existing = link_ancestor
+                .join("existing-real-dir")
+                .join("uncreated")
+                .join("deep");
+            let err = create_project_impl(
+                "escape-book".to_string(),
+                nested_under_existing.to_string_lossy().into(),
+            )
+            .expect_err("高层祖先为符号链接/Junction 时必须拒绝建项目");
+            assert!(err.contains("符号链接或重解析点"), "{err}");
+            assert!(!existing_sub.join("uncreated").exists());
+            #[cfg(windows)]
+            let _ = fs::remove_dir(&link_ancestor);
+        }
     }
 }

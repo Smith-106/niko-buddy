@@ -8,8 +8,11 @@
 //!   - 章节正文为 XHTML5，标题转义，段落按空行切分。
 
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::io::{Cursor, Write};
+use std::path::Path;
 use tauri::{AppHandle, Emitter};
+
+use crate::panic_guard::run_guarded;
 
 use super::docx_export::{split_body_paragraphs, NovelChapter};
 
@@ -106,64 +109,75 @@ pub fn build_and_write_epub_with_meta(
     if chapters.is_empty() {
         return Err("EPUB 导出失败：章节列表为空".to_string());
     }
-    let file = std::fs::File::create(export_path)
-        .map_err(|e| format!("EPUB 导出失败：无法创建文件 {export_path}: {e}"))?;
-    let mut zip = zip::ZipWriter::new(file);
-    let options = zip::write::SimpleFileOptions::default();
+    if export_path.trim().is_empty() {
+        return Err("EPUB 导出失败：导出路径不能为空".to_string());
+    }
+    let target = Path::new(export_path);
+    crate::pdf_export::assert_standalone_export_path_safe(target)
+        .map_err(|e| format!("EPUB 导出失败：{e}"))?;
 
-    // 1) mimetype 必须 stored（EPUB3 规范硬性要求）
-    zip.start_file(
-        "mimetype",
-        options.compression_method(zip::CompressionMethod::Stored),
-    )
-    .map_err(|e| format!("EPUB 导出失败：mimetype 写入错误: {e}"))?;
-    zip.write_all(b"application/epub+zip")
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        let options = zip::write::SimpleFileOptions::default();
+
+        // 1) mimetype 必须 stored（EPUB3 规范硬性要求）
+        zip.start_file(
+            "mimetype",
+            options.compression_method(zip::CompressionMethod::Stored),
+        )
         .map_err(|e| format!("EPUB 导出失败：mimetype 写入错误: {e}"))?;
+        zip.write_all(b"application/epub+zip")
+            .map_err(|e| format!("EPUB 导出失败：mimetype 写入错误: {e}"))?;
 
-    // 2) container.xml
-    zip.start_file("META-INF/container.xml", options)
-        .map_err(|e| format!("EPUB 导出失败：container.xml 写入错误: {e}"))?;
-    zip.write_all(
-        br#"<?xml version="1.0" encoding="UTF-8"?>
+        // 2) container.xml
+        zip.start_file("META-INF/container.xml", options)
+            .map_err(|e| format!("EPUB 导出失败：container.xml 写入错误: {e}"))?;
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
 </container>"#,
-    )
-    .map_err(|e| format!("EPUB 导出失败：container.xml 写入错误: {e}"))?;
+        )
+        .map_err(|e| format!("EPUB 导出失败：container.xml 写入错误: {e}"))?;
 
-    // 3) content.opf（manifest + spine 按章节顺序；nav 文档满足 EPUB3 规范）
-    let manifest: String = chapters
-        .iter()
-        .enumerate()
-        .map(|(i, _)| format!(r#"<item id="ch{i}" href="chapters/ch{i}.xhtml" media-type="application/xhtml+xml"/>"#))
-        .collect::<Vec<_>>()
-        .join("\n    ");
-    let nav_items: String = chapters
-        .iter()
-        .enumerate()
-        .map(|(i, c)| {
-            let title = escape_xml(&c.title);
-            format!(r#"<li><a href="chapters/ch{i}.xhtml">{title}</a></li>"#)
-        })
-        .collect::<Vec<_>>()
-        .join("\n      ");
-    let spine: String = chapters
-        .iter()
-        .enumerate()
-        .map(|(i, _)| format!(r#"<itemref idref="ch{i}"/>"#))
-        .collect::<Vec<_>>()
-        .join("\n    ");
-    let book_title = escape_xml(&meta.title());
-    let book_lang = escape_xml(&meta.language());
-    let book_id = escape_xml(&meta.identifier());
-    let author_el = match meta.author() {
-        Some(a) => format!("\n    <dc:creator>{}</dc:creator>", escape_xml(&a)),
-        None => String::new(),
-    };
-    let opf = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
+        // 3) content.opf（manifest + spine 按章节顺序；nav 文档满足 EPUB3 规范）
+        let manifest: String = chapters
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                format!(
+                    r#"<item id="ch{i}" href="chapters/ch{i}.xhtml" media-type="application/xhtml+xml"/>"#
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n    ");
+        let nav_items: String = chapters
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let title = escape_xml(&c.title);
+                format!(r#"<li><a href="chapters/ch{i}.xhtml">{title}</a></li>"#)
+            })
+            .collect::<Vec<_>>()
+            .join("\n      ");
+        let spine: String = chapters
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!(r#"<itemref idref="ch{i}"/>"#))
+            .collect::<Vec<_>>()
+            .join("\n    ");
+        let book_title = escape_xml(&meta.title());
+        let book_lang = escape_xml(&meta.language());
+        let book_id = escape_xml(&meta.identifier());
+        let author_el = match meta.author() {
+            Some(a) => format!("\n    <dc:creator>{}</dc:creator>", escape_xml(&a)),
+            None => String::new(),
+        };
+        let opf = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="bookid">{book_id}</dc:identifier>
@@ -178,15 +192,15 @@ pub fn build_and_write_epub_with_meta(
     {spine}
   </spine>
 </package>"#
-    );
-    zip.start_file("OEBPS/content.opf", options)
-        .map_err(|e| format!("EPUB 导出失败：content.opf 写入错误: {e}"))?;
-    zip.write_all(opf.as_bytes())
-        .map_err(|e| format!("EPUB 导出失败：content.opf 写入错误: {e}"))?;
+        );
+        zip.start_file("OEBPS/content.opf", options)
+            .map_err(|e| format!("EPUB 导出失败：content.opf 写入错误: {e}"))?;
+        zip.write_all(opf.as_bytes())
+            .map_err(|e| format!("EPUB 导出失败：content.opf 写入错误: {e}"))?;
 
-    // 3b) nav.xhtml（EPUB3 规范要求 manifest 含 nav 文档，epubcheck 否则报 ERROR）
-    let nav = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
+        // 3b) nav.xhtml（EPUB3 规范要求 manifest 含 nav 文档，epubcheck 否则报 ERROR）
+        let nav = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh-CN">
 <head><title>目录</title></head>
@@ -199,21 +213,21 @@ pub fn build_and_write_epub_with_meta(
 </nav>
 </body>
 </html>"#
-    );
-    zip.start_file("OEBPS/nav.xhtml", options)
-        .map_err(|e| format!("EPUB 导出失败：nav.xhtml 写入错误: {e}"))?;
-    zip.write_all(nav.as_bytes())
-        .map_err(|e| format!("EPUB 导出失败：nav.xhtml 写入错误: {e}"))?;
+        );
+        zip.start_file("OEBPS/nav.xhtml", options)
+            .map_err(|e| format!("EPUB 导出失败：nav.xhtml 写入错误: {e}"))?;
+        zip.write_all(nav.as_bytes())
+            .map_err(|e| format!("EPUB 导出失败：nav.xhtml 写入错误: {e}"))?;
 
-    // 4) 章节 XHTML（标题转义 + 空行切段；单段超长按中文句读兜底切分）
-    for (i, chapter) in chapters.iter().enumerate() {
-        let title = escape_xml(&chapter.title);
-        let paragraphs: Vec<String> = split_body_paragraphs(&chapter.body)
-            .iter()
-            .map(|p| format!("<p>{}</p>", escape_xml(p)))
-            .collect();
-        let xhtml = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
+        // 4) 章节 XHTML（标题转义 + 空行切段；单段超长按中文句读兜底切分）
+        for (i, chapter) in chapters.iter().enumerate() {
+            let title = escape_xml(&chapter.title);
+            let paragraphs: Vec<String> = split_body_paragraphs(&chapter.body)
+                .iter()
+                .map(|p| format!("<p>{}</p>", escape_xml(p)))
+                .collect();
+            let xhtml = format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN">
 <head><title>{title}</title></head>
@@ -222,19 +236,35 @@ pub fn build_and_write_epub_with_meta(
 {}
 </body>
 </html>"#,
-            paragraphs.join("\n")
-        );
-        zip.start_file(format!("OEBPS/chapters/ch{i}.xhtml"), options)
-            .map_err(|e| format!("EPUB 导出失败：章节 {i} 写入错误: {e}"))?;
-        zip.write_all(xhtml.as_bytes())
-            .map_err(|e| format!("EPUB 导出失败：章节 {i} 写入错误: {e}"))?;
-        if let Some(report) = progress {
-            report(i + 1, chapters.len());
+                paragraphs.join("\n")
+            );
+            zip.start_file(format!("OEBPS/chapters/ch{i}.xhtml"), options)
+                .map_err(|e| format!("EPUB 导出失败：章节 {i} 写入错误: {e}"))?;
+            zip.write_all(xhtml.as_bytes())
+                .map_err(|e| format!("EPUB 导出失败：章节 {i} 写入错误: {e}"))?;
+            if let Some(report) = progress {
+                report(i + 1, chapters.len());
+            }
         }
+
+        zip.finish()
+            .map_err(|e| format!("EPUB 导出失败：ZIP 收尾错误: {e}"))?;
     }
 
-    zip.finish()
-        .map_err(|e| format!("EPUB 导出失败：ZIP 收尾错误: {e}"))?;
+    let bytes = cursor.into_inner();
+    {
+        let _mutation = crate::commands::fs::lock_file_mutations()
+            .map_err(|e| format!("EPUB 导出失败：{e}"))?;
+        crate::pdf_export::assert_standalone_export_path_safe(target)
+            .map_err(|e| format!("EPUB 导出失败：{e}"))?;
+        if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("EPUB 导出失败：无法创建目录 {}: {e}", parent.display()))?;
+        }
+        crate::commands::fs::write_atomic_physical_bytes(target, &bytes)
+            .map_err(|e| format!("EPUB 导出失败：无法写入文件 {export_path}: {e}"))?;
+    }
+
     Ok(EpubExportResult {
         success: true,
         exported_path: export_path.to_string(),
@@ -243,13 +273,30 @@ pub fn build_and_write_epub_with_meta(
     })
 }
 
-/// XML 转义（标题/正文中的 & < > " 等）。
+fn is_valid_xml10_char(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x09 | 0x0A | 0x0D | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF
+    )
+}
+
+/// XML 1.0 转义与非法控制字符剔除（剔除 XML 1.0 非法字符并转义 `& < > " '`）。
 fn escape_xml(input: &str) -> String {
-    input
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+    let mut out = String::with_capacity(input.len());
+    for c in input.chars() {
+        if !is_valid_xml10_char(c) {
+            continue;
+        }
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// 导出命令（与 export_novel_docx 同构，emit `epub-export-progress` 供进度条）。
@@ -271,13 +318,15 @@ pub async fn export_novel_epub(
     // 进度由构建侧按章上报，转为真实分片进度（命令签名/事件名不变）。
     let app_task = app.clone();
     tokio::task::spawn_blocking(move || {
-        let report = |current: usize, total: usize| {
-            let _ = app_task.emit(
-                "epub-export-progress",
-                serde_json::json!({ "current": current, "total": total }),
-            );
-        };
-        build_and_write_epub_with_meta(&chapters, &export_path, &m, Some(&report))
+        run_guarded("export_novel_epub", || {
+            let report = |current: usize, total: usize| {
+                let _ = app_task.emit(
+                    "epub-export-progress",
+                    serde_json::json!({ "current": current, "total": total }),
+                );
+            };
+            build_and_write_epub_with_meta(&chapters, &export_path, &m, Some(&report))
+        })
     })
     .await
     .map_err(|e| format!("EPUB 导出失败：构建任务异常: {e}"))?
@@ -459,5 +508,50 @@ mod tests {
         assert!(opf.contains("<dc:language>zh-TW</dc:language>"));
         assert!(opf.contains("urn:uuid:fixed-test-id"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn escape_xml_strips_illegal_xml10_control_chars_and_escapes_apostrophe() {
+        let raw = "A\x00B\x08C\tD\nE\x0BF\x0CG\rH\x1FI\u{FFFE}J\u{FFFF}K 'single' & <tag> \"q\"";
+        let escaped = escape_xml(raw);
+        assert_eq!(
+            escaped,
+            "ABC\tD\nEFG\rHIJK &apos;single&apos; &amp; &lt;tag&gt; &quot;q&quot;"
+        );
+    }
+
+    #[test]
+    fn epub_export_rejects_data_section_targets() {
+        let base = std::env::temp_dir().join(format!("niko-epub-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let project = base.join("book-proj");
+        std::fs::create_dir_all(project.join(".novel")).unwrap();
+
+        for bad in [
+            project.join("QM/book.epub").to_string_lossy().to_string(),
+            project.join("wiki/book.epub").to_string_lossy().to_string(),
+            project
+                .join("backups/book.epub")
+                .to_string_lossy()
+                .to_string(),
+            ".novel/book.epub".to_string(),
+            ".niko-buddy/book.epub".to_string(),
+            "../escape.epub".to_string(),
+        ] {
+            assert!(
+                build_and_write_epub(&chapters_fixture(), &bad).is_err(),
+                "expected epub export to reject {bad:?}"
+            );
+        }
+
+        // 项目外合法目录（如 wiki/book.epub）应放行并成功写入
+        let ext_wiki = base.join("wiki");
+        std::fs::create_dir_all(&ext_wiki).unwrap();
+        let ok_path = ext_wiki.join("book.epub");
+        let res = build_and_write_epub(&chapters_fixture(), ok_path.to_str().unwrap())
+            .expect("项目外 wiki/book.epub 应放行");
+        assert!(res.success);
+        assert!(ok_path.is_file());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

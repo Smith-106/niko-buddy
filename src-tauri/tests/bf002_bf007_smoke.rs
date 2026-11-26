@@ -352,14 +352,13 @@ fn bf002_snapshot_restore_real_project() {
         ".novel/snapshots/t1/projection-status.json",
         "{\"state\":\"T1\"}\n",
     );
-    let mut perms = std::fs::metadata(&projection).expect("meta").permissions();
-    perms.set_readonly(true);
-    std::fs::set_permissions(&projection, perms).expect("set readonly");
+    let orig_perms = std::fs::metadata(&projection).expect("meta").permissions();
+    let mut ro_perms = orig_perms.clone();
+    ro_perms.set_readonly(true);
+    std::fs::set_permissions(&projection, ro_perms).expect("set readonly");
     let rolled = snapshot::snapshot_restore_atomic(&root, "t1", "smoke-confirm-2");
     println!("[5] 只读目标下的恢复 -> {:?}", rolled.as_ref().err());
-    let mut perms = std::fs::metadata(&projection).expect("meta").permissions();
-    perms.set_readonly(false);
-    std::fs::set_permissions(&projection, perms).expect("restore perms");
+    std::fs::set_permissions(&projection, orig_perms).expect("restore perms");
     assert!(rolled.is_err(), "目标不可替换时恢复必须失败");
     assert_eq!(
         read(&root, STATUS),

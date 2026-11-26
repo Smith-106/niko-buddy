@@ -480,8 +480,8 @@ impl CanonEdge {
     /// 该边在 `at_chapter` 时是否有效（世界时态过滤）。
     /// valid_at <= at_chapter < invalid_at（None 边界视为开放）。
     pub fn is_valid_at(&self, at_chapter: i32) -> bool {
-        let after_start = self.valid_at.map_or(true, |v| v <= at_chapter);
-        let before_end = self.invalid_at.map_or(true, |inv| at_chapter < inv);
+        let after_start = self.valid_at.is_none_or(|v| v <= at_chapter);
+        let before_end = self.invalid_at.is_none_or(|inv| at_chapter < inv);
         after_start && before_end
     }
 
@@ -496,8 +496,8 @@ impl CanonEdge {
     /// created_at <= at_time < expired_at（None 边界视为开放）。
     /// 语义：查「某系统时刻该事实的当前版本」（bi-temporal as-of 查询）。
     pub fn is_effective_at(&self, at_time: i64) -> bool {
-        let after_start = self.created_at.map_or(true, |c| c <= at_time);
-        let before_end = self.expired_at.map_or(true, |x| at_time < x);
+        let after_start = self.created_at.is_none_or(|c| c <= at_time);
+        let before_end = self.expired_at.is_none_or(|x| at_time < x);
         after_start && before_end
     }
 
@@ -693,7 +693,18 @@ pub struct ColumnSpec {
     pub table: &'static str,
     pub name: &'static str,
     pub lance_type: LanceType,
+    /// `add_columns` 优先使用的默认填充 SQL 表达式；`None` 时回退 `self.lance_type.null_cast_expr()`。
+    pub default_expr: Option<&'static str>,
     pub description: &'static str,
+}
+
+impl ColumnSpec {
+    /// 返回 `Table::add_columns` 使用的 SQL 表达式：优先 `default_expr`，
+    /// 缺省回退 `self.lance_type.null_cast_expr()`。
+    pub fn add_column_expr(&self) -> &'static str {
+        self.default_expr
+            .unwrap_or_else(|| self.lance_type.null_cast_expr())
+    }
 }
 
 /// 一条 schema 迁移（纯 additive）。
@@ -710,19 +721,22 @@ pub static MIGRATION_V2_ARCHIVED: &[ColumnSpec] = &[
         table: CANON_TABLE_ENTITIES,
         name: "archived",
         lance_type: LanceType::Boolean,
-        description: "archived 软删除标志位（预留，默认 NULL→视作 false）",
+        default_expr: Some("CAST(false AS boolean)"),
+        description: "archived 软删除标志位（预留，默认 false）",
     },
     ColumnSpec {
         table: CANON_TABLE_EDGES,
         name: "archived",
         lance_type: LanceType::Boolean,
-        description: "archived 软删除标志位（预留）",
+        default_expr: Some("CAST(false AS boolean)"),
+        description: "archived 软删除标志位（预留，默认 false）",
     },
     ColumnSpec {
         table: CANON_TABLE_EPISODES,
         name: "archived",
         lance_type: LanceType::Boolean,
-        description: "archived 软删除标志位（预留）",
+        default_expr: Some("CAST(false AS boolean)"),
+        description: "archived 软删除标志位（预留，默认 false）",
     },
 ];
 
@@ -732,24 +746,28 @@ pub static MIGRATION_V3_EMBEDDING: &[ColumnSpec] = &[
         table: CANON_TABLE_ENTITIES,
         name: "embedding_model",
         lance_type: LanceType::Utf8,
+        default_expr: None,
         description: "嵌入模型名注记（T04 §3 裁决：换模型需重建索引）",
     },
     ColumnSpec {
         table: CANON_TABLE_ENTITIES,
         name: "embedding_version",
         lance_type: LanceType::Utf8,
+        default_expr: None,
         description: "嵌入模型版本注记",
     },
     ColumnSpec {
         table: CANON_TABLE_EPISODES,
         name: "embedding_model",
         lance_type: LanceType::Utf8,
+        default_expr: None,
         description: "嵌入模型名注记（episode 摘要向量）",
     },
     ColumnSpec {
         table: CANON_TABLE_EPISODES,
         name: "embedding_version",
         lance_type: LanceType::Utf8,
+        default_expr: None,
         description: "嵌入模型版本注记",
     },
 ];
@@ -763,6 +781,7 @@ pub static MIGRATION_V4_BITEMPORAL: &[ColumnSpec] = &[
         table: CANON_TABLE_EDGES,
         name: "created_at",
         lance_type: LanceType::Int64,
+        default_expr: None,
         description:
             "事务开始时间（记录创建/生效的真实时间戳 unix seconds；bi-temporal 系统时间轴）",
     },
@@ -770,6 +789,7 @@ pub static MIGRATION_V4_BITEMPORAL: &[ColumnSpec] = &[
         table: CANON_TABLE_EDGES,
         name: "expired_at",
         lance_type: LanceType::Int64,
+        default_expr: None,
         description: "事务结束时间（被 supersede/invalidate 后置入；NULL=当前有效版本）",
     },
 ];
@@ -1239,7 +1259,7 @@ mod tests {
 
     #[test]
     fn canon_ingest_digest_dedup() {
-        let existing = vec![(1, "d1".into()), (2, "d2".into())];
+        let existing = [(1, "d1".into()), (2, "d2".into())];
         assert!(ingest_digest_exists(existing.iter().cloned(), 1, "d1"));
         assert!(
             !ingest_digest_exists(existing.iter().cloned(), 1, "d2"),
@@ -1333,7 +1353,7 @@ mod tests {
         );
         assert!(sel
             .iter()
-            .all(|e| e.recorded_revision.map_or(true, |r| r <= 5)));
+            .all(|e| e.recorded_revision.is_none_or(|r| r <= 5)));
 
         // None 过滤：全部保留（不过滤）。
         assert_eq!(CanonEdgeFilter::default().select(&all).len(), 3);

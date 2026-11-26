@@ -22,10 +22,10 @@
 //!   1. **`project_id` 进每个命令签名**（首参）：canon DB 路径 =
 //!      `{project_id}/.niko-buddy/lancedb`，每项目一库（T11 约定）。
 //!   2. **无跨库 join**：每条命令只操作单个 `project_id` 的库，绝不在一次
-//!     invoke 内跨项目读取/合并。多项目聚合由编排层（TS）在 invoke 之外完成。
+//!      invoke 内跨项目读取/合并。多项目聚合由编排层（TS）在 invoke 之外完成。
 //!   3. **`status.json` 单实例锁**：本模块以「每项目一条 `tokio::sync::Mutex`
-//!     写锁」守写路径串行化（同项目写不并发），等价于 status.json 单实例锁
-//!     契约（ADR-16）。读路径不加锁（只读，可并发）。
+//!      写锁」守写路径串行化（同项目写不并发），等价于 status.json 单实例锁
+//!      契约（ADR-16）。读路径不加锁（只读，可并发）。
 //!
 //! ## 依赖边界（Niko Buddy 执行纪律）
 //!   - 仅包装 T11 [`crate::canon::store::CanonStore`]（结构化时态/认知
@@ -62,33 +62,109 @@ pub(crate) use super::commands_core::{
 };
 
 // ──────────────────────────────────────────────────────────────────────────
+// 项目键归一化（M2-01：避免不同路径写法分裂锁槽与 revision 缓存）
+// ──────────────────────────────────────────────────────────────────────────
+
+/// 归一化 `project_id` 作为进程级缓存与写锁键：
+/// - 裁剪首尾空白、`\` 统一为 `/`；
+/// - 剥离 Windows 扩展长度前缀（`//?/UNC/` → `//`，`//?/` → ``）；
+/// - 折叠多余连续 `/`（保留 UNC 前导 `//`）；
+/// - 去除非根尾 `/`（保留 `/`、`//` 与 Windows 盘符根 `X:/`）；
+/// - Windows 平台统一转为小写。
+pub(crate) fn normalize_project_key(project_id: &str) -> String {
+    let replaced = project_id.trim().replace('\\', "/");
+    if replaced.is_empty() {
+        return String::new();
+    }
+
+    let (preserve_unc, body): (bool, &str) = if replaced
+        .get(..8)
+        .is_some_and(|p| p.eq_ignore_ascii_case("//?/UNC/"))
+    {
+        (true, &replaced[8..])
+    } else if let Some(rest) = replaced.strip_prefix("//?/") {
+        (false, rest)
+    } else if replaced.starts_with("//") && !replaced.starts_with("///") {
+        (true, &replaced[2..])
+    } else {
+        (false, replaced.as_str())
+    };
+
+    let mut collapsed = String::with_capacity(replaced.len());
+    if preserve_unc {
+        collapsed.push_str("//");
+    }
+    let body_iter = if preserve_unc {
+        body.trim_start_matches('/')
+    } else {
+        body
+    };
+    let mut prev_slash = false;
+    for ch in body_iter.chars() {
+        if ch == '/' {
+            if !prev_slash {
+                collapsed.push('/');
+                prev_slash = true;
+            }
+        } else {
+            collapsed.push(ch);
+            prev_slash = false;
+        }
+    }
+
+    let is_drive_root = |s: &str| {
+        let b = s.as_bytes();
+        b.len() == 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'/'
+    };
+    while collapsed.ends_with('/')
+        && collapsed != "/"
+        && collapsed != "//"
+        && !is_drive_root(&collapsed)
+    {
+        collapsed.pop();
+    }
+
+    #[cfg(windows)]
+    let collapsed = collapsed.to_lowercase();
+
+    collapsed
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // 多项目契约状态（managed by lib.rs）
 // ──────────────────────────────────────────────────────────────────────────
 
-/// T13 命令管理的进程级状态：每项目 revision 计数 + 每项目写锁。
+/// 每项目累计写入次数达到此阈值后触发一次 best-effort `compact_tables()`。
+pub(crate) const COMPACTION_WRITE_THRESHOLD: u64 = 100;
+
+/// T13 命令管理的进程级状态：每项目 revision 计数 + 每项目写锁 + 写计数压实桶。
 ///
 /// - `revisions`：canon revision 计数（ingest/supersede 自增；读路径返回当前值
 ///   作 `max_revision`）。内存计数，进程内单调（与 T12 缓存失效语义对齐）。
 /// - `loaded`：已从持久化存储加载 revision 的项目集（避免重复加载）。
 /// - `project_locks`：每项目单实例写锁（守 status.json 单实例锁契约：同项目
 ///   写串行，无跨库 join）。
+/// - `write_counts`：每项目成功写入计数桶（T5 叶锁，达 `COMPACTION_WRITE_THRESHOLD`
+///   清零并由调用方在释放叶锁后执行 best-effort 压实）。
 ///
 /// ── A8 锁序不变式（2026-08-23 补写；原 1482881e 仅 message 声称，diff 无此文档）──
-/// 1. `loaded` → `revisions` 单向顺序：lazy_load_revision 先查 loaded（短持有，
-///    不跨 await），释放后再拿 revisions，最后重拿 loaded 标记。任何代码不得
-///    在持有 revisions 的同时获取 loaded（反向顺序 = 死锁面）。
+/// 1. `loaded` → `revisions` 单向顺序：lazy_load_revision 与 invalidate_project
+///    均先锁 `loaded` 再锁 `revisions`（短持有，不跨 await）。任何代码不得在持有
+///    revisions 的同时获取 loaded（反向顺序 = 死锁面）。
 /// 2. `project_locks` 为最外层：所有写路径（ingest/supersede/bump）先取
-///    project_locks，锁内才允许触碰 revisions/loaded。禁止在 revisions 持有
-///    期间获取 project_locks。
-/// 3. 不跨 await 持有任何 std Mutex（全部短持有；AsyncMutex 允许跨 await，
+///    project_locks，锁内才允许触碰 revisions/loaded/write_counts。禁止在
+///    revisions 或 write_counts 持有期间获取 project_locks。
+/// 3. `write_counts` 为独立 T5 叶锁（短持有、不跨 await、不与其他叶锁嵌套）。
+/// 4. 不跨 await 持有任何 std Mutex（全部短持有；AsyncMutex 允许跨 await，
 ///    但只用于 project_locks 且无嵌套获取）。
-/// 4. 本项目锁序与 TS 侧约定（novel-locks.ts「TS 锁在外 → Rust 命令在内」）
-///    共同构成单向嵌套：TS per-key 锁 → project_locks → loaded/revisions，
+/// 5. 本项目锁序与 TS 侧约定（novel-locks.ts「TS 锁在外 → Rust 命令在内」）
+///    共同构成单向嵌套：TS per-key 锁 → project_locks → loaded/revisions / write_counts，
 ///    不存在回环。
 ///
 /// DEBT-20260820-13 偿还：revision 持久化。bump_revision 后自动持久化到
 /// store 的 meta 表；current_revision 在首次访问时从 store 延迟加载。
 /// 进程重启后，TS 侧缓存从持久化 revision 预热。
+#[derive(Default)]
 pub struct CanonCommandState {
     /// 每项目 canon revision（ingest/supersede 自增）。
     revisions: Mutex<HashMap<String, u64>>,
@@ -96,93 +172,171 @@ pub struct CanonCommandState {
     loaded: Mutex<HashSet<String>>,
     /// 每项目单实例写锁（写路径串行化）。
     project_locks: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
-}
-
-impl Default for CanonCommandState {
-    fn default() -> Self {
-        Self {
-            revisions: Mutex::new(HashMap::new()),
-            loaded: Mutex::new(HashSet::new()),
-            project_locks: Mutex::new(HashMap::new()),
-        }
-    }
+    /// 每项目累计成功写入次数（T5 叶锁，仅用于触发周期性 compaction）。
+    write_counts: Mutex<HashMap<String, u64>>,
+    /// 单测用压实阈值覆写（0 表示使用默认 `COMPACTION_WRITE_THRESHOLD`）。
+    #[cfg(test)]
+    compaction_threshold_override: std::sync::atomic::AtomicU64,
 }
 
 impl CanonCommandState {
+    fn lock_revisions(&self) -> std::sync::MutexGuard<'_, HashMap<String, u64>> {
+        self.revisions.lock().unwrap_or_else(|poisoned| {
+            log::error!("[canon] revision lock poisoned; recovering");
+            poisoned.into_inner()
+        })
+    }
+
+    fn lock_loaded(&self) -> std::sync::MutexGuard<'_, HashSet<String>> {
+        self.loaded.lock().unwrap_or_else(|poisoned| {
+            log::error!("[canon] loaded set lock poisoned; recovering");
+            poisoned.into_inner()
+        })
+    }
+
+    fn lock_project_locks(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<String, Arc<AsyncMutex<()>>>> {
+        self.project_locks.lock().unwrap_or_else(|poisoned| {
+            log::error!("[canon] project lock map poisoned; recovering");
+            poisoned.into_inner()
+        })
+    }
+
+    fn lock_write_counts(&self) -> std::sync::MutexGuard<'_, HashMap<String, u64>> {
+        self.write_counts.lock().unwrap_or_else(|poisoned| {
+            log::error!("[canon] write_counts lock poisoned; recovering");
+            poisoned.into_inner()
+        })
+    }
+
+    fn compaction_threshold(&self) -> u64 {
+        #[cfg(test)]
+        {
+            let custom = self
+                .compaction_threshold_override
+                .load(std::sync::atomic::Ordering::Relaxed);
+            if custom > 0 {
+                return custom;
+            }
+        }
+        COMPACTION_WRITE_THRESHOLD
+    }
+
+    /// 累加该项目成功写入次数；达到压实阈值时清零当前项目桶并返回 `true`。
+    /// 严守 T5 叶锁语义：短临界区，绝不跨 `.await`。
+    pub(crate) fn record_writes_and_should_compact(&self, project_path: &str, delta: u64) -> bool {
+        if delta == 0 {
+            return false;
+        }
+        let key = normalize_project_key(project_path);
+        let threshold = self.compaction_threshold();
+        let mut counts = self.lock_write_counts();
+        let entry = counts.entry(key).or_insert(0);
+        *entry = entry.saturating_add(delta);
+        if *entry >= threshold {
+            *entry = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_compaction_threshold_for_test(&self, threshold: u64) {
+        self.compaction_threshold_override
+            .store(threshold, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn write_count_for_test(&self, project_path: &str) -> u64 {
+        let key = normalize_project_key(project_path);
+        *self.lock_write_counts().get(&key).unwrap_or(&0)
+    }
+
     /// 当前 revision（读路径用，无副作用）。
     /// 若该项目尚未从持久化存储加载，返回 0（调用方需在打开 store 后
     /// 调用 `lazy_load_revision` 补充）。
     pub fn current_revision(&self, project_id: &str) -> u64 {
-        *self
-            .revisions
-            .lock()
-            .expect("revision lock poisoned")
-            .get(project_id)
-            .unwrap_or(&0)
+        let key = normalize_project_key(project_id);
+        *self.lock_revisions().get(&key).unwrap_or(&0)
     }
 
     /// 是否已从持久化存储加载过 revision。
     pub fn is_loaded(&self, project_id: &str) -> bool {
-        self.loaded
-            .lock()
-            .expect("loaded set poisoned")
-            .contains(project_id)
+        let key = normalize_project_key(project_id);
+        self.lock_loaded().contains(&key)
     }
 
     /// 从持久化存储延迟加载 revision（仅首次调用有效）。
-    /// 若 store 中存储的 revision > 0，则更新内存缓存。
+    /// M2-01：采用单调上界更新（仅当 `persisted > *entry` 时更新），防止并发读
+    /// 在写路径 bump 之后用较旧的持久化值回退内存 revision；严守 A8 `loaded → revisions` 锁序。
     pub async fn lazy_load_revision(
         &self,
         project_id: &str,
         store: &CanonStore,
     ) -> Result<(), String> {
+        let key = normalize_project_key(project_id);
         // 先检查 loaded 集（短持有锁，不跨 await）
         {
-            let loaded = self.loaded.lock().expect("loaded set poisoned");
-            if loaded.contains(project_id) {
+            let loaded = self.lock_loaded();
+            if loaded.contains(&key) {
                 return Ok(());
             }
         }
         // 锁已释放，安全 await
         let persisted = store.load_revision().await?;
+        // A8 单向锁序：先锁 loaded 再锁 revisions，不跨 await，单调上界更新并原子标记已加载。
+        let mut loaded = self.lock_loaded();
+        let mut revs = self.lock_revisions();
         if persisted > 0 {
-            let mut revs = self.revisions.lock().expect("revision lock poisoned");
-            revs.insert(project_id.to_string(), persisted);
+            let entry = revs.entry(key.clone()).or_insert(0);
+            if persisted > *entry {
+                *entry = persisted;
+            }
         }
-        // 标记已加载（重新拿锁，不跨 await）
-        let mut loaded = self.loaded.lock().expect("loaded set poisoned");
-        loaded.insert(project_id.to_string());
+        loaded.insert(key);
         Ok(())
     }
 
-    /// 写路径自增并返回新 revision（缓存失效信号）。
-    /// 调用方应在持有写锁后调用此方法，并随后调用 `persist_revision`
-    /// 将新 revision 写入持久化存储。
+    /// 使指定项目的内存 revision、延迟加载标记与写计数桶失效（如备份恢复替换 LanceDB 后调用）。
+    /// 严守 A8 单向锁序：先锁 `loaded` 再锁 `revisions` 原子清除，释放后再清除独立叶锁 `write_counts`。
+    pub fn invalidate_project(&self, project_id: &str) {
+        let key = normalize_project_key(project_id);
+        {
+            let mut loaded = self.lock_loaded();
+            let mut revs = self.lock_revisions();
+            loaded.remove(&key);
+            revs.remove(&key);
+        }
+        self.lock_write_counts().remove(&key);
+    }
+
+    /// 写路径落盘成功后设置内存 revision 并标记已加载。
+    /// 严守 A8 单向锁序：先锁 `loaded` 再锁 `revisions`（短持有，不跨 await）。
+    pub fn set_revision(&self, project_id: &str, rev: u64) {
+        let key = normalize_project_key(project_id);
+        let mut loaded = self.lock_loaded();
+        let mut revs = self.lock_revisions();
+        revs.insert(key.clone(), rev);
+        loaded.insert(key);
+    }
+
+    /// 写路径自增并返回新 revision（仅单测辅助；生产写路径已改为落盘后调用 `set_revision`）。
+    #[cfg(test)]
     pub fn bump_revision(&self, project_id: &str) -> u64 {
-        let mut m = self.revisions.lock().expect("revision lock poisoned");
-        let e = m.entry(project_id.to_string()).or_insert(0);
+        let key = normalize_project_key(project_id);
+        let mut m = self.lock_revisions();
+        let e = m.entry(key).or_insert(0);
         *e += 1;
         *e
     }
 
-    /// 将当前 revision 持久化到 store 的 meta 表。
-    /// 应在 bump_revision 后、_impl 函数返回前调用。
-    pub async fn persist_revision(
-        &self,
-        project_id: &str,
-        store: &CanonStore,
-    ) -> Result<(), String> {
-        let rev = self.current_revision(project_id);
-        store.save_revision(rev).await
-    }
-
     /// 取（或建）该项目的写锁；首次访问即注册，等价单实例锁。
     pub fn write_lock(&self, project_id: &str) -> Arc<AsyncMutex<()>> {
-        let mut m = self
-            .project_locks
-            .lock()
-            .expect("project lock map poisoned");
-        m.entry(project_id.to_string())
+        let key = normalize_project_key(project_id);
+        let mut m = self.lock_project_locks();
+        m.entry(key)
             .or_insert_with(|| Arc::new(AsyncMutex::new(())))
             .clone()
     }
@@ -210,9 +364,9 @@ pub async fn canon_query_batch(
     canon_query_batch_impl(state.inner(), project_id, filters).await
 }
 
-#[tauri::command]
 /// POV 认知轴便利封装（分页版）。消费方：character-cognition.ts（无分页）
 /// 与 canon-facts-known-by-panel（服务端分页）。
+#[tauri::command]
 pub async fn canon_facts_known_by(
     state: State<'_, CanonCommandState>,
     project_id: String,
@@ -263,8 +417,8 @@ pub async fn canon_query_episodes(
     canon_query_episodes_impl(state.inner(), project_id, chapter_number, offset, limit).await
 }
 
-#[tauri::command]
 /// 内部能力：仅程序化消费（canon-dual-write.ts），无直接 UI 入口。
+#[tauri::command]
 pub async fn canon_get_revision(
     state: State<'_, CanonCommandState>,
     project_id: String,
@@ -276,10 +430,11 @@ pub async fn canon_get_revision(
 
 #[tauri::command]
 pub async fn canon_save_divergence_trace(
+    state: State<'_, CanonCommandState>,
     project_id: String,
     trace_json: String,
 ) -> Result<(), String> {
-    canon_save_divergence_trace_impl(project_id, trace_json).await
+    canon_save_divergence_trace_impl(state.inner(), project_id, trace_json).await
 }
 
 #[tauri::command]
@@ -803,10 +958,11 @@ mod tests {
     async fn canon_save_and_load_divergence_trace_roundtrip() {
         let dir = tmp_project();
         let pid = dir.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
 
         // 写入 divergence trace
         let trace = r#"[{\"digest\":\"abc\",\"reasons\":[\"canon:boom\"]}]"#.to_string();
-        canon_save_divergence_trace_impl(pid.clone(), trace.clone())
+        canon_save_divergence_trace_impl(&state, pid.clone(), trace.clone())
             .await
             .unwrap();
 
@@ -944,6 +1100,371 @@ mod tests {
         assert!(
             msg.contains("too large") || msg.contains("hard cap"),
             "错误信息含硬上限提示: {msg}"
+        );
+    }
+
+    // ── M2-01：重启后首写单调递增 + lazy_load 单调上界保护 ──
+
+    #[tokio::test]
+    async fn canon_first_write_after_restart_monotonically_increments_revision() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+
+        // 进程 1：连续两次写 → 持久化 revision = 2
+        let state1 = CanonCommandState::default();
+        let r1 = canon_ingest_episode_impl(
+            &state1,
+            pid.clone(),
+            CanonEpisode::new("ep-r1", 1, "alice", "dr1"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r1.max_revision, 1);
+        let r2 = canon_ingest_episode_impl(
+            &state1,
+            pid.clone(),
+            CanonEpisode::new("ep-r2", 2, "alice", "dr2"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r2.max_revision, 2);
+
+        // 模拟进程重启（冷缓存 CanonCommandState）：首写 ingest 必须先懒加载 2 → bump 到 3
+        let state2 = CanonCommandState::default();
+        assert!(!state2.is_loaded(&pid));
+        let r3 = canon_ingest_episode_impl(
+            &state2,
+            pid.clone(),
+            CanonEpisode::new("ep-r3", 3, "alice", "dr3"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            r3.max_revision, 3,
+            "重启后首写 ingest 须从持久化 rev=2 单调递增到 3"
+        );
+        assert_eq!(
+            CanonStore::open(&pid)
+                .await
+                .unwrap()
+                .load_revision()
+                .await
+                .unwrap(),
+            3
+        );
+
+        // 再次模拟重启：首写 supersede 必须先懒加载 3 → bump 到 4，新边 recorded_revision = Some(4)
+        let state3 = CanonCommandState::default();
+        let req = SupersedeRequest {
+            old_edge_ids: vec![],
+            cap_chapter: 4,
+            new_edges: vec![edge("new-after-restart", Some(4), None, &["alice"])],
+            caused_by: Some("restart-test".into()),
+        };
+        let rs = canon_supersede_edges_impl(&state3, pid.clone(), req)
+            .await
+            .unwrap();
+        assert_eq!(
+            rs.max_revision, 4,
+            "重启后首写 supersede 须从持久化 rev=3 单调递增到 4"
+        );
+        let q = canon_query_impl(&state3, pid.clone(), CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        let new_edge = q
+            .edges
+            .iter()
+            .find(|e| e.id == "new-after-restart")
+            .expect("新边应落盘");
+        assert_eq!(new_edge.recorded_revision, Some(4));
+
+        // 单调上界保护：若内存已推进到 6，滞后的持久化值 (4) 不得回退内存 revision
+        let state4 = CanonCommandState::default();
+        for _ in 0..6 {
+            state4.bump_revision(&pid);
+        }
+        let store = CanonStore::open(&pid).await.unwrap();
+        state4.lazy_load_revision(&pid, &store).await.unwrap();
+        assert_eq!(
+            state4.current_revision(&pid),
+            6,
+            "lazy_load_revision 不得用较旧 persisted 回退内存 revision"
+        );
+        assert!(state4.is_loaded(&pid));
+    }
+
+    // ── M2-01：normalize_project_key 统一写锁槽位、revision 缓存与失效 ──
+
+    #[test]
+    fn normalize_project_key_unifies_lock_and_revision() {
+        assert_eq!(normalize_project_key("  /tmp//novel///  "), "/tmp/novel");
+        assert_eq!(normalize_project_key("/"), "/");
+        assert_eq!(normalize_project_key("///"), "/");
+        assert_eq!(
+            normalize_project_key(r"\\?\C:\Users\Alice\\Proj\"),
+            normalize_project_key("C:/Users/Alice/Proj")
+        );
+        assert_eq!(
+            normalize_project_key(r"\\?\UNC\Server\Share\\Book\"),
+            normalize_project_key(r"\\Server\Share\Book/")
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            normalize_project_key(r"C:\Foo\Bar\"),
+            normalize_project_key("c:/foo/bar")
+        );
+
+        let state = CanonCommandState::default();
+        let p_a = r"  C:\Work\Novel\\  ";
+        let p_b = r"\\?\C:\Work\Novel/";
+        let lock_a = state.write_lock(p_a);
+        let lock_b = state.write_lock(p_b);
+        assert!(
+            Arc::ptr_eq(&lock_a, &lock_b),
+            "不同写法须归一化到同一写锁实例"
+        );
+
+        assert_eq!(state.bump_revision(p_a), 1);
+        assert_eq!(state.current_revision(p_b), 1, "归一化键共享 revision 槽位");
+
+        state.invalidate_project(p_b);
+        assert_eq!(
+            state.current_revision(p_a),
+            0,
+            "invalidate_project 清除 revision"
+        );
+        assert!(!state.is_loaded(p_a), "invalidate_project 清除 loaded 标记");
+    }
+
+    // ── M2-01：canon_save_divergence_trace 走同项目写锁串行化 ──
+
+    #[tokio::test]
+    async fn canon_save_divergence_trace_serializes_with_write_lock() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let pid_variant = format!("{}/", pid.replace('\\', "/"));
+        let state = Arc::new(CanonCommandState::default());
+
+        // 预先占住同项目写锁
+        let lock = state.write_lock(&pid);
+        let guard = lock.lock().await;
+
+        let state_bg = Arc::clone(&state);
+        let trace = r#"[{"digest":"lock-test","reasons":["serialized"]}]"#.to_string();
+        let trace_bg = trace.clone();
+        let handle = tokio::spawn(async move {
+            canon_save_divergence_trace_impl(&state_bg, pid_variant, trace_bg).await
+        });
+
+        // 持有写锁期间，后台 save_divergence_trace 必须阻塞等待，不得穿透并发写
+        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+        assert!(
+            !handle.is_finished(),
+            "持有 write_lock 期间 save_divergence_trace 应阻塞串行化"
+        );
+
+        // 释放写锁后顺利完成写入并可读回
+        drop(guard);
+        handle.await.unwrap().unwrap();
+        let loaded = canon_load_divergence_trace_impl(pid).await.unwrap();
+        assert_eq!(loaded, trace);
+    }
+
+    // ── R2-M12 / R2-M15：写失败不前推内存 revision 且失效缓存 + derive_event_id 路径归一 ──
+
+    #[tokio::test]
+    async fn canon_failed_write_invalidates_and_does_not_advance_revision() {
+        let dir = tmp_project();
+        let pid = dir.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+
+        // 先成功写入 1 条 → revision = 1
+        let r1 = canon_ingest_episode_impl(
+            &state,
+            pid.clone(),
+            CanonEpisode::new("ep-ok", 1, "alice", "d-ok"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r1.max_revision, 1);
+
+        // 传入非法时态边（valid_at > invalid_at）：supersede 早拒，内存与磁盘 revision 均停留 1
+        let bad_req = SupersedeRequest {
+            old_edge_ids: vec![],
+            cap_chapter: 5,
+            new_edges: vec![edge("bad-edge", Some(10), Some(5), &["alice"])],
+            caused_by: Some("invalid-test".into()),
+        };
+        let err = canon_supersede_edges_impl(&state, pid.clone(), bad_req).await;
+        assert!(err.is_err(), "非法时态边必须被拒绝");
+        assert_eq!(state.current_revision(&pid), 1, "早拒不得前推内存 revision");
+
+        // 构造运行中途失败：旧边 valid_at=8，封顶 cap_chapter=5 < 8 → supersede_edges 失败，
+        // 必须 invalidate_project 并不前推磁盘 revision
+        let store = CanonStore::open(&pid).await.unwrap();
+        store
+            .upsert_edge(edge("old-late", Some(8), None, &["alice"]))
+            .await
+            .unwrap();
+        drop(store);
+
+        let mid_fail_req = SupersedeRequest {
+            old_edge_ids: vec!["old-late".into()],
+            cap_chapter: 5,
+            new_edges: vec![],
+            caused_by: Some("mid-fail".into()),
+        };
+        let err2 = canon_supersede_edges_impl(&state, pid.clone(), mid_fail_req).await;
+        assert!(err2.is_err(), "cap_chapter < valid_at 必须失败");
+        assert!(
+            !state.is_loaded(&pid),
+            "中途失败后 loaded 标记必须被 invalidate_project 清除"
+        );
+        assert_eq!(
+            state.current_revision(&pid),
+            0,
+            "中途失败后内存缓存必须清空，等待下次懒加载真实磁盘 revision"
+        );
+        let reloaded = canon_get_revision_impl(&state, pid.clone()).await.unwrap();
+        assert_eq!(reloaded.max_revision, 1, "磁盘 revision 未被污染");
+
+        // derive_event_id 对不同路径写法归一化到同一 event_id
+        let ev = crate::canon::types::CanonEvent::new_supersede(
+            1,
+            &SupersedeRequest {
+                old_edge_ids: vec!["a".into()],
+                cap_chapter: 2,
+                new_edges: vec![],
+                caused_by: None,
+            },
+        );
+        let id_a = crate::canon::store_state::derive_event_id(r"C:\Work\Novel\", 1, &ev);
+        let id_b = crate::canon::store_state::derive_event_id(r"\\?\C:\Work\Novel//", 1, &ev);
+        assert_eq!(id_a, id_b, "derive_event_id 必须对 project_id 做路径归一化");
+    }
+
+    #[test]
+    fn canon_command_state_recovers_from_poisoned_mutexes() {
+        let state = Arc::new(CanonCommandState::default());
+        let state_bg = Arc::clone(&state);
+
+        // 按 A8 锁序毒化所有内部 Mutex，验证恢复路径不会传播二次 panic。
+        let _ = std::thread::spawn(move || {
+            let _proj = state_bg.project_locks.lock().unwrap();
+            let _loaded = state_bg.loaded.lock().unwrap();
+            let _revs = state_bg.revisions.lock().unwrap();
+            let _counts = state_bg.write_counts.lock().unwrap();
+            panic!("intentional poison for CanonCommandState");
+        })
+        .join();
+
+        assert!(state.project_locks.is_poisoned());
+        assert!(state.loaded.is_poisoned());
+        assert!(state.revisions.is_poisoned());
+        assert!(state.write_counts.is_poisoned());
+
+        let pid = "/tmp/poison-recover-proj";
+        let lock = state.write_lock(pid);
+        assert!(Arc::ptr_eq(&lock, &state.write_lock(pid)));
+        assert_eq!(state.current_revision(pid), 0);
+        assert!(!state.is_loaded(pid));
+        assert_eq!(state.bump_revision(pid), 1);
+        assert_eq!(state.current_revision(pid), 1);
+        state.set_revision(pid, 4);
+        assert!(state.is_loaded(pid));
+        assert_eq!(state.current_revision(pid), 4);
+        assert!(!state.record_writes_and_should_compact(pid, 2));
+        assert_eq!(state.write_count_for_test(pid), 2);
+        state.invalidate_project(pid);
+        assert!(!state.is_loaded(pid));
+        assert_eq!(state.current_revision(pid), 0);
+        assert_eq!(state.write_count_for_test(pid), 0);
+    }
+
+    // ── R3-M02 (R2-M15)：写计数触发周期压实 + 多项目桶隔离 + invalidate 清零 ──
+
+    #[tokio::test]
+    async fn canon_auto_compaction_tracks_writes_triggers_at_threshold_and_isolates_projects() {
+        let dir_a = tmp_project();
+        let dir_b = tmp_project();
+        let pid_a = dir_a.to_string_lossy().to_string();
+        let pid_b = dir_b.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+        state.set_compaction_threshold_for_test(3);
+
+        // 1) ingest_episode：仅 inserted == true 计数 +1；幂等重放不累加
+        let ep1 = CanonEpisode::new("ep-c1", 1, "alice", "d-c1");
+        let r1 = canon_ingest_episode_impl(&state, pid_a.clone(), ep1.clone())
+            .await
+            .unwrap();
+        assert!(r1.inserted);
+        assert_eq!(state.write_count_for_test(&pid_a), 1);
+
+        let r1_dup = canon_ingest_episode_impl(&state, pid_a.clone(), ep1)
+            .await
+            .unwrap();
+        assert!(!r1_dup.inserted);
+        assert_eq!(
+            state.write_count_for_test(&pid_a),
+            1,
+            "幂等重放不得增加写计数"
+        );
+
+        // 2) 多项目隔离：项目 B 写入独立计数，不影响项目 A
+        let rb = canon_ingest_episode_impl(
+            &state,
+            pid_b.clone(),
+            CanonEpisode::new("ep-b1", 1, "bob", "d-b1"),
+        )
+        .await
+        .unwrap();
+        assert!(rb.inserted);
+        assert_eq!(state.write_count_for_test(&pid_b), 1);
+        assert_eq!(state.write_count_for_test(&pid_a), 1);
+
+        // 3) supersede_edges：按 capped + inserted 累加（此处 capped=1, inserted=1 → delta=2，
+        //    与项目 A 已有 1 合计 3 ≥ 阈值 3 → 触发 compact_tables 并清零项目 A 桶）
+        CanonStore::open(&pid_a)
+            .await
+            .unwrap()
+            .upsert_edge(edge("old-c1", Some(1), None, &["alice"]))
+            .await
+            .unwrap();
+        let req = SupersedeRequest {
+            old_edge_ids: vec!["old-c1".into(), "missing-id".into()],
+            cap_chapter: 5,
+            new_edges: vec![edge("new-c1", Some(5), None, &["alice"])],
+            caused_by: Some("auto-compact-test".into()),
+        };
+        let rs = canon_supersede_edges_impl(&state, pid_a.clone(), req)
+            .await
+            .unwrap();
+        assert_eq!(rs.result.capped, 1);
+        assert_eq!(rs.result.inserted, 1);
+        assert_eq!(
+            state.write_count_for_test(&pid_a),
+            0,
+            "达到阈值触发压实后项目 A 写计数桶必须清零"
+        );
+        assert_eq!(
+            state.write_count_for_test(&pid_b),
+            1,
+            "项目 A 压实不得清零项目 B 计数桶"
+        );
+
+        // 压实后数据与 revision 均完整可读
+        let qa = canon_query_impl(&state, pid_a.clone(), CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        assert!(qa.edges.iter().any(|e| e.id == "new-c1"));
+        assert_eq!(qa.max_revision, rs.max_revision);
+
+        // 4) invalidate_project 同步清除对应项目写计数桶
+        state.invalidate_project(&pid_b);
+        assert_eq!(
+            state.write_count_for_test(&pid_b),
+            0,
+            "invalidate_project 必须清除对应项目写计数"
         );
     }
 }

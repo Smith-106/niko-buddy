@@ -6,11 +6,15 @@
 //! 3. **事务性**：drafts 先行（新内容先落 `.novel/drafts/`）→ 临时文件 + `fs::rename` 提交 →
 //!    任一步失败即从备份逆序回滚，不留半成品。
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
 use crate::agent_gate::{self, GateActor};
+
+static BATCH_TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// 草稿与事务备份根（Draft-first 落点）。
 pub const DRAFTS_ROOT: &str = ".novel/drafts/batch-replace";
@@ -115,6 +119,11 @@ fn relative_target(rel: &str) -> Result<String, BatchReplaceError> {
     let trimmed = rel.trim().replace('\\', "/");
     if trimmed.is_empty() {
         return Err(BatchReplaceError::InvalidTarget("empty path".to_string()));
+    }
+    if trimmed.chars().any(|c| c == '\0' || c.is_control()) {
+        return Err(BatchReplaceError::InvalidTarget(format!(
+            "path contains control character: {rel}"
+        )));
     }
     if trimmed.starts_with('/') || trimmed.contains(':') || trimmed.contains("..") {
         return Err(BatchReplaceError::InvalidTarget(format!(
@@ -249,6 +258,45 @@ pub fn batch_replace_apply(
     batch_replace_apply_with(project_root, files, rule, actor, &real_gate)
 }
 
+fn unique_batch_tmp_path(canonical: &Path) -> Result<PathBuf, String> {
+    let parent = canonical
+        .parent()
+        .ok_or_else(|| format!("target has no parent directory: {}", canonical.display()))?;
+    let seq = BATCH_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    Ok(parent.join(format!(".nb-batch-{}-{seq}.tmp", std::process::id())))
+}
+
+fn commit_batch_file(canonical: &Path, rewritten: &str) -> Result<(), String> {
+    let tmp = unique_batch_tmp_path(canonical)?;
+    crate::commands::file_sync::mark_app_write_path(&tmp);
+    let write_res = (|| -> Result<(), String> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(|e| format!("create temp file '{}' failed: {e}", tmp.display()))?;
+        file.write_all(rewritten.as_bytes())
+            .map_err(|e| format!("write temp file '{}' failed: {e}", tmp.display()))?;
+        file.sync_all()
+            .map_err(|e| format!("sync temp file '{}' failed: {e}", tmp.display()))?;
+        drop(file);
+        crate::commands::file_sync::mark_app_write_path(canonical);
+        std::fs::rename(&tmp, canonical).map_err(|e| {
+            format!(
+                "rename '{}' -> '{}' failed: {e}",
+                tmp.display(),
+                canonical.display()
+            )
+        })?;
+        crate::commands::file_sync::mark_app_write_path(canonical);
+        Ok(())
+    })();
+    if write_res.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    write_res
+}
+
 /// 事务实现本体（门可注入）。事务语义与 [`batch_replace_apply`] 完全一致。
 pub fn batch_replace_apply_with(
     project_root: &Path,
@@ -257,6 +305,24 @@ pub fn batch_replace_apply_with(
     actor: GateActor,
     gate: GateCheck<'_>,
 ) -> Result<ApplyReport, BatchReplaceError> {
+    batch_replace_apply_inner(project_root, files, rule, actor, gate, &commit_batch_file)
+}
+
+fn batch_replace_apply_inner(
+    project_root: &Path,
+    files: &[String],
+    rule: &ReplaceRule,
+    actor: GateActor,
+    gate: GateCheck<'_>,
+    commit_one: &dyn Fn(&Path, &str) -> Result<(), String>,
+) -> Result<ApplyReport, BatchReplaceError> {
+    rule.validate()?;
+    if files.len() > MAX_FILES_PER_BATCH {
+        return Err(BatchReplaceError::TooManyFiles(files.len()));
+    }
+    // 全局锁序 T4 (FILE_MUTATION_LOCK) -> T5 (GATE / file_sync)。
+    let _mutation = crate::commands::fs::lock_file_mutations().map_err(BatchReplaceError::Io)?;
+
     let preview = batch_replace_preview(project_root, files, rule)?;
     let changed: Vec<FileDiff> = preview.into_iter().filter(|d| !d.is_unchanged()).collect();
     if changed.is_empty() {
@@ -270,9 +336,17 @@ pub fn batch_replace_apply_with(
         });
     }
 
-    // 1) 确认门预检：任一目标未放行 → 整批不动。
+    // 1) 符号链接与确认门预检：任一目标不安全或未放行 → 整批不动。
     for diff in &changed {
         let target = resolve(project_root, &diff.path);
+        crate::agent_gate_policy::assert_no_symlink_in_ancestors(project_root, &target)
+            .map_err(BatchReplaceError::InvalidTarget)?;
+        if crate::agent_gate_policy::is_symlink_or_reparse_point(&target) {
+            return Err(BatchReplaceError::InvalidTarget(format!(
+                "refusing to modify symlink or reparse point: {}",
+                diff.path
+            )));
+        }
         gate(&target, actor)?;
     }
 
@@ -283,6 +357,8 @@ pub fn batch_replace_apply_with(
     let drafts_root = project_root.join(DRAFTS_ROOT.replace('/', std::path::MAIN_SEPARATOR_STR));
     let batch_dir = drafts_root.join(stamp.to_string());
     let backup_root = batch_dir.join("backup");
+    crate::agent_gate_policy::assert_no_symlink_in_ancestors(project_root, &backup_root)
+        .map_err(BatchReplaceError::InvalidTarget)?;
     std::fs::create_dir_all(&backup_root)
         .map_err(|e| BatchReplaceError::Io(format!("create drafts failed: {e}")))?;
 
@@ -312,15 +388,10 @@ pub fn batch_replace_apply_with(
         staged.push((diff.path.clone(), canonical, rewritten));
     }
 
-    // 3) 提交：临时文件 + rename；失败即逆序回滚。
+    // 3) 提交：同目录唯一临时文件 + sync_all + rename；失败即逆序回滚。
     let mut committed: Vec<(String, PathBuf)> = Vec::new();
     for (rel, canonical, rewritten) in &staged {
-        let tmp = canonical.with_extension("batchtmp");
-        let write_result = std::fs::write(&tmp, rewritten)
-            .map_err(|e| e.to_string())
-            .and_then(|_| std::fs::rename(&tmp, canonical).map_err(|e| e.to_string()));
-        if let Err(err) = write_result {
-            let _ = std::fs::remove_file(&tmp);
+        if let Err(err) = commit_one(canonical, rewritten) {
             let restored = rollback(&backup_root, &committed);
             return Err(BatchReplaceError::RolledBack(format!(
                 "commit failed at {rel}: {err}; {restored} file(s) restored"
@@ -347,7 +418,7 @@ fn rollback(backup_root: &Path, committed: &[(String, PathBuf)]) -> usize {
     let mut restored = 0usize;
     for (rel, canonical) in committed.iter().rev() {
         if let Ok(original) = std::fs::read(backup_root.join(rel)) {
-            if std::fs::write(canonical, original).is_ok() {
+            if crate::commands::fs::write_atomic_physical_bytes(canonical, &original).is_ok() {
                 restored += 1;
             }
         }
@@ -362,6 +433,13 @@ fn mark_projection_status(
 ) -> Result<(), String> {
     let path =
         project_root.join(PROJECTION_STATUS_FILE.replace('/', std::path::MAIN_SEPARATOR_STR));
+    crate::agent_gate_policy::assert_no_symlink_in_ancestors(project_root, &path)?;
+    if crate::agent_gate_policy::is_symlink_or_reparse_point(&path) {
+        return Err(format!(
+            "refusing to write projection status symlink: {}",
+            path.display()
+        ));
+    }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -378,13 +456,14 @@ fn mark_projection_status(
         "reason": "batch replace committed",
     });
     let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
-    std::fs::write(&path, format!("{body}\n")).map_err(|e| e.to_string())
+    crate::commands::fs::write_atomic_physical_bytes(&path, format!("{body}\n").as_bytes())
 }
 
 // ── Tauri 命令 ──────────────────────────────────────────────────────────────
 
 pub mod api {
     use super::*;
+    use crate::panic_guard::run_guarded;
 
     #[tauri::command]
     pub async fn batch_replace_preview(
@@ -392,8 +471,14 @@ pub mod api {
         files: Vec<String>,
         rule: ReplaceRule,
     ) -> Result<Vec<FileDiff>, String> {
-        super::batch_replace_preview(Path::new(&project_path), &files, &rule)
-            .map_err(|e| e.to_string())
+        tauri::async_runtime::spawn_blocking(move || {
+            run_guarded("batch_replace_preview", || {
+                super::batch_replace_preview(Path::new(&project_path), &files, &rule)
+                    .map_err(|e| e.to_string())
+            })
+        })
+        .await
+        .map_err(|e| format!("batch_replace_preview blocking task join error: {e}"))?
     }
 
     #[tauri::command]
@@ -402,8 +487,19 @@ pub mod api {
         files: Vec<String>,
         rule: ReplaceRule,
     ) -> Result<ApplyReport, String> {
-        super::batch_replace_apply(Path::new(&project_path), &files, &rule, GateActor::Agent)
-            .map_err(|e| e.to_string())
+        tauri::async_runtime::spawn_blocking(move || {
+            run_guarded("batch_replace_apply", || {
+                super::batch_replace_apply(
+                    Path::new(&project_path),
+                    &files,
+                    &rule,
+                    GateActor::Agent,
+                )
+                .map_err(|e| e.to_string())
+            })
+        })
+        .await
+        .map_err(|e| format!("batch_replace_apply blocking task join error: {e}"))?
     }
 }
 
@@ -605,17 +701,23 @@ mod batchreplace {
         seed(&root, "book/c1.md", "林舟走进屋。\n");
         seed(&root, "book/c2.md", "林舟看着窗外。\n");
 
-        // 便携失败注入：在 c2 提交相临时文件路径（canonical.with_extension("batchtmp")）
-        // 上预置目录占位 → `fs::write(tmp)` 在三个平台都必败，此时 c1 已提交 → 走回滚路径。
-        // （原「文件只读」注入是 Windows 专属语义：POSIX 的 rename 只要求目录写权限。）
-        std::fs::create_dir_all(root.join("book/c2.batchtmp")).expect("预置 c2.batchtmp 目录占位");
+        // 便携失败注入：c1 走真实同目录唯一临时文件提交，c2 注入提交失败 → 走逆序回滚。
+        let c2_path = root.join("book").join("c2.md");
+        let commit_with_fault = |canonical: &Path, rewritten: &str| {
+            if canonical == c2_path {
+                Err("injected commit failure on c2".to_string())
+            } else {
+                commit_batch_file(canonical, rewritten)
+            }
+        };
 
-        let err = batch_replace_apply_with(
+        let err = batch_replace_apply_inner(
             &root,
             &["book/c1.md".to_string(), "book/c2.md".to_string()],
             &rule("林舟", "林舟舟"),
             GateActor::Agent,
             &allow_all,
+            &commit_with_fault,
         )
         .expect_err("提交失败必须回滚");
         assert!(
@@ -629,6 +731,26 @@ mod batchreplace {
             "已提交文件未回滚：{restored}"
         );
         assert!(!restored.contains("林舟舟"));
+
+        // 确认无 .nb-batch-*.tmp 临时文件残留。
+        let leftovers: Vec<_> = std::fs::read_dir(root.join("book"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".nb-batch-"))
+            .collect();
+        assert!(leftovers.is_empty(), "不应遗留临时文件：{leftovers:?}");
+
+        // 校验唯一临时文件名格式（.nb-batch-{pid}-{seq}.tmp）且连续生成互不碰撞。
+        let tmp_a = unique_batch_tmp_path(&c2_path).unwrap();
+        let tmp_b = unique_batch_tmp_path(&c2_path).unwrap();
+        assert_ne!(tmp_a, tmp_b);
+        let name_a = tmp_a.file_name().unwrap().to_string_lossy();
+        assert!(
+            name_a.starts_with(&format!(".nb-batch-{}-", std::process::id()))
+                && name_a.ends_with(".tmp"),
+            "unexpected temp name: {name_a}"
+        );
+
         let _ = std::fs::remove_dir_all(&root);
     }
 

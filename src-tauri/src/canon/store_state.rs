@@ -302,10 +302,11 @@ pub(crate) fn fnv1a_64(input: &[u8]) -> String {
 /// caused_by（确定性，不含 event_id / occurred_at 等变体），保证「同一逻辑
 /// supersede」派生同一 id——query-before-add 幂等基础（done-when #1）。
 pub(crate) fn derive_event_id(project_id: &str, revision: u64, ev: &CanonEvent) -> String {
+    let normalized_project = crate::canon::commands::normalize_project_key(project_id);
     let payload = format!(
         "{:?}|{:?}|{:?}|{:?}|{:?}",
         ev.event_type, ev.old_edge_ids, ev.cap_chapter, ev.new_edge_ids, ev.caused_by
     );
     let hash = fnv1a_64(payload.as_bytes());
-    format!("evt:{}:{}:{}", project_id, revision, hash)
+    format!("evt:{}:{}:{}", normalized_project, revision, hash)
 }

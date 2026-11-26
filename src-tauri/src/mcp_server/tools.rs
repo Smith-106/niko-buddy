@@ -20,7 +20,9 @@
 //! 在 Rust 另写一份 JSON 解析与目录扫描就是第二套真源，迟早不一致。
 //! 唯一留在 Rust 的是 `canon.query`——canon 存储本来就在 Rust 侧。
 
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
 
 use serde_json::{json, Value};
@@ -322,28 +324,16 @@ impl super::registry::McpTool for SettingsSetTool {
                 ToolError::invalid_params("settings.set requires argument `value`")
             })?;
 
-            // 审计落点先就位，避免"改了但没有痕迹"。
+            // 审计落点先就位，避免"改了但没有痕迹"；验证可写后立即释放句柄，不在 .await 期间占用文件锁。
             let project_path = ctx.project_path().await?;
-            let audit_dir = std::path::Path::new(&project_path)
-                .join(".novel")
-                .join("audit");
-            std::fs::create_dir_all(&audit_dir).map_err(|e| {
-                ToolError::internal(format!(
-                    "无法创建审计目录 {}: {e}；为安全起见本次写入未执行",
-                    audit_dir.display()
-                ))
-            })?;
-            let audit_path = audit_dir.join("external-writes.jsonl");
-            let mut audit_file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&audit_path)
-                .map_err(|e| {
-                    ToolError::internal(format!(
-                        "审计文件不可写 {}: {e}；为安全起见本次写入未执行",
-                        audit_path.display()
-                    ))
-                })?;
+            let project_path_probe = project_path.clone();
+            let audit_path = tokio::task::spawn_blocking(move || -> Result<PathBuf, ToolError> {
+                let (audit_file, audit_path) = open_audit_log(Path::new(&project_path_probe))?;
+                drop(audit_file);
+                Ok(audit_path)
+            })
+            .await
+            .map_err(|e| ToolError::internal(format!("settings.set 审计检查任务异常: {e}")))??;
 
             let outcome = ctx
                 .bridge_query(StateQuery::with_key("set", key).with_value(value.clone()))
@@ -351,18 +341,30 @@ impl super::registry::McpTool for SettingsSetTool {
 
             let before_hash = value_hash(outcome.get("before").unwrap_or(&Value::Null));
             let after_hash = value_hash(outcome.get("after").unwrap_or(&Value::Null));
-            let record = ExternalWriteAudit {
-                ts: chrono::Utc::now().to_rfc3339(),
-                source: "external_agent",
-                tool: "settings.set",
-                key,
-                before_hash: before_hash.clone(),
-                after_hash: after_hash.clone(),
-            };
-            let line = serde_json::to_string(&record)
-                .map_err(|e| ToolError::internal(format!("审计记录序列化失败: {e}")))?;
-            use std::io::Write;
-            if let Err(e) = writeln!(audit_file, "{line}") {
+            let key_owned = key.to_string();
+            let before_hash_for_audit = before_hash.clone();
+            let after_hash_for_audit = after_hash.clone();
+            let audit_write = tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let (mut audit_file, _) =
+                    open_audit_log(Path::new(&project_path)).map_err(|e| e.message)?;
+                let record = ExternalWriteAudit {
+                    ts: chrono::Utc::now().to_rfc3339(),
+                    source: "external_agent",
+                    tool: "settings.set",
+                    key: &key_owned,
+                    before_hash: before_hash_for_audit,
+                    after_hash: after_hash_for_audit,
+                };
+                sync_audit_line(&mut audit_file, &record)
+            })
+            .await
+            .map_err(|e| {
+                ToolError::internal(format!(
+                    "设置已修改（{key}），但审计落盘任务异常: {e}。请检查 {} 的可写性。",
+                    audit_path.display()
+                ))
+            })?;
+            if let Err(e) = audit_write {
                 // 写入已生效、审计没落盘：必须显式报出来，不能让调用方以为没发生。
                 return Err(ToolError::internal(format!(
                     "设置已修改（{key}），但审计落盘失败: {e}。请检查 {} 的可写性。",
@@ -978,6 +980,20 @@ fn project_pipeline_status(snapshot: &Value, fallback_task_id: &str) -> Value {
         "advanced": snapshot.get("advanced").cloned().unwrap_or(Value::Null),
         "advancedCount": snapshot.get("advancedCount").cloned().unwrap_or(Value::Null),
         "artifactPath": snapshot.get("artifactPath").cloned().unwrap_or(Value::Null),
+        "partialReason": snapshot.get("partialReason").cloned().unwrap_or(Value::Null),
+        "adoptionGate": snapshot.get("adoptionGate").cloned().unwrap_or(Value::Null),
+        "lastStage": snapshot.get("lastStage").cloned().unwrap_or(Value::Null),
+        "durationMs": snapshot.get("durationMs").cloned().unwrap_or(Value::Null),
+        "gateVerdicts": snapshot
+            .get("gates")
+            .map(|gates| {
+                json!({
+                    "consistency": gates["consistency"]["verdict"],
+                    "anti_ai": gates["anti_ai"]["verdict"],
+                    "quality": gates["quality"]["verdict"],
+                })
+            })
+            .unwrap_or(Value::Null),
     })
 }
 
@@ -990,7 +1006,7 @@ impl super::registry::McpTool for PipelineStatusTool {
     }
 
     fn description(&self) -> &'static str {
-        "Poll a pipeline task started by pipeline.run_chapter. Returns status, current stage, timings, the overall gate verdict, and any error. Never returns chapter text — read that through chapter.read after the user accepts the draft. artifactPath (when present) points at the draft file the pipeline wrote, not at a formal chapter."
+        "Poll a pipeline task started by any pipeline starter (run_chapter, run_chapter_batch, director.advance, outline.generate). Returns status, current stage, timings, the overall gate verdict, and any error. Never returns generated body text — artifactPath (when present) points at the task output file (e.g. the draft the pipeline wrote), not at a formal chapter."
     }
 
     fn input_schema(&self) -> Value {
@@ -1504,6 +1520,347 @@ impl super::registry::McpTool for ChapterBatchTool {
     }
 }
 
+fn is_symlink_or_reparse_point(meta: &std::fs::Metadata) -> bool {
+    crate::agent_gate_policy::metadata_is_symlink_or_reparse_point(meta)
+}
+
+fn component_matches_dir_name(comp: Option<Component<'_>>, expected: &str) -> bool {
+    let expected = std::ffi::OsStr::new(expected);
+    matches!(
+        comp,
+        Some(Component::Normal(name))
+            if name == expected || (cfg!(windows) && name.eq_ignore_ascii_case(expected))
+    )
+}
+
+/// 逐级检查 `base` 下目录链：所有已存在目录必须非符号链接/Windows 重解析点、必须为目录，
+/// 且规范路径不得逃逸出父级；尚未创建的目录段按原名拼接。
+fn verify_controlled_subdir_chain(
+    base: &Path,
+    components: &[&std::ffi::OsStr],
+) -> Result<PathBuf, ToolError> {
+    let mut current = base.to_path_buf();
+    let mut anchored_parent = base.to_path_buf();
+    let mut ancestor_missing = false;
+    for part in components {
+        current.push(part);
+        if ancestor_missing {
+            continue;
+        }
+        match std::fs::symlink_metadata(&current) {
+            Ok(meta) => {
+                if is_symlink_or_reparse_point(&meta) {
+                    return Err(ToolError::permission(format!(
+                        "export.run: 受控导出目录链路不允许符号链接或重解析点：{}",
+                        current.display()
+                    )));
+                }
+                if !meta.is_dir() {
+                    return Err(ToolError::invalid_params(format!(
+                        "export.run: 导出路径的父级不是目录：{}",
+                        current.display()
+                    )));
+                }
+                let canon = std::fs::canonicalize(&current).map_err(|e| {
+                    ToolError::internal(format!(
+                        "export.run: 无法解析导出目录 {}: {e}",
+                        current.display()
+                    ))
+                })?;
+                if !canon.starts_with(&anchored_parent) || canon == anchored_parent {
+                    return Err(ToolError::permission(format!(
+                        "export.run: 受控导出目录发生路径逃逸：{}",
+                        current.display()
+                    )));
+                }
+                anchored_parent = canon.clone();
+                current = canon;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                ancestor_missing = true;
+            }
+            Err(e) => {
+                return Err(ToolError::internal(format!(
+                    "export.run: 无法检查导出目录 {}: {e}",
+                    current.display()
+                )));
+            }
+        }
+    }
+    Ok(current)
+}
+
+/// 将 `export.run` 的输出路径收口到活动项目 `<root>/backups/exports/` 受控沙箱内。
+///
+/// 安全不变量：
+/// - 默认路径落在 `<root>/backups/exports/niko-buddy-backup-<secs>-<uuid8>.zip`（绝不写 `temp_dir`）；
+/// - 拒绝控制字符、ADS `:`、`..`、半相对路径、符号链接/Windows 重解析点、项目外或非受控目录；
+/// - 强制有效文件名、非空 stem、`.zip` 扩展名；
+/// - 目标 `.zip` 与 `.zip.sha256` sidecar 均通过 `symlink_metadata` 禁止覆写已存在文件或符号链接。
+fn resolve_controlled_export_path(
+    project_path: &Path,
+    raw_output: Option<&str>,
+) -> Result<PathBuf, ToolError> {
+    let root = super::writes::canonical_project(project_path).map_err(ToolError::internal)?;
+    let exports_dir = verify_controlled_subdir_chain(
+        &root,
+        &[
+            std::ffi::OsStr::new("backups"),
+            std::ffi::OsStr::new("exports"),
+        ],
+    )?;
+
+    let candidate = match raw_output.map(str::trim).filter(|s| !s.is_empty()) {
+        None => {
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let uuid8: String = uuid::Uuid::new_v4()
+                .simple()
+                .to_string()
+                .chars()
+                .take(8)
+                .collect();
+            exports_dir.join(format!("niko-buddy-backup-{secs}-{uuid8}.zip"))
+        }
+        Some(raw) => {
+            if raw.chars().any(|c| c.is_control()) {
+                return Err(ToolError::invalid_params(
+                    "export.run: `outputZipPath` 不允许包含控制字符",
+                ));
+            }
+            if raw.ends_with('/') || raw.ends_with('\\') {
+                return Err(ToolError::invalid_params(
+                    "export.run: `outputZipPath` 必须指向具体 .zip 文件而非目录",
+                ));
+            }
+            if raw.replace('\\', "/").split('/').any(|seg| seg == "..") {
+                return Err(ToolError::invalid_params(
+                    "export.run: `outputZipPath` 不允许包含 `..`",
+                ));
+            }
+            let raw_path = Path::new(raw);
+            if !raw_path.is_absolute()
+                && (raw_path.has_root()
+                    || raw.starts_with('\\')
+                    || matches!(raw_path.components().next(), Some(Component::Prefix(_))))
+            {
+                return Err(ToolError::invalid_params(
+                    "export.run: `outputZipPath` 不允许使用半相对路径",
+                ));
+            }
+            for comp in raw_path.components() {
+                match comp {
+                    Component::ParentDir => {
+                        return Err(ToolError::invalid_params(
+                            "export.run: `outputZipPath` 不允许包含 `..`",
+                        ));
+                    }
+                    Component::Normal(seg) => {
+                        let seg_str = seg.to_string_lossy();
+                        if seg_str.contains(':') {
+                            return Err(ToolError::invalid_params(
+                                "export.run: `outputZipPath` 不允许包含冒号或 NTFS 数据流（ADS）",
+                            ));
+                        }
+                        if crate::agent_gate_policy::is_windows_reserved_device_name(&seg_str) {
+                            return Err(ToolError::invalid_params(format!(
+                                "export.run: `outputZipPath` 不允许使用 Windows 保留设备名：{seg_str}"
+                            )));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if !raw_path.is_absolute() {
+                let rel_parts: Vec<&std::ffi::OsStr> = raw_path
+                    .components()
+                    .filter_map(|comp| match comp {
+                        Component::Normal(seg) => Some(seg),
+                        Component::CurDir => None,
+                        _ => None,
+                    })
+                    .collect();
+                let Some((&file_name, parent_parts)) = rel_parts.split_last() else {
+                    return Err(ToolError::invalid_params(
+                        "export.run: `outputZipPath` 缺少有效文件名",
+                    ));
+                };
+                let parent_dir = verify_controlled_subdir_chain(&exports_dir, parent_parts)?;
+                parent_dir.join(file_name)
+            } else {
+                let (Some(raw_parent), Some(raw_file_name)) =
+                    (raw_path.parent(), raw_path.file_name())
+                else {
+                    return Err(ToolError::invalid_params(
+                        "export.run: `outputZipPath` 缺少有效文件名或父目录",
+                    ));
+                };
+
+                let mut existing = raw_parent;
+                let mut missing_tail = Vec::new();
+                loop {
+                    match std::fs::symlink_metadata(existing) {
+                        Ok(_) => break,
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            let (Some(name), Some(parent)) =
+                                (existing.file_name(), existing.parent())
+                            else {
+                                return Err(ToolError::permission(format!(
+                                    "export.run: 输出路径不在活动项目的受控导出目录内：{raw}"
+                                )));
+                            };
+                            missing_tail.push(name);
+                            existing = parent;
+                        }
+                        Err(e) => {
+                            return Err(ToolError::internal(format!(
+                                "export.run: 无法检查输出路径 {}: {e}",
+                                existing.display()
+                            )));
+                        }
+                    }
+                }
+
+                let existing_canon = std::fs::canonicalize(existing).map_err(|e| {
+                    ToolError::internal(format!(
+                        "export.run: 无法解析输出路径祖先 {}: {e}",
+                        existing.display()
+                    ))
+                })?;
+                if !existing_canon.is_dir() {
+                    return Err(ToolError::invalid_params(format!(
+                        "export.run: 导出路径的父级不是目录：{}",
+                        existing.display()
+                    )));
+                }
+                if !existing_canon.starts_with(&root) {
+                    return Err(ToolError::permission(format!(
+                        "export.run: 绝对输出路径必须位于活动项目的 backups/exports 目录内：{raw}"
+                    )));
+                }
+
+                // 从已存在祖先逐级回溯到活动项目根，拒绝项目内任何符号链接或重解析点。
+                let mut walk = existing;
+                loop {
+                    let walk_canon = std::fs::canonicalize(walk).map_err(|e| {
+                        ToolError::internal(format!(
+                            "export.run: 无法解析输出路径 {}: {e}",
+                            walk.display()
+                        ))
+                    })?;
+                    let meta = std::fs::symlink_metadata(walk).map_err(|e| {
+                        ToolError::internal(format!(
+                            "export.run: 无法检查输出路径 {}: {e}",
+                            walk.display()
+                        ))
+                    })?;
+                    if walk_canon == root {
+                        if is_symlink_or_reparse_point(&meta)
+                            && walk
+                                .parent()
+                                .and_then(|p| std::fs::canonicalize(p).ok())
+                                .is_some_and(|p_canon| p_canon.starts_with(&root))
+                        {
+                            return Err(ToolError::permission(format!(
+                                "export.run: 导出路径包含符号链接或重解析点：{}",
+                                walk.display()
+                            )));
+                        }
+                        break;
+                    }
+                    if is_symlink_or_reparse_point(&meta) {
+                        return Err(ToolError::permission(format!(
+                            "export.run: 导出路径包含符号链接或重解析点：{}",
+                            walk.display()
+                        )));
+                    }
+                    let Some(parent) = walk.parent() else {
+                        return Err(ToolError::permission(format!(
+                            "export.run: 输出路径不在活动项目的受控导出目录内：{raw}"
+                        )));
+                    };
+                    walk = parent;
+                }
+
+                let mut resolved_parent = existing_canon;
+                for part in missing_tail.into_iter().rev() {
+                    resolved_parent.push(part);
+                }
+                let rel_from_root = resolved_parent.strip_prefix(&root).map_err(|_| {
+                    ToolError::permission(format!(
+                        "export.run: 绝对输出路径必须位于活动项目的 backups/exports 目录内：{raw}"
+                    ))
+                })?;
+                let mut rel_comps = rel_from_root.components();
+                let in_backups = component_matches_dir_name(rel_comps.next(), "backups");
+                let in_exports = component_matches_dir_name(rel_comps.next(), "exports");
+                if !in_backups || !in_exports {
+                    return Err(ToolError::permission(format!(
+                        "export.run: 绝对输出路径必须位于活动项目的 backups/exports 目录内：{raw}"
+                    )));
+                }
+                let sub_parts: Vec<&std::ffi::OsStr> = rel_comps
+                    .filter_map(|comp| match comp {
+                        Component::Normal(seg) => Some(seg),
+                        _ => None,
+                    })
+                    .collect();
+                let parent_dir = verify_controlled_subdir_chain(&exports_dir, &sub_parts)?;
+                parent_dir.join(raw_file_name)
+            }
+        }
+    };
+
+    let file_name = candidate
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| ToolError::invalid_params("export.run: 输出路径缺少有效文件名"))?;
+    if crate::agent_gate_policy::is_windows_reserved_device_name(file_name) {
+        return Err(ToolError::invalid_params(format!(
+            "export.run: 输出文件名不允许使用 Windows 保留设备名：{file_name}"
+        )));
+    }
+    let ext = candidate.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if !ext.eq_ignore_ascii_case("zip") {
+        return Err(ToolError::invalid_params(
+            "export.run: 输出文件必须使用 .zip 扩展名",
+        ));
+    }
+    let stem = file_name.rsplit_once('.').map(|(s, _)| s).unwrap_or("");
+    if stem.trim().is_empty() {
+        return Err(ToolError::invalid_params(
+            "export.run: 输出文件名主干（stem）不能为空",
+        ));
+    }
+
+    let sidecar = crate::canon::export::sidecar_path(&candidate);
+    for (label, target) in [
+        ("导出目标", candidate.as_path()),
+        ("校验和文件", sidecar.as_path()),
+    ] {
+        match std::fs::symlink_metadata(target) {
+            Ok(_) => {
+                return Err(ToolError::invalid_params(format!(
+                    "export.run: {label}已存在，禁止覆写：{}",
+                    target.display()
+                )));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(ToolError::internal(format!(
+                    "export.run: 无法检查{label} {}: {e}",
+                    target.display()
+                )));
+            }
+        }
+    }
+
+    Ok(candidate)
+}
+
 /// `export.run` —— 导出项目备份包（zip + SHA-256 旁挂）。
 ///
 /// 在 Rust 侧直接调既有 `canon_export_project` 命令：它自己会过 `agent_gate` 并在失败
@@ -1516,14 +1873,14 @@ impl super::registry::McpTool for ExportRunTool {
     }
 
     fn description(&self) -> &'static str {
-        "Export the whole project as a zip backup with a SHA-256 sidecar and an optional passphrase, using the same exporter as the in-app backup view. Returns the zip path, size and checksum. Defaults to the OS temp directory when no path is given."
+        "Export the whole project as a zip backup with a SHA-256 sidecar and an optional passphrase, using the same exporter as the in-app backup view. Output is strictly sandboxed under <project>/backups/exports/ with a .zip extension and never overwrites an existing .zip or .sha256 file. Defaults to a unique timestamped .zip inside <project>/backups/exports/ when no path is given."
     }
 
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "outputZipPath": { "type": "string", "description": "Absolute path of the zip to write (default: a timestamped file in the OS temp directory)" },
+                "outputZipPath": { "type": "string", "description": "Optional .zip path inside <project>/backups/exports/ (relative path under exports/ or absolute path inside <project>/backups/exports/; forbids '..', symlinks, and overwriting existing .zip/.sha256; defaults to <project>/backups/exports/niko-buddy-backup-<secs>-<uuid8>.zip)" },
                 "passphrase": { "type": "string", "description": "Optional local passphrase for AES-256 encryption" }
             },
             "additionalProperties": false
@@ -1541,25 +1898,39 @@ impl super::registry::McpTool for ExportRunTool {
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
             let app = ctx.app()?.clone();
-            let project_path = ctx.project_path().await?;
-            let output = match args.get("outputZipPath").and_then(|v| v.as_str()) {
-                Some(raw) if !raw.trim().is_empty() => raw.trim().to_string(),
-                _ => {
-                    let stamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
-                    std::env::temp_dir()
-                        .join(format!("niko-buddy-backup-{stamp}.zip"))
-                        .to_string_lossy()
-                        .into_owned()
+            let raw_output = match args.get("outputZipPath") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(raw)) => Some(raw.as_str()),
+                Some(other) => {
+                    return Err(ToolError::invalid_params(format!(
+                        "export.run: `outputZipPath` 必须是字符串，收到 {other}"
+                    )))
                 }
             };
-            let passphrase = args
-                .get("passphrase")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .filter(|s| !s.is_empty());
+            let passphrase = match args.get("passphrase") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(s)) => (!s.is_empty()).then(|| s.clone()),
+                Some(other) => {
+                    return Err(ToolError::invalid_params(format!(
+                        "export.run: `passphrase` 必须是字符串，收到 {other}"
+                    )))
+                }
+            };
+            let project_path = ctx.project_path().await?;
+            let raw_output_owned = raw_output.map(str::to_string);
+            let project_path_for_resolve = project_path.clone();
+            let controlled = tokio::task::spawn_blocking(move || {
+                resolve_controlled_export_path(
+                    Path::new(&project_path_for_resolve),
+                    raw_output_owned.as_deref(),
+                )
+            })
+            .await
+            .map_err(|e| ToolError::internal(format!("export.run 路径校验任务异常: {e}")))??;
+            let output = controlled
+                .to_str()
+                .ok_or_else(|| ToolError::internal("导出路径不是有效 UTF-8"))?
+                .to_string();
             let request = crate::canon::export::CanonExportRequest {
                 project_path,
                 output_zip_path: output.clone(),
@@ -1592,7 +1963,9 @@ impl super::registry::McpTool for ExportRunTool {
 /// 一次外部直写的审计记录（append-only JSONL 的一行）。
 ///
 /// 与 `settings.set` 那条共用同一个文件、同一套 hash 口径，靠 `kind` 区分：
-/// `direct_write` / `undo`。没有 `kind` 的是 P1 的设置写入（历史条目，不回溯改）。
+/// `direct_write` / `undo`（提交）与 `direct_write_intent` / `undo_intent`（意图，
+/// 先于目标写入落盘；意图 ≠ 已完成，读者不得自动视为完成或回放）。
+/// 没有 `kind` 的是 P1 的设置写入（历史条目，不回溯改）。
 #[derive(Debug, serde::Serialize)]
 struct DirectWriteAudit<'a> {
     ts: String,
@@ -1607,17 +1980,17 @@ struct DirectWriteAudit<'a> {
 }
 
 /// 打开审计文件（fail-closed：拿不到审计落点就不许写）。
-fn open_audit_log(project_path: &str) -> Result<(std::fs::File, std::path::PathBuf), ToolError> {
-    let audit_dir = std::path::Path::new(project_path)
-        .join(".novel")
-        .join("audit");
-    std::fs::create_dir_all(&audit_dir).map_err(|e| {
+fn open_audit_log(project: &Path) -> Result<(std::fs::File, PathBuf), ToolError> {
+    let audit_path = super::writes::external_audit_path(project).map_err(ToolError::internal)?;
+    let audit_dir = audit_path
+        .parent()
+        .ok_or_else(|| ToolError::internal("审计路径没有父目录"))?;
+    std::fs::create_dir_all(audit_dir).map_err(|e| {
         ToolError::internal(format!(
             "无法创建审计目录 {}: {e}；为安全起见本次写入未执行",
             audit_dir.display()
         ))
     })?;
-    let audit_path = audit_dir.join("external-writes.jsonl");
     let file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -1631,13 +2004,20 @@ fn open_audit_log(project_path: &str) -> Result<(std::fs::File, std::path::PathB
     Ok((file, audit_path))
 }
 
+fn sync_audit_line(file: &mut std::fs::File, record: &impl serde::Serialize) -> Result<(), String> {
+    use std::io::Write;
+    let mut line = serde_json::to_string(record).map_err(|e| format!("审计记录序列化失败: {e}"))?;
+    line.push('\n');
+    file.write_all(line.as_bytes())
+        .and_then(|()| file.sync_data())
+        .map_err(|e| format!("审计落盘失败: {e}"))
+}
+
 fn append_audit_line(
     file: &mut std::fs::File,
     record: &DirectWriteAudit<'_>,
 ) -> Result<(), String> {
-    let line = serde_json::to_string(record).map_err(|e| format!("审计记录序列化失败: {e}"))?;
-    use std::io::Write;
-    writeln!(file, "{line}").map_err(|e| format!("审计落盘失败: {e}"))
+    sync_audit_line(file, record)
 }
 
 /// 已存在文件的 hash；文件不存在返回 `None`（而不是空串——两者语义不同）。
@@ -1649,12 +2029,47 @@ fn file_hash(path: &std::path::Path) -> Result<Option<String>, String> {
     }
 }
 
-/// 把审计行里的 `direct_write` 条目读出来（回滚用）。
-fn read_direct_writes(project_path: &str) -> Result<Vec<serde_json::Value>, ToolError> {
-    let audit_path = std::path::Path::new(project_path)
-        .join(".novel")
-        .join("audit")
-        .join("external-writes.jsonl");
+#[derive(Debug, serde::Deserialize)]
+struct UndoAuditIdentity {
+    #[serde(rename = "kind")]
+    _kind: String,
+    path: String,
+    snapshot_ref: String,
+    before_hash: String,
+    after_hash: String,
+}
+
+#[derive(Debug)]
+struct PendingDirectWrite {
+    entry: Value,
+    identity: Result<UndoAuditIdentity, serde_json::Error>,
+}
+
+fn normalize_audit_hash(raw: &str) -> Option<String> {
+    if raw.eq_ignore_ascii_case("absent") {
+        None
+    } else {
+        Some(raw.to_ascii_lowercase())
+    }
+}
+
+fn audit_path_key(path: &Path) -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(crate::commands::file_sync_watch::normalize_path_key(path))
+    } else {
+        path.to_path_buf()
+    }
+}
+
+/// 把审计行里的 `direct_write` 条目读出来（回滚用），并对未配对悬挂的
+/// `direct_write_intent` / `undo_intent` 结合磁盘 `file_hash` 执行崩溃恢复对账：
+/// * 若悬挂 `undo_intent` 对应磁盘（或后续已提交写入的 `before_hash`）已到达其 `after_hash`，
+///   则视为回滚已落盘并在撤销栈中摘除该快照；
+/// * 若悬挂 `direct_write_intent` 对应磁盘（或后续已提交写入的 `before_hash`）已到达其 `after_hash`，
+///   则将其按原写入顺序恢复进可回滚队列，避免崩溃后失去 `undo_last` 能力；
+/// * 若磁盘仍停留在变更前或路径校验失败（fail-closed），绝不把未落地意图误认作已提交。
+fn read_direct_writes(project: &Path) -> Result<Vec<PendingDirectWrite>, ToolError> {
+    let audit_path = super::writes::external_audit_path(project).map_err(ToolError::internal)?;
     let text = match std::fs::read_to_string(&audit_path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -1669,10 +2084,25 @@ fn read_direct_writes(project_path: &str) -> Result<Vec<serde_json::Value>, Tool
             )))
         }
     };
-    let mut direct = Vec::new();
-    // 已经回滚过的快照 id。用它把「已被撤销的直写」从栈里摘掉——否则连调两次
-    // `undo_last(1)` 会重复还原同一条：用户以为退了两步，实际只退了一步。
-    let mut undone: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum AuditEventKind {
+        DirectWrite,
+        DirectWriteIntent,
+        Undo,
+        UndoIntent,
+    }
+
+    struct ParsedAuditEvent {
+        kind: AuditEventKind,
+        entry: Value,
+        identity: Result<UndoAuditIdentity, serde_json::Error>,
+    }
+
+    let mut events = Vec::new();
+    let mut committed_direct_refs = HashSet::new();
+    let mut committed_undo_refs = HashSet::new();
+
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -1683,25 +2113,163 @@ fn read_direct_writes(project_path: &str) -> Result<Vec<serde_json::Value>, Tool
             // 全部回滚能力失效。坏行也不会造成错误回滚（它没有可用的 snapshot_ref）。
             continue;
         };
-        match value.get("kind").and_then(|v| v.as_str()) {
-            Some("direct_write") => direct.push(value),
-            Some("undo") => {
-                if let Some(reference) = value.get("snapshot_ref").and_then(|v| v.as_str()) {
-                    undone.insert(reference.to_string());
+        let kind = match value.get("kind").and_then(|v| v.as_str()) {
+            Some("direct_write") => AuditEventKind::DirectWrite,
+            Some("direct_write_intent") => AuditEventKind::DirectWriteIntent,
+            Some("undo") => AuditEventKind::Undo,
+            Some("undo_intent") => AuditEventKind::UndoIntent,
+            _ => continue,
+        };
+        // Value 会折叠重复键；单独解析审计身份，拒绝重复或非字符串的必填字段。
+        let identity: Result<UndoAuditIdentity, serde_json::Error> = serde_json::from_str(line);
+        match kind {
+            AuditEventKind::DirectWrite => {
+                if let Ok(ref id) = identity {
+                    committed_direct_refs.insert(id.snapshot_ref.clone());
+                } else if let Some(reference) = value.get("snapshot_ref").and_then(|v| v.as_str()) {
+                    committed_direct_refs.insert(reference.to_string());
                 }
             }
-            _ => {}
+            AuditEventKind::Undo => {
+                if let Ok(ref id) = identity {
+                    committed_undo_refs.insert(id.snapshot_ref.clone());
+                } else if let Some(reference) = value.get("snapshot_ref").and_then(|v| v.as_str()) {
+                    committed_undo_refs.insert(reference.to_string());
+                }
+            }
+            AuditEventKind::DirectWriteIntent | AuditEventKind::UndoIntent => {}
+        }
+        events.push(ParsedAuditEvent {
+            kind,
+            entry: value,
+            identity,
+        });
+    }
+
+    let has_dangling_intent = events.iter().any(|ev| match ev.kind {
+        AuditEventKind::DirectWriteIntent => ev
+            .identity
+            .as_ref()
+            .is_ok_and(|id| !committed_direct_refs.contains(&id.snapshot_ref)),
+        AuditEventKind::UndoIntent => ev
+            .identity
+            .as_ref()
+            .is_ok_and(|id| !committed_undo_refs.contains(&id.snapshot_ref)),
+        AuditEventKind::DirectWrite | AuditEventKind::Undo => false,
+    });
+
+    let mut undone = committed_undo_refs;
+    let mut recovered_direct_indices = HashSet::new();
+
+    if has_dangling_intent {
+        if let Ok(canonical_proj) = super::writes::canonical_project(project) {
+            let mut expected_state_by_path: HashMap<PathBuf, Option<String>> = HashMap::new();
+            let mut recovered_direct_refs = HashSet::new();
+
+            for (idx, ev) in events.iter().enumerate().rev() {
+                let Ok(ref id) = ev.identity else {
+                    continue;
+                };
+                match ev.kind {
+                    AuditEventKind::DirectWrite | AuditEventKind::Undo => {
+                        if let Ok(physical) = super::writes::resolve_external_truth_target(
+                            &canonical_proj,
+                            Path::new(&id.path),
+                        ) {
+                            expected_state_by_path.insert(
+                                audit_path_key(&physical),
+                                normalize_audit_hash(&id.before_hash),
+                            );
+                        }
+                    }
+                    AuditEventKind::UndoIntent => {
+                        if undone.contains(&id.snapshot_ref) {
+                            continue;
+                        }
+                        let Ok(physical) = super::writes::resolve_external_truth_target(
+                            &canonical_proj,
+                            Path::new(&id.path),
+                        ) else {
+                            continue;
+                        };
+                        let key = audit_path_key(&physical);
+                        if !expected_state_by_path.contains_key(&key) {
+                            let Ok(disk) = file_hash(&physical) else {
+                                continue;
+                            };
+                            expected_state_by_path
+                                .insert(key.clone(), disk.map(|h| h.to_ascii_lowercase()));
+                        }
+                        let want_after = normalize_audit_hash(&id.after_hash);
+                        let want_before = normalize_audit_hash(&id.before_hash);
+                        if want_before != want_after
+                            && expected_state_by_path.get(&key) == Some(&want_after)
+                        {
+                            undone.insert(id.snapshot_ref.clone());
+                            expected_state_by_path.insert(key, want_before);
+                        }
+                    }
+                    AuditEventKind::DirectWriteIntent => {
+                        if committed_direct_refs.contains(&id.snapshot_ref)
+                            || recovered_direct_refs.contains(&id.snapshot_ref)
+                        {
+                            continue;
+                        }
+                        let Ok(physical) = super::writes::resolve_external_truth_target(
+                            &canonical_proj,
+                            Path::new(&id.path),
+                        ) else {
+                            continue;
+                        };
+                        let key = audit_path_key(&physical);
+                        if !expected_state_by_path.contains_key(&key) {
+                            let Ok(disk) = file_hash(&physical) else {
+                                continue;
+                            };
+                            expected_state_by_path
+                                .insert(key.clone(), disk.map(|h| h.to_ascii_lowercase()));
+                        }
+                        let want_after = normalize_audit_hash(&id.after_hash);
+                        let want_before = normalize_audit_hash(&id.before_hash);
+                        if want_before != want_after
+                            && expected_state_by_path.get(&key) == Some(&want_after)
+                        {
+                            recovered_direct_indices.insert(idx);
+                            recovered_direct_refs.insert(id.snapshot_ref.clone());
+                            expected_state_by_path.insert(key, want_before);
+                        }
+                    }
+                }
+            }
         }
     }
-    // 保持写入顺序，只留下还没被撤销的。
-    Ok(direct
+
+    // 保持写入顺序，只留下已提交（或经磁盘哈希对账恢复）且还没被撤销的。
+    Ok(events
         .into_iter()
-        .filter(|entry| {
-            entry
-                .get("snapshot_ref")
-                .and_then(|v| v.as_str())
-                .map(|reference| !undone.contains(reference))
-                .unwrap_or(true)
+        .enumerate()
+        .filter_map(|(idx, ev)| {
+            let keep = match ev.kind {
+                AuditEventKind::DirectWrite => true,
+                AuditEventKind::DirectWriteIntent => recovered_direct_indices.contains(&idx),
+                AuditEventKind::Undo | AuditEventKind::UndoIntent => false,
+            };
+            if !keep {
+                return None;
+            }
+            let not_undone = ev
+                .identity
+                .as_ref()
+                .map(|identity| !undone.contains(&identity.snapshot_ref))
+                .unwrap_or(true);
+            if not_undone {
+                Some(PendingDirectWrite {
+                    entry: ev.entry,
+                    identity: ev.identity,
+                })
+            } else {
+                None
+            }
         })
         .collect())
 }
@@ -1713,94 +2281,107 @@ fn read_direct_writes(project_path: &str) -> Result<Vec<serde_json::Value>, Tool
 /// 顺序反过来（先写再开审计）一旦落盘失败，就会出现「正文已改、但没有任何痕迹」
 /// 的状态——这正是 C-008 要防的那一种。先开文件把这种情况挡在写入之前。
 ///
-/// ## 为什么写走 `do_write_file_atomic`
-///
-/// 那条路会做虚拟路径映射（`wiki/` → `QM/`）、临时文件 + fsync + rename 的原子替换，
-/// 并给文件监听打标记。自己 `fs::write` 会漏掉映射（写到一个不存在的 `wiki/` 目录），
-/// 也会让界面看不到变化。
+/// 虚拟路径只映射一次，按活动项目验证后固定物理路径供快照、原子写入和回读使用。
 fn direct_write(
     project_path: &str,
     tool: &'static str,
     virtual_path: &str,
     contents: &str,
 ) -> Result<Value, ToolError> {
-    use crate::canon::write_authority::{
-        classify_target, may_write, requires_snapshot, WriteDecision, WriteSource,
-    };
+    direct_write_with_audit(
+        project_path,
+        tool,
+        virtual_path,
+        contents,
+        append_audit_line,
+    )
+}
 
-    let physical = crate::commands::fs::resolve_project_storage_path(virtual_path)
+fn direct_write_with_audit(
+    project_path: &str,
+    tool: &'static str,
+    virtual_path: &str,
+    contents: &str,
+    append: impl Fn(&mut std::fs::File, &DirectWriteAudit<'_>) -> Result<(), String>,
+) -> Result<Value, ToolError> {
+    let _mutation = crate::commands::fs::lock_file_mutations().map_err(ToolError::internal)?;
+    let project =
+        super::writes::canonical_project(Path::new(project_path)).map_err(ToolError::internal)?;
+    let mapped = crate::commands::fs::resolve_project_storage_path(virtual_path)
         .map_err(|e| ToolError::internal(format!("目标路径不合法（{virtual_path}）: {e}")))?;
-    let physical_path = std::path::Path::new(&physical);
+    let physical = super::writes::resolve_external_truth_target(&project, Path::new(&mapped))
+        .map_err(ToolError::permission)?;
 
-    // 矩阵判定：只有 Allow 才继续。RequireGate 的落点（用户资产引用 / 任意路径桶）
-    // 不给外部 Agent 开口子，Deny 更不用说——两者都要说清是矩阵拒绝，不是 bug。
-    match may_write(WriteSource::ExternalAgent, physical_path) {
-        WriteDecision::Allow => {}
-        other => {
-            return Err(ToolError::permission(format!(
-                "写入被写入权威矩阵拒绝：external_agent 对 {} 的判定是 {}（只允许 allow）。目标：{physical}",
-                classify_target(physical_path).as_str(),
-                other.as_str()
-            )))
-        }
+    let (mut audit_file, audit_path) = open_audit_log(&project)?;
+    let snapshot = super::writes::create_snapshot(&project, &physical)
+        .map_err(|e| ToolError::internal(format!("{e}；为安全起见本次写入未执行")))?;
+    let before = snapshot.existed.then_some(snapshot.hash);
+    let parent = physical
+        .parent()
+        .ok_or_else(|| ToolError::internal("直写目标没有父目录"))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| ToolError::internal(format!("无法创建直写目标父目录: {e}")))?;
+    if file_hash(&physical).map_err(ToolError::internal)? != before {
+        return Err(ToolError::internal(
+            "直写冲突：目标在建立快照后已变化，未执行写入",
+        ));
     }
 
-    let (mut audit_file, audit_path) = open_audit_log(project_path)?;
-
-    let before = file_hash(physical_path)
-        .map_err(|e| ToolError::internal(format!("{e}；为安全起见本次写入未执行")))?;
-
-    // 快照：矩阵说需要才做（真源面），草稿与缓存不做。
-    let snapshot_ref =
-        if requires_snapshot(WriteSource::ExternalAgent, classify_target(physical_path)) {
-            let snap =
-                super::writes::create_snapshot(std::path::Path::new(project_path), physical_path)
-                    .map_err(|e| ToolError::internal(format!("{e}；为安全起见本次写入未执行")))?;
-            Some(snap.id)
-        } else {
-            None
-        };
-
-    crate::commands::fs::do_write_file_atomic(virtual_path, contents)
-        .map_err(|e| ToolError::internal(format!("写入失败（目标未改动）: {e}")))?;
-
-    let after = file_hash(physical_path)
-        .map_err(|e| ToolError::internal(format!("写入已发生但无法回读校验: {e}")))?;
-
-    // 保留策略：裁旧快照。裁剪失败不影响本次写入的正确性，但要报出来。
-    let pruned =
-        super::writes::prune_snapshots(std::path::Path::new(project_path), super::writes::now_ms())
-            .map_err(|e| {
-                ToolError::internal(format!(
-                    "写入已完成，但快照裁剪失败: {e}（不影响本次写入，仅影响旧快照清理）"
-                ))
-            })?;
-
-    let record = DirectWriteAudit {
+    let bytes = contents.as_bytes();
+    let expected_after = super::writes::sha256_hex(bytes);
+    let intent = DirectWriteAudit {
         ts: chrono::Utc::now().to_rfc3339(),
         source: "external_agent",
         tool,
-        kind: "direct_write",
-        path: &physical,
+        kind: "direct_write_intent",
+        path: &snapshot.target,
         before_hash: before.clone().unwrap_or_else(|| "absent".to_string()),
-        after_hash: after.clone().unwrap_or_else(|| "absent".to_string()),
-        snapshot_ref: snapshot_ref.clone(),
+        after_hash: expected_after.clone(),
+        snapshot_ref: Some(snapshot.id.clone()),
     };
-    if let Err(e) = append_audit_line(&mut audit_file, &record) {
+    append(&mut audit_file, &intent)
+        .map_err(|e| ToolError::internal(format!("写入意图未能同步到审计，未执行目标写入: {e}")))?;
+    crate::commands::fs::write_atomic_physical_bytes(&physical, bytes)
+        .map_err(|e| ToolError::internal(format!("写入失败（目标未改动）: {e}")))?;
+    let readback = file_hash(&physical);
+
+    // rename 已发生：即使回读见到更晚的内容，审计也只记录本次实际提交的字节身份。
+    let record = DirectWriteAudit {
+        ts: chrono::Utc::now().to_rfc3339(),
+        kind: "direct_write",
+        ..intent
+    };
+    if let Err(e) = append(&mut audit_file, &record) {
         return Err(ToolError::internal(format!(
-            "写入已生效，但审计落盘失败: {e}。请检查 {} 的可写性。快照: {}",
+            "写入已生效，但审计落盘失败: {e}。写入意图和快照已保留，请检查 {} 的可写性。快照: {}",
             audit_path.display(),
-            snapshot_ref.as_deref().unwrap_or("（本目标不需要快照）")
+            snapshot.id
+        )));
+    }
+    let after =
+        readback.map_err(|e| ToolError::internal(format!("写入已审计，但无法回读校验: {e}")))?;
+    if after.as_deref() != Some(expected_after.as_str()) {
+        return Err(ToolError::internal(format!(
+            "写入已审计，但回读冲突：{} 已不是本次直写的内容，请手工核对",
+            physical.display()
         )));
     }
 
+    // 先留下回滚所需的审计身份，再尝试维护；清理失败不能丢掉已提交写入的记录。
+    let pruned =
+        super::writes::prune_snapshots(&project, super::writes::now_ms()).map_err(|e| {
+            ToolError::internal(format!(
+                "写入已完成并审计，但快照裁剪失败: {e}（仅影响旧快照清理）"
+            ))
+        })?;
+
     Ok(json!({
-        "path": physical,
+        "path": snapshot.target,
         "virtualPath": virtual_path,
         "chars": contents.chars().count(),
         "beforeHash": before,
         "afterHash": after,
-        "snapshotRef": snapshot_ref,
+        "snapshotRef": snapshot.id,
         "prunedSnapshots": pruned,
         "audit": { "path": audit_path.display().to_string() },
         "note": "已直接写入正式文件（未经草稿确认）。可用 undo_last 回滚。",
@@ -1845,7 +2426,7 @@ impl super::registry::McpTool for ChapterWriteDirectTool {
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
             let chapter_name = require_str(args, "chapter.write_direct", "chapterName")?;
-            let content = require_str(args, "chapter.write_direct", "content")?;
+            let content = require_str(args, "chapter.write_direct", "content")?.to_string();
             let resolved = ctx
                 .bridge_query(StateQuery::new("formal-path").with_params(json!({
                     "kind": "chapter",
@@ -1858,7 +2439,11 @@ impl super::registry::McpTool for ChapterWriteDirectTool {
                 .ok_or_else(|| ToolError::internal("状态桥没有返回正式章节路径"))?
                 .to_string();
             let project_path = ctx.project_path().await?;
-            direct_write(&project_path, "chapter.write_direct", &path, content)
+            tokio::task::spawn_blocking(move || {
+                direct_write(&project_path, "chapter.write_direct", &path, &content)
+            })
+            .await
+            .map_err(|e| ToolError::internal(format!("chapter.write_direct 后台任务异常: {e}")))?
         })
     }
 }
@@ -1902,7 +2487,7 @@ impl super::registry::McpTool for MemoryWriteTool {
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
             let name = require_str(args, "memory.write", "name")?;
-            let content = require_str(args, "memory.write", "content")?;
+            let content = require_str(args, "memory.write", "content")?.to_string();
             let resolved = ctx
                 .bridge_query(StateQuery::new("formal-path").with_params(json!({
                     "kind": "memory",
@@ -1915,9 +2500,138 @@ impl super::registry::McpTool for MemoryWriteTool {
                 .ok_or_else(|| ToolError::internal("状态桥没有返回正式记忆路径"))?
                 .to_string();
             let project_path = ctx.project_path().await?;
-            direct_write(&project_path, "memory.write", &path, content)
+            tokio::task::spawn_blocking(move || {
+                direct_write(&project_path, "memory.write", &path, &content)
+            })
+            .await
+            .map_err(|e| ToolError::internal(format!("memory.write 后台任务异常: {e}")))?
         })
     }
+}
+
+fn undo_direct_writes(project_path: &str, n: usize) -> Result<Value, ToolError> {
+    let _mutation = crate::commands::fs::lock_file_mutations().map_err(ToolError::internal)?;
+    let project =
+        super::writes::canonical_project(Path::new(project_path)).map_err(ToolError::internal)?;
+    let writes = read_direct_writes(&project)?;
+    if writes.is_empty() {
+        return Err(ToolError::internal(
+            "没有可回滚的外部直写记录（审计里没有 kind=direct_write 的条目）",
+        ));
+    }
+    let (mut audit_file, audit_path) = open_audit_log(&project)?;
+    let mut restored = Vec::new();
+    let mut failures = Vec::new();
+    let mut failed_paths = HashSet::new();
+    let path_key = |path: &Path| {
+        if cfg!(windows) {
+            PathBuf::from(crate::commands::file_sync_watch::normalize_path_key(path))
+        } else {
+            path.to_path_buf()
+        }
+    };
+
+    // 从最新往回退：只要该实际路径的一步失败，就不能跳过它去退更老的写入。
+    for pending in writes.iter().rev().take(n) {
+        let target = pending
+            .identity
+            .as_ref()
+            .ok()
+            .map(|identity| identity.path.as_str())
+            .or_else(|| pending.entry.get("path").and_then(Value::as_str))
+            .unwrap_or_default();
+        let raw_key = path_key(Path::new(target));
+        let mut resolved_key = None;
+        let outcome = (|| -> Result<Value, String> {
+            if target.is_empty() {
+                return Err("审计条目缺少目标路径，无法回滚".into());
+            }
+            let skipped = "同一目标较新的记录回滚失败，未尝试这条更早的记录";
+            if failed_paths.contains(&raw_key) {
+                return Err(skipped.into());
+            }
+            let physical =
+                super::writes::resolve_external_truth_target(&project, Path::new(target))?;
+            let key = path_key(&physical);
+            if failed_paths.contains(&key) {
+                return Err(skipped.into());
+            }
+            resolved_key = Some(key);
+            let identity = pending
+                .identity
+                .as_ref()
+                .map_err(|e| format!("审计条目缺少或含有歧义的必填字段，无法回滚: {e}"))?;
+            let intent = DirectWriteAudit {
+                ts: chrono::Utc::now().to_rfc3339(),
+                source: "external_agent",
+                tool: "undo_last",
+                kind: "undo_intent",
+                path: &identity.path,
+                before_hash: identity.after_hash.to_ascii_lowercase(),
+                after_hash: identity.before_hash.to_ascii_lowercase(),
+                snapshot_ref: Some(identity.snapshot_ref.clone()),
+            };
+            append_audit_line(&mut audit_file, &intent)
+                .map_err(|e| format!("回滚意图未能同步到审计，未执行还原: {e}"))?;
+            let result = super::writes::restore_snapshot(
+                &project,
+                &identity.snapshot_ref,
+                &physical,
+                &identity.before_hash,
+                &identity.after_hash,
+            )?;
+            let after_hash = if result.existed {
+                result.hash
+            } else {
+                "absent".to_owned()
+            };
+            let record = DirectWriteAudit {
+                ts: chrono::Utc::now().to_rfc3339(),
+                kind: "undo",
+                path: &result.target,
+                after_hash,
+                ..intent
+            };
+            append_audit_line(&mut audit_file, &record)
+                .map_err(|e| format!("已还原但审计落盘失败: {e}；回滚意图和快照已保留"))?;
+            Ok(json!({
+                "path": target,
+                "snapshotRef": identity.snapshot_ref,
+                "restoredTo": if result.existed { "content" } else { "absent" },
+                "hash": record.after_hash,
+                "bytes": result.bytes,
+                "undoneTs": pending.entry.get("ts").cloned().unwrap_or(Value::Null),
+            }))
+        })();
+        match outcome {
+            Ok(item) => restored.push(item),
+            Err(reason) => {
+                if !target.is_empty() {
+                    failed_paths.insert(raw_key);
+                    failed_paths.extend(resolved_key);
+                }
+                failures.push(json!({ "path": target, "reason": reason }));
+            }
+        }
+    }
+
+    if !failures.is_empty() {
+        return Err(ToolError::internal(format!(
+            "回滚未全部成功：{} 项已还原，{} 项失败。已还原项：{}。失败项：{}。审计：{}",
+            restored.len(),
+            failures.len(),
+            json!(restored),
+            json!(failures),
+            audit_path.display()
+        )));
+    }
+
+    Ok(json!({
+        "requested": n,
+        "rolledBack": restored.len(),
+        "items": restored,
+        "audit": { "path": audit_path.display().to_string() },
+    }))
 }
 
 /// `undo_last` —— 回滚最近 n 次外部直写（P3，需 full scope）。
@@ -1945,7 +2659,7 @@ impl super::registry::McpTool for UndoLastTool {
     }
 
     fn description(&self) -> &'static str {
-        "Roll back the most recent N direct writes (newest first) using their snapshots. Requires full scope. Each rollback is verified byte-for-byte against the snapshot hash and is itself recorded in the audit log. If any rollback fails, the call reports which ones succeeded and which failed — it never claims success."
+        "Roll back the most recent N direct writes (newest first) using their snapshots. Requires full scope. Rollback only changes a file that still matches the audited write. Each verified rollback is recorded in the audit log. A failed step blocks older rollbacks of the same file and makes the call report a partial failure."
     }
 
     fn input_schema(&self) -> Value {
@@ -1984,92 +2698,9 @@ impl super::registry::McpTool for UndoLastTool {
             };
 
             let project_path = ctx.project_path().await?;
-            let writes = read_direct_writes(&project_path)?;
-            if writes.is_empty() {
-                return Err(ToolError::internal(
-                    "没有可回滚的外部直写记录（审计里没有 kind=direct_write 的条目）".to_string(),
-                ));
-            }
-            let take = n.min(writes.len());
-            let selected: Vec<serde_json::Value> =
-                writes[writes.len() - take..].iter().cloned().collect();
-
-            let (mut audit_file, audit_path) = open_audit_log(&project_path)?;
-            let mut restored = Vec::new();
-            let mut failures = Vec::new();
-
-            // 从最新往回退：先退最后一次写入，才能保证多次写入同一文件时逐层还原。
-            for entry in selected.iter().rev() {
-                let target = entry
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-                let snapshot_ref = entry
-                    .get("snapshot_ref")
-                    .and_then(|v| v.as_str())
-                    .map(|v| v.to_string());
-                let Some(snapshot_ref) = snapshot_ref else {
-                    failures.push(json!({
-                        "path": target,
-                        "reason": "该条目没有 snapshot_ref（按矩阵不需要快照的落点），无法回滚",
-                    }));
-                    continue;
-                };
-
-                let before = file_hash(std::path::Path::new(&target)).ok().flatten();
-                match super::writes::restore_snapshot(
-                    std::path::Path::new(&project_path),
-                    &snapshot_ref,
-                ) {
-                    Ok(result) => {
-                        let record = DirectWriteAudit {
-                            ts: chrono::Utc::now().to_rfc3339(),
-                            source: "external_agent",
-                            tool: "undo_last",
-                            kind: "undo",
-                            path: &target,
-                            before_hash: before.unwrap_or_else(|| "absent".to_string()),
-                            after_hash: result.hash.clone(),
-                            snapshot_ref: Some(snapshot_ref.clone()),
-                        };
-                        if let Err(e) = append_audit_line(&mut audit_file, &record) {
-                            failures.push(json!({
-                                "path": target,
-                                "reason": format!("已还原但审计落盘失败: {e}"),
-                            }));
-                            continue;
-                        }
-                        restored.push(json!({
-                            "path": target,
-                            "snapshotRef": snapshot_ref,
-                            "restoredTo": if result.existed { "content" } else { "absent" },
-                            "hash": result.hash,
-                            "bytes": result.bytes,
-                            "undoneTs": entry.get("ts").cloned().unwrap_or(Value::Null),
-                        }));
-                    }
-                    Err(e) => failures.push(json!({ "path": target, "reason": e })),
-                }
-            }
-
-            if !failures.is_empty() {
-                // 部分成功必须逐条报出来，不能只说"失败"或只说"成功"。
-                return Err(ToolError::internal(format!(
-                    "回滚未全部成功：{} 项已还原，{} 项失败。失败项：{}。审计：{}",
-                    restored.len(),
-                    failures.len(),
-                    serde_json::to_string(&failures).unwrap_or_else(|_| "[]".to_string()),
-                    audit_path.display()
-                )));
-            }
-
-            Ok(json!({
-                "requested": n,
-                "rolledBack": restored.len(),
-                "items": restored,
-                "audit": { "path": audit_path.display().to_string() },
-            }))
+            tokio::task::spawn_blocking(move || undo_direct_writes(&project_path, n))
+                .await
+                .map_err(|e| ToolError::internal(format!("undo_last 后台任务异常: {e}")))?
         })
     }
 }
@@ -2714,7 +3345,7 @@ mod tests {
     }
 
     fn append_test_write(project: &TempProject, target: &str, snapshot: Option<&str>) {
-        let (mut file, _path) = open_audit_log(&project.path_str()).expect("audit");
+        let (mut file, _path) = open_audit_log(&project.0).expect("audit");
         let record = DirectWriteAudit {
             ts: chrono::Utc::now().to_rfc3339(),
             source: "external_agent",
@@ -2726,6 +3357,24 @@ mod tests {
             snapshot_ref: snapshot.map(|s| s.to_string()),
         };
         append_audit_line(&mut file, &record).expect("append");
+    }
+
+    #[test]
+    fn settings_audit_reports_a_write_failure() {
+        let project = TempProject::new("settings-audit-failure");
+        let (file, path) = open_audit_log(&project.0).expect("audit open");
+        drop(file);
+        let mut read_only = std::fs::File::open(&path).expect("audit readable");
+        let record = ExternalWriteAudit {
+            ts: "2026-01-01T00:00:00Z".into(),
+            source: "external_agent",
+            tool: "settings.set",
+            key: "theme",
+            before_hash: value_hash(&json!("before")),
+            after_hash: value_hash(&json!("after")),
+        };
+        assert!(sync_audit_line(&mut read_only, &record).is_err());
+        assert_eq!(std::fs::metadata(path).unwrap().len(), 0);
     }
 
     #[test]
@@ -2764,10 +3413,13 @@ mod tests {
         append_test_write(&project, "/p/canon/a.md", Some("snap_a"));
         append_test_write(&project, "/p/canon/b.md", Some("snap_b"));
 
-        let writes = read_direct_writes(&project.path_str()).expect("read");
+        let writes = read_direct_writes(&project.0).expect("read");
         assert_eq!(writes.len(), 2, "设置条目与坏行都不算直写");
-        assert_eq!(writes[0]["path"], "/p/canon/a.md");
-        assert_eq!(writes[1]["path"], "/p/canon/b.md", "顺序必须保持写入顺序");
+        assert_eq!(writes[0].entry["path"], "/p/canon/a.md");
+        assert_eq!(
+            writes[1].entry["path"], "/p/canon/b.md",
+            "顺序必须保持写入顺序"
+        );
     }
 
     #[test]
@@ -2779,7 +3431,7 @@ mod tests {
         append_test_write(&project, "/p/canon/b.md", Some("snap_b"));
 
         // 模拟 b 被回滚过：追加一条 kind=undo 的审计。
-        let (mut file, _path) = open_audit_log(&project.path_str()).expect("audit");
+        let (mut file, _path) = open_audit_log(&project.0).expect("audit");
         let record = DirectWriteAudit {
             ts: chrono::Utc::now().to_rfc3339(),
             source: "external_agent",
@@ -2792,16 +3444,16 @@ mod tests {
         };
         append_audit_line(&mut file, &record).expect("append undo");
 
-        let writes = read_direct_writes(&project.path_str()).expect("read");
+        let writes = read_direct_writes(&project.0).expect("read");
         assert_eq!(writes.len(), 1, "已撤销的那条必须从栈里摘掉");
-        assert_eq!(writes[0]["path"], "/p/canon/a.md");
-        assert_eq!(writes[0]["snapshot_ref"], "snap_a");
+        assert_eq!(writes[0].entry["path"], "/p/canon/a.md");
+        assert_eq!(writes[0].entry["snapshot_ref"], "snap_a");
     }
 
     #[test]
     fn read_direct_writes_without_audit_file_says_so() {
         let project = TempProject::new("noaudit");
-        let err = read_direct_writes(&project.path_str()).unwrap_err();
+        let err = read_direct_writes(&project.0).unwrap_err();
         assert!(
             err.message.contains("没有可回滚的内容"),
             "错误要说清是没记录: {}",
@@ -2817,6 +3469,135 @@ mod tests {
         let empty = project.0.join("empty.md");
         std::fs::write(&empty, b"").unwrap();
         assert!(file_hash(&empty).unwrap().is_some(), "空文件也有 hash");
+    }
+
+    #[test]
+    fn direct_write_keeps_audit_when_pruning_fails() {
+        let project = TempProject::new("prune-failure");
+        let project_path = project.path_str();
+        std::fs::create_dir_all(
+            project
+                .0
+                .join(".novel")
+                .join("snapshots")
+                .join("snap_blocked.meta.json"),
+        )
+        .unwrap();
+        let virtual_path = project.0.join("wiki").join("chapters").join("ch.md");
+        let physical = project.0.join("QM").join("chapters").join("ch.md");
+        let content = "\u{FEFF}written\r\n";
+        let err = direct_write(
+            &project_path,
+            "chapter.write_direct",
+            virtual_path.to_str().unwrap(),
+            content,
+        )
+        .unwrap_err();
+        assert!(err.message.contains("快照裁剪失败"), "{}", err.message);
+        assert_eq!(std::fs::read(&physical).unwrap(), content.as_bytes());
+        assert!(!virtual_path.exists());
+        let audit_path = super::super::writes::external_audit_path(&project.0).unwrap();
+        let audit = std::fs::read_to_string(audit_path).unwrap();
+        let kinds: Vec<_> = audit
+            .lines()
+            .map(|line| {
+                serde_json::from_str::<Value>(line).unwrap()["kind"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(kinds, vec!["direct_write_intent", "direct_write"]);
+        let writes = read_direct_writes(&project.0).unwrap();
+        assert_eq!(writes.len(), 1);
+        let identity = writes[0].identity.as_ref().unwrap();
+        assert_eq!(identity.before_hash, "absent");
+        assert_eq!(
+            identity.after_hash,
+            super::super::writes::sha256_hex(content.as_bytes())
+        );
+        assert_eq!(Path::new(&identity.path), physical.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn undo_conflict_blocks_older_same_target_but_audits_other_paths() {
+        let project = TempProject::new("undo-conflict-order");
+        let project_path = project.path_str();
+        let dir = project.0.join("QM").join("chapters");
+        let target = dir.join("target.md");
+        let other = dir.join("other.md");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&target, b"\xEF\xBB\xBForiginal\xFF").unwrap();
+        let write = |path: &Path, contents: &str| {
+            direct_write(
+                &project_path,
+                "chapter.write_direct",
+                path.to_str().unwrap(),
+                contents,
+            )
+            .unwrap()
+        };
+        write(&target, "first");
+        let created = write(&other, "new elsewhere");
+        write(&target, "second");
+        // 内容恰好与较老直写一致，但不能越过更新记录的冲突来还原它。
+        std::fs::write(&target, b"first").unwrap();
+
+        let err = undo_direct_writes(&project_path, 3).unwrap_err();
+        assert!(
+            err.message.contains("1 项已还原，2 项失败"),
+            "{}",
+            err.message
+        );
+        assert!(
+            err.message.contains("未尝试这条更早的记录"),
+            "{}",
+            err.message
+        );
+        assert!(err
+            .message
+            .contains(created["snapshotRef"].as_str().unwrap()));
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        assert!(!other.exists());
+
+        let audit_path = super::super::writes::external_audit_path(&project.0).unwrap();
+        let audit = std::fs::read_to_string(audit_path).unwrap();
+        let undos: Vec<_> = audit
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter(|entry| entry["kind"] == "undo")
+            .collect();
+        assert_eq!(undos.len(), 1);
+        assert_eq!(undos[0]["snapshot_ref"], created["snapshotRef"]);
+        assert_eq!(undos[0]["before_hash"], created["afterHash"]);
+        assert_eq!(undos[0]["after_hash"], "absent");
+    }
+
+    #[test]
+    fn direct_write_does_not_modify_target_when_audit_intent_fails() {
+        let project = TempProject::new("audit-intent-failure");
+        let project_path = project.path_str();
+        let target = project.0.join("QM").join("chapters").join("ch.md");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"original\r\n").unwrap();
+        let err = direct_write_with_audit(
+            &project_path,
+            "chapter.write_direct",
+            target.to_str().unwrap(),
+            "new",
+            |_, record| {
+                assert_eq!(record.kind, "direct_write_intent");
+                Err("synthetic audit failure".into())
+            },
+        )
+        .unwrap_err();
+        assert!(
+            err.message.contains("synthetic audit failure"),
+            "{}",
+            err.message
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"original\r\n");
+        assert!(read_direct_writes(&project.0).unwrap().is_empty());
     }
 
     #[test]
@@ -2900,9 +3681,16 @@ mod tests {
             "startedAt": 1,
             "finishedAt": 2,
             "error": null,
-            "gates": { "overall": "pass" },
+            "gates": {
+                "overall": "pass",
+                "consistency": { "verdict": "pass", "findings": [{"secret": "x"}] },
+                "anti_ai": { "verdict": "warning" },
+                "quality": { "verdict": "pass" },
+            },
             "manualReviewRequired": false,
             "partial": false,
+            "partialReason": null,
+            "adoptionGate": "passed",
             "contentChars": 123,
             "kind": "chapter",
             "phase": "world",
@@ -2916,6 +3704,15 @@ mod tests {
         assert_eq!(out["advanced"], json!(true));
         assert_eq!(out["advancedCount"], json!(2));
         assert_eq!(out["artifactPath"], json!("/proj/.qm-drafts/draft_1.md"));
+        assert_eq!(out["partialReason"], Value::Null);
+        assert_eq!(out["adoptionGate"], json!("passed"));
+        assert_eq!(
+            out["gateVerdicts"],
+            json!({"consistency": "pass", "anti_ai": "warning", "quality": "pass"})
+        );
+        // 门投影只含 verdict 字符串：findings/正文/错误细节不外泄。
+        let gv = out["gateVerdicts"].to_string();
+        assert!(!gv.contains("findings") && !gv.contains("secret"), "{gv}");
         // 老键不受新增影响（逐键再钉一次，防「补字段时把 taskId 换成 fallback」这类事故）。
         assert_eq!(out["taskId"], json!("ptask_1"));
         assert_eq!(out["status"], json!("done"));
@@ -2948,5 +3745,355 @@ mod tests {
         let no_task_id = json!({ "status": "running" });
         let fell_back = project_pipeline_status(&no_task_id, "ptask_fallback");
         assert_eq!(fell_back["taskId"], json!("ptask_fallback"));
+    }
+
+    // ── S3-03：export.run 受控目录沙箱单测 ─────────────────────────────────
+
+    #[test]
+    fn controlled_export_default_path_lands_under_project_backups_exports() {
+        let project = TempProject::new("export-default");
+        let root = super::super::writes::canonical_project(&project.0).unwrap();
+        let exports_dir = root.join("backups").join("exports");
+
+        let p_none = resolve_controlled_export_path(&project.0, None).unwrap();
+        let p_empty = resolve_controlled_export_path(&project.0, Some("   ")).unwrap();
+
+        for p in [&p_none, &p_empty] {
+            assert_eq!(p.parent(), Some(exports_dir.as_path()));
+            let name = p.file_name().unwrap().to_str().unwrap();
+            assert!(
+                name.starts_with("niko-buddy-backup-") && name.ends_with(".zip"),
+                "默认文件名格式不对：{name}"
+            );
+            // 必须是项目内受控目录，绝不直接落到 OS temp_dir 顶层。
+            assert_ne!(p.parent(), Some(std::env::temp_dir().as_path()));
+        }
+        assert_ne!(p_none, p_empty, "连续默认导出应带唯一 uuid 后缀，不得撞名");
+    }
+
+    #[test]
+    fn controlled_export_accepts_legal_relative_and_absolute_paths() {
+        let project = TempProject::new("export-legal");
+        let root = super::super::writes::canonical_project(&project.0).unwrap();
+        let exports_dir = root.join("backups").join("exports");
+
+        let rel_flat = resolve_controlled_export_path(&project.0, Some("manual.zip")).unwrap();
+        assert_eq!(rel_flat, exports_dir.join("manual.zip"));
+
+        let rel_nested =
+            resolve_controlled_export_path(&project.0, Some("2026/nov/snapshot.ZIP")).unwrap();
+        assert_eq!(
+            rel_nested,
+            exports_dir.join("2026").join("nov").join("snapshot.ZIP")
+        );
+
+        let abs_input = project
+            .0
+            .join("backups")
+            .join("exports")
+            .join("abs-dir")
+            .join("release.zip");
+        let abs_resolved = resolve_controlled_export_path(&project.0, abs_input.to_str()).unwrap();
+        assert_eq!(
+            abs_resolved,
+            exports_dir.join("abs-dir").join("release.zip")
+        );
+
+        // 目录已存在时同样放行（且保留受控目录边界）。
+        let existing_sub = project.0.join("backups").join("exports").join("ready");
+        std::fs::create_dir_all(&existing_sub).unwrap();
+        let abs_existing = existing_sub.join("ok.zip");
+        let abs_existing_resolved =
+            resolve_controlled_export_path(&project.0, abs_existing.to_str()).unwrap();
+        assert_eq!(
+            abs_existing_resolved,
+            exports_dir.join("ready").join("ok.zip")
+        );
+    }
+
+    #[test]
+    fn controlled_export_rejects_escape_uncontrolled_dirs_traversal_and_bad_names() {
+        let project = TempProject::new("export-reject");
+        let other = TempProject::new("export-other");
+
+        // 项目外路径
+        let outside = other.0.join("backups").join("exports").join("escape.zip");
+        assert!(resolve_controlled_export_path(&project.0, outside.to_str()).is_err());
+        let in_temp = std::env::temp_dir().join("outside-export.zip");
+        assert!(resolve_controlled_export_path(&project.0, in_temp.to_str()).is_err());
+
+        // 项目内但非 backups/exports 受控目录
+        for bad_abs in [
+            project.0.join("root-level.zip"),
+            project.0.join("backups").join("auto").join("auto.zip"),
+            project.0.join("QM").join("hijack.zip"),
+            project.0.join(".novel").join("status.zip"),
+        ] {
+            assert!(
+                resolve_controlled_export_path(&project.0, bad_abs.to_str()).is_err(),
+                "非受控目录必须拒绝：{}",
+                bad_abs.display()
+            );
+        }
+
+        // `..` 穿越、控制字符、ADS `:`、半相对路径、非 `.zip`、空 stem、目录斜杠
+        for bad_raw in [
+            "../escape.zip",
+            "sub/../../escape.zip",
+            r"sub\..\escape.zip",
+            "bad\0name.zip",
+            "bad\nname.zip",
+            "out.zip::$DATA",
+            "sub:stream/out.zip",
+            "C:relative.zip",
+            r"\root-rel.zip",
+            "not-a-zip.tar",
+            "no-ext",
+            ".zip",
+            "   .zip",
+            "sub/   .zip",
+            "folder.zip/",
+        ] {
+            assert!(
+                resolve_controlled_export_path(&project.0, Some(bad_raw)).is_err(),
+                "非法路径必须拒绝：{bad_raw:?}"
+            );
+        }
+
+        #[cfg(windows)]
+        assert!(
+            resolve_controlled_export_path(&project.0, Some("/root-relative.zip")).is_err(),
+            "Windows 上以 `/` 开头的半相对路径必须拒绝"
+        );
+    }
+
+    #[test]
+    fn controlled_export_forbids_overwriting_existing_zip_or_sidecar() {
+        let project = TempProject::new("export-no-overwrite");
+        let exports_dir = project.0.join("backups").join("exports");
+        std::fs::create_dir_all(&exports_dir).unwrap();
+
+        let existing_zip = exports_dir.join("taken.zip");
+        std::fs::write(&existing_zip, b"existing zip").unwrap();
+        let err_zip = resolve_controlled_export_path(&project.0, Some("taken.zip")).unwrap_err();
+        assert!(
+            err_zip.message.contains("禁止覆写"),
+            "已存在 .zip 必须禁止覆写：{}",
+            err_zip.message
+        );
+
+        // 即使 .zip 不存在，只要 .zip.sha256 sidecar 已存在，也必须禁止覆写。
+        let only_sidecar = exports_dir.join("sidecar-only.zip.sha256");
+        std::fs::write(&only_sidecar, b"deadbeef  sidecar-only.zip\n").unwrap();
+        let err_sidecar =
+            resolve_controlled_export_path(&project.0, Some("sidecar-only.zip")).unwrap_err();
+        assert!(
+            err_sidecar.message.contains("禁止覆写"),
+            "已存在 .sha256 sidecar 必须禁止覆写：{}",
+            err_sidecar.message
+        );
+    }
+
+    #[test]
+    fn controlled_export_rejects_symlink_or_reparse_in_chain_and_target() {
+        let project = TempProject::new("export-symlink");
+        let outside = TempProject::new("export-symlink-outside");
+
+        #[cfg(unix)]
+        {
+            // 1. exports 目录本身是符号链接 -> 拒绝
+            let backups = project.0.join("backups");
+            std::fs::create_dir_all(&backups).unwrap();
+            let exports_link = backups.join("exports");
+            std::os::unix::fs::symlink(&outside.0, &exports_link).unwrap();
+            assert!(resolve_controlled_export_path(&project.0, None).is_err());
+            assert!(resolve_controlled_export_path(&project.0, Some("a.zip")).is_err());
+            std::fs::remove_file(&exports_link).unwrap();
+
+            // 2. exports 下子目录是符号链接（即使指向项目内）-> 拒绝
+            std::fs::create_dir_all(&exports_link).unwrap();
+            let real_sub = exports_link.join("real");
+            std::fs::create_dir_all(&real_sub).unwrap();
+            let link_sub = exports_link.join("alias");
+            std::os::unix::fs::symlink(&real_sub, &link_sub).unwrap();
+            assert!(resolve_controlled_export_path(&project.0, Some("alias/a.zip")).is_err());
+            let abs_via_link = link_sub.join("a.zip");
+            assert!(resolve_controlled_export_path(&project.0, abs_via_link.to_str()).is_err());
+
+            // 3. 目标 .zip 或 .sha256 是悬空符号链接 -> symlink_metadata 捕获并拒绝
+            let dangling_zip = exports_link.join("dangling.zip");
+            std::os::unix::fs::symlink(outside.0.join("nonexistent.zip"), &dangling_zip).unwrap();
+            assert!(resolve_controlled_export_path(&project.0, Some("dangling.zip")).is_err());
+            let dangling_sha = exports_link.join("dangling2.zip.sha256");
+            std::os::unix::fs::symlink(outside.0.join("nonexistent.sha256"), &dangling_sha)
+                .unwrap();
+            assert!(resolve_controlled_export_path(&project.0, Some("dangling2.zip")).is_err());
+        }
+
+        #[cfg(windows)]
+        {
+            let make_dir_link = |target: &Path, link: &Path| -> bool {
+                std::os::windows::fs::symlink_dir(target, link).is_ok()
+                    || std::process::Command::new("cmd")
+                        .args([
+                            "/c",
+                            "mklink",
+                            "/J",
+                            &link.to_string_lossy(),
+                            &target.to_string_lossy(),
+                        ])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                        .is_ok_and(|s| s.success())
+            };
+
+            // 1. exports 目录本身是目录联接/符号链接 -> 拒绝
+            let backups = project.0.join("backups");
+            std::fs::create_dir_all(&backups).unwrap();
+            let exports_link = backups.join("exports");
+            assert!(
+                make_dir_link(&outside.0, &exports_link),
+                "Windows 测试应能建立目录联接或符号链接"
+            );
+            assert!(resolve_controlled_export_path(&project.0, None).is_err());
+            assert!(resolve_controlled_export_path(&project.0, Some("a.zip")).is_err());
+            let abs_via_junction = exports_link.join("a.zip");
+            assert!(resolve_controlled_export_path(&project.0, abs_via_junction.to_str()).is_err());
+            let _ = std::fs::remove_dir(&exports_link);
+
+            // 2. exports 下子目录是目录联接（即使指向项目内）-> 拒绝
+            std::fs::create_dir_all(&exports_link).unwrap();
+            let real_sub = exports_link.join("real");
+            std::fs::create_dir_all(&real_sub).unwrap();
+            let link_sub = exports_link.join("alias");
+            assert!(make_dir_link(&real_sub, &link_sub));
+            assert!(resolve_controlled_export_path(&project.0, Some("alias/a.zip")).is_err());
+            let abs_via_sub_link = link_sub.join("a.zip");
+            assert!(resolve_controlled_export_path(&project.0, abs_via_sub_link.to_str()).is_err());
+            let _ = std::fs::remove_dir(&link_sub);
+        }
+    }
+
+    #[test]
+    fn controlled_export_rejects_windows_reserved_device_names() {
+        let project = TempProject::new("export-reserved");
+        for bad_raw in [
+            "CON.zip",
+            "prn.zip",
+            "aux.tar.zip",
+            "NUL.zip",
+            "COM1.zip",
+            "lpt9.zip",
+            "CON/backup.zip",
+            "sub/aux/out.zip",
+        ] {
+            let err = resolve_controlled_export_path(&project.0, Some(bad_raw))
+                .expect_err("Windows reserved device names must be rejected");
+            assert!(
+                err.message.contains("保留设备名"),
+                "unexpected error for {bad_raw}: {}",
+                err.message
+            );
+        }
+        let abs_reserved = project.0.join("backups").join("exports").join("NUL.zip");
+        assert!(resolve_controlled_export_path(&project.0, abs_reserved.to_str()).is_err());
+    }
+
+    #[test]
+    fn read_direct_writes_reconciles_dangling_direct_write_and_undo_intents() {
+        let project = TempProject::new("wal-reconcile");
+        let project_path = project.path_str();
+        let dir = project.0.join("QM").join("chapters");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("wal.md");
+        std::fs::write(&target, b"v0").unwrap();
+
+        // 1) 模拟 direct_write_intent 落盘且磁盘写入已生效，但在写入 direct_write 提交行前崩溃。
+        let err = direct_write_with_audit(
+            &project_path,
+            "chapter.write_direct",
+            target.to_str().unwrap(),
+            "v1",
+            |file, record| {
+                if record.kind == "direct_write" {
+                    Err("simulated crash before commit audit".into())
+                } else {
+                    append_audit_line(file, record)
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(err.message.contains("simulated crash"), "{}", err.message);
+        assert_eq!(std::fs::read(&target).unwrap(), b"v1");
+
+        // 对账应基于磁盘 file_hash 恢复这条悬挂 direct_write_intent，使 undo_last 可正常回滚。
+        let recovered = read_direct_writes(&project.0).unwrap();
+        assert_eq!(
+            recovered.len(),
+            1,
+            "已落盘的悬挂 direct_write_intent 必须恢复"
+        );
+        let snap1 = recovered[0].identity.as_ref().unwrap().snapshot_ref.clone();
+
+        // 未落盘的悬挂 direct_write_intent（磁盘仍停留在 v1，而非 fake_v2）绝不得被恢复。
+        let canon_target = target.canonicalize().unwrap();
+        let (mut audit_file, _) = open_audit_log(&project.0).unwrap();
+        let uncommitted_intent = DirectWriteAudit {
+            ts: chrono::Utc::now().to_rfc3339(),
+            source: "external_agent",
+            tool: "chapter.write_direct",
+            kind: "direct_write_intent",
+            path: &canon_target.to_string_lossy(),
+            before_hash: super::super::writes::sha256_hex(b"v1"),
+            after_hash: super::super::writes::sha256_hex(b"never-written-v2"),
+            snapshot_ref: Some("snap_uncommitted".to_string()),
+        };
+        append_audit_line(&mut audit_file, &uncommitted_intent).unwrap();
+        let after_uncommitted = read_direct_writes(&project.0).unwrap();
+        assert_eq!(after_uncommitted.len(), 1);
+        assert_eq!(
+            after_uncommitted[0].identity.as_ref().unwrap().snapshot_ref,
+            snap1
+        );
+
+        // 通过 undo_last 成功回滚恢复出来的写入 → 回到 v0。
+        undo_direct_writes(&project_path, 1).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"v0");
+        assert!(read_direct_writes(&project.0).unwrap().is_empty());
+
+        // 2) 模拟正常提交后，undo_intent 落盘且磁盘已恢复，但在写入 undo 提交行前崩溃。
+        let w2 = direct_write(
+            &project_path,
+            "chapter.write_direct",
+            target.to_str().unwrap(),
+            "v2",
+        )
+        .unwrap();
+        let snap2 = w2["snapshotRef"].as_str().unwrap().to_string();
+        assert_eq!(read_direct_writes(&project.0).unwrap().len(), 1);
+
+        let (mut audit_file, _) = open_audit_log(&project.0).unwrap();
+        let dangling_undo_intent = DirectWriteAudit {
+            ts: chrono::Utc::now().to_rfc3339(),
+            source: "external_agent",
+            tool: "undo_last",
+            kind: "undo_intent",
+            path: &canon_target.to_string_lossy(),
+            before_hash: super::super::writes::sha256_hex(b"v2"),
+            after_hash: super::super::writes::sha256_hex(b"v0"),
+            snapshot_ref: Some(snap2.clone()),
+        };
+        append_audit_line(&mut audit_file, &dangling_undo_intent).unwrap();
+
+        // 磁盘仍在 v2（回滚尚未生效）→ 仍应保留在可回滚栈中。
+        assert_eq!(read_direct_writes(&project.0).unwrap().len(), 1);
+
+        // 模拟磁盘已恢复回 v0（回滚已生效但 undo 提交行缺失）→ 对账后视为已撤销。
+        std::fs::write(&target, b"v0").unwrap();
+        assert!(
+            read_direct_writes(&project.0).unwrap().is_empty(),
+            "磁盘已到达 undo_intent.after_hash 时必须识别为已撤销"
+        );
     }
 }

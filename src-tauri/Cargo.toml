@@ -60,8 +60,6 @@ tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt
 which = "7"
 uuid = { version = "1", features = ["v4"] }
 toml = "0.8"
-# macOS 防休眠（App Nap 节流防护；Windows 用 SetThreadExecutionState，见 commands/power.rs）
-keepawake = "0.6"
 # Multimodal image extraction (Phase 1):
 #   `image` re-encodes pdfium's raw bitmap output to PNG so the IPC
 #   payload is self-contained (the frontend doesn't need to know
@@ -113,7 +111,11 @@ proptest = "1"
 # cfg(windows) 下存在，非 Windows 平台编译 windows-future 必炸 E0425。
 # 代码侧 use 已全部 cfg(target_os="windows") 门控（lib.rs/power.rs）。
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Power", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Power", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_Storage", "Win32_Storage_FileSystem"] }
+
+# macOS 防休眠（App Nap 节流防护；Windows 用 SetThreadExecutionState，见 commands/power.rs）
+[target.'cfg(target_os = "macos")'.dependencies]
+keepawake = "0.6"
 
 [profile.release]
 codegen-units = 1

@@ -26,11 +26,13 @@ pub mod state_bridge;
 pub mod tools;
 pub mod writes;
 
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use axum::body::Bytes;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{DefaultBodyLimit, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::Router;
@@ -47,6 +49,94 @@ use tools::ToolContext;
 /// 2420 是 Vite dev，1420/1421 是 Tauri 默认 dev）。
 pub const DEFAULT_PORT: u16 = 45871;
 
+/// 单次 HTTP 请求体硬上限（4 MiB）。
+pub const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+
+/// 滑动窗口限流时长（秒）与窗口内最大请求数。
+pub const RATE_LIMIT_WINDOW_SECS: u64 = 60;
+pub const RATE_LIMIT_MAX_REQUESTS: usize = 300;
+
+/// 鉴权连续失败触发退避的阈值与退避时长区间（秒）。
+pub const AUTH_FAIL_BACKOFF_THRESHOLD: u32 = 5;
+pub const AUTH_FAIL_BASE_BACKOFF_SECS: u64 = 2;
+pub const AUTH_FAIL_MAX_BACKOFF_SECS: u64 = 60;
+
+/// T5 叶子限流器：滑动窗口限流 + 鉴权失败指数退避（锁绝不跨 `.await` 持有）。
+struct RateLimiter {
+    window: Duration,
+    max_requests: usize,
+    timestamps: VecDeque<Instant>,
+    consecutive_auth_failures: u32,
+    auth_blocked_until: Option<Instant>,
+}
+
+impl RateLimiter {
+    fn new(window: Duration, max_requests: usize) -> Self {
+        Self {
+            window,
+            max_requests,
+            timestamps: VecDeque::new(),
+            consecutive_auth_failures: 0,
+            auth_blocked_until: None,
+        }
+    }
+
+    fn default_policy() -> Self {
+        Self::new(
+            Duration::from_secs(RATE_LIMIT_WINDOW_SECS),
+            RATE_LIMIT_MAX_REQUESTS,
+        )
+    }
+
+    fn check_and_record_request(&mut self, now: Instant) -> Result<(), u64> {
+        if let Some(until) = self.auth_blocked_until {
+            if now < until {
+                return Err(until.saturating_duration_since(now).as_secs().max(1));
+            }
+            self.auth_blocked_until = None;
+        }
+        while let Some(&front) = self.timestamps.front() {
+            if now.saturating_duration_since(front) >= self.window {
+                self.timestamps.pop_front();
+            } else {
+                break;
+            }
+        }
+        if self.timestamps.len() >= self.max_requests {
+            let retry = self
+                .timestamps
+                .front()
+                .map(|oldest| {
+                    self.window
+                        .saturating_sub(now.saturating_duration_since(*oldest))
+                        .as_secs()
+                        .max(1)
+                })
+                .unwrap_or(1);
+            return Err(retry);
+        }
+        self.timestamps.push_back(now);
+        Ok(())
+    }
+
+    fn record_auth_failure(&mut self, now: Instant) -> Option<u64> {
+        self.consecutive_auth_failures = self.consecutive_auth_failures.saturating_add(1);
+        if self.consecutive_auth_failures >= AUTH_FAIL_BACKOFF_THRESHOLD {
+            let shift = (self.consecutive_auth_failures - AUTH_FAIL_BACKOFF_THRESHOLD).min(5);
+            let backoff_secs =
+                (AUTH_FAIL_BASE_BACKOFF_SECS << shift).min(AUTH_FAIL_MAX_BACKOFF_SECS);
+            self.auth_blocked_until = Some(now + Duration::from_secs(backoff_secs));
+            return Some(backoff_secs);
+        }
+        None
+    }
+
+    fn record_auth_success(&mut self) {
+        self.consecutive_auth_failures = 0;
+        self.auth_blocked_until = None;
+    }
+}
+
 /// 服务端运行态。
 pub struct ServerState {
     /// 当前有效 token。轮换后由上层替换整个 `ServerState`，不做原地变更。
@@ -59,6 +149,8 @@ pub struct ServerState {
     pub sessions: Arc<session::SessionRegistry>,
     /// 服务端授予的权限域。新会话在 `initialize` 时继承它，之后不随服务端变化。
     pub granted_scope: session::SessionScope,
+    revoked: std::sync::atomic::AtomicBool,
+    rate_limiter: Mutex<RateLimiter>,
 }
 
 /// 一次运行中的服务端句柄。
@@ -74,13 +166,17 @@ pub struct RunningServer {
 
 impl RunningServer {
     pub fn stop(&self) {
+        self.state
+            .revoked
+            .store(true, std::sync::atomic::Ordering::Release);
         self.abort.abort();
         // 监听一停，已握手会话就不该继续显示为「连着」。
         self.state.sessions.clear();
     }
 
-    /// 当前会话快照。
+    /// 当前会话快照（先清理空闲超时会话）。
     pub fn sessions(&self) -> Vec<session::SessionInfo> {
+        self.state.sessions.evict_expired();
         self.state.sessions.list()
     }
 }
@@ -177,21 +273,176 @@ async fn handle_tools_call(
     }
 }
 
+fn parse_strict_port(port_str: &str) -> Option<u16> {
+    if port_str.is_empty() || !port_str.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    port_str.parse::<u16>().ok()
+}
+
+/// 解析回环 authority（`127.0.0.1` / `localhost` / `[::1]`，可选 `:port`）。
+fn parse_loopback_authority(raw: &str) -> Option<Option<u16>> {
+    if raw.is_empty() || raw.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return None;
+    }
+    if raw.starts_with('[') {
+        let end = raw.find(']')?;
+        if &raw[..=end] != "[::1]" {
+            return None;
+        }
+        let rest = &raw[end + 1..];
+        if rest.is_empty() {
+            return Some(None);
+        }
+        let port_str = rest.strip_prefix(':')?;
+        return Some(Some(parse_strict_port(port_str)?));
+    }
+    let (host, port) = match raw.split_once(':') {
+        Some((h, p)) => (h, Some(parse_strict_port(p)?)),
+        None => (raw, None),
+    };
+    if host == "127.0.0.1" || host.eq_ignore_ascii_case("localhost") {
+        Some(port)
+    } else {
+        None
+    }
+}
+
+/// 校验 `Host` 头防 DNS Rebinding：须为回环地址且端口匹配（`expected_port == 0` 许任意合法 `u16`）。
+fn is_allowed_host(headers: &HeaderMap, expected_port: u16) -> bool {
+    let mut all = headers.get_all(axum::http::header::HOST).iter();
+    let Some(first) = all.next() else {
+        return false;
+    };
+    if all.next().is_some() {
+        return false;
+    }
+    let Ok(host) = first.to_str() else {
+        return false;
+    };
+    let Some(port_opt) = parse_loopback_authority(host) else {
+        return false;
+    };
+    match port_opt {
+        None => true,
+        Some(port) => expected_port == 0 || port == expected_port,
+    }
+}
+
+/// 校验 `Origin` 头防跨站 CSRF：缺失放行（非浏览器客户端），存在时仅允许回环与 Tauri WebView 源。
+fn is_allowed_origin(headers: &HeaderMap) -> bool {
+    let mut all = headers.get_all(axum::http::header::ORIGIN).iter();
+    let Some(first) = all.next() else {
+        return true;
+    };
+    if all.next().is_some() {
+        return false;
+    }
+    let Ok(origin) = first.to_str() else {
+        return false;
+    };
+    let Some((scheme, authority)) = origin.split_once("://") else {
+        return false;
+    };
+    if authority.is_empty()
+        || authority
+            .chars()
+            .any(|c| matches!(c, '/' | '?' | '#' | '@') || c.is_control() || c.is_whitespace())
+    {
+        return false;
+    }
+    if scheme.eq_ignore_ascii_case("tauri") {
+        return authority.eq_ignore_ascii_case("localhost");
+    }
+    if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") {
+        if authority.eq_ignore_ascii_case("tauri.localhost") {
+            return true;
+        }
+        return parse_loopback_authority(authority).is_some();
+    }
+    false
+}
+
+fn rate_limited_response(error: &str, retry_after_secs: u64) -> Response {
+    let mut resp = (
+        StatusCode::TOO_MANY_REQUESTS,
+        axum::Json(json!({
+            "error": error,
+            "retryAfterSeconds": retry_after_secs,
+        })),
+    )
+        .into_response();
+    if let Ok(val) = HeaderValue::from_str(&retry_after_secs.to_string()) {
+        resp.headers_mut()
+            .insert(axum::http::header::RETRY_AFTER, val);
+    }
+    resp
+}
+
 /// HTTP 入口。
 async fn handle_mcp(
     State(state): State<Arc<ServerState>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    // 鉴权前先拦 DNS Rebinding（Host）与跨站浏览器请求（Origin）。
+    if !is_allowed_host(&headers, state.port) {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(json!({ "error": "forbidden host header" })),
+        )
+            .into_response();
+    }
+    if !is_allowed_origin(&headers) {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(json!({ "error": "forbidden origin header" })),
+        )
+            .into_response();
+    }
+    if body.len() > MAX_BODY_BYTES {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            axum::Json(json!({ "error": "request body exceeds limit" })),
+        )
+            .into_response();
+    }
+
+    let now = Instant::now();
+    {
+        let mut limiter = state.rate_limiter.lock().unwrap_or_else(|e| e.into_inner());
+        if let Err(retry_after) = limiter.check_and_record_request(now) {
+            return rate_limited_response("rate limit exceeded", retry_after);
+        }
+    }
+
     let auth_header = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok());
-    if !auth::verify_authorization(auth_header, &state.token) {
+    if state.revoked.load(std::sync::atomic::Ordering::Acquire) {
         return (
             StatusCode::UNAUTHORIZED,
             axum::Json(json!({ "error": "missing or invalid bearer token" })),
         )
             .into_response();
+    }
+    if !auth::verify_authorization(auth_header, &state.token) {
+        let backoff = {
+            let mut limiter = state.rate_limiter.lock().unwrap_or_else(|e| e.into_inner());
+            limiter.record_auth_failure(now)
+        };
+        if let Some(retry_after) = backoff {
+            return rate_limited_response("too many authentication failures", retry_after);
+        }
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(json!({ "error": "missing or invalid bearer token" })),
+        )
+            .into_response();
+    }
+    {
+        let mut limiter = state.rate_limiter.lock().unwrap_or_else(|e| e.into_inner());
+        limiter.record_auth_success();
     }
 
     let req: JsonRpcRequest = match serde_json::from_slice(&body) {
@@ -266,6 +517,7 @@ async fn handle_mcp(
 pub fn router(state: Arc<ServerState>) -> Router {
     Router::new()
         .route("/mcp", post(handle_mcp))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
 }
 
@@ -350,6 +602,8 @@ pub async fn start(
         }),
         sessions: Arc::new(session::SessionRegistry::new()),
         granted_scope,
+        revoked: std::sync::atomic::AtomicBool::new(false),
+        rate_limiter: Mutex::new(RateLimiter::default_policy()),
     };
     serve(state, port).await
 }
@@ -393,23 +647,20 @@ pub fn internal_error(message: impl Into<String>) -> ToolError {
 #[derive(Default)]
 pub struct McpServerHandle {
     inner: std::sync::Mutex<Option<RunningServer>>,
+    lifecycle: tokio::sync::Mutex<()>,
 }
 
 impl McpServerHandle {
     /// 当前监听端口（未运行为 `None`）。
     pub fn port(&self) -> Option<u16> {
-        self.inner
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().map(|s| s.port))
+        let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().map(|s| s.port)
     }
 
     /// 当前授予的权限域（未运行为 `None`）。
     pub fn scope(&self) -> Option<session::SessionScope> {
-        self.inner
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().map(|s| s.state.granted_scope))
+        let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().map(|s| s.state.granted_scope)
     }
 
     /// 当前会话快照（未运行则为空）。
@@ -445,6 +696,11 @@ impl McpServerHandle {
             previous.stop();
         }
         *guard = next;
+    }
+
+    /// 停止运行中的服务端并释放监听端口（进程退出清理用）。
+    pub fn stop(&self) {
+        self.replace(None);
     }
 }
 
@@ -491,6 +747,7 @@ pub async fn mcp_server_start(
         );
     }
 
+    let _lifecycle = handle.lifecycle.lock().await;
     if let Some(port) = handle.port() {
         // 已在运行：scope 未变则幂等返回；变了就按新 scope 重启。
         // 静默忽略 scope 变化会让界面上的开关看起来生效了、实际没生效。
@@ -523,7 +780,10 @@ pub async fn mcp_session_grant_full(
     session_id: String,
 ) -> Result<(), String> {
     let granted = handle
-        .with_state(|state| state.sessions.grant_full(&session_id))
+        .with_state(|state| {
+            state.sessions.evict_expired();
+            state.sessions.grant_full(&session_id)
+        })
         .ok_or_else(|| "服务未运行，没有可授权的会话".to_string())?;
     if granted {
         log::info!("[mcp_server] full write granted to session {session_id}");
@@ -564,7 +824,10 @@ pub async fn mcp_session_grant_auto(
     session_id: String,
 ) -> Result<(), String> {
     let granted = handle
-        .with_state(|state| state.sessions.grant_auto(&session_id))
+        .with_state(|state| {
+            state.sessions.evict_expired();
+            state.sessions.grant_auto(&session_id)
+        })
         .ok_or_else(|| "服务未运行，没有可授权的会话".to_string())?;
     if granted {
         log::info!("[mcp_server] auto orchestration granted to session {session_id}");
@@ -598,6 +861,7 @@ pub async fn mcp_session_revoke_auto(
 /// 停止对外控制面；端口真正释放。未运行时为空操作。
 #[tauri::command]
 pub async fn mcp_server_stop(handle: tauri::State<'_, McpServerHandle>) -> Result<(), String> {
+    let _lifecycle = handle.lifecycle.lock().await;
     handle.replace(None);
     Ok(())
 }
@@ -633,10 +897,11 @@ pub async fn mcp_server_rotate_token(
     handle: tauri::State<'_, McpServerHandle>,
     bridge: tauri::State<'_, state_bridge::StateBridgeState>,
 ) -> Result<String, String> {
+    let _lifecycle = handle.lifecycle.lock().await;
+    let previous_scope = handle.scope();
+    handle.replace(None);
     let token = auth::rotate_token()?;
-    if handle.port().is_some() {
-        // 轮换 token 不该顺手改权限域：沿用当前授予值。
-        let granted = handle.scope().unwrap_or(session::SessionScope::Read);
+    if let Some(granted) = previous_scope {
         let server = start(
             app,
             bridge.inner().clone(),
@@ -662,6 +927,8 @@ mod tests {
             ctx: Arc::new(ToolContext::for_test()),
             sessions: Arc::new(session::SessionRegistry::new()),
             granted_scope: session::SessionScope::Read,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::default_policy()),
         })
     }
 
@@ -1175,6 +1442,8 @@ mod tests {
             ctx: Arc::new(ToolContext::for_test()),
             sessions: Arc::new(session::SessionRegistry::new()),
             granted_scope: session::SessionScope::Read,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::default_policy()),
         };
         serve(state, 0).await.expect("start")
     }
@@ -1408,5 +1677,241 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         let rebound = tokio::net::TcpListener::bind(("127.0.0.1", port)).await;
         assert!(rebound.is_ok(), "stop() 必须真正释放端口");
+    }
+
+    #[tokio::test]
+    async fn server_rejects_disallowed_host_and_origin_before_auth_with_403() {
+        let server = start_test_server().await;
+        let url = format!("http://127.0.0.1:{}/mcp", server.port);
+        let wrong_port = if server.port == u16::MAX {
+            server.port - 1
+        } else {
+            server.port + 1
+        };
+        let client = reqwest::Client::new();
+
+        // 非法 Host（即使不带 token，也必须在鉴权之前返回 403 而非 401）。
+        for bad_host in [
+            "evil.com".to_string(),
+            format!("evil.com:{}", server.port),
+            format!("127.0.0.1.evil.com:{}", server.port),
+            format!("127.0.0.1:{wrong_port}"),
+            format!("localhost:{wrong_port}"),
+            format!("[::1]:{wrong_port}"),
+            "127.0.0.1:99999".to_string(),
+        ] {
+            let resp = client
+                .post(&url)
+                .header(reqwest::header::HOST, &bad_host)
+                .body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+                .send()
+                .await
+                .expect("request");
+            assert_eq!(
+                resp.status(),
+                403,
+                "非法 Host `{bad_host}` 必须在鉴权前返回 403"
+            );
+        }
+
+        // 非法 Origin（即使不带 token，也必须在鉴权之前返回 403 而非 401）。
+        for bad_origin in [
+            "https://evil.com",
+            "http://evil.com:45871",
+            "http://localhost.evil.com",
+            "http://127.0.0.1@evil.com",
+            "http://tauri.localhost.evil.com",
+            "null",
+            "file:///tmp/index.html",
+        ] {
+            let resp = client
+                .post(&url)
+                .header(reqwest::header::ORIGIN, bad_origin)
+                .body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+                .send()
+                .await
+                .expect("request");
+            assert_eq!(
+                resp.status(),
+                403,
+                "非法 Origin `{bad_origin}` 必须在鉴权前返回 403"
+            );
+        }
+
+        // 合法 Host 变体（含无端口与匹配端口的回环地址）带合法 token 必须放行 200。
+        for ok_host in [
+            format!("127.0.0.1:{}", server.port),
+            format!("localhost:{}", server.port),
+            format!("LOCALHOST:{}", server.port),
+            format!("[::1]:{}", server.port),
+            "127.0.0.1".to_string(),
+            "localhost".to_string(),
+            "[::1]".to_string(),
+        ] {
+            let resp = client
+                .post(&url)
+                .header(reqwest::header::HOST, &ok_host)
+                .bearer_auth("secret-token")
+                .body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+                .send()
+                .await
+                .expect("request");
+            assert_eq!(resp.status(), 200, "合法 Host `{ok_host}` 应放行");
+        }
+
+        // 合法 Origin（回环与 Tauri WebView 源）带合法 token 必须放行 200。
+        for ok_origin in [
+            "http://127.0.0.1:1420",
+            "http://localhost:2420",
+            "https://[::1]:8443",
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+        ] {
+            let resp = client
+                .post(&url)
+                .header(reqwest::header::ORIGIN, ok_origin)
+                .bearer_auth("secret-token")
+                .body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+                .send()
+                .await
+                .expect("request");
+            assert_eq!(resp.status(), 200, "合法 Origin `{ok_origin}` 应放行");
+        }
+
+        // state.port == 0 时允许任意合法 u16 端口，仍拒绝非回环与越界端口。
+        let mut headers = HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "localhost:12345".parse().unwrap());
+        assert!(is_allowed_host(&headers, 0));
+        headers.insert(axum::http::header::HOST, "localhost:99999".parse().unwrap());
+        assert!(!is_allowed_host(&headers, 0));
+        headers.remove(axum::http::header::HOST);
+        assert!(!is_allowed_host(&headers, 0));
+
+        server.stop();
+    }
+
+    #[tokio::test]
+    async fn handle_stop_stops_running_server() {
+        let server = start_test_server().await;
+        let port = server.port;
+        let handle = McpServerHandle::default();
+        handle.replace(Some(server));
+        assert_eq!(handle.port(), Some(port));
+
+        handle.stop();
+        assert_eq!(handle.port(), None);
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        let rebound = tokio::net::TcpListener::bind(("127.0.0.1", port)).await;
+        assert!(rebound.is_ok(), "McpServerHandle::stop() 必须释放端口");
+    }
+
+    #[tokio::test]
+    async fn server_rejects_body_exceeding_4_mib_with_413() {
+        let server = start_test_server().await;
+        let url = format!("http://127.0.0.1:{}/mcp", server.port);
+        let oversized = vec![b'a'; MAX_BODY_BYTES + 128];
+        let resp = reqwest::Client::new()
+            .post(&url)
+            .bearer_auth("secret-token")
+            .body(oversized)
+            .send()
+            .await
+            .expect("request");
+        assert_eq!(resp.status(), 413, "超过 4 MiB 的请求体必须返回 413");
+        server.stop();
+    }
+
+    #[tokio::test]
+    async fn server_rate_limits_auth_failures_and_sliding_window_with_429() {
+        // 1) 连续鉴权失败触发指数退避 429 + Retry-After
+        let server = start_test_server().await;
+        let url = format!("http://127.0.0.1:{}/mcp", server.port);
+        let client = reqwest::Client::new();
+        for i in 1..AUTH_FAIL_BACKOFF_THRESHOLD {
+            let resp = client
+                .post(&url)
+                .bearer_auth("wrong-token")
+                .body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+                .send()
+                .await
+                .expect("request");
+            assert_eq!(resp.status(), 401, "第 {i} 次失败应返回 401");
+        }
+        let resp_backoff = client
+            .post(&url)
+            .bearer_auth("wrong-token")
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+            .send()
+            .await
+            .expect("request");
+        assert_eq!(resp_backoff.status(), 429, "达到阈值后必须返回 429");
+        assert!(resp_backoff.headers().get("retry-after").is_some());
+
+        // 冷却期内即使换回正确 token 也必须被 429 挡住。
+        let resp_during_cooldown = client
+            .post(&url)
+            .bearer_auth("secret-token")
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+            .send()
+            .await
+            .expect("request");
+        assert_eq!(resp_during_cooldown.status(), 429);
+        server.stop();
+
+        // 2) 滑动窗口限流触发 429 + Retry-After
+        let tight_state = ServerState {
+            token: "secret-token".into(),
+            port: 0,
+            registry: Arc::new(tools::build_registry()),
+            ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Read,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::new(Duration::from_secs(60), 3)),
+        };
+        let tight_server = serve(tight_state, 0).await.expect("start tight server");
+        let tight_url = format!("http://127.0.0.1:{}/mcp", tight_server.port);
+        for _ in 0..3 {
+            let resp = client
+                .post(&tight_url)
+                .bearer_auth("secret-token")
+                .body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+                .send()
+                .await
+                .expect("request");
+            assert_eq!(resp.status(), 200);
+        }
+        let limited = client
+            .post(&tight_url)
+            .bearer_auth("secret-token")
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+            .send()
+            .await
+            .expect("request");
+        assert_eq!(limited.status(), 429, "超过滑动窗口上限必须返回 429");
+        assert!(limited.headers().get("retry-after").is_some());
+        tight_server.stop();
+    }
+
+    #[tokio::test]
+    async fn handle_port_and_scope_recover_from_poisoned_mutex() {
+        let server = start_test_server().await;
+        let expected_port = server.port;
+        let expected_scope = server.state.granted_scope;
+        let handle = Arc::new(McpServerHandle::default());
+        handle.replace(Some(server));
+
+        let poisoned = Arc::clone(&handle);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoned.inner.lock().unwrap();
+            panic!("intentional poison for McpServerHandle::inner");
+        })
+        .join();
+
+        assert!(handle.inner.is_poisoned());
+        assert_eq!(handle.port(), Some(expected_port));
+        assert_eq!(handle.scope(), Some(expected_scope));
+        handle.stop();
     }
 }

@@ -15,6 +15,19 @@ use serde::{Deserialize, Serialize};
 
 use super::vectorstore::ChunkUpsertInput;
 
+/// 启动对账豁免的非普通 Wiki 页面命名空间前缀（社区摘要及其历史前缀）。
+///
+/// 这类向量行不出现在普通 Wiki 页面的 `expected` 清单里，由社区摘要管线独立维护；
+/// 对账时若仅存在于实际表而不在 `expected` 中，归入 `unchanged_pages` 保留而不误删。
+pub const RECONCILE_EXEMPT_PAGE_PREFIXES: [&str; 2] = ["community-summary-", "community:"];
+
+/// 判断 `page_id` 是否属于启动对账豁免命名空间。
+pub fn is_reconcile_exempt_page(page_id: &str) -> bool {
+    RECONCILE_EXEMPT_PAGE_PREFIXES
+        .iter()
+        .any(|prefix| page_id.starts_with(prefix))
+}
+
 /// Identity of one expected chunk.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ExpectedChunk {
@@ -99,6 +112,11 @@ pub fn reconcile_chunks(expected: &[ExpectedChunk], actual: &[ActualChunk]) -> R
         let actual_idx = actual_by_page.get(page_id).cloned().unwrap_or_default();
 
         if expected_idx.is_empty() && !actual_idx.is_empty() {
+            if is_reconcile_exempt_page(page_id) {
+                // 豁免命名空间（如社区摘要）不出现在普通页面 expected 清单中，保留现状不删。
+                plan.unchanged_pages.push(page_id.to_string());
+                continue;
+            }
             // Present in table, but nothing expected → delete the page.
             plan.to_delete_pages.push(page_id.to_string());
             continue;

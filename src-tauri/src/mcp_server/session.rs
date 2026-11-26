@@ -23,6 +23,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// 会话表硬上限：满额时淘汰最久未活跃项，防止异常客户端持续握手导致无界增长。
+pub const MAX_SESSIONS: usize = 64;
+
+/// 会话空闲 TTL（30 分钟）：超过该时间无调用的会话会被自动淘汰。
+pub const SESSION_IDLE_TTL_MS: u64 = 30 * 60 * 1000;
+
 /// 会话权限域。
 ///
 /// **刻意不做全序**：`Project` 不蕴含 `Settings`，`Settings` 也不蕴含 `Project`。
@@ -154,9 +160,41 @@ impl SessionRegistry {
 
     /// 新建会话，返回会话 id。`scope` 是该会话被授予的权限域。
     pub fn create(&self, scope: SessionScope) -> String {
-        let id = uuid::Uuid::new_v4().to_string();
-        let now = now_ms();
+        self.create_at(scope, now_ms())
+    }
+
+    /// 清理所有已超过 [`SESSION_IDLE_TTL_MS`] 的空闲会话。
+    pub fn evict_expired(&self) {
+        self.evict_expired_at(now_ms());
+    }
+
+    /// 按指定时间戳清理空闲过期会话。
+    pub fn evict_expired_at(&self, now: u64) {
         let mut guard = self.lock();
+        evict_expired_locked(&mut guard, now);
+    }
+
+    /// 指定时间戳新建会话：先淘汰超过 [`SESSION_IDLE_TTL_MS`] 的空闲会话，
+    /// 若仍达到 [`MAX_SESSIONS`] 则淘汰最久未活跃项。
+    pub fn create_at(&self, scope: SessionScope, now: u64) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut guard = self.lock();
+        evict_expired_locked(&mut guard, now);
+        while guard.len() >= MAX_SESSIONS {
+            let oldest_key = guard
+                .iter()
+                .min_by(|(ka, a), (kb, b)| {
+                    a.last_call_at
+                        .cmp(&b.last_call_at)
+                        .then_with(|| a.connected_at.cmp(&b.connected_at))
+                        .then_with(|| ka.cmp(kb))
+                })
+                .map(|(k, _)| k.clone());
+            let Some(key) = oldest_key else {
+                break;
+            };
+            guard.remove(&key);
+        }
         guard.insert(
             id.clone(),
             SessionInfo {
@@ -172,10 +210,20 @@ impl SessionRegistry {
         id
     }
 
-    /// 记录一次调用。未知 id 返回 `false`（不新建、不报错）。
+    /// 记录一次调用。未知或已超空闲 TTL 的 id 返回 `false`（过期项同时驱逐，不新建、不报错）。
     pub fn touch(&self, id: &str) -> bool {
-        let now = now_ms();
+        self.touch_at(id, now_ms())
+    }
+
+    /// 指定时间戳记录一次调用。未知或已超空闲 TTL 的 id 返回 `false`。
+    pub fn touch_at(&self, id: &str, now: u64) -> bool {
         let mut guard = self.lock();
+        if let Some(session) = guard.get(id) {
+            if now.saturating_sub(session.last_call_at) >= SESSION_IDLE_TTL_MS {
+                guard.remove(id);
+                return false;
+            }
+        }
         match guard.get_mut(id) {
             Some(session) => {
                 session.last_call_at = now;
@@ -295,6 +343,10 @@ impl SessionRegistry {
             Err(poisoned) => poisoned.into_inner(),
         }
     }
+}
+
+fn evict_expired_locked(guard: &mut HashMap<String, SessionInfo>, now: u64) {
+    guard.retain(|_, info| now.saturating_sub(info.last_call_at) < SESSION_IDLE_TTL_MS);
 }
 
 fn now_ms() -> u64 {
@@ -533,6 +585,82 @@ mod tests {
         let reg = SessionRegistry::new();
         reg.create(SessionScope::Read);
         reg.clear();
+        assert!(reg.is_empty());
+    }
+
+    #[test]
+    fn create_at_evicts_least_recently_active_when_full() {
+        let reg = SessionRegistry::new();
+        let mut ids = Vec::with_capacity(MAX_SESSIONS);
+        for i in 0..MAX_SESSIONS {
+            ids.push(reg.create_at(SessionScope::Read, 1_000 + i as u64));
+        }
+        assert_eq!(reg.len(), MAX_SESSIONS);
+
+        // 刷新最早创建的第 0 号会话，使其成为最近活跃，真正的最久未活跃项变为第 1 号。
+        assert!(reg.touch_at(&ids[0], 5_000));
+
+        let newest = reg.create_at(SessionScope::Project, 5_001);
+        assert_eq!(
+            reg.len(),
+            MAX_SESSIONS,
+            "满额创建后总数必须不超过 MAX_SESSIONS"
+        );
+        assert_eq!(
+            reg.scope_of(&ids[0]),
+            Some(SessionScope::Read),
+            "最近活跃的会话不得被淘汰"
+        );
+        assert_eq!(reg.scope_of(&ids[1]), None, "最久未活跃的会话必须被淘汰");
+        assert_eq!(reg.scope_of(&newest), Some(SessionScope::Project));
+    }
+
+    #[test]
+    fn create_at_evicts_idle_expired_sessions_before_inserting() {
+        let reg = SessionRegistry::new();
+        let stale = reg.create_at(SessionScope::Read, 10_000);
+        let active = reg.create_at(SessionScope::Settings, 10_000);
+
+        // 在 TTL 临近前刷新 active，stale 保持不动。
+        let refresh_ts = 10_000 + SESSION_IDLE_TTL_MS - 1_000;
+        assert!(reg.touch_at(&active, refresh_ts));
+
+        // 到达 stale 的 TTL 边界时创建新会话：stale 必须被清理，active 须保留。
+        let expire_ts = 10_000 + SESSION_IDLE_TTL_MS;
+        let fresh = reg.create_at(SessionScope::Project, expire_ts);
+
+        assert_eq!(reg.len(), 2);
+        assert_eq!(reg.scope_of(&stale), None, "超过空闲 TTL 的会话必须被清理");
+        assert_eq!(
+            reg.scope_of(&active),
+            Some(SessionScope::Settings),
+            "未过期的活跃会话必须保留"
+        );
+        assert_eq!(reg.scope_of(&fresh), Some(SessionScope::Project));
+    }
+
+    #[test]
+    fn touch_at_and_evict_expired_at_enforce_30_minute_idle_ttl() {
+        assert_eq!(SESSION_IDLE_TTL_MS, 30 * 60 * 1000);
+        let reg = SessionRegistry::new();
+        let sid = reg.create_at(SessionScope::Project, 10_000);
+        reg.grant_full(&sid);
+
+        // 29 分 59 秒活跃刷新仍有效。
+        let before_ttl = 10_000 + SESSION_IDLE_TTL_MS - 1_000;
+        assert!(reg.touch_at(&sid, before_ttl));
+        assert_eq!(reg.effective_scope(&sid), Some(SessionScope::Full));
+
+        // 超过 30 分钟空闲后 touch_at 返回 false 并驱逐，避免过期会话保留高权限。
+        let after_ttl = before_ttl + SESSION_IDLE_TTL_MS;
+        assert!(!reg.touch_at(&sid, after_ttl));
+        assert_eq!(reg.effective_scope(&sid), None);
+        assert!(reg.is_empty());
+
+        // evict_expired_at 可主动清理到期会话。
+        let sid2 = reg.create_at(SessionScope::Settings, 50_000);
+        reg.evict_expired_at(50_000 + SESSION_IDLE_TTL_MS);
+        assert_eq!(reg.scope_of(&sid2), None);
         assert!(reg.is_empty());
     }
 }

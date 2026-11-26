@@ -34,6 +34,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 
 use arrow_array::{Array, RecordBatch, StringArray};
 use arrow_schema::SchemaRef;
@@ -140,12 +141,7 @@ impl CanonState {
             // （Unix 秒），生产 supersede 流不再只靠测试手动设置。
             // 幂等跳过分支（已封顶且更早）不更新：时间戳保持首次封顶值。
             if e.expired_at.is_none() {
-                e.expired_at = Some(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs() as i64)
-                        .unwrap_or(0),
-                );
+                e.expired_at = Some(now_unix_secs());
             }
             true
         } else {
@@ -202,11 +198,12 @@ impl CanonState {
 
     // ── ingest_digest 去重 ──
 
-    /// 检查 (chapter, digest) 是否已摄取（写前去重）。
+    /// 检查 (chapter, digest) 是否已摄取（写前去重；已归档 episode 不阻挡重摄）。
     pub fn check_ingest_digest(&self, chapter_number: i32, digest: &str) -> bool {
         canon_types::ingest_digest_exists(
             self.episodes
                 .iter()
+                .filter(|e| !e.archived)
                 .map(|e| (e.chapter_number, e.digest.clone())),
             chapter_number,
             digest,
@@ -270,6 +267,14 @@ const META_KEY_REVISION: &str = "canon_revision";
 /// 避免 revision 写入时被 divergence trace 覆盖）。
 const META_KEY_DIVERGENCE_TRACE: &str = "canon_divergence_trace";
 
+/// 当前 Unix 秒级时间戳（用于 bi-temporal `created_at` / `expired_at` 自动落戳）。
+fn now_unix_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 /// 默认 compaction 触发阈值：N 批 ingest 操作后触发。
 const DEFAULT_COMPACTION_THRESHOLD: u64 = 100;
 /// 默认保留的 manifest 版本数（prune 时保留最新 K 个）。
@@ -281,6 +286,7 @@ pub struct DiskUsage {
     pub entities_bytes: u64,
     pub edges_bytes: u64,
     pub episodes_bytes: u64,
+    pub events_bytes: u64,
     pub meta_bytes: u64,
     pub total_bytes: u64,
 }
@@ -311,10 +317,20 @@ pub struct CanonStore {
     project_path: String,
 }
 
+/// M2-05：进程级 schema 自动迁移互斥锁，防止并发 `CanonStore::open` 重复触发 `add_columns`。
+static MIGRATE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+fn migrate_lock() -> &'static tokio::sync::Mutex<()> {
+    MIGRATE_LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
 impl CanonStore {
-    /// 打开/初始化 canon 库：确保三表 + meta 表存在（建满当前 schema），
-    /// 加载 schema 清单。新库清单 = CURRENT；无 meta 的遗留库默认 v1。
-    pub async fn open(project_path: &str) -> Result<Self, String> {
+    /// 打开/初始化 canon 库但不自动执行 schema 迁移（供显式迁移/回滚路径与测试使用）。
+    ///
+    /// - 检查 `[CANON_TABLE_ENTITIES, CANON_TABLE_EDGES, CANON_TABLE_EPISODES]` 任一是否已存在：
+    ///   任一存在视为遗留库（无 meta 清单时回落 v1）；三者皆无且无清单时视为新库写入 `CURRENT_SCHEMA_VERSION`。
+    /// - 若磁盘 manifest 版本高于 `CURRENT_SCHEMA_VERSION`，在改动任何表前即 fail-closed 报错拒绝降级打开。
+    pub(crate) async fn open_without_auto_migrate(project_path: &str) -> Result<Self, String> {
         let db = connect(&db_path(project_path))
             .execute()
             .await
@@ -326,7 +342,30 @@ impl CanonStore {
             .await
             .map_err(|e| format!("list tables: {e}"))?;
 
-        let entities_existed = names.contains(&CANON_TABLE_ENTITIES.to_string());
+        let any_core_table_existed = [
+            CANON_TABLE_ENTITIES,
+            CANON_TABLE_EDGES,
+            CANON_TABLE_EPISODES,
+        ]
+        .iter()
+        .any(|t| names.iter().any(|n| n == t));
+
+        // M2-05：若 meta 表已存在，先检查 manifest 版本，未来版本在改动任何表前即 fail-closed 拒绝。
+        let existing_manifest = if names.iter().any(|n| n == CANON_TABLE_META) {
+            Self::load_manifest(&db).await?
+        } else {
+            None
+        };
+        if let Some(ref m) = existing_manifest {
+            if m.version > CURRENT_SCHEMA_VERSION {
+                return Err(format!(
+                    "Canon schema version v{} is newer than supported v{}; refusing to open newer database with older version",
+                    m.version.get(),
+                    CURRENT_SCHEMA_VERSION.get()
+                ));
+            }
+        }
+
         ensure_table(&db, CANON_TABLE_ENTITIES, entities_schema(), &names).await?;
         ensure_table(&db, CANON_TABLE_EDGES, edges_schema(), &names).await?;
         ensure_table(&db, CANON_TABLE_EPISODES, episodes_schema(), &names).await?;
@@ -334,16 +373,25 @@ impl CanonStore {
         ensure_table(&db, CANON_TABLE_EVENTS, events_schema(), &names).await?;
         ensure_table(&db, CANON_TABLE_META, meta_schema(), &names).await?;
 
-        // manifest：新库（表刚建）= CURRENT；遗留库无 meta 行 = v1（触发迁移）
-        let manifest = if entities_existed {
-            Self::load_manifest(&db)
-                .await?
-                .unwrap_or_else(|| SchemaManifest::new(SchemaVersion(1)))
+        // manifest：任意核心表已存在（遗留库）→ 读既有 manifest（无 meta 行则默认 v1 触发迁移）；
+        // 全新库（三核心表皆不存在且无既有清单）→ 写入 CURRENT。
+        let manifest = if any_core_table_existed {
+            existing_manifest.unwrap_or_else(|| SchemaManifest::new(SchemaVersion(1)))
+        } else if let Some(m) = existing_manifest {
+            m
         } else {
             let m = SchemaManifest::new(CURRENT_SCHEMA_VERSION);
             Self::save_manifest(&db, &m).await?;
             m
         };
+
+        if manifest.version > CURRENT_SCHEMA_VERSION {
+            return Err(format!(
+                "Canon schema version v{} is newer than supported v{}; refusing to open newer database with older version",
+                manifest.version.get(),
+                CURRENT_SCHEMA_VERSION.get()
+            ));
+        }
 
         Ok(Self {
             db,
@@ -353,6 +401,33 @@ impl CanonStore {
             retain_versions: DEFAULT_RETAIN_VERSIONS,
             project_path: project_path.to_string(),
         })
+    }
+
+    /// 打开/初始化 canon 库：确保三表 + meta 表存在（建满当前 schema），
+    /// 加载 schema 清单。若版本落后于 `CURRENT_SCHEMA_VERSION`，经进程级迁移锁
+    /// 双检磁盘 manifest 后自动执行 `migrate_up(CURRENT_SCHEMA_VERSION)`；
+    /// 若版本高于 `CURRENT_SCHEMA_VERSION`，fail-closed 拒绝降级打开。
+    pub async fn open(project_path: &str) -> Result<Self, String> {
+        let mut store = Self::open_without_auto_migrate(project_path).await?;
+        if store.manifest.version < CURRENT_SCHEMA_VERSION {
+            let _guard = migrate_lock().lock().await;
+            // 双检磁盘 manifest，防止并发 open 重复触发 add_columns
+            let latest = Self::load_manifest(&store.db)
+                .await?
+                .unwrap_or_else(|| SchemaManifest::new(SchemaVersion(1)));
+            if latest.version > CURRENT_SCHEMA_VERSION {
+                return Err(format!(
+                    "Canon schema version v{} is newer than supported v{}; refusing to open newer database with older version",
+                    latest.version.get(),
+                    CURRENT_SCHEMA_VERSION.get()
+                ));
+            }
+            store.manifest = latest;
+            if store.manifest.version < CURRENT_SCHEMA_VERSION {
+                store.migrate_up(CURRENT_SCHEMA_VERSION).await?;
+            }
+        }
+        Ok(store)
     }
 
     // ── manifest 持久化 ──
@@ -398,9 +473,10 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|e| format!("open meta: {e}"))?;
-        let _ = table
+        table
             .delete(&format!("key = {}", sql_str(META_KEY_SCHEMA)))
-            .await;
+            .await
+            .map_err(|e| format!("meta delete: {e}"))?;
         let batch = meta_batch(META_KEY_SCHEMA, &json)?;
         table
             .add(vec![batch])
@@ -455,9 +531,10 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|e| format!("open meta: {e}"))?;
-        let _ = table
+        table
             .delete(&format!("key = {}", sql_str(META_KEY_LANCE_PRE)))
-            .await;
+            .await
+            .map_err(|e| format!("meta delete pre-migrate: {e}"))?;
         let batch = meta_batch(META_KEY_LANCE_PRE, &json)?;
         table
             .add(vec![batch])
@@ -477,7 +554,10 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|x| format!("open entities: {x}"))?;
-        let _ = table.delete(&format!("id = {}", sql_str(&e.id))).await;
+        table
+            .delete(&format!("id = {}", sql_str(&e.id)))
+            .await
+            .map_err(|x| format!("entities delete: {x}"))?;
         let batch = entities_batch(&e)?;
         table
             .add(vec![batch])
@@ -488,15 +568,23 @@ impl CanonStore {
         Ok(())
     }
 
-    /// 幂等 upsert 边。
-    pub async fn upsert_edge(&self, e: CanonEdge) -> Result<(), String> {
+    /// 幂等 upsert 边：先校验时态不变量并自动填充 bi-temporal `created_at`。
+    pub async fn upsert_edge(&self, mut e: CanonEdge) -> Result<(), String> {
+        canon_types::validate_edge_temporal(&e)
+            .map_err(|err| format!("invalid edge temporal bounds: {err}"))?;
+        if e.created_at.is_none() {
+            e.created_at = Some(now_unix_secs());
+        }
         let table = self
             .db
             .open_table(CANON_TABLE_EDGES)
             .execute()
             .await
             .map_err(|x| format!("open edges: {x}"))?;
-        let _ = table.delete(&format!("id = {}", sql_str(&e.id))).await;
+        table
+            .delete(&format!("id = {}", sql_str(&e.id)))
+            .await
+            .map_err(|x| format!("edges delete: {x}"))?;
         let batch = edges_batch(&e)?;
         table
             .add(vec![batch])
@@ -508,7 +596,8 @@ impl CanonStore {
     }
 
     /// 封顶单条边（原地写 invalid_at：delete + 重新 add 带 invalid_at）。
-    /// 单调封顶：若已有 invalid_at ≤ cap_chapter，则幂等跳过（不降级封顶）。
+    /// 校验 `cap_chapter >= valid_at`（不产生倒置区间）；单调封顶：若已有 invalid_at ≤ cap_chapter，
+    /// 则幂等跳过（不降级封顶）；实际封顶时自动填充 `expired_at`。
     pub async fn invalidate_edge(&self, edge_id: &str, cap_chapter: i32) -> Result<bool, String> {
         let table = self
             .db
@@ -530,6 +619,14 @@ impl CanonStore {
             return Ok(false);
         }
         let mut e = edges.remove(0);
+        if let Some(valid_at) = e.valid_at {
+            if cap_chapter < valid_at {
+                return Err(format!(
+                    "invalid invalidate_edge cap_chapter: edge {} has valid_at {} > cap_chapter {}",
+                    edge_id, valid_at, cap_chapter
+                ));
+            }
+        }
         // 单调封顶：已有更早封顶则幂等跳过
         if let Some(existing) = e.invalid_at {
             if existing <= cap_chapter {
@@ -537,8 +634,14 @@ impl CanonStore {
             }
         }
         e.invalid_at = Some(cap_chapter);
+        if e.expired_at.is_none() {
+            e.expired_at = Some(now_unix_secs());
+        }
         // delete 旧行 + add 封顶后行
-        let _ = table.delete(&format!("id = {}", sql_str(edge_id))).await;
+        table
+            .delete(&format!("id = {}", sql_str(edge_id)))
+            .await
+            .map_err(|x| format!("edges delete: {x}"))?;
         let batch = edges_batch(&e)?;
         table
             .add(vec![batch])
@@ -548,14 +651,45 @@ impl CanonStore {
         Ok(true)
     }
 
-    /// 批量 supersede：旧边封顶 + 新边插入（单次 invoke）。
+    /// 批量 supersede：先早拒校验全部新边时态 + 全部待封顶旧边 `cap_chapter >= valid_at` →
+    /// 封顶旧边 → 拉最新快照分类 → 插入新边并同步并入本地快照使同批后续边可见。
     pub async fn supersede_edges(&self, req: SupersedeRequest) -> Result<SupersedeResult, String> {
-        // 53 号报告 P0-2: 写前取现存边快照供确定性冲突分类 (只读复用 query_edges,
-        // 零新读路径; 拉取失败则跳过分类降级纯插入, 不阻断写可用性)
-        let edges_snapshot = self
-            .query_edges(&CanonEdgeFilter::default())
-            .await
-            .unwrap_or_default();
+        // 1) 早拒：动任何旧边之前先校验全部新边时态不变量
+        for ne in &req.new_edges {
+            canon_types::validate_edge_temporal(ne)
+                .map_err(|err| format!("invalid new edge temporal bounds: {err}"))?;
+        }
+        // 1.5) 原子预检：在封顶任何旧边前批量校验全部命中的旧边满足 cap_chapter >= valid_at，
+        // 任一违例立即返回 Err，确保 0 条旧边被半程部分封顶。
+        if !req.old_edge_ids.is_empty() {
+            let table = self
+                .db
+                .open_table(CANON_TABLE_EDGES)
+                .execute()
+                .await
+                .map_err(|x| format!("open edges: {x}"))?;
+            for chunk in req.old_edge_ids.chunks(256) {
+                let in_list: Vec<String> = chunk.iter().map(|id| sql_str(id)).collect();
+                let batches = table
+                    .query()
+                    .only_if(format!("id IN ({})", in_list.join(", ")))
+                    .execute()
+                    .await
+                    .map_err(|x| format!("precheck old edges: {x}"))?
+                    .try_collect::<Vec<_>>()
+                    .await
+                    .map_err(|x| format!("collect precheck old edges: {x}"))?;
+                for old in read_edges(&batches)? {
+                    if let Some(valid_at) = old.valid_at.filter(|&v| req.cap_chapter < v) {
+                        return Err(format!(
+                            "invalid supersede_edges cap_chapter: edge {} has valid_at {} > cap_chapter {}",
+                            old.id, valid_at, req.cap_chapter
+                        ));
+                    }
+                }
+            }
+        }
+        // 2) 先封顶旧边，使后续快照反映封顶后的半开有效窗
         let mut capped = 0usize;
         let mut missing = Vec::new();
         for old_id in &req.old_edge_ids {
@@ -565,6 +699,8 @@ impl CanonStore {
                 missing.push(old_id.clone());
             }
         }
+        // 3) 封顶后拉取最新边快照（失败 fail-closed 上抛，不再吞错）
+        let mut edges_snapshot = self.query_edges(&CanonEdgeFilter::default()).await?;
         let mut inserted = 0usize;
         let mut duplicate_skipped = 0usize;
         let mut conflict_notes = Vec::new();
@@ -576,7 +712,13 @@ impl CanonStore {
                 duplicate_skipped += 1;
                 continue;
             }
-            self.upsert_edge(ne).await?;
+            self.upsert_edge(ne.clone()).await?;
+            // 同步更新本地快照，使同批后续边能看见已插入新边
+            if let Some(slot) = edges_snapshot.iter_mut().find(|e| e.id == ne.id) {
+                *slot = ne;
+            } else {
+                edges_snapshot.push(ne);
+            }
             inserted += 1;
         }
         Ok(SupersedeResult {
@@ -596,23 +738,28 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|x| format!("open edges: {x}"))?;
-        let mut q = table.query();
-        // archived 推 down（默认 false）
+        let mut clauses: Vec<String> = Vec::new();
+        // archived 推 down（默认 false；兼容历史 NULL archived 行视同未归档）
         let want_archived = filter.archived.unwrap_or(false);
-        q = q.only_if(format!("archived = {}", want_archived));
+        if want_archived {
+            clauses.push("archived = true".to_string());
+        } else {
+            clauses.push("(archived = false OR archived IS NULL)".to_string());
+        }
         if let Some(ref kinds) = filter.edge_kinds {
             if !kinds.is_empty() {
                 let in_list: Vec<String> = kinds.iter().map(|k| sql_str(k.as_str())).collect();
-                q = q.only_if(format!("edge_kind IN ({})", in_list.join(", ")));
+                clauses.push(format!("edge_kind IN ({})", in_list.join(", ")));
             }
         }
-        // digest 推 down（LanceDB only_if，减少召回行数）
+        // digest 推 down（LanceDB only_if 单次组合，避免多次 only_if 相互覆盖）
         if let Some(ref digests) = filter.digest {
             if !digests.is_empty() {
                 let in_list: Vec<String> = digests.iter().map(|d| sql_str(d)).collect();
-                q = q.only_if(format!("digest IN ({})", in_list.join(", ")));
+                clauses.push(format!("digest IN ({})", in_list.join(", ")));
             }
         }
+        let q = table.query().only_if(clauses.join(" AND "));
         let batches = q
             .execute()
             .await
@@ -706,7 +853,7 @@ impl CanonStore {
         read_events(&batches)
     }
 
-    /// 摄取 episode：(chapter, digest) 写前去重。返回是否实际写入。
+    /// 摄取 episode：未归档 (chapter, digest) 写前去重。返回是否实际写入。
     pub async fn ingest_episode(&self, ep: CanonEpisode) -> Result<bool, String> {
         let table = self
             .db
@@ -714,11 +861,11 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|x| format!("open episodes: {x}"))?;
-        // 写前去重：查 (chapter_number, digest)
+        // 写前去重：查未归档的 (chapter_number, digest)，避免已归档行阻挡新章节重摄
         let dup = table
             .query()
             .only_if(format!(
-                "chapter_number = {} AND digest = {}",
+                "chapter_number = {} AND digest = {} AND (archived = false OR archived IS NULL)",
                 ep.chapter_number,
                 sql_str(&ep.digest)
             ))
@@ -728,11 +875,17 @@ impl CanonStore {
             .try_collect::<Vec<_>>()
             .await
             .map_err(|x| format!("dup-check collect: {x}"))?;
-        if !dup.is_empty() && dup.iter().any(|b| b.num_rows() > 0) {
+        if read_episodes(&dup)?
+            .iter()
+            .any(|existing| !existing.archived)
+        {
             return Ok(false);
         }
         // 同 id 先 delete（防御性幂等）
-        let _ = table.delete(&format!("id = {}", sql_str(&ep.id))).await;
+        table
+            .delete(&format!("id = {}", sql_str(&ep.id)))
+            .await
+            .map_err(|x| format!("episodes delete: {x}"))?;
         let batch = episodes_batch(&ep)?;
         table
             .add(vec![batch])
@@ -743,11 +896,8 @@ impl CanonStore {
         Ok(true)
     }
 
-    /// 按章节号查询 episodes（LanceDB only_if 推 down chapter_number）。
-    /// 返回该章 episode 行（含 ingest 日志语义），支持可选分页。
-    /// DEBT-20260621-30b：supersede 分歧检测读路径。
-    /// v2.8 P1-2：`offset`/`limit` 为 None 时保持旧行为（全量拉取）；
-    /// 有分页时返回 `(页数据, 该章全量 total)` 供 UI 分页器使用。
+    /// 按章节号查询未归档 episodes（单次 SQL 过滤 + Rust 侧 `archived` 兜底与按 `id` 稳定升序分页）。
+    /// 返回 `(当前页, 该章未归档全量 total)`，根治已归档泄漏、跨页无序漂移与双重扫描。
     pub async fn query_episodes_by_chapter(
         &self,
         chapter_number: i32,
@@ -760,39 +910,32 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|x| format!("open episodes: {x}"))?;
-        let mut q = table
+        let batches = table
             .query()
-            .only_if(format!("chapter_number = {}", chapter_number));
-        if let Some(off) = offset {
-            q = q.offset(off);
-        }
-        if let Some(lim) = limit {
-            q = q.limit(lim);
-        }
-        let batches = q
+            .only_if(format!(
+                "chapter_number = {} AND (archived = false OR archived IS NULL)",
+                chapter_number
+            ))
             .execute()
             .await
             .map_err(|x| format!("query episodes: {x}"))?
             .try_collect::<Vec<_>>()
             .await
             .map_err(|x| format!("collect episodes: {x}"))?;
-        let episodes = read_episodes(&batches)?;
-        // total：该章全量计数（分页器用）。无分页时 total = 页大小（旧语义）。
-        let total = if offset.is_some() || limit.is_some() {
-            let count_batches = table
-                .query()
-                .only_if(format!("chapter_number = {}", chapter_number))
-                .execute()
-                .await
-                .map_err(|x| format!("count episodes: {x}"))?
-                .try_collect::<Vec<_>>()
-                .await
-                .map_err(|x| format!("count collect episodes: {x}"))?;
-            read_episodes(&count_batches)?.len()
+        let mut episodes = read_episodes(&batches)?;
+        episodes.retain(|ep| !ep.archived);
+        episodes.sort_by(|a, b| a.id.cmp(&b.id));
+        let total = episodes.len();
+        let page = if offset.is_some() || limit.is_some() {
+            episodes
+                .into_iter()
+                .skip(offset.unwrap_or(0))
+                .take(limit.unwrap_or(usize::MAX))
+                .collect()
         } else {
-            episodes.len()
+            episodes
         };
-        Ok((episodes, total))
+        Ok((page, total))
     }
 
     /// 当前 schema 清单（内存副本）。
@@ -846,9 +989,10 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|e| format!("open meta: {e}"))?;
-        let _ = table
+        table
             .delete(&format!("key = {}", sql_str(META_KEY_REVISION)))
-            .await;
+            .await
+            .map_err(|e| format!("meta delete revision: {e}"))?;
         let batch = meta_batch(META_KEY_REVISION, &rev.to_string())?;
         table
             .add(vec![batch])
@@ -904,9 +1048,10 @@ impl CanonStore {
             .execute()
             .await
             .map_err(|e| format!("open meta: {e}"))?;
-        let _ = table
+        table
             .delete(&format!("key = {}", sql_str(META_KEY_DIVERGENCE_TRACE)))
-            .await;
+            .await
+            .map_err(|e| format!("meta delete divergence trace: {e}"))?;
         let batch = meta_batch(META_KEY_DIVERGENCE_TRACE, json)?;
         table
             .add(vec![batch])
@@ -925,7 +1070,34 @@ impl CanonStore {
 
     /// up：按计划对各表 `add_columns`（幂等：跳过已存在列），演化 manifest。
     /// 返回执行的计划（空计划=已最新，no-op）。
+    ///
+    /// M2-05：在任何 `add_columns` 之前先持久化 `pre_versions`，使用 `c.add_column_expr()`，
+    /// 若中途或 `save_manifest` 失败则按 `pre_versions` 逆序尽力 `checkout(v) + restore()`。
     pub async fn migrate_up(&mut self, target: SchemaVersion) -> Result<MigrationPlan, String> {
+        self.migrate_up_inner(target, None).await
+    }
+
+    async fn rollback_tables_best_effort(
+        db: &lancedb::Connection,
+        mutated_tables: &[&str],
+        pre_versions: &HashMap<String, u64>,
+    ) {
+        for &tname in mutated_tables.iter().rev() {
+            if let Some(&v) = pre_versions.get(tname) {
+                if let Ok(table) = db.open_table(tname).execute().await {
+                    if table.checkout(v).await.is_ok() {
+                        let _ = table.restore().await;
+                    }
+                }
+            }
+        }
+    }
+
+    async fn migrate_up_inner(
+        &mut self,
+        target: SchemaVersion,
+        fail_step: Option<&str>,
+    ) -> Result<MigrationPlan, String> {
         if self.manifest.version >= target {
             return Ok(plan_migration(self.manifest.version, target));
         }
@@ -934,7 +1106,7 @@ impl CanonStore {
             return Ok(plan);
         }
 
-        // 捕获各表迁移前 LanceDB 版本（rollback 数据层用）
+        // 1) 捕获各表迁移前 LanceDB 版本（rollback 数据层用）
         let mut pre_versions: HashMap<String, u64> = HashMap::new();
         for tname in [
             CANON_TABLE_ENTITIES,
@@ -953,7 +1125,11 @@ impl CanonStore {
             );
         }
 
-        // 按表分组 additive 列，跳过已存在列（幂等）
+        // 2) 在任何 add_columns 写盘前先持久化 pre_versions（崩溃/失败可回滚）
+        Self::save_lance_pre_migrate(&self.db, &pre_versions).await?;
+
+        // 3) 按表分组 additive 列，跳过已存在列（幂等）；记录已改表以便中途失败逆序回滚
+        let mut mutated_tables: Vec<&'static str> = Vec::new();
         for tname in [
             CANON_TABLE_ENTITIES,
             CANON_TABLE_EDGES,
@@ -967,39 +1143,59 @@ impl CanonStore {
             if cols.is_empty() {
                 continue;
             }
-            let table = self
-                .db
-                .open_table(tname)
-                .execute()
-                .await
-                .map_err(|e| format!("open {tname}: {e}"))?;
-            let schema = table
-                .schema()
-                .await
-                .map_err(|e| format!("schema {tname}: {e}"))?;
+            if fail_step == Some(tname) {
+                Self::rollback_tables_best_effort(&self.db, &mutated_tables, &pre_versions).await;
+                return Err(format!("injected migration failure on {tname}"));
+            }
+            let table = match self.db.open_table(tname).execute().await {
+                Ok(t) => t,
+                Err(e) => {
+                    Self::rollback_tables_best_effort(&self.db, &mutated_tables, &pre_versions)
+                        .await;
+                    return Err(format!("open {tname}: {e}"));
+                }
+            };
+            let schema = match table.schema().await {
+                Ok(s) => s,
+                Err(e) => {
+                    Self::rollback_tables_best_effort(&self.db, &mutated_tables, &pre_versions)
+                        .await;
+                    return Err(format!("schema {tname}: {e}"));
+                }
+            };
             let existing: std::collections::HashSet<&str> =
                 schema.fields().iter().map(|f| f.name().as_str()).collect();
             let transforms: Vec<(String, String)> = cols
                 .iter()
                 .filter(|c| !existing.contains(c.name))
-                .map(|c| {
-                    (
-                        c.name.to_string(),
-                        c.lance_type.null_cast_expr().to_string(),
-                    )
-                })
+                .map(|c| (c.name.to_string(), c.add_column_expr().to_string()))
                 .collect();
             if !transforms.is_empty() {
-                table
+                if let Err(e) = table
                     .add_columns(NewColumnTransform::SqlExpressions(transforms), None)
                     .await
-                    .map_err(|e| format!("add_columns {tname}: {e}"))?;
+                {
+                    Self::rollback_tables_best_effort(&self.db, &mutated_tables, &pre_versions)
+                        .await;
+                    return Err(format!("add_columns {tname}: {e}"));
+                }
+                mutated_tables.push(tname);
             }
         }
 
-        self.manifest.apply_plan(&plan);
-        Self::save_manifest(&self.db, &self.manifest).await?;
-        Self::save_lance_pre_migrate(&self.db, &pre_versions).await?;
+        if fail_step == Some(CANON_TABLE_META) {
+            Self::rollback_tables_best_effort(&self.db, &mutated_tables, &pre_versions).await;
+            return Err("injected save_manifest failure".to_string());
+        }
+
+        // 4) 先落盘新 manifest，成功后再更新内存 self.manifest；失败则逆序回滚全部已改表
+        let mut next_manifest = self.manifest.clone();
+        next_manifest.apply_plan(&plan);
+        if let Err(e) = Self::save_manifest(&self.db, &next_manifest).await {
+            Self::rollback_tables_best_effort(&self.db, &mutated_tables, &pre_versions).await;
+            return Err(e);
+        }
+        self.manifest = next_manifest;
         Ok(plan)
     }
 
@@ -1062,8 +1258,8 @@ impl CanonStore {
         self.compact_tables().await.map(Some)
     }
 
-    /// 强制 compaction（章节里程碑 / 空闲窗口触发）。
-    /// 对三表（entities/edges/episodes）执行文件 compaction + 旧版本 prune。
+    /// 强制 compaction（章节里程碑 / 空闲窗口 / 写计数阈值触发）。
+    /// 对五表（entities/edges/episodes/events/meta）执行文件 compaction + 旧版本 prune。
     pub async fn compact_tables(&self) -> Result<CompactionReport, String> {
         let mut fragments_removed = 0usize;
         let mut fragments_added = 0usize;
@@ -1073,13 +1269,13 @@ impl CanonStore {
         let mut old_versions_removed = 0u64;
         let mut tables_compacted = Vec::new();
 
-        // §B：审计事件表纳入 compaction（写放大 guard 最小落点——flash 提示）：
-        // 事件表随 supersede 追加增长，纳入 compact 防止小文件写放大。
+        // 纳入全部 5 张物理表（含 events 审计表与 meta 表），防止高频 revision 写导致 meta 小文件膨胀。
         let tnames = [
             CANON_TABLE_ENTITIES,
             CANON_TABLE_EDGES,
             CANON_TABLE_EPISODES,
             CANON_TABLE_EVENTS,
+            CANON_TABLE_META,
         ];
         for tname in tnames {
             let table = self
@@ -1129,6 +1325,9 @@ impl CanonStore {
     /// 保留 K 个 manifest 版本，prune 更旧的版本。
     /// 返回 (pruned_bytes, pruned_versions)。
     async fn prune_table_versions(&self, table: &Table) -> Result<(u64, u64), String> {
+        if self.retain_versions == 0 {
+            return Ok((0, 0));
+        }
         let versions = table
             .list_versions()
             .await
@@ -1140,11 +1339,11 @@ impl CanonStore {
 
         // 按版本降序排列，取第 K 个版本的时间戳
         let mut sorted: Vec<_> = versions.iter().collect();
-        sorted.sort_by(|a, b| b.version.cmp(&a.version));
+        sorted.sort_by_key(|v| std::cmp::Reverse(v.version));
         let oldest_to_keep = &sorted[self.retain_versions as usize - 1];
 
         let now = chrono::Utc::now();
-        let age = now - oldest_to_keep.timestamp;
+        let age = (now - oldest_to_keep.timestamp).max(chrono::Duration::zero());
         // 加 1 秒缓冲避免边界效应
         let age = age + chrono::Duration::seconds(1);
 
@@ -1173,6 +1372,7 @@ impl CanonStore {
                 entities_bytes: 0,
                 edges_bytes: 0,
                 episodes_bytes: 0,
+                events_bytes: 0,
                 meta_bytes: 0,
                 total_bytes: 0,
             });
@@ -1181,6 +1381,7 @@ impl CanonStore {
         let mut entities_bytes = 0u64;
         let mut edges_bytes = 0u64;
         let mut episodes_bytes = 0u64;
+        let mut events_bytes = 0u64;
         let mut meta_bytes = 0u64;
 
         if let Ok(entries) = std::fs::read_dir(root) {
@@ -1198,17 +1399,20 @@ impl CanonStore {
                     edges_bytes += size;
                 } else if name.contains(CANON_TABLE_EPISODES) {
                     episodes_bytes += size;
+                } else if name.contains(CANON_TABLE_EVENTS) {
+                    events_bytes += size;
                 } else if name.contains(CANON_TABLE_META) {
                     meta_bytes += size;
                 }
             }
         }
 
-        let total_bytes = entities_bytes + edges_bytes + episodes_bytes + meta_bytes;
+        let total_bytes = entities_bytes + edges_bytes + episodes_bytes + events_bytes + meta_bytes;
         Ok(DiskUsage {
             entities_bytes,
             edges_bytes,
             episodes_bytes,
+            events_bytes,
             meta_bytes,
             total_bytes,
         })
@@ -1516,10 +1720,17 @@ mod tests {
         // v1=base（无迁移），v2/v3/v4 additive
         assert_eq!(MIGRATIONS.len(), 3);
         assert!(MIGRATIONS.iter().all(|m| !m.columns.is_empty()));
-        // 所有列 nullable additive（CAST NULL）
+        // 所有列保留 null_cast_expr()；archived 列的 add_column_expr() 使用 CAST(false AS boolean)
         for m in MIGRATIONS {
             for c in m.columns {
                 assert!(c.lance_type.null_cast_expr().starts_with("CAST(NULL AS"));
+                if c.name == "archived" {
+                    assert_eq!(c.default_expr, Some("CAST(false AS boolean)"));
+                    assert_eq!(c.add_column_expr(), "CAST(false AS boolean)");
+                } else {
+                    assert_eq!(c.default_expr, None);
+                    assert_eq!(c.add_column_expr(), c.lance_type.null_cast_expr());
+                }
             }
         }
         // LanceType 标签
@@ -1806,8 +2017,10 @@ mod tests {
             .await
             .unwrap();
 
-        // open：entities 已存在 → manifest 默认 v1（触发迁移）
-        let mut store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        // open_without_auto_migrate：entities 已存在 → manifest 默认 v1（未自动迁移，供显式测 migrate_up + rollback）
+        let mut store = CanonStore::open_without_auto_migrate(&p.to_string_lossy())
+            .await
+            .unwrap();
         assert_eq!(store.manifest().version, SchemaVersion(1));
 
         // 迁移前 entities 列数 = 7
@@ -1871,7 +2084,7 @@ mod tests {
         // 写入一些数据使 compaction 有内容可操作
         for i in 0..5 {
             let e = CanonEdge::new(
-                &format!("compact-e{i}"),
+                format!("compact-e{i}"),
                 "src",
                 "tgt",
                 "rel",
@@ -1880,14 +2093,14 @@ mod tests {
             store.upsert_edge(e).await.unwrap();
         }
         for i in 0..3 {
-            let ep = CanonEpisode::new(&format!("compact-ep{i}"), 1, "pov", &format!("d{i}"));
+            let ep = CanonEpisode::new(format!("compact-ep{i}"), 1, "pov", format!("d{i}"));
             store.ingest_episode(ep).await.unwrap();
         }
 
         // 强制 compaction
         let report = store.compact_tables().await.unwrap();
-        // 报告应包含所有三表（使用常量表名）
-        assert_eq!(report.tables_compacted.len(), 4);
+        // 报告应包含全部 5 张物理表（entities/edges/episodes/events/meta）
+        assert_eq!(report.tables_compacted.len(), 5);
         assert!(report
             .tables_compacted
             .contains(&CANON_TABLE_ENTITIES.to_string()));
@@ -1897,6 +2110,12 @@ mod tests {
         assert!(report
             .tables_compacted
             .contains(&CANON_TABLE_EPISODES.to_string()));
+        assert!(report
+            .tables_compacted
+            .contains(&CANON_TABLE_EVENTS.to_string()));
+        assert!(report
+            .tables_compacted
+            .contains(&CANON_TABLE_META.to_string()));
 
         // compaction 后查询正确性：仍可查到写的数据
         let all = store
@@ -1944,7 +2163,7 @@ mod tests {
 
         // 强制 compaction
         let report = store.compact_tables().await.unwrap();
-        assert_eq!(report.tables_compacted.len(), 4);
+        assert_eq!(report.tables_compacted.len(), 5);
 
         // 查询：老边封顶，新边可见
         let r = store
@@ -1995,7 +2214,7 @@ mod tests {
         let result = store.compact_if_needed().await.unwrap();
         assert!(result.is_some(), "达阈值应触发 compaction");
         let report = result.unwrap();
-        assert_eq!(report.tables_compacted.len(), 4);
+        assert_eq!(report.tables_compacted.len(), 5);
 
         // 重置后计数器归零，再次 compact_if_needed 返回 None
         assert!(store.compact_if_needed().await.unwrap().is_none());
@@ -2015,7 +2234,7 @@ mod tests {
 
         // compaction 仍可正常执行
         let report = store.compact_tables().await.unwrap();
-        assert_eq!(report.tables_compacted.len(), 4);
+        assert_eq!(report.tables_compacted.len(), 5);
 
         // 改回 3
         store.set_retain_versions(3);
@@ -2467,6 +2686,651 @@ mod tests {
             .unwrap();
         assert!(empty_page.is_empty());
         assert_eq!(total, 5);
+    }
+
+    // ── M2-05 #1：v1 自动迁移保留旧边并支持 v4 upsert ──
+
+    #[tokio::test]
+    async fn canon_lancedb_open_auto_migrates_v1_preserves_edges_and_allows_v4_upsert() {
+        use arrow_array::Float32Array;
+        use arrow_schema::{DataType, Field, Schema};
+
+        let p = tmp_project();
+        let pid = p.to_string_lossy().to_string();
+        let db = connect(&db_path(&pid)).execute().await.unwrap();
+
+        // 仅建 v1 canon_edges（缺 archived/created_at/expired_at，无 entities/meta 表）
+        let v1_edges_schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("source_id", DataType::Utf8, false),
+            Field::new("target_id", DataType::Utf8, false),
+            Field::new("predicate", DataType::Utf8, false),
+            Field::new("edge_kind", DataType::Utf8, false),
+            Field::new("valid_at", DataType::Int32, true),
+            Field::new("invalid_at", DataType::Int32, true),
+            Field::new("reference_time", DataType::Int32, true),
+            Field::new("revealed_at", DataType::Int32, true),
+            Field::new("confidence", DataType::Float32, true),
+            Field::new("source_chapter", DataType::Int32, true),
+            Field::new("digest", DataType::Utf8, false),
+            Field::new("data", DataType::Utf8, false),
+        ]));
+        let mut legacy = edge("old-v1-edge", Some(1), None);
+        legacy.known_by = vec!["alice".into()];
+        let legacy_json = serde_json::to_string(&legacy).unwrap();
+        let legacy_batch = RecordBatch::try_new(
+            v1_edges_schema,
+            vec![
+                Arc::new(StringArray::from(vec![Some(legacy.id.as_str())])),
+                Arc::new(StringArray::from(vec![Some(legacy.source_id.as_str())])),
+                Arc::new(StringArray::from(vec![Some(legacy.target_id.as_str())])),
+                Arc::new(StringArray::from(vec![Some(legacy.predicate.as_str())])),
+                Arc::new(StringArray::from(vec![Some(legacy.edge_kind.as_str())])),
+                Arc::new(Int32Array::from(vec![legacy.valid_at])),
+                Arc::new(Int32Array::from(vec![legacy.invalid_at])),
+                Arc::new(Int32Array::from(vec![legacy.reference_time])),
+                Arc::new(Int32Array::from(vec![legacy.revealed_at])),
+                Arc::new(Float32Array::from(vec![legacy.confidence])),
+                Arc::new(Int32Array::from(vec![legacy.source_chapter])),
+                Arc::new(StringArray::from(vec![Some(legacy.digest.as_str())])),
+                Arc::new(StringArray::from(vec![Some(legacy_json.as_str())])),
+            ],
+        )
+        .unwrap();
+        db.create_table(CANON_TABLE_EDGES, vec![legacy_batch])
+            .execute()
+            .await
+            .unwrap();
+
+        // open 自动识别遗留库（即使仅 edges 表存在）并自动迁移至 CURRENT_SCHEMA_VERSION
+        let store = CanonStore::open(&pid).await.unwrap();
+        assert_eq!(store.manifest().version, CURRENT_SCHEMA_VERSION);
+        let edges_table = db.open_table(CANON_TABLE_EDGES).execute().await.unwrap();
+        assert_eq!(
+            edges_table.schema().await.unwrap().fields().len(),
+            16,
+            "v1(13) + archived + created_at + expired_at"
+        );
+
+        // 旧边在默认查询下保留可见（archived 由 CAST(false AS boolean) 填充且兼容 NULL）
+        let before_upsert = store
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(before_upsert.len(), 1);
+        assert_eq!(before_upsert[0].id, "old-v1-edge");
+
+        // 迁移后能够正常执行 v4 upsert（含 created_at/expired_at/archived）
+        let mut v4_edge = edge("new-v4-edge", Some(2), None);
+        v4_edge.created_at = Some(1_700_000_000);
+        store.upsert_edge(v4_edge).await.unwrap();
+        let after_upsert = store
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(after_upsert.len(), 2);
+        assert!(after_upsert.iter().any(|e| e.id == "old-v1-edge"));
+        assert!(after_upsert.iter().any(|e| e.id == "new-v4-edge"));
+    }
+
+    // ── M2-05 #2：物理 NULL archived 列在 query_edges 中的三值逻辑兼容 ──
+
+    #[tokio::test]
+    async fn canon_lancedb_query_edges_handles_physical_null_archived() {
+        use arrow_array::{BooleanArray, Float32Array};
+
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+
+        // 1) 直接注入一条物理列 archived = NULL 的边（模拟历史旧版 CAST(NULL AS boolean) 迁移行）
+        let e_null = edge("e-null-archived", Some(1), None);
+        let e_null_json = serde_json::to_string(&e_null).unwrap();
+        let null_batch = RecordBatch::try_new(
+            edges_schema(),
+            vec![
+                Arc::new(StringArray::from(vec![Some(e_null.id.as_str())])),
+                Arc::new(StringArray::from(vec![Some(e_null.source_id.as_str())])),
+                Arc::new(StringArray::from(vec![Some(e_null.target_id.as_str())])),
+                Arc::new(StringArray::from(vec![Some(e_null.predicate.as_str())])),
+                Arc::new(StringArray::from(vec![Some(e_null.edge_kind.as_str())])),
+                Arc::new(Int32Array::from(vec![e_null.valid_at])),
+                Arc::new(Int32Array::from(vec![e_null.invalid_at])),
+                Arc::new(Int32Array::from(vec![e_null.reference_time])),
+                Arc::new(Int32Array::from(vec![e_null.revealed_at])),
+                Arc::new(Float32Array::from(vec![e_null.confidence])),
+                Arc::new(Int32Array::from(vec![e_null.source_chapter])),
+                Arc::new(StringArray::from(vec![Some(e_null.digest.as_str())])),
+                Arc::new(BooleanArray::from(vec![None::<bool>])),
+                Arc::new(Int64Array::from(vec![e_null.created_at])),
+                Arc::new(Int64Array::from(vec![e_null.expired_at])),
+                Arc::new(StringArray::from(vec![Some(e_null_json.as_str())])),
+            ],
+        )
+        .unwrap();
+        let edges_table = store
+            .db
+            .open_table(CANON_TABLE_EDGES)
+            .execute()
+            .await
+            .unwrap();
+        edges_table.add(vec![null_batch]).execute().await.unwrap();
+
+        // 2) 正常 archived=false 边与 archived=true 边
+        store
+            .upsert_edge(edge("e-false-archived", Some(1), None))
+            .await
+            .unwrap();
+        let mut e_true = edge("e-true-archived", Some(1), None);
+        e_true.archived = true;
+        store.upsert_edge(e_true).await.unwrap();
+
+        // 默认查询（want_archived = false）：必须召回 archived=false 与 archived IS NULL，排除 true
+        let active = store
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        let active_ids: Vec<&str> = active.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(active_ids.len(), 2);
+        assert!(active_ids.contains(&"e-null-archived"));
+        assert!(active_ids.contains(&"e-false-archived"));
+
+        // archived=Some(true)：仅召回物理 archived=true，不误召回 NULL 行
+        let archived = store
+            .query_edges(&CanonEdgeFilter {
+                archived: Some(true),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, "e-true-archived");
+    }
+
+    // ── M2-05 #3：未来版本库 fail-closed 拒绝降级打开 ──
+
+    #[tokio::test]
+    async fn canon_lancedb_open_rejects_future_schema_version() {
+        let p = tmp_project();
+        let pid = p.to_string_lossy().to_string();
+        let db = connect(&db_path(&pid)).execute().await.unwrap();
+
+        let mb = RecordBatch::new_empty(meta_schema());
+        db.create_table(CANON_TABLE_META, vec![mb])
+            .execute()
+            .await
+            .unwrap();
+        let future_manifest = SchemaManifest::new(SchemaVersion(CURRENT_SCHEMA_VERSION.get() + 1));
+        CanonStore::save_manifest(&db, &future_manifest)
+            .await
+            .unwrap();
+
+        let err1 = CanonStore::open_without_auto_migrate(&pid).await;
+        assert!(
+            err1.is_err(),
+            "未来版本必须在 open_without_auto_migrate 拒绝"
+        );
+        assert!(
+            err1.err().unwrap().contains("newer"),
+            "错误信息应提示 schema 版本更新"
+        );
+
+        let err2 = CanonStore::open(&pid).await;
+        assert!(err2.is_err(), "未来版本必须在 open 拒绝");
+
+        // fail-closed：拒绝前不得擅自补建任何核心表
+        let names = db.table_names().execute().await.unwrap();
+        assert!(
+            !names.contains(&CANON_TABLE_ENTITIES.to_string()),
+            "未来版本拒绝前不应修改数据库结构"
+        );
+    }
+
+    // ── M2-05 #4：pre_versions 先于 add_columns 持久化 + 中途/save_manifest 失败逆序回滚 ──
+
+    #[tokio::test]
+    async fn canon_lancedb_migrate_up_persists_pre_versions_and_rolls_back_on_failure() {
+        use arrow_schema::{DataType, Field, Schema};
+
+        let p = tmp_project();
+        let pid = p.to_string_lossy().to_string();
+        let db = connect(&db_path(&pid)).execute().await.unwrap();
+
+        // 构造三张 v1 残缺表 + 空 meta 表
+        let v1_entities = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("entity_type", DataType::Utf8, false),
+            Field::new("canonical_name", DataType::Utf8, false),
+            Field::new("first_seen_chapter", DataType::Int32, false),
+            Field::new("valid_at", DataType::Int32, true),
+            Field::new("invalid_at", DataType::Int32, true),
+            Field::new("data", DataType::Utf8, false),
+        ]));
+        let v1_edges = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("source_id", DataType::Utf8, false),
+            Field::new("target_id", DataType::Utf8, false),
+            Field::new("predicate", DataType::Utf8, false),
+            Field::new("edge_kind", DataType::Utf8, false),
+            Field::new("valid_at", DataType::Int32, true),
+            Field::new("invalid_at", DataType::Int32, true),
+            Field::new("reference_time", DataType::Int32, true),
+            Field::new("revealed_at", DataType::Int32, true),
+            Field::new("confidence", DataType::Float32, true),
+            Field::new("source_chapter", DataType::Int32, true),
+            Field::new("digest", DataType::Utf8, false),
+            Field::new("data", DataType::Utf8, false),
+        ]));
+        let v1_episodes = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("chapter_number", DataType::Int32, false),
+            Field::new("entity_id", DataType::Utf8, false),
+            Field::new("narrative_stage", DataType::Utf8, false),
+            Field::new("reference_time", DataType::Int32, true),
+            Field::new("digest", DataType::Utf8, false),
+            Field::new("data", DataType::Utf8, false),
+        ]));
+
+        db.create_table(
+            CANON_TABLE_ENTITIES,
+            vec![RecordBatch::new_empty(v1_entities)],
+        )
+        .execute()
+        .await
+        .unwrap();
+        db.create_table(CANON_TABLE_EDGES, vec![RecordBatch::new_empty(v1_edges)])
+            .execute()
+            .await
+            .unwrap();
+        db.create_table(
+            CANON_TABLE_EPISODES,
+            vec![RecordBatch::new_empty(v1_episodes)],
+        )
+        .execute()
+        .await
+        .unwrap();
+        db.create_table(
+            CANON_TABLE_META,
+            vec![RecordBatch::new_empty(meta_schema())],
+        )
+        .execute()
+        .await
+        .unwrap();
+
+        let mut store = CanonStore::open_without_auto_migrate(&pid).await.unwrap();
+        assert_eq!(store.manifest().version, SchemaVersion(1));
+
+        // 1) 在 entities 已改列后、edges 执行前注入失败 → pre_versions 已落盘且 entities 回滚回 7 列
+        let err_mid = store
+            .migrate_up_inner(CURRENT_SCHEMA_VERSION, Some(CANON_TABLE_EDGES))
+            .await;
+        assert!(err_mid.is_err());
+        assert_eq!(store.manifest().version, SchemaVersion(1));
+        let persisted_pre = CanonStore::load_lance_pre_migrate(&store.db).await.unwrap();
+        assert!(persisted_pre.contains_key(CANON_TABLE_ENTITIES));
+        assert!(persisted_pre.contains_key(CANON_TABLE_EDGES));
+        assert!(persisted_pre.contains_key(CANON_TABLE_EPISODES));
+        let ent_cols = db
+            .open_table(CANON_TABLE_ENTITIES)
+            .execute()
+            .await
+            .unwrap()
+            .schema()
+            .await
+            .unwrap()
+            .fields()
+            .len();
+        assert_eq!(ent_cols, 7, "中途失败时已改 entities 须物理回滚回 7 列");
+
+        // 2) 在三表均改列后、save_manifest 前注入失败 → 三表全部逆序物理回滚
+        let err_meta = store
+            .migrate_up_inner(CURRENT_SCHEMA_VERSION, Some(CANON_TABLE_META))
+            .await;
+        assert!(err_meta.is_err());
+        assert_eq!(store.manifest().version, SchemaVersion(1));
+        assert_eq!(
+            db.open_table(CANON_TABLE_ENTITIES)
+                .execute()
+                .await
+                .unwrap()
+                .schema()
+                .await
+                .unwrap()
+                .fields()
+                .len(),
+            7
+        );
+        assert_eq!(
+            db.open_table(CANON_TABLE_EDGES)
+                .execute()
+                .await
+                .unwrap()
+                .schema()
+                .await
+                .unwrap()
+                .fields()
+                .len(),
+            13
+        );
+        assert_eq!(
+            db.open_table(CANON_TABLE_EPISODES)
+                .execute()
+                .await
+                .unwrap()
+                .schema()
+                .await
+                .unwrap()
+                .fields()
+                .len(),
+            7
+        );
+
+        // 3) 正常执行 migrate_up 成功升级至 v4，三表列数补齐
+        store.migrate_up(CURRENT_SCHEMA_VERSION).await.unwrap();
+        assert_eq!(store.manifest().version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            db.open_table(CANON_TABLE_ENTITIES)
+                .execute()
+                .await
+                .unwrap()
+                .schema()
+                .await
+                .unwrap()
+                .fields()
+                .len(),
+            10
+        );
+        assert_eq!(
+            db.open_table(CANON_TABLE_EDGES)
+                .execute()
+                .await
+                .unwrap()
+                .schema()
+                .await
+                .unwrap()
+                .fields()
+                .len(),
+            16
+        );
+        assert_eq!(
+            db.open_table(CANON_TABLE_EPISODES)
+                .execute()
+                .await
+                .unwrap()
+                .schema()
+                .await
+                .unwrap()
+                .fields()
+                .len(),
+            10
+        );
+    }
+
+    // ── R2-M01 / R2-M06 / R2-M13 / R2-M16：时态校验、事务时间戳、先封顶后快照与 retain_versions=0 ──
+
+    #[tokio::test]
+    async fn canon_store_bitemporal_validation_and_timestamps() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+
+        // 1) upsert_edge 拒绝倒置时态边界
+        let bad = edge("bad-inv", Some(10), Some(5));
+        assert!(store.upsert_edge(bad).await.is_err());
+
+        // 2) upsert_edge 自动填充 created_at（保留已有显式值）
+        store
+            .upsert_edge(edge("e-auto-ts", Some(3), None))
+            .await
+            .unwrap();
+        let got = store
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        assert!(
+            got[0].created_at.is_some_and(|t| t > 0),
+            "upsert_edge 应自动填充 created_at"
+        );
+        assert_eq!(got[0].expired_at, None);
+
+        // 3) invalidate_edge 拒绝 cap_chapter < valid_at，且成功封顶时自动填充 expired_at
+        assert!(store.invalidate_edge("e-auto-ts", 2).await.is_err());
+        assert!(store.invalidate_edge("e-auto-ts", 5).await.unwrap());
+        let after_cap = store
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(after_cap[0].invalid_at, Some(5));
+        assert!(
+            after_cap[0].expired_at.is_some_and(|t| t > 0),
+            "invalidate_edge 封顶时应自动填充 expired_at"
+        );
+    }
+
+    #[tokio::test]
+    async fn canon_store_supersede_early_rejects_and_caps_before_snapshot_and_tracks_batch_dups() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+
+        let mut old = edge("old-state", Some(1), None);
+        old.target_id = "locA".into();
+        store.upsert_edge(old).await.unwrap();
+
+        // 1) 早拒：new_edges 含非法时态边时，old-state 不得被封顶
+        let bad_res = store
+            .supersede_edges(SupersedeRequest {
+                old_edge_ids: vec!["old-state".into()],
+                cap_chapter: 5,
+                new_edges: vec![edge("bad-new", Some(9), Some(4))],
+                caused_by: None,
+            })
+            .await;
+        assert!(bad_res.is_err());
+        let still_open = store
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            still_open[0].invalid_at, None,
+            "早拒失败时旧边不得被提前封顶"
+        );
+
+        // 2) 先封顶旧边 [1, 5) 再取快照：新边 [5, None) target=locB 与已封顶旧边相邻不重叠 → Independent，
+        //    且同批第二条同 digest 边应因本地快照更新而被判 Duplicate 跳过
+        let mut n1 = edge("new-1", Some(5), None);
+        n1.target_id = "locB".into();
+        n1.digest = "batch-dup-digest".into();
+        let mut n2 = edge("new-2", Some(6), None);
+        n2.target_id = "locB".into();
+        n2.digest = "batch-dup-digest".into();
+
+        let res = store
+            .supersede_edges(SupersedeRequest {
+                old_edge_ids: vec!["old-state".into()],
+                cap_chapter: 5,
+                new_edges: vec![n1, n2],
+                caused_by: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(res.capped, 1);
+        assert_eq!(res.inserted, 1);
+        assert_eq!(res.duplicate_skipped, 1);
+        assert!(res
+            .conflict_notes
+            .iter()
+            .any(|n| n == "new_edge_id=new-1:independent"));
+        assert!(res
+            .conflict_notes
+            .iter()
+            .any(|n| n == "new_edge_id=new-2:duplicate"));
+    }
+
+    #[tokio::test]
+    async fn canon_store_retain_versions_zero_does_not_underflow() {
+        let p = tmp_project();
+        let mut store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        store.set_retain_versions(0);
+        store
+            .upsert_edge(edge("e-zero-retain", Some(1), None))
+            .await
+            .unwrap();
+        let report = store.compact_tables().await.unwrap();
+        assert_eq!(report.old_versions_removed, 0);
+        assert_eq!(report.tables_compacted.len(), 5);
+    }
+
+    // ── R3-M02 / R3-M04 / R3-M05：events_bytes、archived 去重/分页排序、supersede 原子预检 ──
+
+    #[tokio::test]
+    async fn canon_lancedb_disk_usage_includes_events_bytes() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        let mut ev = CanonEvent::new_supersede(
+            1,
+            &SupersedeRequest {
+                old_edge_ids: vec!["old-1".into()],
+                cap_chapter: 3,
+                new_edges: vec![edge("new-1", Some(3), None)],
+                caused_by: Some("disk-usage-test".into()),
+            },
+        );
+        store.append_canon_event(&mut ev).await.unwrap();
+        let usage = store.disk_usage().unwrap();
+        assert!(usage.events_bytes > 0, "写入事件后 events_bytes 须大于 0");
+        assert_eq!(
+            usage.total_bytes,
+            usage.entities_bytes
+                + usage.edges_bytes
+                + usage.episodes_bytes
+                + usage.events_bytes
+                + usage.meta_bytes,
+            "total_bytes 必须包含 events_bytes"
+        );
+    }
+
+    #[tokio::test]
+    async fn canon_ingest_episode_ignores_archived_duplicates_in_memory_and_store() {
+        // 内存参照模型：已归档 episode 不阻挡同 (chapter, digest) 重新摄入
+        let mut mem = CanonState::new();
+        let mut arch_mem = CanonEpisode::new("ep-mem-arch", 1, "alice", "d-reingest");
+        arch_mem.archived = true;
+        assert!(mem.ingest_episode(arch_mem));
+        assert!(!mem.check_ingest_digest(1, "d-reingest"));
+        let active_mem = CanonEpisode::new("ep-mem-active", 1, "alice", "d-reingest");
+        assert!(mem.ingest_episode(active_mem));
+        assert!(mem.check_ingest_digest(1, "d-reingest"));
+        assert!(!mem.ingest_episode(CanonEpisode::new("ep-mem-dup", 1, "alice", "d-reingest")));
+
+        // LanceDB 磁盘存储：行为与内存模型一致
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+        let mut arch_disk = CanonEpisode::new("ep-disk-arch", 1, "alice", "d-reingest");
+        arch_disk.archived = true;
+        assert!(store.ingest_episode(arch_disk).await.unwrap());
+
+        let active_disk = CanonEpisode::new("ep-disk-active", 1, "alice", "d-reingest");
+        assert!(
+            store.ingest_episode(active_disk).await.unwrap(),
+            "已归档的同摘要 episode 不得阻挡新章节重新摄入"
+        );
+        let active_dup = CanonEpisode::new("ep-disk-dup", 1, "alice", "d-reingest");
+        assert!(
+            !store.ingest_episode(active_dup).await.unwrap(),
+            "未归档的同摘要 episode 仍须幂等去重"
+        );
+    }
+
+    #[tokio::test]
+    async fn canon_store_query_episodes_by_chapter_excludes_archived_and_sorts_by_id() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+
+        // 乱序写入 3 条活跃 + 1 条已归档 episode
+        store
+            .ingest_episode(CanonEpisode::new("ep-c", 2, "alice", "d-c"))
+            .await
+            .unwrap();
+        let mut arch = CanonEpisode::new("ep-0-archived", 2, "alice", "d-arch");
+        arch.archived = true;
+        store.ingest_episode(arch).await.unwrap();
+        store
+            .ingest_episode(CanonEpisode::new("ep-a", 2, "alice", "d-a"))
+            .await
+            .unwrap();
+        store
+            .ingest_episode(CanonEpisode::new("ep-b", 2, "alice", "d-b"))
+            .await
+            .unwrap();
+
+        let (all, total) = store
+            .query_episodes_by_chapter(2, None, None)
+            .await
+            .unwrap();
+        let all_ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(total, 3);
+        assert_eq!(
+            all_ids,
+            ["ep-a", "ep-b", "ep-c"],
+            "必须排除 archived 并按 id 稳定升序排列"
+        );
+
+        let (page1, total1) = store
+            .query_episodes_by_chapter(2, Some(0), Some(2))
+            .await
+            .unwrap();
+        let (page2, total2) = store
+            .query_episodes_by_chapter(2, Some(2), Some(2))
+            .await
+            .unwrap();
+        assert_eq!(total1, 3);
+        assert_eq!(total2, 3);
+        let p1_ids: Vec<&str> = page1.iter().map(|e| e.id.as_str()).collect();
+        let p2_ids: Vec<&str> = page2.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(p1_ids, ["ep-a", "ep-b"]);
+        assert_eq!(p2_ids, ["ep-c"]);
+    }
+
+    #[tokio::test]
+    async fn canon_store_supersede_edges_precheck_prevents_partial_capping() {
+        let p = tmp_project();
+        let store = CanonStore::open(&p.to_string_lossy()).await.unwrap();
+
+        // 第 1 条旧边合法（valid_at=1 <= cap=5），第 2 条旧边违例（valid_at=10 > cap=5）
+        store
+            .upsert_edge(edge("old-ok", Some(1), None))
+            .await
+            .unwrap();
+        store
+            .upsert_edge(edge("old-late", Some(10), None))
+            .await
+            .unwrap();
+
+        let err = store
+            .supersede_edges(SupersedeRequest {
+                old_edge_ids: vec!["old-ok".into(), "old-late".into()],
+                cap_chapter: 5,
+                new_edges: vec![edge("new-should-not-insert", Some(5), None)],
+                caused_by: None,
+            })
+            .await
+            .expect_err("第 2 条旧边 cap_chapter < valid_at 必须整批拒绝");
+        assert!(err.contains("old-late"), "{err}");
+
+        // 核验 0 条旧边被半程部分封顶，且新边未落盘
+        let all = store
+            .query_edges(&CanonEdgeFilter::default())
+            .await
+            .unwrap();
+        let old_ok = all.iter().find(|e| e.id == "old-ok").expect("old-ok 存在");
+        let old_late = all
+            .iter()
+            .find(|e| e.id == "old-late")
+            .expect("old-late 存在");
+        assert_eq!(
+            old_ok.invalid_at, None,
+            "原子预检失败后第 1 条旧边不得被半程封顶"
+        );
+        assert_eq!(old_late.invalid_at, None);
+        assert!(!all.iter().any(|e| e.id == "new-should-not-insert"));
     }
 }
 

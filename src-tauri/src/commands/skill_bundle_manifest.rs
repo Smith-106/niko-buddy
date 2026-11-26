@@ -176,14 +176,18 @@ pub fn is_allowed_name(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// 条目名安全守卫：拒绝绝对路径、Windows 盘符、反斜杠分隔符与 `..` 穿越。
+/// 条目名安全守卫：拒绝空名、控制字符、绝对路径、Windows 盘符/ADS `:`、反斜杠、`.`/`..`、
+/// 尾点/首尾空格、Windows 非法字符与保留设备名。
 ///
-/// 与 `commands/backup.rs::extract_dir_from_zip` 的组件级归一化同源；此处的差别是
-/// **在读取阶段就拒绝**（不依赖解压目录的 canonicalize），因此 zip 内部再无机会
-/// 触碰目标目录之外的位置。
+/// 在读取阶段就拒绝（不依赖解压目录的 canonicalize），使 zip 内部无机会触碰目标目录之外的位置。
 pub fn validate_entry_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("[skill_bundle] empty zip entry name".to_string());
+    }
+    if name.chars().any(|c| c == '\0' || c.is_control()) {
+        return Err(format!(
+            "[skill_bundle] control character in zip entry rejected: {name}"
+        ));
     }
     if name.contains('\\') {
         return Err(format!(
@@ -195,20 +199,40 @@ pub fn validate_entry_name(name: &str) -> Result<(), String> {
             "[skill_bundle] absolute zip entry rejected: {name}"
         ));
     }
-    // Windows 盘符（`C:/...`）与 UNC 前缀。
-    let bytes = name.as_bytes();
-    if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+    // Windows 盘符（`C:/...`）与 NTFS ADS（`foo.md::$DATA`）。
+    if name.contains(':') {
         return Err(format!(
-            "[skill_bundle] drive-qualified zip entry rejected: {name}"
+            "[skill_bundle] drive-qualified or colon zip entry rejected: {name}"
         ));
     }
-    for component in name.split('/') {
+    let body = name.strip_suffix('/').unwrap_or(name);
+    if body.is_empty() {
+        return Err(format!(
+            "[skill_bundle] malformed zip entry rejected: {name}"
+        ));
+    }
+    for component in body.split('/') {
         if component == ".." {
             return Err(format!("[skill_bundle] path traversal rejected: {name}"));
         }
-        if component.is_empty() && !name.ends_with('/') {
+        if component.is_empty() || component == "." {
             return Err(format!(
                 "[skill_bundle] malformed zip entry rejected: {name}"
+            ));
+        }
+        if component != component.trim() || component.ends_with('.') {
+            return Err(format!(
+                "[skill_bundle] trailing dot or whitespace in zip entry rejected: {name}"
+            ));
+        }
+        if component.contains(['<', '>', ':', '"', '|', '?', '*']) {
+            return Err(format!(
+                "[skill_bundle] illegal filename character in zip entry rejected: {name}"
+            ));
+        }
+        if crate::agent_gate_policy::is_windows_reserved_device_name(component) {
+            return Err(format!(
+                "[skill_bundle] Windows reserved device name in zip entry rejected: {name}"
             ));
         }
     }
@@ -265,10 +289,12 @@ pub fn validate_manifest(manifest: &SkillBundleManifest) -> Result<(), String> {
             manifest.schema_version
         ));
     }
+    crate::agent_gate_policy::validate_safe_single_segment(&manifest.id, "manifest.id")
+        .map_err(|e| format!("[skill_bundle] {e}"))?;
+    crate::agent_gate_policy::validate_safe_single_segment(&manifest.version, "manifest.version")
+        .map_err(|e| format!("[skill_bundle] {e}"))?;
     for (field, value) in [
-        ("id", &manifest.id),
         ("name", &manifest.name),
-        ("version", &manifest.version),
         ("min_nb_version", &manifest.min_nb_version),
     ] {
         if value.trim().is_empty() {
@@ -324,7 +350,12 @@ pub fn validate_manifest(manifest: &SkillBundleManifest) -> Result<(), String> {
     }
     // allowlist 字段存在性由 serde 保证；此处校验声明内容本身不可越界。
     for artifact in &manifest.allowlist.writable_artifacts {
-        if artifact.contains("..") || artifact.starts_with('/') || artifact.contains('\\') {
+        if artifact.contains("..")
+            || artifact.starts_with('/')
+            || artifact.contains('\\')
+            || artifact.contains(':')
+            || artifact.chars().any(|c| c == '\0' || c.is_control())
+        {
             return Err(format!(
                 "[skill_bundle] writable_artifacts entry must be a relative POSIX path: {artifact}"
             ));

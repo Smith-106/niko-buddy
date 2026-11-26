@@ -135,6 +135,100 @@ pub fn credential_key(server_id: &str) -> String {
     format!("mcp:{}", server_id.trim())
 }
 
+/// 脱敏远程端点 URL：隐藏 userinfo 凭据（复用 `proxy::redact_url`）、剥离 query/fragment，
+/// 并将控制字符替换为空格，避免在报错中回显敏感信息。
+fn redact_endpoint(raw: &str) -> String {
+    let without_query = raw.split(['?', '#']).next().unwrap_or(raw);
+    let redacted = crate::proxy::redact_url(without_query);
+    let sanitized: String = redacted
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    if without_query.len() < raw.len() {
+        format!("{sanitized}?***")
+    } else {
+        sanitized
+    }
+}
+
+/// 校验远程 MCP 端点 URL：仅允许 `http://` 或 `https://`，拒绝空 host、userinfo (`@`)、
+/// 任意空白与控制字符，且报错 URL 均经 [`crate::proxy::redact_url`] 脱敏。
+fn validate_remote_endpoint(raw: &str) -> Result<String, McpError> {
+    if raw.is_empty() {
+        return Err(McpError::NotConnected(
+            "no remote endpoint configured for this server (set NB_MCP_ENDPOINT)".to_string(),
+        ));
+    }
+    if raw.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err(McpError::Transport(format!(
+            "invalid remote endpoint (contains whitespace or control characters): {}",
+            redact_endpoint(raw)
+        )));
+    }
+    let Some((scheme, after_scheme)) = raw.split_once("://") else {
+        return Err(McpError::Transport(format!(
+            "remote endpoint must use http:// or https:// scheme: {}",
+            redact_endpoint(raw)
+        )));
+    };
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return Err(McpError::Transport(format!(
+            "remote endpoint must use http:// or https:// scheme: {}",
+            redact_endpoint(raw)
+        )));
+    }
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    if authority.contains('@') {
+        return Err(McpError::Transport(format!(
+            "remote endpoint must not embed userinfo credentials: {}",
+            redact_endpoint(raw)
+        )));
+    }
+    let host = if let Some(rest) = authority.strip_prefix('[') {
+        let Some((ipv6_host, after_bracket)) = rest.split_once(']') else {
+            return Err(McpError::Transport(format!(
+                "remote endpoint has malformed IPv6 host: {}",
+                redact_endpoint(raw)
+            )));
+        };
+        if !after_bracket.is_empty() {
+            let Some(port_str) = after_bracket.strip_prefix(':') else {
+                return Err(McpError::Transport(format!(
+                    "remote endpoint has malformed authority: {}",
+                    redact_endpoint(raw)
+                )));
+            };
+            if port_str.is_empty() || port_str.parse::<u16>().is_err() {
+                return Err(McpError::Transport(format!(
+                    "remote endpoint has invalid port: {}",
+                    redact_endpoint(raw)
+                )));
+            }
+        }
+        ipv6_host
+    } else if let Some((h, port_str)) = authority.rsplit_once(':') {
+        if port_str.is_empty() || port_str.parse::<u16>().is_err() {
+            return Err(McpError::Transport(format!(
+                "remote endpoint has invalid port: {}",
+                redact_endpoint(raw)
+            )));
+        }
+        h
+    } else {
+        authority
+    };
+    if host.is_empty() {
+        return Err(McpError::Transport(format!(
+            "remote endpoint must have a non-empty host: {}",
+            redact_endpoint(raw)
+        )));
+    }
+    Ok(raw.to_string())
+}
+
 fn endpoint_of(server_id: &str) -> Result<String, McpError> {
     let value = std::env::var(format!(
         "NB_MCP_ENDPOINT_{}",
@@ -142,14 +236,12 @@ fn endpoint_of(server_id: &str) -> Result<String, McpError> {
     ))
     .ok()
     .or_else(|| std::env::var("NB_MCP_ENDPOINT").ok());
-    value
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| {
-            McpError::NotConnected(
-                "no remote endpoint configured for this server (set NB_MCP_ENDPOINT)".to_string(),
-            )
-        })
+    match value {
+        Some(v) if !v.is_empty() => validate_remote_endpoint(&v),
+        _ => Err(McpError::NotConnected(
+            "no remote endpoint configured for this server (set NB_MCP_ENDPOINT)".to_string(),
+        )),
+    }
 }
 
 /// 建立远程会话：先过 opt-in 门，再从凭据库取 bearer。
@@ -282,27 +374,55 @@ pub fn ingest_remote_payload(
 
     // TASK-001 门的包容性自证：writeFile 不在 DESTRUCTIVE_OPS，gate 对非受保护路径
     // 不会介入（直接 Allowed），因此「目标必须在项目根内」必须由本模块自行强制。
-    // 拒绝绝对路径（Path::join 语义：绝对路径整体替换基座）与 `..` 组件（目录逃逸）。
-    let rel_path = Path::new(target_rel);
+    // 拒绝空路径、控制字符、冒号（ADS）、绝对路径与 `..` 组件（目录逃逸）。
+    let trimmed_rel = target_rel.trim();
+    if trimmed_rel.is_empty()
+        || trimmed_rel
+            .chars()
+            .any(|c| c == '\0' || c.is_control() || c == ':')
+    {
+        return Err(McpError::AuditBlocked(format!(
+            "target path contains invalid characters: {target_rel}"
+        )));
+    }
+    let rel_path = Path::new(trimmed_rel);
     if rel_path.is_absolute() {
         return Err(McpError::AuditBlocked(format!(
             "target must be relative to project root, got: {target_rel}"
         )));
     }
+    let mut has_normal_segment = false;
     for component in rel_path.components() {
-        if matches!(
-            component,
+        match component {
             std::path::Component::ParentDir
-                | std::path::Component::Prefix(_)
-                | std::path::Component::RootDir
-        ) {
-            return Err(McpError::AuditBlocked(format!(
-                "target must stay inside the project root; forbidden path component in: {target_rel}"
-            )));
+            | std::path::Component::Prefix(_)
+            | std::path::Component::RootDir => {
+                return Err(McpError::AuditBlocked(format!(
+                    "target must stay inside the project root; forbidden path component in: {target_rel}"
+                )));
+            }
+            std::path::Component::Normal(seg) => {
+                has_normal_segment = true;
+                let seg_str = seg.to_string_lossy();
+                if crate::agent_gate_policy::is_windows_reserved_device_name(&seg_str) {
+                    return Err(McpError::AuditBlocked(format!(
+                        "target path uses reserved device name: {target_rel}"
+                    )));
+                }
+            }
+            std::path::Component::CurDir => {}
         }
     }
+    if !has_normal_segment {
+        return Err(McpError::AuditBlocked(format!(
+            "target path has no file name: {target_rel}"
+        )));
+    }
 
-    let target = project_root.join(target_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    // 全局锁序 T4 (FILE_MUTATION_LOCK) -> T5 (GATE / file_sync)。
+    let _mutation = crate::commands::fs::lock_file_mutations().map_err(McpError::Transport)?;
+
+    let target = project_root.join(trimmed_rel.replace('/', std::path::MAIN_SEPARATOR_STR));
     let gate = crate::agent_gate::gate_authorize(
         "writeFile",
         &target.to_string_lossy(),
@@ -311,9 +431,14 @@ pub fn ingest_remote_payload(
     if !gate.may_proceed() {
         return Err(McpError::AuditBlocked(crate::agent_gate::gate_error(&gate)));
     }
+    crate::agent_gate_policy::assert_no_symlink_in_ancestors(project_root, &target)
+        .map_err(McpError::AuditBlocked)?;
+
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| McpError::Transport(format!("create dir failed: {e}")))?;
+        crate::agent_gate_policy::assert_no_symlink_in_ancestors(project_root, &target)
+            .map_err(McpError::AuditBlocked)?;
         // 双保险：磁盘规范化后仍须在项目根内（防项目内 symlink 指向外部）。
         let parent_canon = parent
             .canonicalize()
@@ -328,7 +453,27 @@ pub fn ingest_remote_payload(
             )));
         }
     }
-    std::fs::write(&target, &payload.body)
+    match std::fs::symlink_metadata(&target) {
+        Ok(meta) => {
+            if crate::agent_gate_policy::metadata_is_symlink_or_reparse_point(&meta) {
+                return Err(McpError::AuditBlocked(format!(
+                    "target is a symlink or reparse point: {}",
+                    target.display()
+                )));
+            }
+            if !meta.is_file() {
+                return Err(McpError::AuditBlocked(format!(
+                    "target is not a regular file: {}",
+                    target.display()
+                )));
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(McpError::Transport(format!("inspect target failed: {e}")));
+        }
+    }
+    crate::commands::fs::write_atomic_physical_bytes(&target, payload.body.as_bytes())
         .map_err(|e| McpError::Transport(format!("write failed: {e}")))?;
     Ok(target.to_string_lossy().to_string())
 }
@@ -344,8 +489,14 @@ pub mod api {
         transport: String,
         allow_http: bool,
     ) -> Result<TransportConfig, String> {
-        super::mcp_transport_set_mode(Path::new(&project_path), &transport, allow_http)
-            .map_err(|e| e.to_string())
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::panic_guard::run_guarded("mcp_transport_set_mode", || {
+                super::mcp_transport_set_mode(Path::new(&project_path), &transport, allow_http)
+                    .map_err(|e| e.to_string())
+            })
+        })
+        .await
+        .map_err(|e| format!("mcp_transport_set_mode blocking task join error: {e}"))?
     }
 
     #[tauri::command]
@@ -353,7 +504,14 @@ pub mod api {
         project_path: String,
         server_id: String,
     ) -> Result<RemoteSession, String> {
-        super::mcp_remote_connect(Path::new(&project_path), &server_id).map_err(|e| e.to_string())
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::panic_guard::run_guarded("mcp_remote_connect", || {
+                super::mcp_remote_connect(Path::new(&project_path), &server_id)
+                    .map_err(|e| e.to_string())
+            })
+        })
+        .await
+        .map_err(|e| format!("mcp_remote_connect blocking task join error: {e}"))?
     }
 
     #[tauri::command]
@@ -362,27 +520,45 @@ pub mod api {
         server_id: String,
         payload: String,
     ) -> Result<RemotePayload, String> {
-        let plan = super::mcp_remote_request(Path::new(&project_path), &server_id, &payload)
-            .map_err(|e| e.to_string())?;
-        let body = send_plan(&plan).await.map_err(|e| e.to_string())?;
-        Ok(RemotePayload {
-            server_id: plan.server_id,
-            transport: plan.transport,
-            body,
-            audit_pending: true,
-            origin: plan.endpoint,
+        crate::panic_guard::run_guarded_async("mcp_remote_request", async move {
+            let plan = tauri::async_runtime::spawn_blocking(move || {
+                crate::panic_guard::run_guarded("mcp_remote_request", || {
+                    super::mcp_remote_request(Path::new(&project_path), &server_id, &payload)
+                        .map_err(|e| e.to_string())
+                })
+            })
+            .await
+            .map_err(|e| format!("mcp_remote_request blocking task join error: {e}"))??;
+            let body = send_plan(&plan).await.map_err(|e| e.to_string())?;
+            Ok(RemotePayload {
+                server_id: plan.server_id,
+                transport: plan.transport,
+                body,
+                audit_pending: true,
+                origin: plan.endpoint,
+            })
         })
+        .await
     }
 
     #[tauri::command]
     pub async fn mcp_remote_close(server_id: String) -> Result<bool, String> {
-        super::mcp_remote_close(&server_id).map_err(|e| e.to_string())
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::panic_guard::run_guarded("mcp_remote_close", || {
+                super::mcp_remote_close(&server_id).map_err(|e| e.to_string())
+            })
+        })
+        .await
+        .map_err(|e| format!("mcp_remote_close blocking task join error: {e}"))?
     }
 
-    /// 按计划发送一次请求。鉴权仅 Bearer；响应体超限即拒绝。
-    async fn send_plan(plan: &RemoteRequestPlan) -> Result<String, McpError> {
+    /// 按计划发送一次请求。鉴权仅 Bearer；禁用 HTTP 重定向、设置连接/总超时、
+    /// 不吞凭据库错误；先校验 `Content-Length`，再流式分块限长，拒绝超大响应。
+    pub(super) async fn send_plan(plan: &RemoteRequestPlan) -> Result<String, McpError> {
         let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_millis(plan.timeout_ms))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| McpError::Transport(format!("client build failed: {e}")))?;
 
@@ -393,17 +569,24 @@ pub mod api {
         if plan.transport == "sse" {
             request = request.header("accept", "text/event-stream");
         }
-        if let Ok(Some(token)) =
-            crate::credential_vault::vault_get_secret(super::credential_key(&plan.server_id))
-        {
+        let cred_key = super::credential_key(&plan.server_id);
+        let token_opt = tokio::task::spawn_blocking(move || {
+            crate::credential_vault::vault_get_secret(cred_key)
+        })
+        .await
+        .map_err(|e| McpError::Vault(format!("vault read task join error: {e}")))?
+        .map_err(McpError::Vault)?;
+        if let Some(token) = token_opt {
             request = request.header("authorization", format!("Bearer {token}"));
         }
 
-        let response = request
-            .body(plan.body.clone())
-            .send()
-            .await
-            .map_err(|e| McpError::Transport(format!("request failed: {e}")))?;
+        let mut response = request.body(plan.body.clone()).send().await.map_err(|e| {
+            McpError::Transport(format!(
+                "request to {} failed: {}",
+                super::redact_endpoint(&plan.endpoint),
+                e.without_url()
+            ))
+        })?;
 
         if !response.status().is_success() {
             return Err(McpError::Transport(format!(
@@ -411,17 +594,33 @@ pub mod api {
                 response.status()
             )));
         }
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| McpError::Transport(format!("read body failed: {e}")))?;
-        if bytes.len() > plan.max_response_bytes {
-            return Err(McpError::Transport(format!(
-                "response exceeds {} bytes",
-                plan.max_response_bytes
-            )));
+        if let Some(declared_len) = response.content_length() {
+            if declared_len > plan.max_response_bytes as u64 {
+                return Err(McpError::Transport(format!(
+                    "response exceeds {} bytes",
+                    plan.max_response_bytes
+                )));
+            }
         }
-        String::from_utf8(bytes.to_vec())
+        let initial_cap = response
+            .content_length()
+            .map(|n| (n as usize).min(plan.max_response_bytes).min(64 * 1024))
+            .unwrap_or(0);
+        let mut buf = Vec::with_capacity(initial_cap);
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| McpError::Transport(format!("read body failed: {e}")))?
+        {
+            if buf.len().saturating_add(chunk.len()) > plan.max_response_bytes {
+                return Err(McpError::Transport(format!(
+                    "response exceeds {} bytes",
+                    plan.max_response_bytes
+                )));
+            }
+            buf.extend_from_slice(&chunk);
+        }
+        String::from_utf8(buf)
             .map_err(|e| McpError::Transport(format!("response is not utf-8: {e}")))
     }
 }
@@ -452,8 +651,80 @@ mod mcp {
         TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    #[derive(Default)]
+    struct TestMemoryVault {
+        entries: Mutex<HashMap<(String, String), String>>,
+    }
+
+    impl crate::credential_vault::VaultBackend for TestMemoryVault {
+        fn set(&self, service: &str, account: &str, secret: &str) -> Result<(), String> {
+            self.entries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(
+                    (service.to_string(), account.to_string()),
+                    secret.to_string(),
+                );
+            Ok(())
+        }
+
+        fn get(&self, service: &str, account: &str) -> Result<Option<String>, String> {
+            Ok(self
+                .entries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&(service.to_string(), account.to_string()))
+                .cloned())
+        }
+
+        fn delete(&self, service: &str, account: &str) -> Result<bool, String> {
+            Ok(self
+                .entries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&(service.to_string(), account.to_string()))
+                .is_some())
+        }
+    }
+
+    struct FailingVault {
+        message: String,
+    }
+
+    impl crate::credential_vault::VaultBackend for FailingVault {
+        fn set(&self, _service: &str, _account: &str, _secret: &str) -> Result<(), String> {
+            Err(self.message.clone())
+        }
+
+        fn get(&self, _service: &str, _account: &str) -> Result<Option<String>, String> {
+            Err(self.message.clone())
+        }
+
+        fn delete(&self, _service: &str, _account: &str) -> Result<bool, String> {
+            Err(self.message.clone())
+        }
+    }
+
+    struct VaultBackendScope;
+
+    impl VaultBackendScope {
+        fn install(backend: std::sync::Arc<dyn crate::credential_vault::VaultBackend>) -> Self {
+            crate::credential_vault::__set_test_backend(Some(backend));
+            Self
+        }
+    }
+
+    impl Drop for VaultBackendScope {
+        fn drop(&mut self) {
+            crate::credential_vault::__set_test_backend(None);
+        }
+    }
+
     #[test]
     fn remote_connect_requires_optin() {
+        let _vault_lock = crate::credential_vault::vault_test_serial();
+        let _vault_scope =
+            VaultBackendScope::install(std::sync::Arc::new(TestMemoryVault::default()));
         let _guard = lock();
         let root = temp_root("optin");
         // 默认 stdio：远程连接必须被拒。
@@ -462,17 +733,7 @@ mod mcp {
 
         set_mode(&root, "http", true).expect("opt-in");
         std::env::set_var("NB_MCP_ENDPOINT", "http://127.0.0.1:9/mcp");
-        let session = match mcp_remote_connect(&root, "demo") {
-            Ok(s) => s,
-            // CI Linux 无 keyring/凭据存储后端：环境不具备而非产品缺陷，跳过断言主体。
-            Err(McpError::Vault(ref m)) if m.contains("No default store") => {
-                eprintln!("skip: 本机无凭据存储后端，跳过 opt-in 会话用例");
-                std::env::remove_var("NB_MCP_ENDPOINT");
-                let _ = std::fs::remove_dir_all(&root);
-                return;
-            }
-            Err(e) => panic!("opt-in 后应建会话: {e:?}"),
-        };
+        let session = mcp_remote_connect(&root, "demo").expect("opt-in 后应建会话");
         assert_eq!(session.transport, "http");
         assert!(session.opt_in);
         assert!(!session.credential_present, "测试环境无凭据");
@@ -485,6 +746,9 @@ mod mcp {
 
     #[test]
     fn request_requires_open_session_and_matching_transport() {
+        let _vault_lock = crate::credential_vault::vault_test_serial();
+        let _vault_scope =
+            VaultBackendScope::install(std::sync::Arc::new(TestMemoryVault::default()));
         let _guard = lock();
         let root = temp_root("plan");
         let err = mcp_remote_request(&root, "nope", "{}").expect_err("无会话必须拒");
@@ -492,16 +756,7 @@ mod mcp {
 
         set_mode(&root, "http", true).expect("opt-in");
         std::env::set_var("NB_MCP_ENDPOINT", "http://127.0.0.1:9/mcp");
-        match mcp_remote_connect(&root, "demo") {
-            Ok(_) => {}
-            Err(McpError::Vault(ref m)) if m.contains("No default store") => {
-                eprintln!("skip: 本机无凭据存储后端，跳过传输匹配用例");
-                std::env::remove_var("NB_MCP_ENDPOINT");
-                let _ = std::fs::remove_dir_all(&root);
-                return;
-            }
-            Err(e) => panic!("connect: {e:?}"),
-        }
+        mcp_remote_connect(&root, "demo").expect("connect");
         let plan = mcp_remote_request(&root, "demo", "{\"jsonrpc\":\"2.0\"}").expect("plan");
         assert_eq!(plan.timeout_ms, REMOTE_TIMEOUT_MS);
         assert_eq!(plan.max_response_bytes, MAX_RESPONSE_BYTES);
@@ -657,5 +912,292 @@ mod mcp {
     fn credential_key_is_namespaced() {
         assert_eq!(credential_key("github"), "mcp:github");
         assert!(!credential_key("github").contains('/'));
+    }
+
+    #[test]
+    fn ingest_rejects_symlink_target_and_reserved_names() {
+        let _guard = lock();
+        let root = temp_root("symlink");
+        let outside = temp_root("symlink-outside");
+        let payload = RemotePayload {
+            server_id: "demo".into(),
+            transport: "http".into(),
+            body: "payload".into(),
+            audit_pending: true,
+            origin: "http://127.0.0.1:9/mcp".into(),
+        };
+
+        assert!(matches!(
+            ingest_remote_payload(
+                &root,
+                ".novel/mcp-incoming/CON.json",
+                &payload,
+                AuditVerdict::Allow
+            )
+            .expect_err("reserved device name must be rejected"),
+            McpError::AuditBlocked(_)
+        ));
+
+        #[cfg(unix)]
+        {
+            let incoming = root.join(".novel").join("mcp-incoming");
+            std::fs::create_dir_all(&incoming).unwrap();
+            let link_target = incoming.join("link.json");
+            let outside_file = outside.join("victim.json");
+            std::fs::write(&outside_file, b"keep").unwrap();
+            std::os::unix::fs::symlink(&outside_file, &link_target).unwrap();
+            assert!(matches!(
+                ingest_remote_payload(
+                    &root,
+                    ".novel/mcp-incoming/link.json",
+                    &payload,
+                    AuditVerdict::Allow
+                )
+                .expect_err("symlink target must be rejected"),
+                McpError::AuditBlocked(_)
+            ));
+            assert_eq!(std::fs::read(&outside_file).unwrap(), b"keep");
+        }
+
+        #[cfg(windows)]
+        {
+            let incoming_parent = root.join(".novel");
+            std::fs::create_dir_all(&incoming_parent).unwrap();
+            let junction = incoming_parent.join("mcp-incoming");
+            let linked = std::os::windows::fs::symlink_dir(&outside, &junction).is_ok()
+                || std::process::Command::new("cmd")
+                    .args([
+                        "/c",
+                        "mklink",
+                        "/J",
+                        &junction.to_string_lossy(),
+                        &outside.to_string_lossy(),
+                    ])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .is_ok_and(|s| s.success());
+            if linked {
+                assert!(matches!(
+                    ingest_remote_payload(
+                        &root,
+                        ".novel/mcp-incoming/victim.json",
+                        &payload,
+                        AuditVerdict::Allow
+                    )
+                    .expect_err("reparse ancestor must be rejected"),
+                    McpError::AuditBlocked(_)
+                ));
+                assert!(!outside.join("victim.json").exists());
+                let _ = std::fs::remove_dir(&junction);
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[tokio::test]
+    async fn send_plan_enforces_streaming_and_content_length_limits() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let _vault_lock = crate::credential_vault::vault_test_serial_async().await;
+        let _vault_scope =
+            VaultBackendScope::install(std::sync::Arc::new(TestMemoryVault::default()));
+
+        async fn spawn_raw_server(raw_response: &'static [u8]) -> u16 {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            tokio::spawn(async move {
+                if let Ok((mut socket, _)) = listener.accept().await {
+                    let mut req_buf = [0u8; 2048];
+                    let _ = socket.read(&mut req_buf).await;
+                    let _ = socket.write_all(raw_response).await;
+                    let _ = socket.shutdown().await;
+                }
+            });
+            port
+        }
+
+        // 1) Content-Length 声明超限 → 立即拒绝
+        let port_cl = spawn_raw_server(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n01234567890123456789",
+        )
+        .await;
+        let plan_cl = RemoteRequestPlan {
+            server_id: "test-limit-cl".into(),
+            transport: "http".into(),
+            endpoint: format!("http://127.0.0.1:{port_cl}/mcp"),
+            timeout_ms: 5_000,
+            max_response_bytes: 16,
+            body: "{}".into(),
+        };
+        let err_cl = api::send_plan(&plan_cl)
+            .await
+            .expect_err("oversized Content-Length must fail");
+        assert!(matches!(err_cl, McpError::Transport(ref m) if m.contains("exceeds 16 bytes")));
+
+        // 2) 无 Content-Length 的 chunked 流超限 → 流式读取阶段拒绝
+        let port_stream = spawn_raw_server(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n14\r\n01234567890123456789\r\n0\r\n\r\n",
+        )
+        .await;
+        let plan_stream = RemoteRequestPlan {
+            server_id: "test-limit-stream".into(),
+            transport: "http".into(),
+            endpoint: format!("http://127.0.0.1:{port_stream}/mcp"),
+            timeout_ms: 5_000,
+            max_response_bytes: 16,
+            body: "{}".into(),
+        };
+        let err_stream = api::send_plan(&plan_stream)
+            .await
+            .expect_err("oversized chunked body must fail");
+        assert!(matches!(err_stream, McpError::Transport(ref m) if m.contains("exceeds 16 bytes")));
+
+        // 3) 限额内的正常响应放行
+        let port_ok = spawn_raw_server(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\n{\"ok\":1}\n",
+        )
+        .await;
+        let plan_ok = RemoteRequestPlan {
+            server_id: "test-limit-ok".into(),
+            transport: "http".into(),
+            endpoint: format!("http://127.0.0.1:{port_ok}/mcp"),
+            timeout_ms: 5_000,
+            max_response_bytes: 16,
+            body: "{}".into(),
+        };
+        let body = api::send_plan(&plan_ok)
+            .await
+            .expect("within limit should succeed");
+        assert_eq!(body, "{\"ok\":1}\n");
+    }
+
+    #[test]
+    fn validate_remote_endpoint_rejects_bad_scheme_userinfo_and_control_chars() {
+        assert_eq!(
+            validate_remote_endpoint("http://127.0.0.1:9/mcp").unwrap(),
+            "http://127.0.0.1:9/mcp"
+        );
+        assert_eq!(
+            validate_remote_endpoint("https://mcp.example.com/v1").unwrap(),
+            "https://mcp.example.com/v1"
+        );
+        assert_eq!(
+            validate_remote_endpoint("HTTPS://[::1]:8443/mcp").unwrap(),
+            "HTTPS://[::1]:8443/mcp"
+        );
+
+        for bad in [
+            "ftp://example.com/mcp",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "http:///mcp",
+            "http://:8080/mcp",
+            "http://127.0.0.1:9/mcp\r\nX-Inject: 1",
+            "https://example.com/mcp\tbad",
+            "https://example.com/mcp with space",
+            "https://example.com/mcp\0null",
+        ] {
+            assert!(
+                validate_remote_endpoint(bad).is_err(),
+                "invalid endpoint must be rejected: {bad:?}"
+            );
+        }
+
+        // userinfo 与 query 凭据不得回显到报错中。
+        let err = validate_remote_endpoint(
+            "https://alice:top-secret-pw@mcp.example.com/v1?api_key=leak-me",
+        )
+        .expect_err("userinfo must be rejected");
+        let msg = err.to_string();
+        assert!(!msg.contains("top-secret-pw"), "password leaked: {msg}");
+        assert!(!msg.contains("leak-me"), "query leaked: {msg}");
+        assert!(msg.contains("***@"), "expected redacted userinfo: {msg}");
+    }
+
+    #[tokio::test]
+    async fn send_plan_propagates_vault_error_without_sending_http_request() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let _vault_lock = crate::credential_vault::vault_test_serial_async().await;
+        let _vault_scope = VaultBackendScope::install(Arc::new(FailingVault {
+            message: "[credential_vault] read: no-storage-access".to_string(),
+        }));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let contacted = Arc::new(AtomicBool::new(false));
+        let contacted_flag = Arc::clone(&contacted);
+        let server_task = tokio::spawn(async move {
+            if let Ok((_socket, _)) = listener.accept().await {
+                contacted_flag.store(true, Ordering::SeqCst);
+            }
+        });
+
+        let plan = RemoteRequestPlan {
+            server_id: "vault-err-server".into(),
+            transport: "http".into(),
+            endpoint: format!("http://127.0.0.1:{port}/mcp"),
+            timeout_ms: 5_000,
+            max_response_bytes: 1024,
+            body: "{}".into(),
+        };
+        let err = api::send_plan(&plan)
+            .await
+            .expect_err("vault read error must not be swallowed");
+        assert!(
+            matches!(err, McpError::Vault(ref m) if m.contains("no-storage-access")),
+            "expected McpError::Vault, got: {err:?}"
+        );
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(
+            !contacted.load(Ordering::SeqCst),
+            "HTTP request must not be sent when credential vault lookup fails"
+        );
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn send_plan_blocks_http_redirects() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let _vault_lock = crate::credential_vault::vault_test_serial_async().await;
+        let _vault_scope =
+            VaultBackendScope::install(std::sync::Arc::new(TestMemoryVault::default()));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut req_buf = [0u8; 2048];
+                let _ = socket.read(&mut req_buf).await;
+                let _ = socket
+                    .write_all(
+                        b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:9/redirected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await;
+                let _ = socket.shutdown().await;
+            }
+        });
+
+        let plan = RemoteRequestPlan {
+            server_id: "redirect-server".into(),
+            transport: "http".into(),
+            endpoint: format!("http://127.0.0.1:{port}/mcp"),
+            timeout_ms: 5_000,
+            max_response_bytes: 1024,
+            body: "{}".into(),
+        };
+        let err = api::send_plan(&plan)
+            .await
+            .expect_err("HTTP redirects must be rejected");
+        assert!(
+            matches!(err, McpError::Transport(ref m) if m.contains("302")),
+            "expected 302 rejection, got: {err:?}"
+        );
     }
 }

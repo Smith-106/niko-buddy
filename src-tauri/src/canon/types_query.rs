@@ -93,7 +93,7 @@ impl CanonEdgeFilter {
                 // include_invalidated=true 时放宽：仅要求 valid_at <= ch（含已失效窗口边）；
                 // 旧行为（None/Some(false)）仍用 is_valid_at 严格半开区间判断。
                 let valid = if self.include_invalidated == Some(true) {
-                    e.valid_at.map_or(true, |v| v <= ch)
+                    e.valid_at.is_none_or(|v| v <= ch)
                 } else {
                     e.is_valid_at(ch)
                 };

@@ -13,7 +13,9 @@
 //! 也不入 QM 目录。这条约束由 `vault::secret_not_in_data_sections` 双向自检
 //! （源码级 + 运行期落盘扫描）。
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 
 /// 应用级凭据库的 service 名（OS 凭据库命名空间）。
 pub const VAULT_SERVICE: &str = "com.nikobuddy.app";
@@ -70,13 +72,27 @@ fn opaque(error: &keyring::Error) -> String {
         keyring::Error::BadEncoding(_) => "bad-encoding".to_string(),
         keyring::Error::BadDataFormat(_, _) => "bad-data-format".to_string(),
         keyring::Error::BadStoreFormat(_) => "bad-store-format".to_string(),
-        other => format!("other: {other}"),
+        _ => "other".to_string(),
     }
 }
 
 type BackendHandle = Arc<dyn VaultBackend>;
 
+#[cfg(test)]
 static TEST_BACKEND: Mutex<Option<BackendHandle>> = Mutex::new(None);
+
+#[cfg(test)]
+static VAULT_TEST_SERIAL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[cfg(test)]
+pub(crate) fn vault_test_serial() -> tokio::sync::MutexGuard<'static, ()> {
+    VAULT_TEST_SERIAL_LOCK.blocking_lock()
+}
+
+#[cfg(test)]
+pub(crate) async fn vault_test_serial_async() -> tokio::sync::MutexGuard<'static, ()> {
+    VAULT_TEST_SERIAL_LOCK.lock().await
+}
 /// 匹配 `entry.path()` 用的数据区目录名（拼接构造，避免在源码里出现数据区路径字面量）。
 /// 仅被下方「凭据不落盘」测试使用，故限定在测试 cfg 内，避免非测试构建的 dead_code 告警。
 #[cfg(test)]
@@ -89,7 +105,15 @@ fn data_section_names() -> [String; 3] {
 }
 
 fn backend() -> BackendHandle {
-    if let Some(injected) = TEST_BACKEND.lock().expect("vault lock").clone() {
+    #[cfg(test)]
+    if let Some(injected) = TEST_BACKEND
+        .lock()
+        .unwrap_or_else(|poisoned| {
+            log::error!("[credential_vault] TEST_BACKEND lock poisoned; recovering");
+            poisoned.into_inner()
+        })
+        .clone()
+    {
         return injected;
     }
     // OsVault 无状态，单例复用。
@@ -97,8 +121,12 @@ fn backend() -> BackendHandle {
 }
 
 /// 仅测试可用的后端注入点；传 `None` 恢复真实 OS 凭据库。
+#[cfg(test)]
 pub fn __set_test_backend(backend: Option<BackendHandle>) {
-    *TEST_BACKEND.lock().expect("vault lock") = backend;
+    *TEST_BACKEND.lock().unwrap_or_else(|poisoned| {
+        log::error!("[credential_vault] TEST_BACKEND lock poisoned; recovering");
+        poisoned.into_inner()
+    }) = backend;
 }
 
 /// OS 凭据库当前是否可用。`false` 时调用方 MUST 关闭依赖凭据的功能（禁止明文回退）。
@@ -158,24 +186,42 @@ pub fn vault_delete_secret(key: String) -> Result<bool, String> {
 // 命令与核心同名的落点：核心保持模块根的 `pub fn`（同步、可单测），命令放 `api`
 // 子模块转发（异步、走 Tauri 宏）。Rust 不允许同名同作用域，故分离。
 pub mod api {
+    use crate::panic_guard::run_guarded;
+
     #[tauri::command]
     pub async fn vault_put_secret(key: String, secret: String) -> Result<String, String> {
-        super::vault_put_secret(key, secret)
+        tauri::async_runtime::spawn_blocking(move || {
+            run_guarded("vault_put_secret", || super::vault_put_secret(key, secret))
+        })
+        .await
+        .map_err(|e| format!("vault_put_secret blocking task join error: {e}"))?
     }
 
     #[tauri::command]
     pub async fn vault_get_secret(key: String) -> Result<Option<String>, String> {
-        super::vault_get_secret(key)
+        tauri::async_runtime::spawn_blocking(move || {
+            run_guarded("vault_get_secret", || super::vault_get_secret(key))
+        })
+        .await
+        .map_err(|e| format!("vault_get_secret blocking task join error: {e}"))?
     }
 
     #[tauri::command]
     pub async fn vault_has_secret(key: String) -> Result<bool, String> {
-        super::vault_has_secret(key)
+        tauri::async_runtime::spawn_blocking(move || {
+            run_guarded("vault_has_secret", || super::vault_has_secret(key))
+        })
+        .await
+        .map_err(|e| format!("vault_has_secret blocking task join error: {e}"))?
     }
 
     #[tauri::command]
     pub async fn vault_delete_secret(key: String) -> Result<bool, String> {
-        super::vault_delete_secret(key)
+        tauri::async_runtime::spawn_blocking(move || {
+            run_guarded("vault_delete_secret", || super::vault_delete_secret(key))
+        })
+        .await
+        .map_err(|e| format!("vault_delete_secret blocking task join error: {e}"))?
     }
 }
 
@@ -191,14 +237,14 @@ mod vault {
 
     impl VaultBackend for MemoryVault {
         fn set(&self, service: &str, account: &str, secret: &str) -> Result<(), String> {
-            let mut guard = self.entries.lock().expect("memory vault");
+            let mut guard = self.entries.lock().unwrap_or_else(|e| e.into_inner());
             guard.retain(|(s, a, _)| !(s == service && a == account));
             guard.push((service.to_string(), account.to_string(), secret.to_string()));
             Ok(())
         }
 
         fn get(&self, service: &str, account: &str) -> Result<Option<String>, String> {
-            let guard = self.entries.lock().expect("memory vault");
+            let guard = self.entries.lock().unwrap_or_else(|e| e.into_inner());
             Ok(guard
                 .iter()
                 .find(|(s, a, _)| s == service && a == account)
@@ -206,23 +252,20 @@ mod vault {
         }
 
         fn delete(&self, service: &str, account: &str) -> Result<bool, String> {
-            let mut guard = self.entries.lock().expect("memory vault");
+            let mut guard = self.entries.lock().unwrap_or_else(|e| e.into_inner());
             let before = guard.len();
             guard.retain(|(s, a, _)| !(s == service && a == account));
             Ok(guard.len() != before)
         }
     }
 
-    /// 串行化：本模块与 app_lock 共享进程级测试后端槽位。
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
     struct Guard {
-        _lock: std::sync::MutexGuard<'static, ()>,
+        _lock: tokio::sync::MutexGuard<'static, ()>,
     }
 
     impl Guard {
         fn new() -> Guard {
-            let lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let lock = vault_test_serial();
             __set_test_backend(Some(Arc::new(MemoryVault::default())));
             Guard { _lock: lock }
         }
@@ -331,6 +374,21 @@ mod vault {
             leaked.is_empty(),
             "credential plaintext must not appear in data sections: {:?}",
             leaked
+        );
+    }
+
+    #[test]
+    fn opaque_never_echoes_raw_error_details() {
+        assert_eq!(opaque(&keyring::Error::NoEntry), "no-entry");
+        assert_eq!(
+            opaque(&keyring::Error::BadEncoding(b"SECRET-VALUE".to_vec())),
+            "bad-encoding"
+        );
+        let source = include_str!("credential_vault.rs");
+        let forbidden = ["other:", " {other}"].join("");
+        assert!(
+            !source.contains(&forbidden),
+            "opaque fallback must not interpolate raw keyring::Error Display text"
         );
     }
 }

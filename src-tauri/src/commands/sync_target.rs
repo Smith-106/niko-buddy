@@ -48,11 +48,69 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use super::sync_target_decision::{redact_sync_url, validate_relative_posix_prefix};
 use crate::canon::archive;
 use crate::commands::secret_store::{self, is_available_sync, read_secret_sync, store_status_sync};
+
+const SYNC_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const SYNC_HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const SYNC_MAX_METADATA_BYTES: usize = 4 * 1024 * 1024;
+const SYNC_MAX_BLOB_BYTES: usize = 64 * 1024 * 1024;
+const SYNC_MAX_GITHUB_B64_JSON_BYTES: usize = 90 * 1024 * 1024;
+const LOCAL_WALK_MAX_DEPTH: usize = 64;
+
+/// 共享同步 HTTP 客户端：统一连接超时（10s）、请求超时（60s）并禁用一切 HTTP 重定向，
+/// 防止跨源 3xx 重定向导致 Authorization 凭据泄露或 SSRF。
+fn build_sync_http_client(user_agent: Option<&str>) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(SYNC_HTTP_CONNECT_TIMEOUT)
+        .timeout(SYNC_HTTP_REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(ua) = user_agent {
+        builder = builder.user_agent(ua);
+    }
+    builder
+        .build()
+        .map_err(|e| format!("[sync_target] build http client failed: {e}"))
+}
+
+/// 流式有界响应读取：先按 `Content-Length` 快拒，再逐 chunk 累加校验，超限立即中止。
+async fn read_response_bounded(
+    mut resp: reqwest::Response,
+    max_bytes: usize,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    if let Some(declared_len) = resp.content_length() {
+        if declared_len > max_bytes as u64 {
+            return Err(format!(
+                "[sync_target] {label} response exceeds {max_bytes} bytes (Content-Length={declared_len})"
+            ));
+        }
+    }
+    let initial_cap = resp
+        .content_length()
+        .map(|n| (n as usize).min(max_bytes).min(64 * 1024))
+        .unwrap_or(0);
+    let mut buf = Vec::with_capacity(initial_cap);
+    while let Some(chunk) = resp.chunk().await.map_err(|e| {
+        format!(
+            "[sync_target] read {label} body failed: {}",
+            e.without_url()
+        )
+    })? {
+        if buf.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(format!(
+                "[sync_target] {label} response exceeds {max_bytes} bytes"
+            ));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
+}
 
 /// 传输配置文件名（与项目内既有配置同族）。
 pub const SYNC_CONFIG_FILE: &str = ".niko-buddy/sync-config.json";
@@ -98,15 +156,17 @@ pub struct WebDavTarget {
     endpoint: String,
     root: String,
     credential_ref: String,
+    client: Result<reqwest::Client, String>,
 }
 
 impl WebDavTarget {
-    /// 由配置构造（不做 I/O；凭据惰性读取）。
+    /// 由配置构造（不做 I/O；凭据惰性读取，HTTP 客户端在实例生命周期内复用）。
     pub fn new(endpoint: &str, root: &str, credential_ref: &str) -> Self {
         WebDavTarget {
             endpoint: endpoint.trim_end_matches('/').to_string(),
             root: root.trim_matches('/').to_string(),
             credential_ref: credential_ref.to_string(),
+            client: build_sync_http_client(None),
         }
     }
 
@@ -120,16 +180,17 @@ impl WebDavTarget {
         }
     }
 
-    /// 惰性取凭据（不可用即失败，**不降级为匿名**）。
-    fn authorization(&self) -> Result<String, String> {
-        let raw = read_secret_sync("", &self.credential_ref)?;
+    /// 惰性取凭据（不可用即失败，**不降级为匿名**；经 `spawn_blocking` 避免阻塞异步 worker）。
+    async fn authorization(&self) -> Result<String, String> {
+        let credential_ref = self.credential_ref.clone();
+        let raw = tokio::task::spawn_blocking(move || read_secret_sync("", &credential_ref))
+            .await
+            .map_err(|e| format!("[sync_target] credential read task join error: {e}"))??;
         encode_authorization(&raw)
     }
 
-    fn client() -> Result<tauri_plugin_http::reqwest::Client, String> {
-        tauri_plugin_http::reqwest::Client::builder()
-            .build()
-            .map_err(|e| format!("[sync_target] build http client failed: {e}"))
+    fn http_client(&self) -> Result<&reqwest::Client, String> {
+        self.client.as_ref().map_err(String::clone)
     }
 }
 
@@ -163,7 +224,7 @@ pub fn encode_authorization(raw: &str) -> Result<String, String> {
 /// 最小 base64 编码（只为 Authorization 头；不引入额外依赖）。
 fn base64_encode(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b0 = chunk[0] as u32;
         let b1 = *chunk.get(1).unwrap_or(&0) as u32;
@@ -219,61 +280,78 @@ pub fn extract_hrefs(xml: &str) -> Vec<String> {
 
 impl SyncTarget for WebDavTarget {
     async fn list(&self, path: &str) -> Result<Vec<String>, String> {
-        let method = tauri_plugin_http::reqwest::Method::from_bytes(b"PROPFIND")
+        let method = reqwest::Method::from_bytes(b"PROPFIND")
             .map_err(|e| format!("[sync_target] PROPFIND method failed: {e}"))?;
-        let response = WebDavTarget::client()?
-            .request(method, self.url_for(path))
-            .header("Authorization", self.authorization()?)
+        let url = self.url_for(path);
+        let redacted = redact_sync_url(&url);
+        let auth = self.authorization().await?;
+        let response = self
+            .http_client()?
+            .request(method, &url)
+            .header("Authorization", auth)
             .header("Depth", "1")
             .send()
             .await
-            .map_err(|e| format!("[sync_target] PROPFIND {} failed: {e}", self.url_for(path)))?;
+            .map_err(|e| {
+                format!(
+                    "[sync_target] PROPFIND {redacted} failed: {}",
+                    e.without_url()
+                )
+            })?;
         let status = response.status();
         if !status.is_success() && status.as_u16() != 207 {
-            return Err(format!("[sync_target] PROPFIND returned {status}"));
+            return Err(format!(
+                "[sync_target] PROPFIND {redacted} returned {status}"
+            ));
         }
-        let body = response
-            .text()
-            .await
-            .map_err(|e| format!("[sync_target] read PROPFIND body failed: {e}"))?;
+        let bytes = read_response_bounded(response, SYNC_MAX_METADATA_BYTES, "PROPFIND").await?;
+        let body = String::from_utf8(bytes)
+            .map_err(|e| format!("[sync_target] PROPFIND body is not UTF-8: {e}"))?;
         Ok(extract_hrefs(&body))
     }
 
     async fn get(&self, path: &str) -> Result<Vec<u8>, String> {
-        let response = WebDavTarget::client()?
-            .get(self.url_for(path))
-            .header("Authorization", self.authorization()?)
+        let url = self.url_for(path);
+        let redacted = redact_sync_url(&url);
+        let auth = self.authorization().await?;
+        let response = self
+            .http_client()?
+            .get(&url)
+            .header("Authorization", auth)
             .send()
             .await
-            .map_err(|e| format!("[sync_target] GET {} failed: {e}", self.url_for(path)))?;
+            .map_err(|e| format!("[sync_target] GET {redacted} failed: {}", e.without_url()))?;
         if !response.status().is_success() {
             return Err(format!(
-                "[sync_target] GET {} returned {}",
-                self.url_for(path),
+                "[sync_target] GET {redacted} returned {}",
                 response.status()
             ));
         }
-        response
-            .bytes()
-            .await
-            .map(|bytes| bytes.to_vec())
-            .map_err(|e| format!("[sync_target] read GET body failed: {e}"))
+        let max_bytes = if path.ends_with(REMOTE_MANIFEST_FILE) {
+            SYNC_MAX_METADATA_BYTES
+        } else {
+            SYNC_MAX_BLOB_BYTES
+        };
+        read_response_bounded(response, max_bytes, "GET").await
     }
 
     async fn put(&self, path: &str, bytes: &[u8]) -> Result<(), String> {
         assert_remote_key_allowed(path)?;
-        let response = WebDavTarget::client()?
-            .put(self.url_for(path))
-            .header("Authorization", self.authorization()?)
+        let url = self.url_for(path);
+        let redacted = redact_sync_url(&url);
+        let auth = self.authorization().await?;
+        let response = self
+            .http_client()?
+            .put(&url)
+            .header("Authorization", auth)
             .header("Content-Type", "application/octet-stream")
             .body(bytes.to_vec())
             .send()
             .await
-            .map_err(|e| format!("[sync_target] PUT {} failed: {e}", self.url_for(path)))?;
+            .map_err(|e| format!("[sync_target] PUT {redacted} failed: {}", e.without_url()))?;
         if !response.status().is_success() {
             return Err(format!(
-                "[sync_target] PUT {} returned {}",
-                self.url_for(path),
+                "[sync_target] PUT {redacted} returned {}",
                 response.status()
             ));
         }
@@ -362,9 +440,16 @@ pub struct GitHubConfig {
 /// GitHub 目标会在配置期就失败，而不是等推送时才 401。
 pub fn validate_github_config(config: &GitHubConfig, credential_ref: &str) -> Result<(), String> {
     for (label, value) in [("owner", &config.owner), ("repo", &config.repo)] {
+        if value.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            return Err(format!(
+                "[sync_target] github {label} must not contain whitespace or control characters"
+            ));
+        }
         let trimmed = value.trim();
-        if trimmed.is_empty() {
-            return Err(format!("[sync_target] github {label} must not be empty"));
+        if trimmed.is_empty() || trimmed == "." || trimmed == ".." || trimmed.contains("..") {
+            return Err(format!(
+                "[sync_target] github {label} must not be empty or contain '..'"
+            ));
         }
         if !trimmed
             .chars()
@@ -375,11 +460,26 @@ pub fn validate_github_config(config: &GitHubConfig, credential_ref: &str) -> Re
             ));
         }
     }
+    if config
+        .branch
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace())
+    {
+        return Err(
+            "[sync_target] github branch must not contain whitespace or control characters"
+                .to_string(),
+        );
+    }
     let branch = config.branch.trim();
     if branch.is_empty() {
         return Err("[sync_target] github branch must not be empty".to_string());
     }
-    if branch.starts_with('/') || branch.ends_with('/') || branch.contains("..") {
+    if branch.starts_with('/')
+        || branch.ends_with('/')
+        || branch.contains("..")
+        || branch.contains('\\')
+        || branch.contains(':')
+    {
         return Err(format!(
             "[sync_target] github branch must be a relative ref without '..': {branch}"
         ));
@@ -392,12 +492,17 @@ pub fn validate_github_config(config: &GitHubConfig, credential_ref: &str) -> Re
             "[sync_target] github branch must match [A-Za-z0-9._/-]: {branch}"
         ));
     }
-    let prefix = config.path_prefix.trim();
-    if prefix.starts_with('/') || prefix.contains("..") || prefix.contains('\\') {
-        return Err(format!(
-            "[sync_target] github pathPrefix must be a relative POSIX prefix without '..': {prefix}"
-        ));
+    if config
+        .path_prefix
+        .chars()
+        .any(|c| c == '\0' || c.is_control())
+    {
+        return Err(
+            "[sync_target] github pathPrefix must not contain control characters".to_string(),
+        );
     }
+    let prefix = config.path_prefix.trim();
+    validate_relative_posix_prefix(prefix, "github pathPrefix")?;
     // 凭据域硬门（A2）：只有 nb:github: 引用能配给 GitHub 传输目标。
     secret_store::require_github_credential_ref(credential_ref)?;
     Ok(())
@@ -619,22 +724,25 @@ pub struct GitHubTarget {
     branch: String,
     path_prefix: String,
     credential_ref: String,
+    client: reqwest::Client,
     /// 传输 journal 落点（项目根）；`None` = 不记 journal（单测/无项目上下文）。
     journal_root: Option<PathBuf>,
 }
 
 impl GitHubTarget {
-    /// 由配置构造（不做 I/O；凭据惰性读取，但**配置期**先过校验）。
+    /// 由配置构造（不做 I/O；凭据惰性读取，但**配置期**先过校验，HTTP 客户端在实例生命周期内复用）。
     pub fn new(config: &GitHubConfig, credential_ref: &str) -> Result<Self, String> {
         validate_github_config(config, credential_ref)?;
         // 引用归一化：存储查找只认 `nb:github:<account>` 的规范形态。
         let (_, account) = secret_store::require_github_credential_ref(credential_ref)?;
+        let client = build_sync_http_client(Some(GITHUB_USER_AGENT))?;
         Ok(GitHubTarget {
             owner: config.owner.trim().to_string(),
             repo: config.repo.trim().to_string(),
             branch: config.branch.trim().to_string(),
             path_prefix: config.path_prefix.trim().trim_matches('/').to_string(),
             credential_ref: secret_store::github_credential_ref(&account)?,
+            client,
             journal_root: None,
         })
     }
@@ -672,45 +780,46 @@ impl GitHubTarget {
         format!("{GITHUB_API_BASE}/{}/{}{suffix}", self.owner, self.repo)
     }
 
-    /// 惰性取 token：**凭据库探针先行**——不可用时返回降级文案（不裸抛平台错误）。
-    fn token(&self) -> Result<String, String> {
-        if !store_status_sync() {
-            return Err(secret_store::github_store_degraded_message());
-        }
-        let token = read_secret_sync("", &self.credential_ref)?;
-        let token = token.trim().to_string();
-        if token.is_empty() {
-            return Err(format!(
-                "[sync_target] the stored credential for {} is empty; store a GitHub token first",
-                self.credential_ref
-            ));
-        }
-        Ok(token)
+    /// 惰性取 token：**凭据库探针先行**——不可用时返回降级文案（经 `spawn_blocking` 避免阻塞异步 worker）。
+    async fn token(&self) -> Result<String, String> {
+        let credential_ref = self.credential_ref.clone();
+        tokio::task::spawn_blocking(move || {
+            if !store_status_sync() {
+                return Err(secret_store::github_store_degraded_message());
+            }
+            let token = read_secret_sync("", &credential_ref)?;
+            let token = token.trim().to_string();
+            if token.is_empty() {
+                return Err(format!(
+                    "[sync_target] the stored credential for {credential_ref} is empty; store a GitHub token first"
+                ));
+            }
+            Ok(token)
+        })
+        .await
+        .map_err(|e| format!("[sync_target] github credential read task join error: {e}"))?
     }
 
-    fn client() -> Result<reqwest::Client, String> {
-        reqwest::Client::builder()
-            .user_agent(GITHUB_USER_AGENT)
-            .build()
-            .map_err(|e| format!("[sync_target] build github http client failed: {e}"))
-    }
-
-    /// 发一次 API 调用（不做状态映射；调用方决定 404 等语义）。
+    /// 发一次 API 调用（不做状态映射；调用方决定 404 等语义；响应体严格受 `max_response_bytes` 限制）。
     async fn call(
         &self,
         method: &str,
         suffix: &str,
         body: Option<serde_json::Value>,
+        max_response_bytes: usize,
     ) -> Result<GitHubResponse, String> {
         let url = self.api_url(suffix);
+        let redacted_url = redact_sync_url(&url);
         let method = reqwest::Method::from_bytes(method.as_bytes())
             .map_err(|e| format!("[sync_target] github method is invalid: {e}"))?;
-        let mut request = Self::client()?
+        let token = self.token().await?;
+        let mut request = self
+            .client
             .request(method, &url)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
             // token 只进请求头：**永不**进 journal / 错误文案 / 配置文件。
-            .header("Authorization", format!("Bearer {}", self.token()?));
+            .header("Authorization", format!("Bearer {token}"));
         if let Some(body) = body {
             let encoded = serde_json::to_string(&body)
                 .map_err(|e| format!("[sync_target] github request encode failed: {e}"))?;
@@ -718,10 +827,12 @@ impl GitHubTarget {
                 .header("Content-Type", "application/json")
                 .body(encoded);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|e| format!("[sync_target] github request {suffix} failed: {e}"))?;
+        let response = request.send().await.map_err(|e| {
+            format!(
+                "[sync_target] github request {redacted_url} failed: {}",
+                e.without_url()
+            )
+        })?;
         let status = response.status().as_u16();
         let rate_limit_remaining = response
             .headers()
@@ -733,10 +844,9 @@ impl GitHubTarget {
             .get("x-ratelimit-reset")
             .and_then(|value| value.to_str().ok())
             .map(|value| value.to_string());
-        let body = response
-            .text()
-            .await
-            .map_err(|e| format!("[sync_target] github response read failed: {e}"))?;
+        let raw_bytes = read_response_bounded(response, max_response_bytes, "github").await?;
+        let body = String::from_utf8(raw_bytes)
+            .map_err(|e| format!("[sync_target] github response is not UTF-8: {e}"))?;
         Ok(GitHubResponse {
             status,
             body,
@@ -746,7 +856,7 @@ impl GitHubTarget {
     }
 
     /// 状态映射：可重试错误同时落传输 journal（含 `x-ratelimit-reset`）。
-    fn ensure_success(&self, response: &GitHubResponse, context: &str) -> Result<(), String> {
+    async fn ensure_success(&self, response: &GitHubResponse, context: &str) -> Result<(), String> {
         match classify_status(
             response.status,
             response.rate_limit_remaining.as_deref(),
@@ -757,23 +867,35 @@ impl GitHubTarget {
             Ok(()) => Ok(()),
             Err(error) => {
                 if error.retryable {
-                    let context = format!("{context} (status={})", error.status);
-                    let _ = append_transport_journal(
-                        self.journal_root.as_deref(),
-                        "retryable",
-                        &context,
-                        error.rate_limit_reset.as_deref(),
-                        &error.message,
-                    );
+                    if let Some(root) = self.journal_root.clone() {
+                        let ctx = format!("{context} (status={})", error.status);
+                        let reset = error.rate_limit_reset.clone();
+                        let msg = error.message.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            let _ = append_transport_journal(
+                                Some(root.as_path()),
+                                "retryable",
+                                &ctx,
+                                reset.as_deref(),
+                                &msg,
+                            );
+                        })
+                        .await;
+                    }
                 }
                 Err(error.message)
             }
         }
     }
 
-    async fn get_json(&self, suffix: &str, context: &str) -> Result<serde_json::Value, String> {
-        let response = self.call("GET", suffix, None).await?;
-        self.ensure_success(&response, context)?;
+    async fn get_json(
+        &self,
+        suffix: &str,
+        context: &str,
+        max_response_bytes: usize,
+    ) -> Result<serde_json::Value, String> {
+        let response = self.call("GET", suffix, None, max_response_bytes).await?;
+        self.ensure_success(&response, context).await?;
         response.json()
     }
 
@@ -783,8 +905,10 @@ impl GitHubTarget {
         body: serde_json::Value,
         context: &str,
     ) -> Result<serde_json::Value, String> {
-        let response = self.call("POST", suffix, Some(body)).await?;
-        self.ensure_success(&response, context)?;
+        let response = self
+            .call("POST", suffix, Some(body), SYNC_MAX_METADATA_BYTES)
+            .await?;
+        self.ensure_success(&response, context).await?;
         response.json()
     }
 
@@ -794,19 +918,24 @@ impl GitHubTarget {
         body: serde_json::Value,
         context: &str,
     ) -> Result<serde_json::Value, String> {
-        let response = self.call("PATCH", suffix, Some(body)).await?;
-        self.ensure_success(&response, context)?;
+        let response = self
+            .call("PATCH", suffix, Some(body), SYNC_MAX_METADATA_BYTES)
+            .await?;
+        self.ensure_success(&response, context).await?;
         response.json()
     }
 
     /// 读远端当前对象 sha（不存在 → `None`）；contents API 的并发保护输入。
     async fn contents_sha(&self, remote: &str, key: &str) -> Result<Option<String>, String> {
         let suffix = format!("/contents/{}?ref={}", encode_path(remote), self.branch);
-        let response = self.call("GET", &suffix, None).await?;
+        let response = self
+            .call("GET", &suffix, None, SYNC_MAX_METADATA_BYTES)
+            .await?;
         if response.status == 404 {
             return Ok(None);
         }
-        self.ensure_success(&response, &format!("read sha for {key}"))?;
+        self.ensure_success(&response, &format!("read sha for {key}"))
+            .await?;
         let value = response.json()?;
         Ok(value
             .get("sha")
@@ -829,8 +958,11 @@ impl GitHubTarget {
             body["sha"] = serde_json::Value::String(sha);
         }
         let suffix = format!("/contents/{}", encode_path(&remote));
-        let response = self.call("PUT", &suffix, Some(body)).await?;
+        let response = self
+            .call("PUT", &suffix, Some(body), SYNC_MAX_METADATA_BYTES)
+            .await?;
         self.ensure_success(&response, &format!("put {key} (contents api)"))
+            .await
     }
 
     /// 大对象路径（> [`CONTENTS_API_MAX_BYTES`]）：blob → tree → commit → update ref。
@@ -853,6 +985,7 @@ impl GitHubTarget {
             .get_json(
                 &format!("/git/ref/heads/{}", encode_path(&self.branch)),
                 "read branch ref",
+                SYNC_MAX_METADATA_BYTES,
             )
             .await?;
         let head_sha = reference
@@ -863,7 +996,11 @@ impl GitHubTarget {
             .to_string();
         // 3) 基线 commit → base tree
         let commit = self
-            .get_json(&format!("/git/commits/{head_sha}"), "read head commit")
+            .get_json(
+                &format!("/git/commits/{head_sha}"),
+                "read head commit",
+                SYNC_MAX_METADATA_BYTES,
+            )
             .await?;
         let base_tree = commit
             .get("tree")
@@ -911,16 +1048,27 @@ impl GitHubTarget {
         Ok(())
     }
 
-    /// 取 blob 原始字节（contents API 对 >1 MiB 文件不返回内容时的兜底）。
+    /// 取 blob 原始字节（contents API 对 >1 MiB 文件不返回内容时的兜底；
+    /// JSON 外壳上限 90 MiB，base64 解码后再验 `<= 64 MiB`）。
     async fn get_blob(&self, sha: &str) -> Result<Vec<u8>, String> {
         let value = self
-            .get_json(&format!("/git/blobs/{sha}"), "get blob")
+            .get_json(
+                &format!("/git/blobs/{sha}"),
+                "get blob",
+                SYNC_MAX_GITHUB_B64_JSON_BYTES,
+            )
             .await?;
         let encoded = value
             .get("content")
             .and_then(|value| value.as_str())
             .ok_or_else(|| format!("[sync_target] github blob {sha} has no content"))?;
-        base64_decode(&strip_whitespace(encoded))
+        let decoded = base64_decode(&strip_whitespace(encoded))?;
+        if decoded.len() > SYNC_MAX_BLOB_BYTES {
+            return Err(format!(
+                "[sync_target] github blob {sha} exceeds {SYNC_MAX_BLOB_BYTES} bytes after decoding"
+            ));
+        }
+        Ok(decoded)
     }
 
     /// manifest 写后读回校验（**两路共用**；其它对象不额外往返一次）。
@@ -957,12 +1105,15 @@ impl SyncTarget for GitHubTarget {
             } else {
                 format!("/contents/{}?ref={}", encode_path(&remote), self.branch)
             };
-            let response = self.call("GET", &suffix, None).await?;
+            let response = self
+                .call("GET", &suffix, None, SYNC_MAX_METADATA_BYTES)
+                .await?;
             if response.status == 404 {
                 // 目录不存在 = 空（推送首个版本时远端还没有任何对象）。
                 continue;
             }
-            self.ensure_success(&response, &format!("list {dir}"))?;
+            self.ensure_success(&response, &format!("list {dir}"))
+                .await?;
             let value = response.json()?;
             let entries = value.as_array().ok_or_else(|| {
                 format!("[sync_target] github listing for '{dir}' is not a directory")
@@ -1000,13 +1151,22 @@ impl SyncTarget for GitHubTarget {
             return Err("[sync_target] github get requires an object key".to_string());
         }
         let suffix = format!("/contents/{}?ref={}", encode_path(&remote), self.branch);
-        let response = self.call("GET", &suffix, None).await?;
-        self.ensure_success(&response, &format!("get {path}"))?;
+        let response = self
+            .call("GET", &suffix, None, SYNC_MAX_METADATA_BYTES)
+            .await?;
+        self.ensure_success(&response, &format!("get {path}"))
+            .await?;
         let value = response.json()?;
         if let Some(encoded) = value.get("content").and_then(|value| value.as_str()) {
             let cleaned = strip_whitespace(encoded);
             if !cleaned.is_empty() {
-                return base64_decode(&cleaned);
+                let decoded = base64_decode(&cleaned)?;
+                if decoded.len() > SYNC_MAX_BLOB_BYTES {
+                    return Err(format!(
+                        "[sync_target] github object {path} exceeds {SYNC_MAX_BLOB_BYTES} bytes"
+                    ));
+                }
+                return Ok(decoded);
             }
         }
         // 超过 CONTENTS_API_MAX_BYTES（R1 同一分界点）时 contents API 不返回内容
@@ -1059,6 +1219,66 @@ pub fn is_local_endpoint(endpoint: &str) -> bool {
     endpoint.trim().eq_ignore_ascii_case(LOCAL_ENDPOINT)
 }
 
+fn assert_sync_path_chain_has_no_symlink(path: &Path, label: &str) -> Result<(), String> {
+    let mut current = Some(path);
+    while let Some(candidate) = current {
+        if candidate.as_os_str().is_empty() {
+            break;
+        }
+        #[cfg(target_os = "macos")]
+        if candidate == Path::new("/var")
+            || candidate == Path::new("/tmp")
+            || candidate == Path::new("/etc")
+        {
+            current = candidate.parent();
+            continue;
+        }
+        match fs::symlink_metadata(candidate) {
+            Ok(meta) => {
+                if crate::agent_gate_policy::metadata_is_symlink_or_reparse_point(&meta) {
+                    return Err(format!(
+                        "[sync_target] {label} must not contain symlink or reparse point: {}",
+                        candidate.display()
+                    ));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(format!(
+                    "[sync_target] failed to inspect {label} '{}': {e}",
+                    candidate.display()
+                ));
+            }
+        }
+        current = candidate.parent();
+    }
+    Ok(())
+}
+
+/// 检查目标目录是否落入任一真实项目根（含 `.novel/` 子目录）下的受保护数据区
+/// （`QM/`、`wiki/`、`.novel/`、`.niko-buddy/`、`canon/`）。
+fn is_inside_project_protected_data_zone(path: &Path) -> bool {
+    let mut cur: Option<&Path> = Some(path);
+    while let Some(dir) = cur {
+        if let Some(parent) = dir.parent() {
+            if parent.join(".novel").is_dir() {
+                if let Some(seg) = dir.file_name().and_then(|s| s.to_str()) {
+                    if seg.eq_ignore_ascii_case("QM")
+                        || seg.eq_ignore_ascii_case("wiki")
+                        || seg.eq_ignore_ascii_case(".novel")
+                        || seg.eq_ignore_ascii_case(".niko-buddy")
+                        || seg.eq_ignore_ascii_case("canon")
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        cur = dir.parent();
+    }
+    false
+}
+
 /// 本地文件夹配置校验（**配置期**门禁，纯函数）。返回归一化后的目标目录。
 ///
 /// 关键一条：`credential_ref` 必须为空。本地文件夹不需要任何凭据，把凭据引用配给
@@ -1071,8 +1291,14 @@ pub fn validate_local_config(
     if raw.is_empty() {
         return Err("[sync_target] local localPath must not be empty".to_string());
     }
-    if raw.contains('\0') {
-        return Err("[sync_target] local localPath must not contain NUL".to_string());
+    if config
+        .local_path
+        .chars()
+        .any(|c| c == '\0' || c.is_control())
+    {
+        return Err(
+            "[sync_target] local localPath must not contain control characters".to_string(),
+        );
     }
     let path = PathBuf::from(raw);
     if !path.is_absolute() {
@@ -1086,6 +1312,16 @@ pub fn validate_local_config(
                 "[sync_target] local localPath must not contain '..': {raw}"
             ));
         }
+    }
+    assert_sync_path_chain_has_no_symlink(&path, "local localPath")?;
+    if is_inside_project_protected_data_zone(&path)
+        || fs::canonicalize(&path)
+            .ok()
+            .is_some_and(|canon| is_inside_project_protected_data_zone(&canon))
+    {
+        return Err(format!(
+            "[sync_target] local localPath must not target a protected project data directory: {raw}"
+        ));
     }
     if !credential_ref.trim().is_empty() {
         return Err(
@@ -1122,69 +1358,123 @@ impl LocalFolderTarget {
         assert_remote_key_allowed(key)?;
         Ok(self.root.join(key.trim_start_matches('/')))
     }
-
-    /// manifest 写后读回校验（与 GitHub 目标同判据）：写进去的与读回来的必须同指纹。
-    fn verify_manifest_write_back(&self, key: &str, written: &[u8]) -> Result<(), String> {
-        if !key.ends_with(REMOTE_MANIFEST_FILE) {
-            return Ok(());
-        }
-        let read_back = fs::read(self.resolve(key)?)
-            .map_err(|e| format!("[sync_target] local read-back failed: {e}"))?;
-        verify_manifest_digest(written, &read_back)
-    }
 }
 
 impl SyncTarget for LocalFolderTarget {
     async fn list(&self, path: &str) -> Result<Vec<String>, String> {
-        // 目标目录尚不存在 = 空目标（首次推送时才会创建），不是错误。
-        if !self.root.is_dir() {
-            return Ok(Vec::new());
-        }
-        let prefix = path.trim_matches('/');
-        let mut objects: Vec<String> = Vec::new();
-        for entry in walkdir::WalkDir::new(&self.root).follow_links(false) {
-            let entry = entry.map_err(|e| format!("[sync_target] local walk failed: {e}"))?;
-            if !entry.file_type().is_file() {
-                continue;
+        let root = self.root.clone();
+        let prefix = path.trim_matches('/').to_string();
+        tokio::task::spawn_blocking(move || {
+            if crate::agent_gate_policy::is_symlink_or_reparse_point(&root) {
+                return Err(format!(
+                    "[sync_target] local target root must not be a symlink: {}",
+                    root.display()
+                ));
             }
-            let relative = entry
-                .path()
-                .strip_prefix(&self.root)
-                .map_err(|e| format!("[sync_target] local strip_prefix failed: {e}"))?;
-            let key = relative.to_string_lossy().replace('\\', "/");
-            if prefix.is_empty() || key == prefix || key.starts_with(&format!("{prefix}/")) {
-                objects.push(key);
+            // 目标目录尚不存在 = 空目标（首次推送时才会创建），不是错误。
+            if !root.is_dir() {
+                return Ok(Vec::new());
             }
-        }
-        objects.sort();
-        objects.dedup();
-        Ok(objects)
+            let mut objects: Vec<String> = Vec::new();
+            let walker = walkdir::WalkDir::new(&root)
+                .follow_links(false)
+                .max_depth(LOCAL_WALK_MAX_DEPTH)
+                .into_iter()
+                .filter_entry(|e| {
+                    e.depth() == 0
+                        || (!e.path_is_symlink()
+                            && !crate::agent_gate_policy::is_symlink_or_reparse_point(e.path()))
+                });
+            for entry in walker {
+                let entry = entry.map_err(|e| format!("[sync_target] local walk failed: {e}"))?;
+                if entry.path_is_symlink()
+                    || crate::agent_gate_policy::is_symlink_or_reparse_point(entry.path())
+                    || !entry.file_type().is_file()
+                {
+                    continue;
+                }
+                let relative = entry
+                    .path()
+                    .strip_prefix(&root)
+                    .map_err(|e| format!("[sync_target] local strip_prefix failed: {e}"))?;
+                let key = relative.to_string_lossy().replace('\\', "/");
+                if prefix.is_empty() || key == prefix || key.starts_with(&format!("{prefix}/")) {
+                    objects.push(key);
+                }
+            }
+            objects.sort();
+            objects.dedup();
+            Ok(objects)
+        })
+        .await
+        .map_err(|e| format!("[sync_target] local list task join error: {e}"))?
     }
 
     async fn get(&self, path: &str) -> Result<Vec<u8>, String> {
+        let root = self.root.clone();
         let source = self.resolve(path)?;
-        fs::read(&source)
-            .map_err(|e| format!("[sync_target] local read {} failed: {e}", source.display()))
+        tokio::task::spawn_blocking(move || {
+            crate::agent_gate_policy::assert_no_symlink_in_ancestors(&root, &source)?;
+            let meta = fs::symlink_metadata(&source).map_err(|e| {
+                format!("[sync_target] local read {} failed: {e}", source.display())
+            })?;
+            if crate::agent_gate_policy::metadata_is_symlink_or_reparse_point(&meta)
+                || !meta.is_file()
+            {
+                return Err(format!(
+                    "[sync_target] local source is not a regular file: {}",
+                    source.display()
+                ));
+            }
+            if meta.len() > SYNC_MAX_BLOB_BYTES as u64 {
+                return Err(format!(
+                    "[sync_target] local object {} exceeds {SYNC_MAX_BLOB_BYTES} bytes",
+                    source.display()
+                ));
+            }
+            fs::read(&source)
+                .map_err(|e| format!("[sync_target] local read {} failed: {e}", source.display()))
+        })
+        .await
+        .map_err(|e| format!("[sync_target] local get task join error: {e}"))?
     }
 
     async fn put(&self, path: &str, bytes: &[u8]) -> Result<(), String> {
+        let root = self.root.clone();
         let destination = self.resolve(path)?;
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
-                format!(
-                    "[sync_target] local create {} failed: {e}",
-                    parent.display()
-                )
-            })?;
-        }
-        fs::write(&destination, bytes).map_err(|e| {
-            format!(
-                "[sync_target] local write {} failed: {e}",
-                destination.display()
-            )
-        })?;
-        // manifest 是提交点：写完必须读回比对 content_hash（写成功 ≠ 内容正确）。
-        self.verify_manifest_write_back(path, bytes)
+        let payload = bytes.to_vec();
+        let verify_manifest = path.ends_with(REMOTE_MANIFEST_FILE);
+        tokio::task::spawn_blocking(move || {
+            assert_sync_path_chain_has_no_symlink(&root, "local target root")?;
+            crate::agent_gate_policy::assert_no_symlink_in_ancestors(&root, &destination)?;
+            let _mutation = crate::commands::fs::lock_file_mutations()?;
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent).map_err(|e| {
+                    format!(
+                        "[sync_target] local create {} failed: {e}",
+                        parent.display()
+                    )
+                })?;
+            }
+            crate::agent_gate_policy::assert_no_symlink_in_ancestors(&root, &destination)?;
+            crate::commands::fs::write_atomic_physical_bytes(&destination, &payload).map_err(
+                |e| {
+                    format!(
+                        "[sync_target] local write {} failed: {e}",
+                        destination.display()
+                    )
+                },
+            )?;
+            // manifest 是提交点：写完必须读回比对 content_hash（写成功 ≠ 内容正确）。
+            if verify_manifest {
+                let read_back = fs::read(&destination)
+                    .map_err(|e| format!("[sync_target] local read-back failed: {e}"))?;
+                verify_manifest_digest(&payload, &read_back)?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| format!("[sync_target] local put task join error: {e}"))?
     }
 }
 
@@ -1269,7 +1559,10 @@ pub async fn push_configured(
     device_id: &str,
     timestamp: &str,
 ) -> Result<SyncPushResult, String> {
-    let file = open_target_file(project_path)?;
+    let project_owned = project_path.to_path_buf();
+    let file = tokio::task::spawn_blocking(move || open_target_file(&project_owned))
+        .await
+        .map_err(|e| format!("[sync_target] open target config task join error: {e}"))??;
     let target = build_target(&file, project_path)?;
     push_impl(&target, project_path, artifact_path, device_id, timestamp).await
 }
@@ -1281,7 +1574,10 @@ pub async fn pull_configured(
     device_id: &str,
     timestamp: &str,
 ) -> Result<SyncPullResult, String> {
-    let file = open_target_file(project_path)?;
+    let project_owned = project_path.to_path_buf();
+    let file = tokio::task::spawn_blocking(move || open_target_file(&project_owned))
+        .await
+        .map_err(|e| format!("[sync_target] open target config task join error: {e}"))??;
     let target = build_target(&file, project_path)?;
     pull_impl(&target, project_path, manifest_id, device_id, timestamp).await
 }
@@ -1596,18 +1892,22 @@ pub fn save_config(project_path: &Path, config: &SyncConfig) -> Result<(), Strin
     save_config_file(project_path, &SyncConfigFile::from_transport(config))
 }
 
-/// 写入落盘配置（含 `github` 块；先经无明文断言与结构校验）。
+/// 写入落盘配置（含 `github` 块；先经无明文断言与结构校验，持 T4 锁原子落盘）。
 pub fn save_config_file(project_path: &Path, file: &SyncConfigFile) -> Result<(), String> {
     validate_config_file(file)?;
     let encoded = serde_json::to_string_pretty(file)
         .map_err(|e| format!("[sync_target] encode config failed: {e}"))?;
     assert_config_no_secret_plaintext(&encoded)?;
     let path = project_path.join(SYNC_CONFIG_FILE);
+    let _mutation = crate::commands::fs::lock_file_mutations()?;
+    crate::agent_gate_policy::assert_no_symlink_in_ancestors(project_path, &path)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("[sync_target] create config dir failed: {e}"))?;
     }
-    fs::write(&path, encoded).map_err(|e| format!("[sync_target] write config failed: {e}"))
+    crate::agent_gate_policy::assert_no_symlink_in_ancestors(project_path, &path)?;
+    crate::commands::fs::write_atomic_physical_bytes(&path, encoded.as_bytes())
+        .map_err(|e| format!("[sync_target] write config failed: {e}"))
 }
 
 // ── Tauri commands：配置 / 测试 / 状态 ─────────────────────────────────────
@@ -1619,7 +1919,13 @@ pub fn save_config_file(project_path: &Path, file: &SyncConfigFile) -> Result<()
 /// `nb:github:<account>`，否则**配置期**即拒绝（[`validate_github_config`]）。
 #[tauri::command]
 pub async fn sync_configure(project_path: String, config: SyncConfigFile) -> Result<(), String> {
-    save_config_file(Path::new(&project_path), &config)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("sync_configure", || {
+            save_config_file(Path::new(&project_path), &config)
+        })
+    })
+    .await
+    .map_err(|e| format!("[sync_target] sync_configure blocking task join error: {e}"))?
 }
 
 /// 读回落盘配置（含 `github` / `local` / `schedule` 块）。
@@ -1634,64 +1940,83 @@ pub async fn sync_configure(project_path: String, config: SyncConfigFile) -> Res
 /// 可选，只接受 15 / 30 / 60 三档（[`validate_schedule`]）。
 #[tauri::command]
 pub async fn sync_config_read(project_path: String) -> Result<Option<SyncConfigFile>, String> {
-    load_config_file(Path::new(&project_path))
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("sync_config_read", || {
+            load_config_file(Path::new(&project_path))
+        })
+    })
+    .await
+    .map_err(|e| format!("[sync_target] sync_config_read blocking task join error: {e}"))?
 }
 
 /// 连接测试。凭据不可用时**不降级**：直接回报不可用并要求关闭该目标。
 #[tauri::command]
 pub async fn sync_test(project_path: String) -> Result<SyncTestResult, String> {
-    let project = Path::new(&project_path);
-    let Some(file) = load_config_file(project)? else {
-        return Ok(SyncTestResult {
-            ok: false,
-            endpoint: String::new(),
-            root: String::new(),
-            credential_available: false,
-            reachable: false,
-            object_count: 0,
-            message: "[sync_target] cloud backup is not configured".to_string(),
-        });
-    };
-    // 凭据库探针（G1）：`secret_available` / `store_status` 门禁先行。
-    let credential_available = store_status_sync() && is_available_sync();
-    if file.is_local() {
-        let local = file
-            .local
-            .as_ref()
-            .ok_or_else(|| "[sync_target] endpoint=local requires a local block".to_string())?;
-        return local_test(local, &file.credential_ref).await;
-    }
-    if file.is_github() {
-        let github = file
-            .github
-            .as_ref()
-            .ok_or_else(|| "[sync_target] endpoint=github requires a github block".to_string())?;
-        return github_test(project, github, &file.credential_ref, credential_available).await;
-    }
-    let config = file.transport_config();
-    let target = WebDavTarget::new(&config.endpoint, &config.root, &config.credential_ref);
-    let (reachable, object_count, message) = if !credential_available {
-        (
-            false,
-            0usize,
-            "[sync_target] credential store unavailable; keep this cloud backup target disabled"
-                .to_string(),
-        )
-    } else {
-        match target.list("").await {
-            Ok(objects) => (true, objects.len(), "[sync_target] reachable".to_string()),
-            Err(reason) => (false, 0usize, reason),
+    crate::panic_guard::run_guarded_async("sync_test", async move {
+        let project_for_load = PathBuf::from(&project_path);
+        let (file_opt, credential_available) = tokio::task::spawn_blocking(move || {
+            let file = load_config_file(&project_for_load)?;
+            let cred_ok = if file.is_some() {
+                store_status_sync() && is_available_sync()
+            } else {
+                false
+            };
+            Ok::<(Option<SyncConfigFile>, bool), String>((file, cred_ok))
+        })
+        .await
+        .map_err(|e| format!("[sync_target] sync_test blocking task join error: {e}"))??;
+
+        let Some(file) = file_opt else {
+            return Ok(SyncTestResult {
+                ok: false,
+                endpoint: String::new(),
+                root: String::new(),
+                credential_available: false,
+                reachable: false,
+                object_count: 0,
+                message: "[sync_target] cloud backup is not configured".to_string(),
+            });
+        };
+        let project = Path::new(&project_path);
+        if file.is_local() {
+            let local = file
+                .local
+                .as_ref()
+                .ok_or_else(|| "[sync_target] endpoint=local requires a local block".to_string())?;
+            return local_test(local, &file.credential_ref).await;
         }
-    };
-    Ok(SyncTestResult {
-        ok: reachable && credential_available,
-        endpoint: config.endpoint,
-        root: config.root,
-        credential_available,
-        reachable,
-        object_count,
-        message,
+        if file.is_github() {
+            let github = file.github.as_ref().ok_or_else(|| {
+                "[sync_target] endpoint=github requires a github block".to_string()
+            })?;
+            return github_test(project, github, &file.credential_ref, credential_available).await;
+        }
+        let config = file.transport_config();
+        let target = WebDavTarget::new(&config.endpoint, &config.root, &config.credential_ref);
+        let (reachable, object_count, message) = if !credential_available {
+            (
+                false,
+                0usize,
+                "[sync_target] credential store unavailable; keep this cloud backup target disabled"
+                    .to_string(),
+            )
+        } else {
+            match target.list("").await {
+                Ok(objects) => (true, objects.len(), "[sync_target] reachable".to_string()),
+                Err(reason) => (false, 0usize, reason),
+            }
+        };
+        Ok(SyncTestResult {
+            ok: reachable && credential_available,
+            endpoint: config.endpoint,
+            root: config.root,
+            credential_available,
+            reachable,
+            object_count,
+            message,
+        })
     })
+    .await
 }
 
 /// GitHub 目标的连接测试（凭据库不可用时**返回降级文案并记 journal**，不裸抛）。
@@ -1712,20 +2037,26 @@ async fn github_test(
     };
     if !credential_available {
         // A1 降级：凭据库不可用 → 返回**可读降级文案**并记 journal，不裸抛平台错误。
-        let message = match secret_store::github_store_probe() {
-            secret_store::CredentialProbe::Degraded(message) => message,
-            // 探针与布尔门禁不同源时（探测间竞态）仍不静默：退回通用降级文案。
-            secret_store::CredentialProbe::Available => {
-                secret_store::github_store_degraded_message()
-            }
-        };
-        append_transport_journal(
-            Some(project_path),
-            "credential_degraded",
-            "sync_test",
-            None,
-            &message,
-        )?;
+        let project_owned = project_path.to_path_buf();
+        let message = tokio::task::spawn_blocking(move || -> Result<String, String> {
+            let message = match secret_store::github_store_probe() {
+                secret_store::CredentialProbe::Degraded(message) => message,
+                // 探针与布尔门禁不同源时（探测间竞态）仍不静默：退回通用降级文案。
+                secret_store::CredentialProbe::Available => {
+                    secret_store::github_store_degraded_message()
+                }
+            };
+            append_transport_journal(
+                Some(project_owned.as_path()),
+                "credential_degraded",
+                "sync_test",
+                None,
+                &message,
+            )?;
+            Ok(message)
+        })
+        .await
+        .map_err(|e| format!("[sync_target] github_test blocking task join error: {e}"))??;
         return Ok(SyncTestResult { message, ..base });
     }
     let target = GitHubTarget::new(github, credential_ref)?.with_journal_root(project_path);
@@ -1750,10 +2081,18 @@ async fn local_test(
     local: &LocalFolderConfig,
     credential_ref: &str,
 ) -> Result<SyncTestResult, String> {
-    let root = validate_local_config(local, credential_ref)?;
+    let local_owned = local.clone();
+    let cred_owned = credential_ref.to_string();
+    let (root, exists, creatable) = tokio::task::spawn_blocking(move || {
+        let root = validate_local_config(&local_owned, &cred_owned)?;
+        let exists = root.is_dir();
+        let creatable = root.parent().is_some_and(|parent| parent.is_dir());
+        Ok::<(PathBuf, bool, bool), String>((root, exists, creatable))
+    })
+    .await
+    .map_err(|e| format!("[sync_target] local_test blocking task join error: {e}"))??;
+
     let target = LocalFolderTarget::at_root(root.clone());
-    let exists = root.is_dir();
-    let creatable = root.parent().map(|parent| parent.is_dir()).unwrap_or(false);
     let object_count = if exists {
         target
             .list("")
@@ -1794,7 +2133,11 @@ async fn local_test(
 /// 传输状态（不触网）。
 #[tauri::command]
 pub async fn sync_status(project_path: String) -> Result<SyncStatus, String> {
-    status_impl(Path::new(&project_path))
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("sync_status", || status_impl(Path::new(&project_path)))
+    })
+    .await
+    .map_err(|e| format!("[sync_target] sync_status blocking task join error: {e}"))?
 }
 
 /// [`sync_status`] 的同步实现（供命令与测试共用）。
@@ -1837,13 +2180,16 @@ pub async fn sync_push(
     artifact_path: String,
     device_id: String,
 ) -> Result<SyncPushResult, String> {
-    let timestamp = now_ts();
-    push_configured(
-        Path::new(&project_path),
-        Path::new(&artifact_path),
-        &device_id,
-        &timestamp,
-    )
+    crate::panic_guard::run_guarded_async("sync_push", async move {
+        let timestamp = now_ts();
+        push_configured(
+            Path::new(&project_path),
+            Path::new(&artifact_path),
+            &device_id,
+            &timestamp,
+        )
+        .await
+    })
     .await
 }
 
@@ -1859,25 +2205,80 @@ pub async fn push_impl<T: SyncTarget>(
     timestamp: &str,
 ) -> Result<SyncPushResult, String> {
     let _guard = try_acquire_sync_run(project_path)?;
-    if !artifact_path.is_file() {
-        return Err(format!(
-            "[sync_target] export artifact not found: {} (run an export first)",
-            artifact_path.display()
-        ));
+    if artifact_path
+        .to_string_lossy()
+        .chars()
+        .any(|c| c == '\0' || c.is_control())
+    {
+        return Err(
+            "[sync_target] export artifact path must not contain control characters".to_string(),
+        );
     }
+    let project_for_check = project_path.to_path_buf();
+    let artifact_for_check = artifact_path.to_path_buf();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let meta = fs::symlink_metadata(&artifact_for_check).map_err(|_| {
+            format!(
+                "[sync_target] export artifact not found: {} (run an export first)",
+                artifact_for_check.display()
+            )
+        })?;
+        if crate::agent_gate_policy::metadata_is_symlink_or_reparse_point(&meta) {
+            return Err(format!(
+                "[sync_target] export artifact must not be a symlink or reparse point: {}",
+                artifact_for_check.display()
+            ));
+        }
+        if !meta.is_file() {
+            return Err(format!(
+                "[sync_target] export artifact not found: {} (run an export first)",
+                artifact_for_check.display()
+            ));
+        }
+        if let Ok(rel) = artifact_for_check.strip_prefix(&project_for_check) {
+            crate::agent_gate_policy::assert_no_symlink_in_ancestors(
+                &project_for_check,
+                &artifact_for_check,
+            )?;
+            let rel_posix = rel.to_string_lossy().replace('\\', "/");
+            if crate::agent_gate::is_protected_target(&rel_posix) {
+                return Err(format!(
+                    "[sync_target] export artifact must not reside in a protected truth surface: {}",
+                    artifact_for_check.display()
+                ));
+            }
+        }
+        if is_inside_project_protected_data_zone(&artifact_for_check)
+            || fs::canonicalize(&artifact_for_check)
+                .ok()
+                .is_some_and(|canon| is_inside_project_protected_data_zone(&canon))
+        {
+            return Err(format!(
+                "[sync_target] export artifact must not reside in a protected data directory: {}",
+                artifact_for_check.display()
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("[sync_target] inspect artifact task join error: {e}"))??;
+
     let manifest_id = artifact_path
         .file_stem()
         .map(|stem| stem.to_string_lossy().to_string())
         .filter(|stem| !stem.is_empty())
         .ok_or_else(|| "[sync_target] artifact has no usable file stem".to_string())?;
+    crate::agent_gate_policy::validate_safe_single_segment(&manifest_id, "manifest_id")?;
     let file_name = artifact_path
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .ok_or_else(|| "[sync_target] artifact has no file name".to_string())?;
+    crate::agent_gate_policy::validate_safe_single_segment(&file_name, "artifact file name")?;
 
     // 暂存目录不可碰撞：时间戳只到秒，加 pid + 进程内序号（即使互斥失效/跨进程也不撞）。
     let staging = project_path.join(format!(".sync-staging-{}", unique_run_token(timestamp)));
-    let _ = fs::remove_dir_all(&staging);
+    let staging_init = staging.clone();
+    let _ = tokio::task::spawn_blocking(move || fs::remove_dir_all(&staging_init)).await;
     let outcome = push_staged(
         target,
         project_path,
@@ -1889,7 +2290,8 @@ pub async fn push_impl<T: SyncTarget>(
         timestamp,
     )
     .await;
-    let _ = fs::remove_dir_all(&staging);
+    let staging_cleanup = staging.clone();
+    let _ = tokio::task::spawn_blocking(move || fs::remove_dir_all(&staging_cleanup)).await;
     outcome
 }
 
@@ -1904,16 +2306,34 @@ async fn push_staged<T: SyncTarget>(
     device_id: &str,
     timestamp: &str,
 ) -> Result<SyncPushResult, String> {
-    fs::create_dir_all(staging).map_err(|e| format!("[sync_target] create staging failed: {e}"))?;
-    fs::copy(artifact_path, staging.join(file_name))
-        .map_err(|e| format!("[sync_target] stage artifact failed: {e}"))?;
-
     let started = std::time::Instant::now();
-    let manifest = archive::build_manifest(staging)?;
-    archive::pack_blocks(staging, &manifest, staging)?;
+    let staging_for_pack = staging.to_path_buf();
+    let artifact_for_pack = artifact_path.to_path_buf();
+    let file_name_for_pack = file_name.to_string();
+    let project_for_state = project_path.to_path_buf();
+    let manifest_id_for_state = manifest_id.to_string();
+    let (manifest, base, next_revision) = tokio::task::spawn_blocking(move || {
+        fs::create_dir_all(&staging_for_pack)
+            .map_err(|e| format!("[sync_target] create staging failed: {e}"))?;
+        fs::copy(
+            &artifact_for_pack,
+            staging_for_pack.join(&file_name_for_pack),
+        )
+        .map_err(|e| format!("[sync_target] stage artifact failed: {e}"))?;
+        let manifest = archive::build_manifest(&staging_for_pack)?;
+        archive::pack_blocks(&staging_for_pack, &manifest, &staging_for_pack)?;
+        let base = local_state(&project_for_state, &manifest_id_for_state);
+        let next_revision = local_revision(&project_for_state, &manifest_id_for_state) + 1;
+        Ok::<(archive::ArchiveManifest, RevisionState, u64), String>((
+            manifest,
+            base,
+            next_revision,
+        ))
+    })
+    .await
+    .map_err(|e| format!("[sync_target] stage push task join error: {e}"))??;
 
     // G2b 基线指针：本次推送所基于的**本地态**（首次推送 → rev 0 且无指纹）。
-    let base = local_state(project_path, manifest_id);
     let base_content_hash = if base.content_hash.is_empty() {
         None
     } else {
@@ -1921,11 +2341,6 @@ async fn push_staged<T: SyncTarget>(
     };
 
     // F-010：内容未变则**不抬版本、不重传、不写 journal**。
-    //
-    // 为什么先算指纹再决定：导出产物通常每 15 分钟没变，无条件 push 会让远端 rev 号与
-    // 本地 snapshots 目录按周期线性增长（一天 96 个完整副本 + 96 次 GitHub commit）。
-    // 判据用 manifest 的内容指纹（= 块内容聚合），不是 zip 字节（zip 带时间戳，
-    // 字节变了不代表内容变了）。此时还没写过任何远端对象，直接返回是安全的。
     if base.revision > 0
         && !base.content_hash.is_empty()
         && base.content_hash == manifest.content_digest
@@ -1941,59 +2356,79 @@ async fn push_staged<T: SyncTarget>(
         });
     }
 
-    let revision = local_revision(project_path, manifest_id) + 1;
+    let revision = next_revision;
     let prefix = remote_revision_dir(manifest_id, revision);
 
     let mut total_bytes = 0u64;
     for block in &manifest.blocks {
         let key = format!("{prefix}/{REMOTE_BLOCKS_DIR}/{}", block.hash);
         assert_remote_key_allowed(&key)?;
-        let bytes = fs::read(staging.join(REMOTE_BLOCKS_DIR).join(&block.hash))
-            .map_err(|e| format!("[sync_target] read staged block failed: {e}"))?;
+        let block_path = staging.join(REMOTE_BLOCKS_DIR).join(&block.hash);
+        let bytes = tokio::task::spawn_blocking(move || {
+            fs::read(&block_path)
+                .map_err(|e| format!("[sync_target] read staged block failed: {e}"))
+        })
+        .await
+        .map_err(|e| format!("[sync_target] read staged block task join error: {e}"))??;
         total_bytes += bytes.len() as u64;
         target.put(&key, &bytes).await?;
     }
     // 清单最后写（提交点）。
     let manifest_key = format!("{prefix}/{REMOTE_MANIFEST_FILE}");
     assert_remote_key_allowed(&manifest_key)?;
-    let encoded = fs::read(staging.join(REMOTE_MANIFEST_FILE))
-        .map_err(|e| format!("[sync_target] read staged manifest failed: {e}"))?;
+    let manifest_path = staging.join(REMOTE_MANIFEST_FILE);
+    let encoded = tokio::task::spawn_blocking(move || {
+        fs::read(&manifest_path)
+            .map_err(|e| format!("[sync_target] read staged manifest failed: {e}"))
+    })
+    .await
+    .map_err(|e| format!("[sync_target] read staged manifest task join error: {e}"))??;
     target.put(&manifest_key, &encoded).await?;
 
-    // G2b：推送成功后回填 base 指针（`base_rev` / `base_content_hash`）。
-    append_journal(
-        project_path,
-        &SyncJournalEntry {
-            manifest_id: manifest_id.to_string(),
-            revision,
-            device_id: device_id.to_string(),
-            direction: "push".to_string(),
-            ts: timestamp.to_string(),
-            content_hash: manifest.content_digest.clone(),
-            base_rev: Some(base.revision),
-            base_content_hash,
-        },
-    )?;
-
-    // G2b 批次明细：推送的唯一同步对象就是该产物文件（逐项落账）。
-    append_item_journal(
-        project_path,
-        &SyncItemRecord {
-            batch_id: batch_id_of(manifest_id, timestamp, "push"),
-            manifest_id: manifest_id.to_string(),
-            revision,
-            direction: "push".to_string(),
-            ts: timestamp.to_string(),
-            device_id: device_id.to_string(),
-            path: file_name.to_string(),
-            status: ITEM_STATUS_APPLIED.to_string(),
-            duration_ms: started.elapsed().as_millis() as u64,
-            error: None,
-            decision: None,
-            actor: None,
-            decided_at: None,
-        },
-    )?;
+    // G2b：推送成功后回填 base 指针（`base_rev` / `base_content_hash`）与逐项 journal。
+    let project_for_journal = project_path.to_path_buf();
+    let manifest_id_owned = manifest_id.to_string();
+    let device_id_owned = device_id.to_string();
+    let timestamp_owned = timestamp.to_string();
+    let content_digest = manifest.content_digest.clone();
+    let file_name_owned = file_name.to_string();
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    let base_rev = base.revision;
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        append_journal(
+            &project_for_journal,
+            &SyncJournalEntry {
+                manifest_id: manifest_id_owned.clone(),
+                revision,
+                device_id: device_id_owned.clone(),
+                direction: "push".to_string(),
+                ts: timestamp_owned.clone(),
+                content_hash: content_digest,
+                base_rev: Some(base_rev),
+                base_content_hash,
+            },
+        )?;
+        append_item_journal(
+            &project_for_journal,
+            &SyncItemRecord {
+                batch_id: batch_id_of(&manifest_id_owned, &timestamp_owned, "push"),
+                manifest_id: manifest_id_owned,
+                revision,
+                direction: "push".to_string(),
+                ts: timestamp_owned,
+                device_id: device_id_owned,
+                path: file_name_owned,
+                status: ITEM_STATUS_APPLIED.to_string(),
+                duration_ms: elapsed_ms,
+                error: None,
+                decision: None,
+                actor: None,
+                decided_at: None,
+            },
+        )
+    })
+    .await
+    .map_err(|e| format!("[sync_target] write push journal task join error: {e}"))??;
 
     Ok(SyncPushResult {
         manifest_id: manifest_id.to_string(),
@@ -2016,13 +2451,16 @@ pub async fn sync_pull(
     manifest_id: String,
     device_id: String,
 ) -> Result<SyncPullResult, String> {
-    let timestamp = now_ts();
-    pull_configured(
-        Path::new(&project_path),
-        &manifest_id,
-        &device_id,
-        &timestamp,
-    )
+    crate::panic_guard::run_guarded_async("sync_pull", async move {
+        let timestamp = now_ts();
+        pull_configured(
+            Path::new(&project_path),
+            &manifest_id,
+            &device_id,
+            &timestamp,
+        )
+        .await
+    })
     .await
 }
 
@@ -2037,6 +2475,7 @@ pub async fn pull_impl<T: SyncTarget>(
     timestamp: &str,
 ) -> Result<SyncPullResult, String> {
     let _guard = try_acquire_sync_run(project_path)?;
+    crate::agent_gate_policy::validate_safe_single_segment(manifest_id, "manifest_id")?;
     let keys = target.list(manifest_id).await?;
     let remote_revision = keys
         .iter()
@@ -2055,15 +2494,20 @@ pub async fn pull_impl<T: SyncTarget>(
     archive::validate_manifest(&manifest)?;
 
     // F-010：远端版本与本地一致、且该版本的快照目录已存在（已入库过）→ 什么都不做。
-    //
-    // 为什么要求“快照已存在”：首次周期 push 后本地尚无该 rev 的快照，那次拉取必须
-    // 真的落地（拉回快照入库是设计行为）；只有**重复**拉同一个 rev 才是冗余拷贝。
-    // 这一层跳过同时免掉了全量块下载（命中时一个块都不取）。
-    let local = local_state(project_path, manifest_id);
-    let snapshot_present = project_path
-        .join(".novel/snapshots")
-        .join(format!("remote-{manifest_id}-rev-{remote_revision}"))
-        .is_dir();
+    let project_for_check = project_path.to_path_buf();
+    let manifest_id_for_check = manifest_id.to_string();
+    let (local, snapshot_present) = tokio::task::spawn_blocking(move || {
+        let local = local_state(&project_for_check, &manifest_id_for_check);
+        let snapshot_present = project_for_check
+            .join(".novel/snapshots")
+            .join(format!(
+                "remote-{manifest_id_for_check}-rev-{remote_revision}"
+            ))
+            .is_dir();
+        (local, snapshot_present)
+    })
+    .await
+    .map_err(|e| format!("[sync_target] pull precheck task join error: {e}"))?;
     if snapshot_present
         && local.revision == remote_revision
         && local.content_hash == manifest.content_digest
@@ -2083,7 +2527,8 @@ pub async fn pull_impl<T: SyncTarget>(
     // 远端任一副本皆非真值 → 逐块校验后才落地。
     // 暂存目录不可碰撞：时间戳只到秒，加 pid + 进程内序号（F-009）。
     let remote_staging = project_path.join(format!(".sync-pull-{}", unique_run_token(timestamp)));
-    let _ = fs::remove_dir_all(&remote_staging);
+    let staging_init = remote_staging.clone();
+    let _ = tokio::task::spawn_blocking(move || fs::remove_dir_all(&staging_init)).await;
     let result = pull_verified(
         target,
         project_path,
@@ -2097,7 +2542,8 @@ pub async fn pull_impl<T: SyncTarget>(
         timestamp,
     )
     .await;
-    let _ = fs::remove_dir_all(&remote_staging);
+    let staging_cleanup = remote_staging.clone();
+    let _ = tokio::task::spawn_blocking(move || fs::remove_dir_all(&staging_cleanup)).await;
     result
 }
 
@@ -2114,9 +2560,16 @@ async fn pull_verified<T: SyncTarget>(
     device_id: &str,
     timestamp: &str,
 ) -> Result<SyncPullResult, String> {
-    fs::create_dir_all(remote_staging.join(REMOTE_BLOCKS_DIR))
-        .map_err(|e| format!("[sync_target] create pull staging failed: {e}"))?;
+    let blocks_dir = remote_staging.join(REMOTE_BLOCKS_DIR);
+    tokio::task::spawn_blocking(move || {
+        fs::create_dir_all(&blocks_dir)
+            .map_err(|e| format!("[sync_target] create pull staging failed: {e}"))
+    })
+    .await
+    .map_err(|e| format!("[sync_target] pull staging dir task join error: {e}"))??;
+
     for block in &manifest.blocks {
+        crate::agent_gate_policy::validate_safe_single_segment(&block.hash, "block hash")?;
         let key = format!("{prefix}/{REMOTE_BLOCKS_DIR}/{}", block.hash);
         let bytes = target.get(&key).await?;
         if archive::block_hash(&bytes) != block.hash {
@@ -2125,154 +2578,206 @@ async fn pull_verified<T: SyncTarget>(
                 block.hash
             ));
         }
-        fs::write(
-            remote_staging.join(REMOTE_BLOCKS_DIR).join(&block.hash),
-            &bytes,
-        )
-        .map_err(|e| format!("[sync_target] write pull staging failed: {e}"))?;
+        let staging_root = remote_staging.to_path_buf();
+        let block_dest = remote_staging.join(REMOTE_BLOCKS_DIR).join(&block.hash);
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            crate::agent_gate_policy::assert_no_symlink_in_ancestors(&staging_root, &block_dest)?;
+            crate::commands::fs::write_atomic_physical_bytes(&block_dest, &bytes)
+                .map_err(|e| format!("[sync_target] write pull staging failed: {e}"))
+        })
+        .await
+        .map_err(|e| format!("[sync_target] write pull staging task join error: {e}"))??;
     }
 
-    let local = local_state(project_path, manifest_id);
-    let remote = RevisionState {
-        revision: remote_revision,
-        content_hash: manifest.content_digest.clone(),
-    };
-    // G2b 基线指针：本批次所基于的上一版本（无更早记录 → 无 base，不编造）。
-    let base = base_state_before(project_path, manifest_id, remote_revision);
-    let base_rev = base.as_ref().map(|state| state.revision);
-    let base_content_hash = base.as_ref().map(|state| state.content_hash.clone());
-    let started = std::time::Instant::now();
-    match decide_pull(&local, &remote, device_id, timestamp)? {
-        PullDecision::RefuseStale { local, remote } => {
-            // direction = `refused`（**不是** `conflict`）：这是「远端更旧、本地新态被保留」，
-            // 从未做过三路展开、也不存在 `.conflict-<device>-<ts>` 副本目录。
-            // 旧实现写成 conflict → batch_status 无条件返回 keep_both，refused 永不
-            // 可达，且 batches_impl 会把一个没有 theirs 侧的批次当冲突做三路展开。
-            append_journal(
-                project_path,
-                &SyncJournalEntry {
+    // 所有网络 IO 已完成；以下决策与本地落盘全部在同步 `spawn_blocking` 内执行，
+    // 持 T4 `FILE_MUTATION_LOCK` 原子写入且绝不跨 `.await`。
+    let project_owned = project_path.to_path_buf();
+    let staging_owned = remote_staging.to_path_buf();
+    let manifest_id_owned = manifest_id.to_string();
+    let manifest_owned = manifest.clone();
+    let manifest_bytes_owned = manifest_bytes.to_vec();
+    let device_id_owned = device_id.to_string();
+    let timestamp_owned = timestamp.to_string();
+    tokio::task::spawn_blocking(move || -> Result<SyncPullResult, String> {
+        let project_path = project_owned.as_path();
+        let remote_staging = staging_owned.as_path();
+        let manifest_id = manifest_id_owned.as_str();
+        let manifest = &manifest_owned;
+        let device_id = device_id_owned.as_str();
+        let timestamp = timestamp_owned.as_str();
+
+        let local = local_state(project_path, manifest_id);
+        let remote = RevisionState {
+            revision: remote_revision,
+            content_hash: manifest.content_digest.clone(),
+        };
+        // G2b 基线指针：本批次所基于的上一版本（无更早记录 → 无 base，不编造）。
+        let base = base_state_before(project_path, manifest_id, remote_revision);
+        let base_rev = base.as_ref().map(|state| state.revision);
+        let base_content_hash = base.as_ref().map(|state| state.content_hash.clone());
+        let started = std::time::Instant::now();
+        match decide_pull(&local, &remote, device_id, timestamp)? {
+            PullDecision::RefuseStale { local, remote } => {
+                append_journal(
+                    project_path,
+                    &SyncJournalEntry {
+                        manifest_id: manifest_id.to_string(),
+                        revision: remote,
+                        device_id: device_id.to_string(),
+                        direction: "refused".to_string(),
+                        ts: timestamp.to_string(),
+                        content_hash: manifest.content_digest.clone(),
+                        base_rev,
+                        base_content_hash,
+                    },
+                )?;
+                record_pull_items(
+                    project_path,
+                    manifest_id,
+                    remote,
+                    "refused",
+                    device_id,
+                    timestamp,
+                    manifest,
+                    ITEM_STATUS_REFUSED,
+                    started.elapsed().as_millis() as u64,
+                )?;
+                Ok(SyncPullResult {
                     manifest_id: manifest_id.to_string(),
-                    revision: remote,
-                    device_id: device_id.to_string(),
-                    direction: "refused".to_string(),
-                    ts: timestamp.to_string(),
-                    content_hash: manifest.content_digest.clone(),
-                    base_rev,
-                    base_content_hash: base_content_hash.clone(),
-                },
-            )?;
-            record_pull_items(
-                project_path,
-                manifest_id,
-                remote,
-                "refused",
-                device_id,
-                timestamp,
-                manifest,
-                ITEM_STATUS_REFUSED,
-                started.elapsed().as_millis() as u64,
-            )?;
-            Ok(SyncPullResult {
-                manifest_id: manifest_id.to_string(),
-                remote_revision,
-                decision: "refuse_stale".to_string(),
-                snapshot_dir: None,
-                conflict_path: None,
-                message: format!(
-                    "[sync_target] remote revision {remote} is older than local {local}; local newer state preserved"
-                ),
-            })
-        }
-        PullDecision::KeepBoth { conflict_name } => {
-            // 冲突是终止态：远端副本原样保留；本地侧因从不被覆盖而天然保留 → 保留两者。
-            let conflict_dir = project_path.join(".novel").join(&conflict_name);
-            assert_local_target_allowed(&conflict_dir.join(REMOTE_MANIFEST_FILE))?;
-            fs::create_dir_all(&conflict_dir)
-                .map_err(|e| format!("[sync_target] create conflict dir failed: {e}"))?;
-            copy_dir(remote_staging, &conflict_dir)?;
-            fs::write(conflict_dir.join(REMOTE_MANIFEST_FILE), manifest_bytes)
+                    remote_revision,
+                    decision: "refuse_stale".to_string(),
+                    snapshot_dir: None,
+                    conflict_path: None,
+                    message: format!(
+                        "[sync_target] remote revision {remote} is older than local {local}; local newer state preserved"
+                    ),
+                })
+            }
+            PullDecision::KeepBoth { conflict_name } => {
+                let conflict_dir = project_path.join(".novel").join(&conflict_name);
+                let manifest_dest = conflict_dir.join(REMOTE_MANIFEST_FILE);
+                assert_local_target_allowed(&manifest_dest)?;
+                let _mutation = crate::commands::fs::lock_file_mutations()?;
+                crate::agent_gate_policy::assert_no_symlink_in_ancestors(
+                    project_path,
+                    &conflict_dir,
+                )?;
+                fs::create_dir_all(&conflict_dir)
+                    .map_err(|e| format!("[sync_target] create conflict dir failed: {e}"))?;
+                crate::agent_gate_policy::assert_no_symlink_in_ancestors(
+                    project_path,
+                    &conflict_dir,
+                )?;
+                copy_dir(remote_staging, &conflict_dir)?;
+                crate::agent_gate_policy::assert_no_symlink_in_ancestors(
+                    project_path,
+                    &manifest_dest,
+                )?;
+                crate::commands::fs::write_atomic_physical_bytes(
+                    &manifest_dest,
+                    &manifest_bytes_owned,
+                )
                 .map_err(|e| format!("[sync_target] write conflict manifest failed: {e}"))?;
-            append_journal(
-                project_path,
-                &SyncJournalEntry {
+                append_journal(
+                    project_path,
+                    &SyncJournalEntry {
+                        manifest_id: manifest_id.to_string(),
+                        revision: remote_revision,
+                        device_id: device_id.to_string(),
+                        direction: "conflict".to_string(),
+                        ts: timestamp.to_string(),
+                        content_hash: manifest.content_digest.clone(),
+                        base_rev,
+                        base_content_hash,
+                    },
+                )?;
+                record_pull_items(
+                    project_path,
+                    manifest_id,
+                    remote_revision,
+                    "conflict",
+                    device_id,
+                    timestamp,
+                    manifest,
+                    ITEM_STATUS_KEEP_BOTH,
+                    started.elapsed().as_millis() as u64,
+                )?;
+                Ok(SyncPullResult {
                     manifest_id: manifest_id.to_string(),
-                    revision: remote_revision,
-                    device_id: device_id.to_string(),
-                    direction: "conflict".to_string(),
-                    ts: timestamp.to_string(),
-                    content_hash: manifest.content_digest.clone(),
-                    base_rev,
-                    base_content_hash: base_content_hash.clone(),
-                },
-            )?;
-            // G2b：冲突批次的逐项明细（远端侧 = 刚落的冲突副本）。
-            record_pull_items(
-                project_path,
-                manifest_id,
-                remote_revision,
-                "conflict",
-                device_id,
-                timestamp,
-                manifest,
-                ITEM_STATUS_KEEP_BOTH,
-                started.elapsed().as_millis() as u64,
-            )?;
-            Ok(SyncPullResult {
-                manifest_id: manifest_id.to_string(),
-                remote_revision,
-                decision: "keep_both".to_string(),
-                snapshot_dir: None,
-                conflict_path: Some(conflict_dir.to_string_lossy().replace('\\', "/")),
-                message:
-                    "[sync_target] diverged content at the same revision; both copies preserved"
-                        .to_string(),
-            })
-        }
-        PullDecision::Apply => {
-            let snapshot_dir = project_path
-                .join(".novel/snapshots")
-                .join(format!("remote-{manifest_id}-rev-{remote_revision}"));
-            assert_local_target_allowed(&snapshot_dir.join(REMOTE_MANIFEST_FILE))?;
-            fs::create_dir_all(&snapshot_dir)
-                .map_err(|e| format!("[sync_target] create snapshot dir failed: {e}"))?;
-            copy_dir(remote_staging, &snapshot_dir)?;
-            fs::write(snapshot_dir.join(REMOTE_MANIFEST_FILE), manifest_bytes)
+                    remote_revision,
+                    decision: "keep_both".to_string(),
+                    snapshot_dir: None,
+                    conflict_path: Some(conflict_dir.to_string_lossy().replace('\\', "/")),
+                    message:
+                        "[sync_target] diverged content at the same revision; both copies preserved"
+                            .to_string(),
+                })
+            }
+            PullDecision::Apply => {
+                let snapshot_dir = project_path
+                    .join(".novel/snapshots")
+                    .join(format!("remote-{manifest_id}-rev-{remote_revision}"));
+                let manifest_dest = snapshot_dir.join(REMOTE_MANIFEST_FILE);
+                assert_local_target_allowed(&manifest_dest)?;
+                let _mutation = crate::commands::fs::lock_file_mutations()?;
+                crate::agent_gate_policy::assert_no_symlink_in_ancestors(
+                    project_path,
+                    &snapshot_dir,
+                )?;
+                fs::create_dir_all(&snapshot_dir)
+                    .map_err(|e| format!("[sync_target] create snapshot dir failed: {e}"))?;
+                crate::agent_gate_policy::assert_no_symlink_in_ancestors(
+                    project_path,
+                    &snapshot_dir,
+                )?;
+                copy_dir(remote_staging, &snapshot_dir)?;
+                crate::agent_gate_policy::assert_no_symlink_in_ancestors(
+                    project_path,
+                    &manifest_dest,
+                )?;
+                crate::commands::fs::write_atomic_physical_bytes(
+                    &manifest_dest,
+                    &manifest_bytes_owned,
+                )
                 .map_err(|e| format!("[sync_target] write snapshot manifest failed: {e}"))?;
-            append_journal(
-                project_path,
-                &SyncJournalEntry {
+                append_journal(
+                    project_path,
+                    &SyncJournalEntry {
+                        manifest_id: manifest_id.to_string(),
+                        revision: remote_revision,
+                        device_id: device_id.to_string(),
+                        direction: "pull".to_string(),
+                        ts: timestamp.to_string(),
+                        content_hash: manifest.content_digest.clone(),
+                        base_rev,
+                        base_content_hash,
+                    },
+                )?;
+                record_pull_items(
+                    project_path,
+                    manifest_id,
+                    remote_revision,
+                    "pull",
+                    device_id,
+                    timestamp,
+                    manifest,
+                    ITEM_STATUS_APPLIED,
+                    started.elapsed().as_millis() as u64,
+                )?;
+                Ok(SyncPullResult {
                     manifest_id: manifest_id.to_string(),
-                    revision: remote_revision,
-                    device_id: device_id.to_string(),
-                    direction: "pull".to_string(),
-                    ts: timestamp.to_string(),
-                    content_hash: manifest.content_digest.clone(),
-                    base_rev,
-                    base_content_hash: base_content_hash.clone(),
-                },
-            )?;
-            record_pull_items(
-                project_path,
-                manifest_id,
-                remote_revision,
-                "pull",
-                device_id,
-                timestamp,
-                manifest,
-                ITEM_STATUS_APPLIED,
-                started.elapsed().as_millis() as u64,
-            )?;
-            Ok(SyncPullResult {
-                manifest_id: manifest_id.to_string(),
-                remote_revision,
-                decision: "apply".to_string(),
-                snapshot_dir: Some(snapshot_dir.to_string_lossy().replace('\\', "/")),
-                conflict_path: None,
-                message: "[sync_target] restored as a snapshot (no working tree replacement)"
-                    .to_string(),
-            })
+                    remote_revision,
+                    decision: "apply".to_string(),
+                    snapshot_dir: Some(snapshot_dir.to_string_lossy().replace('\\', "/")),
+                    conflict_path: None,
+                    message: "[sync_target] restored as a snapshot (no working tree replacement)"
+                        .to_string(),
+                })
+            }
         }
-    }
+    })
+    .await
+    .map_err(|e| format!("[sync_target] pull commit task join error: {e}"))?
 }
 
 /// G2b：把一批「拉取载荷」的逐项明细落账（manifest + 每个内容块）。
@@ -2321,8 +2826,19 @@ fn record_pull_items(
 }
 
 fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
-    for entry in walkdir::WalkDir::new(from).follow_links(false) {
+    for entry in walkdir::WalkDir::new(from)
+        .follow_links(false)
+        .max_depth(LOCAL_WALK_MAX_DEPTH)
+    {
         let entry = entry.map_err(|e| format!("[sync_target] walk failed: {e}"))?;
+        if entry.path_is_symlink()
+            || crate::agent_gate_policy::is_symlink_or_reparse_point(entry.path())
+        {
+            return Err(format!(
+                "[sync_target] refusing to copy symlink entry: {}",
+                entry.path().display()
+            ));
+        }
         if !entry.file_type().is_file() {
             continue;
         }
@@ -2331,11 +2847,15 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
             .strip_prefix(from)
             .map_err(|e| format!("[sync_target] strip_prefix failed: {e}"))?;
         let destination = to.join(relative);
+        crate::agent_gate_policy::assert_no_symlink_in_ancestors(to, &destination)?;
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("[sync_target] create {} failed: {e}", parent.display()))?;
         }
-        fs::copy(entry.path(), &destination)
+        crate::agent_gate_policy::assert_no_symlink_in_ancestors(to, &destination)?;
+        let bytes = fs::read(entry.path())
+            .map_err(|e| format!("[sync_target] read {} failed: {e}", entry.path().display()))?;
+        crate::commands::fs::write_atomic_physical_bytes(&destination, &bytes)
             .map_err(|e| format!("[sync_target] copy {} failed: {e}", destination.display()))?;
     }
     Ok(())
@@ -2346,7 +2866,13 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
 /// 列出本地冲突副本（默认裁决恒为「保留两者」）。
 #[tauri::command]
 pub async fn sync_conflicts(project_path: String) -> Result<Vec<SyncConflict>, String> {
-    conflicts_impl(Path::new(&project_path))
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("sync_conflicts", || {
+            conflicts_impl(Path::new(&project_path))
+        })
+    })
+    .await
+    .map_err(|e| format!("[sync_target] sync_conflicts blocking task join error: {e}"))?
 }
 
 /// [`sync_conflicts`] 的同步实现。
@@ -2365,9 +2891,10 @@ pub fn conflicts_impl(project_path: &Path) -> Result<Vec<SyncConflict>, String> 
     for (name, path) in names {
         let size = walkdir::WalkDir::new(&path)
             .follow_links(false)
+            .max_depth(LOCAL_WALK_MAX_DEPTH)
             .into_iter()
             .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.file_type().is_file())
+            .filter(|entry| !entry.path_is_symlink() && entry.file_type().is_file())
             .filter_map(|entry| fs::metadata(entry.path()).ok())
             .map(|meta| meta.len())
             .sum();
@@ -2392,7 +2919,13 @@ pub const BATCH_DETAIL_LIMIT: usize = 20;
 /// → `base_available = false`（**不迁移、不重写历史批次**）。
 #[tauri::command]
 pub async fn sync_batches(project_path: String) -> Result<Vec<SyncBatch>, String> {
-    batches_impl(Path::new(&project_path), BATCH_DETAIL_LIMIT)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("sync_batches", || {
+            batches_impl(Path::new(&project_path), BATCH_DETAIL_LIMIT)
+        })
+    })
+    .await
+    .map_err(|e| format!("[sync_target] sync_batches blocking task join error: {e}"))?
 }
 
 /// 逐项裁决落盘（pick-and-apply）：每项独立落盘 + 回写逐项 journal。
@@ -2400,8 +2933,8 @@ pub async fn sync_batches(project_path: String) -> Result<Vec<SyncBatch>, String
 /// - 默认裁决恒为 `keep_both`；`pick_mine` / `pick_theirs` 必须显式传入且带 `actor`。
 /// - 无 base 指针的批次只接受 `keep_both`（无 base 禁覆盖）。
 /// - 任一单项失败不滚整体：其余项继续，失败项标 `error` 可原样重试。
-#[tauri::command]
 #[allow(clippy::too_many_arguments)]
+#[tauri::command]
 pub async fn sync_apply_per_item_decision(
     project_path: String,
     manifest_id: String,
@@ -2412,17 +2945,25 @@ pub async fn sync_apply_per_item_decision(
     actor: String,
     items: Vec<SyncItemDecisionRequest>,
 ) -> Result<Vec<SyncItemDecisionResult>, String> {
-    apply_item_decisions_impl(
-        Path::new(&project_path),
-        &manifest_id,
-        revision,
-        &direction,
-        &ts,
-        &device_id,
-        &actor,
-        &items,
-        &now_ts(),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("sync_apply_per_item_decision", || {
+            apply_item_decisions_impl(
+                Path::new(&project_path),
+                &manifest_id,
+                revision,
+                &direction,
+                &ts,
+                &device_id,
+                &actor,
+                &items,
+                &now_ts(),
+            )
+        })
+    })
+    .await
+    .map_err(|e| {
+        format!("[sync_target] sync_apply_per_item_decision blocking task join error: {e}")
+    })?
 }
 
 /// 打开已启用的传输目标配置（缺失/未启用即报错，不静默降级）。
@@ -3703,6 +4244,337 @@ mod tests {
             .await
             .expect("push after release");
             assert_eq!(pushed.revision, 1);
+        });
+    }
+
+    #[test]
+    fn manifest_id_and_artifact_path_gates_reject_traversal_reserved_and_symlinks() {
+        let project = TempTree::new("gate-manifest");
+        let outside = TempTree::new("gate-manifest-outside");
+        let target = MemoryTarget::new();
+
+        runtime().block_on(async {
+            // pull_impl 入口强制校验 manifest_id（拒绝穿越、分隔符、保留名、尾点/空格、控制字符）。
+            for bad_id in ["../x", "a/b", r"a\b", "CON", "NUL", "id.", "id ", "bad\nid"] {
+                let err = pull_impl(&target, &project.root, bad_id, "device-a", "20260912180000")
+                    .await
+                    .expect_err("malicious manifest_id must be rejected in pull_impl");
+                assert!(err.contains("manifest_id"), "bad_id={bad_id:?}, err={err}");
+            }
+
+            // push_impl 拒绝目录、含控制字符路径及项目受保护数据区内的文件。
+            let dir_artifact = project.root.join("backups/not-a-file");
+            fs::create_dir_all(&dir_artifact).unwrap();
+            assert!(push_impl(
+                &target,
+                &project.root,
+                &dir_artifact,
+                "device-a",
+                "20260912180000"
+            )
+            .await
+            .is_err());
+
+            assert!(push_impl(
+                &target,
+                &project.root,
+                Path::new("backups/bad\n.zip"),
+                "device-a",
+                "20260912180000"
+            )
+            .await
+            .is_err());
+
+            let protected_status = project.write(".novel/status.json", b"{}");
+            let status_err = push_impl(
+                &target,
+                &project.root,
+                &protected_status,
+                "device-a",
+                "20260912180000",
+            )
+            .await
+            .expect_err("protected .novel/status.json must not be pushed as artifact");
+            assert!(status_err.contains("protected"), "{status_err}");
+
+            let protected_qm = project.write("QM/secret.zip", b"qm-bytes");
+            assert!(push_impl(
+                &target,
+                &project.root,
+                &protected_qm,
+                "device-a",
+                "20260912180000"
+            )
+            .await
+            .is_err());
+
+            // symlink artifact（若环境允许创建文件软链或目录联接）必须被 push_impl 拒绝。
+            let real_outside = outside.write("outside.zip", b"outside-bytes");
+            let link_file = project.root.join("backups/linked.zip");
+            fs::create_dir_all(link_file.parent().unwrap()).unwrap();
+            #[cfg(unix)]
+            let file_linked = std::os::unix::fs::symlink(&real_outside, &link_file).is_ok();
+            #[cfg(windows)]
+            let file_linked = std::os::windows::fs::symlink_file(&real_outside, &link_file).is_ok();
+            if file_linked {
+                let err = push_impl(
+                    &target,
+                    &project.root,
+                    &link_file,
+                    "device-a",
+                    "20260912180000",
+                )
+                .await
+                .expect_err("symlink artifact must be rejected");
+                assert!(err.contains("symlink"), "{err}");
+            }
+
+            // 祖先目录为 symlink/junction 时也必须被 push_impl 拒绝。
+            let link_dir = project.root.join("backups/linked-dir");
+            let dir_linked = {
+                #[cfg(unix)]
+                {
+                    std::os::unix::fs::symlink(&outside.root, &link_dir).is_ok()
+                }
+                #[cfg(windows)]
+                {
+                    std::os::windows::fs::symlink_dir(&outside.root, &link_dir).is_ok()
+                        || std::process::Command::new("cmd")
+                            .args([
+                                "/c",
+                                "mklink",
+                                "/J",
+                                &link_dir.to_string_lossy(),
+                                &outside.root.to_string_lossy(),
+                            ])
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status()
+                            .is_ok_and(|s| s.success())
+                }
+            };
+            if dir_linked {
+                let err = push_impl(
+                    &target,
+                    &project.root,
+                    &link_dir.join("outside.zip"),
+                    "device-a",
+                    "20260912180000",
+                )
+                .await
+                .expect_err("artifact behind symlink/junction ancestor must be rejected");
+                assert!(err.contains("symlink") || err.contains("reparse"), "{err}");
+                let _ = fs::remove_dir(&link_dir);
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn read_response_bounded_and_http_client_block_oversized_and_redirects() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let client = build_sync_http_client(None).expect("build sync http client");
+
+        // 1) Content-Length 超过 4 MiB 元数据上限 → 快拒。
+        let cl_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let cl_port = cl_listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = cl_listener.accept().await {
+                let mut req = [0u8; 1024];
+                let _ = sock.read(&mut req).await;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\nabc",
+                    SYNC_MAX_METADATA_BYTES + 1024
+                );
+                let _ = sock.write_all(resp.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        let resp = client
+            .get(format!("http://127.0.0.1:{cl_port}/manifest.json"))
+            .send()
+            .await
+            .expect("connect");
+        let err = read_response_bounded(resp, SYNC_MAX_METADATA_BYTES, "PROPFIND")
+            .await
+            .expect_err("oversized Content-Length must be rejected");
+        assert!(err.contains("exceeds"), "{err}");
+
+        // 2) 无 Content-Length 的 chunked 流超过 4 MiB → 流式读取中途拒绝。
+        let stream_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let stream_port = stream_listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = stream_listener.accept().await {
+                let mut req = [0u8; 1024];
+                let _ = sock.read(&mut req).await;
+                let header =
+                    b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+                let _ = sock.write_all(header).await;
+                const CHUNK_DATA: &[u8] = &[b'x'; 64 * 1024];
+                let chunk_header = format!("{:x}\r\n", CHUNK_DATA.len());
+                for _ in 0..66 {
+                    if sock.write_all(chunk_header.as_bytes()).await.is_err() {
+                        break;
+                    }
+                    if sock.write_all(CHUNK_DATA).await.is_err() {
+                        break;
+                    }
+                    if sock.write_all(b"\r\n").await.is_err() {
+                        break;
+                    }
+                }
+                let _ = sock.write_all(b"0\r\n\r\n").await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        let resp_stream = client
+            .get(format!("http://127.0.0.1:{stream_port}/propfind"))
+            .send()
+            .await
+            .expect("connect stream");
+        let err_stream = read_response_bounded(resp_stream, SYNC_MAX_METADATA_BYTES, "PROPFIND")
+            .await
+            .expect_err("oversized chunked metadata must be rejected");
+        assert!(err_stream.contains("exceeds"), "{err_stream}");
+
+        // 3) 302 跨源重定向必须被 Policy::none() 禁用，且目标端点不得收到任何请求。
+        let redirect_target_hit = Arc::new(AtomicBool::new(false));
+        let dest_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let dest_port = dest_listener.local_addr().unwrap().port();
+        let hit_flag = Arc::clone(&redirect_target_hit);
+        let dest_task = tokio::spawn(async move {
+            if let Ok((_sock, _)) = dest_listener.accept().await {
+                hit_flag.store(true, Ordering::SeqCst);
+            }
+        });
+
+        let origin_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin_port = origin_listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = origin_listener.accept().await {
+                let mut req = [0u8; 1024];
+                let _ = sock.read(&mut req).await;
+                let resp = format!(
+                    "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{dest_port}/steal\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                let _ = sock.write_all(resp.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+
+        let redir_resp = client
+            .get(format!("http://127.0.0.1:{origin_port}/dav"))
+            .header("Authorization", "Basic dXNlcjpwYXNz")
+            .send()
+            .await
+            .expect("redirect response returned directly");
+        assert_eq!(redir_resp.status().as_u16(), 302);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(
+            !redirect_target_hit.load(Ordering::SeqCst),
+            "sync http client must never follow redirects"
+        );
+        dest_task.abort();
+    }
+
+    #[test]
+    fn local_folder_target_rejects_protected_zones_symlinks_and_respects_depth() {
+        let project = TempTree::new("local-protected");
+        fs::create_dir_all(project.root.join(".novel")).unwrap();
+        fs::create_dir_all(project.root.join("QM")).unwrap();
+        fs::create_dir_all(project.root.join("wiki")).unwrap();
+        fs::create_dir_all(project.root.join(".niko-buddy")).unwrap();
+        fs::create_dir_all(project.root.join("canon")).unwrap();
+
+        // 指向真实项目受保护数据区必须被拒。
+        for protected_sub in [
+            ".novel",
+            ".novel/sub",
+            "QM",
+            "QM/nested",
+            "wiki",
+            ".niko-buddy",
+            "canon",
+        ] {
+            let cfg = LocalFolderConfig {
+                local_path: project
+                    .root
+                    .join(protected_sub)
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            };
+            assert!(
+                validate_local_config(&cfg, "").is_err(),
+                "protected project subdir must be rejected: {protected_sub}"
+            );
+        }
+
+        // 控制字符路径拒绝。
+        assert!(validate_local_config(
+            &LocalFolderConfig {
+                local_path: format!("{}\n/bad", project.root.display()),
+            },
+            ""
+        )
+        .is_err());
+
+        // 独立外部目录放行。
+        let external = TempTree::new("local-external");
+        validate_local_config(&local_fixture(&external.root), "")
+            .expect("external folder should be allowed");
+
+        // symlink/junction 根目录必须被拒。
+        let link_root = external.root.join("link-root");
+        let linked = {
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(&project.root, &link_root).is_ok()
+            }
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_dir(&project.root, &link_root).is_ok()
+                    || std::process::Command::new("cmd")
+                        .args([
+                            "/c",
+                            "mklink",
+                            "/J",
+                            &link_root.to_string_lossy(),
+                            &project.root.to_string_lossy(),
+                        ])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                        .is_ok_and(|s| s.success())
+            }
+        };
+        if linked {
+            let cfg = local_fixture(&link_root);
+            assert!(
+                validate_local_config(&cfg, "").is_err(),
+                "symlink/junction local folder root must be rejected"
+            );
+            let _ = fs::remove_dir(&link_root);
+        }
+
+        // list 遵守深度上限：超出 LOCAL_WALK_MAX_DEPTH 的深层文件不得被无界遍历。
+        runtime().block_on(async {
+            let depth_tree = TempTree::new("local-depth");
+            fs::write(depth_tree.root.join("shallow.bin"), b"ok").unwrap();
+            let mut deep = depth_tree.root.clone();
+            for _ in 0..(LOCAL_WALK_MAX_DEPTH + 2) {
+                deep.push("d");
+            }
+            if fs::create_dir_all(&deep).is_ok()
+                && fs::write(deep.join("too-deep.bin"), b"x").is_ok()
+            {
+                let target = LocalFolderTarget::at_root(depth_tree.root.clone());
+                let keys = target.list("").await.expect("list");
+                assert!(keys.contains(&"shallow.bin".to_string()));
+                assert!(
+                    !keys.iter().any(|k| k.ends_with("too-deep.bin")),
+                    "files deeper than LOCAL_WALK_MAX_DEPTH must not be returned"
+                );
+            }
         });
     }
 }

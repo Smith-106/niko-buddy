@@ -35,9 +35,10 @@
 //! `manifest_sha256` 之所以落在 **sidecar** 而非清单字段：清单无法自包含自身哈希
 //! （自引用不可能），sidecar 是既有 `write_checksum_sidecar` 的复用处。
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use walkdir::WalkDir;
 
@@ -57,26 +58,29 @@ pub(crate) use super::skill_bundle_manifest::{manifest_sha256_of, version_at_lea
 
 // ── zip 读写（共用守卫）────────────────────────────────────────────────────
 
+type BundleEntries = Vec<(String, Vec<u8>)>;
+
 /// 读取包内全部文件条目，逐条施加安全守卫。
 ///
 /// 用 `by_index` 而非 `by_name`：要看到**每一个**条目（含可疑名），才谈得上拒绝它们。
-fn read_bundle_entries(bundle_path: &Path) -> Result<(Vec<(String, Vec<u8>)>, u64), String> {
+fn read_bundle_entries(bundle_path: &Path) -> Result<(BundleEntries, u64), String> {
     let file = fs::File::open(bundle_path)
         .map_err(|e| format!("[skill_bundle] open {} failed: {e}", bundle_path.display()))?;
     let mut zip = zip::ZipArchive::new(file)
         .map_err(|e| format!("[skill_bundle] not a readable zip archive: {e}"))?;
 
-    let count = zip.len() as u32;
-    if count > MAX_ENTRIES {
+    let count = zip.len();
+    if count > MAX_ENTRIES as usize {
         return Err(format!(
             "[skill_bundle] archive has {count} entries, exceeds MAX_ENTRIES={MAX_ENTRIES}"
         ));
     }
 
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut seen_names: HashSet<String> = HashSet::new();
     let mut total: u64 = 0;
-    for index in 0..zip.len() {
-        let mut entry = zip
+    for index in 0..count {
+        let entry = zip
             .by_index(index)
             .map_err(|e| format!("[skill_bundle] read entry #{index} failed: {e}"))?;
         if entry.is_dir() {
@@ -89,17 +93,29 @@ fn read_bundle_entries(bundle_path: &Path) -> Result<(Vec<(String, Vec<u8>)>, u6
                 "[skill_bundle] executable entry rejected: {raw_name} (script channel is denied by C-007)"
             ));
         }
+        if raw_name != SKILL_BUNDLE_MANIFEST_FILE && !is_allowed_name(&raw_name) {
+            return Err(format!(
+                "[skill_bundle] entry outside extension allowlist: {raw_name}"
+            ));
+        }
+        if !seen_names.insert(raw_name.clone()) {
+            return Err(format!(
+                "[skill_bundle] duplicate zip entry rejected: {raw_name}"
+            ));
+        }
+        let remaining = MAX_BYTES.saturating_sub(total);
         let mut buffer: Vec<u8> = Vec::new();
         entry
+            .take(remaining.saturating_add(1))
             .read_to_end(&mut buffer)
             .map_err(|e| format!("[skill_bundle] read entry {raw_name} failed: {e}"))?;
-        total += buffer.len() as u64;
-        if total > MAX_BYTES {
+        if (buffer.len() as u64) > remaining {
             return Err(format!(
                 "[skill_bundle] unpacked size exceeds MAX_BYTES={MAX_BYTES}"
             ));
         }
-        entries.push((raw_name.replace('\\', "/"), buffer));
+        total = total.saturating_add(buffer.len() as u64);
+        entries.push((raw_name, buffer));
     }
     Ok((entries, total))
 }
@@ -135,8 +151,11 @@ fn remove_quietly(path: &Path) {
 }
 
 fn unique_suffix() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     format!(
-        "{}-{}",
+        "{}-{}-{seq}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -162,7 +181,13 @@ pub async fn skill_bundle_export(
     source_root: String,
     dest_path: String,
 ) -> Result<SkillBundleExportResult, String> {
-    export_impl(&skill_ids, Path::new(&source_root), Path::new(&dest_path))
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("skill_bundle_export", || {
+            export_impl(&skill_ids, Path::new(&source_root), Path::new(&dest_path))
+        })
+    })
+    .await
+    .map_err(|e| format!("[skill_bundle] export blocking task join error: {e}"))?
 }
 
 fn export_impl(
@@ -193,15 +218,27 @@ fn export_impl(
         let mut total_bytes: u64 = 0;
 
         for id in &ids {
-            if id.contains('/') || id.contains('\\') || id.contains("..") {
-                return Err(format!("[skill_bundle] invalid skill id: {id}"));
-            }
+            crate::agent_gate_policy::validate_safe_single_segment(id, "skill_id")
+                .map_err(|e| format!("[skill_bundle] invalid skill id: {e}"))?;
             let skill_dir = source_root.join(id);
+            if crate::agent_gate_policy::is_symlink_or_reparse_point(&skill_dir) {
+                return Err(format!(
+                    "[skill_bundle] symlink skill directory rejected: {id}"
+                ));
+            }
             if !skill_dir.is_dir() {
                 return Err(format!("[skill_bundle] skill not found: {id}"));
             }
             let mut relative_paths: Vec<String> = Vec::new();
-            for entry in WalkDir::new(&skill_dir).follow_links(false) {
+            for entry in WalkDir::new(&skill_dir)
+                .follow_links(false)
+                .into_iter()
+                .filter_entry(|e| {
+                    e.depth() == 0
+                        || (!e.path_is_symlink()
+                            && !crate::agent_gate_policy::is_symlink_or_reparse_point(e.path()))
+                })
+            {
                 let entry = entry.map_err(|e| format!("[skill_bundle] walk failed: {e}"))?;
                 if !entry.file_type().is_file() {
                     continue;
@@ -355,7 +392,13 @@ fn entries_on_disk(root: &Path) -> Result<Vec<String>, String> {
 /// 便于 UI 逐条展示拒绝原因。
 #[tauri::command]
 pub async fn skill_bundle_verify(bundle_path: String) -> Result<SkillBundleVerifyResult, String> {
-    verify_impl(Path::new(&bundle_path))
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("skill_bundle_verify", || {
+            verify_impl(Path::new(&bundle_path))
+        })
+    })
+    .await
+    .map_err(|e| format!("[skill_bundle] verify blocking task join error: {e}"))?
 }
 
 fn verify_impl(bundle_path: &Path) -> Result<SkillBundleVerifyResult, String> {
@@ -377,6 +420,16 @@ fn verify_impl(bundle_path: &Path) -> Result<SkillBundleVerifyResult, String> {
             manifest.min_nb_version,
             env!("CARGO_PKG_VERSION")
         ));
+    }
+
+    let declared_paths: HashSet<&str> = manifest.files.iter().map(|f| f.path.as_str()).collect();
+    for (entry_name, _) in &entries {
+        if entry_name != SKILL_BUNDLE_MANIFEST_FILE && !declared_paths.contains(entry_name.as_str())
+        {
+            rejected.push(format!(
+                "[skill_bundle] undeclared archive entry rejected: {entry_name}"
+            ));
+        }
     }
 
     let staging = std::env::temp_dir().join(format!("nbskill-verify-{}", unique_suffix()));
@@ -457,7 +510,13 @@ pub async fn skill_bundle_import(
     dest_root: String,
     confirmed: bool,
 ) -> Result<SkillBundleImportResult, String> {
-    import_impl(Path::new(&bundle_path), Path::new(&dest_root), confirmed)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("skill_bundle_import", || {
+            import_impl(Path::new(&bundle_path), Path::new(&dest_root), confirmed)
+        })
+    })
+    .await
+    .map_err(|e| format!("[skill_bundle] import blocking task join error: {e}"))?
 }
 
 fn import_impl(
@@ -480,6 +539,19 @@ fn import_impl(
             manifest.min_nb_version,
             env!("CARGO_PKG_VERSION")
         ));
+    }
+
+    // 严禁未在 manifest.files[] 声明的额外条目进入 staging 或安装目录。
+    let declared_paths: HashSet<&str> = manifest.files.iter().map(|f| f.path.as_str()).collect();
+    for (entry_name, _) in &entries {
+        if entry_name == SKILL_BUNDLE_MANIFEST_FILE {
+            continue;
+        }
+        if !declared_paths.contains(entry_name.as_str()) {
+            return Err(format!(
+                "[skill_bundle] undeclared archive entry rejected: {entry_name}"
+            ));
+        }
     }
 
     // 写入权威（TASK-002）：最终落点在用户资产域，但先经 fail-closed 判定。
@@ -510,14 +582,21 @@ fn import_impl(
         );
     }
 
-    if install_dir.exists() {
+    crate::agent_gate_policy::assert_no_symlink_in_ancestors(dest_root, &install_dir)
+        .map_err(|e| format!("[skill_bundle] symlink rejected: {e}"))?;
+
+    // 写阶段持有进程级 FILE_MUTATION_LOCK（T4），防止并发导入同一技能目录竞态。
+    let _mutation =
+        crate::commands::fs::lock_file_mutations().map_err(|e| format!("[skill_bundle] {e}"))?;
+
+    if install_dir.exists() || fs::symlink_metadata(&install_dir).is_ok() {
         return Err(format!(
             "[skill_bundle] target already installed: {}",
             install_dir.display()
         ));
     }
 
-    let staging = dest_root.join(format!(".staging-{}", unique_suffix()));
+    let staging: PathBuf = dest_root.join(format!(".staging-{}", unique_suffix()));
     // staging 与 install_dir 同卷（同在 dest_root 下），故 promote 的 rename 是原子的。
     let outcome = (|| -> Result<SkillBundleImportResult, String> {
         write_entries_to(&entries, &staging)?;
@@ -550,6 +629,23 @@ fn import_impl(
                     "[skill_bundle] per-file hash mismatch: {} — import rolled back",
                     file.path
                 ));
+            }
+        }
+
+        // 条目与内容哈希校验全部通过后再强制校对 sidecar（缺失或错配均拒绝并回滚 staging）。
+        let manifest_sha256 = manifest_sha256_of(raw_manifest);
+        match parse_sidecar_checksum(bundle_path) {
+            Some(expected) if expected == manifest_sha256 => {}
+            Some(expected) => {
+                return Err(format!(
+                    "[skill_bundle] manifest sha256 sidecar mismatch (expected {expected}, got {manifest_sha256}) — import rolled back"
+                ));
+            }
+            None => {
+                return Err(
+                    "[skill_bundle] manifest sha256 sidecar missing — refusing unverified import"
+                        .to_string(),
+                );
             }
         }
 
@@ -586,7 +682,7 @@ fn import_impl(
             trust_level: SKILL_BUNDLE_TRUST_UNTRUSTED.to_string(),
             installed_dir: install_dir.to_string_lossy().replace('\\', "/"),
             content_hash: manifest.content_hash.clone(),
-            manifest_sha256: manifest_sha256_of(raw_manifest),
+            manifest_sha256,
             file_count: manifest.files.len(),
             total_bytes,
             readable_state: manifest.allowlist.readable_state.clone(),
@@ -607,7 +703,6 @@ fn import_impl(
 mod tests {
     use super::*;
     use crate::commands::skill_bundle_manifest::looks_like_sha256_hex;
-    use std::path::PathBuf;
 
     struct TempTree {
         root: PathBuf,
@@ -985,5 +1080,113 @@ mod tests {
             may_write(WriteSource::SkillImport, &canon_root.join("x")),
             WriteDecision::Deny
         );
+    }
+
+    #[test]
+    fn r2_s03_rejects_bad_manifest_segments_undeclared_files_and_bad_sidecar() {
+        // 1. validate_entry_name 拒 :、控制字符、.、尾点、保留名。
+        for bad in [
+            "skills/a/file.md::$DATA",
+            "skills/a/bad\0.md",
+            "skills/./a/skill.md",
+            "skills/a/skill.md.",
+            "skills/CON/skill.md",
+            "skills/a/nul.txt",
+            "skills/a/COM1.md",
+        ] {
+            assert!(
+                validate_entry_name(bad).is_err(),
+                "非法条目名必须拒绝: {bad:?}"
+            );
+        }
+
+        // 2. manifest.id / version 单段校验。
+        let base_manifest = SkillBundleManifest {
+            schema: SKILL_BUNDLE_SCHEMA.to_string(),
+            schema_version: SKILL_BUNDLE_SCHEMA_VERSION,
+            id: "demo-a".to_string(),
+            name: "Demo A".to_string(),
+            version: "1.0.0".to_string(),
+            content_hash: "a".repeat(64),
+            source: "test".to_string(),
+            trust_level: SKILL_BUNDLE_TRUST_UNTRUSTED.to_string(),
+            min_nb_version: "0.0.1".to_string(),
+            deps: Vec::new(),
+            allowlist: SkillBundleAllowlist {
+                readable_state: Vec::new(),
+                writable_artifacts: Vec::new(),
+            },
+            files: vec![BundleFileRef {
+                path: "skills/demo-a/skill.md".to_string(),
+                hash: "b".repeat(64),
+                size: 3,
+            }],
+        };
+        for bad_id in ["../evil", "a/b", "CON", "demo.", " lead"] {
+            let mut m = base_manifest.clone();
+            m.id = bad_id.to_string();
+            assert!(validate_manifest(&m).is_err(), "非法 id 必须拒绝: {bad_id}");
+        }
+        for bad_ver in ["../1.0", "1.0/2", "NUL", "1.0."] {
+            let mut m = base_manifest.clone();
+            m.version = bad_ver.to_string();
+            assert!(
+                validate_manifest(&m).is_err(),
+                "非法 version 必须拒绝: {bad_ver}"
+            );
+        }
+
+        // 3. 未声明额外文件在 import_impl 中被拒绝且零残留。
+        let source = seed_skill_root("extra-src");
+        let dest = TempTree::new("extra-dst");
+        let bundle = dest.root.join("demo.nbskill.zip");
+        let exported = export_to(&source.root, &bundle);
+        let (entries, _) = read_bundle_entries(&bundle).expect("read entries");
+        let extra_zip = dest.root.join("extra.nbskill.zip");
+        {
+            let sink = fs::File::create(&extra_zip).expect("create zip");
+            let mut writer = zip::ZipWriter::new(sink);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            for (name, bytes) in &entries {
+                writer.start_file(name.clone(), options).expect("start");
+                writer.write_all(bytes).expect("write");
+            }
+            writer
+                .start_file("skills/demo-a/sneaky.txt", options)
+                .expect("start sneaky");
+            writer.write_all(b"undeclared").expect("write sneaky");
+            writer.finish().expect("finish");
+        }
+        write_checksum_sidecar(&extra_zip, &exported.manifest_sha256).expect("sidecar");
+        let (_extra_tree, extra_import_root) = user_asset_root("extra-import");
+        let extra_err =
+            import_impl(&extra_zip, &extra_import_root, true).expect_err("未声明额外文件必须拒绝");
+        assert!(extra_err.contains("undeclared"), "got: {extra_err}");
+        assert!(!extra_import_root.join("skill_bundle").exists());
+
+        // 4. 缺失或错配 sidecar 必须拒绝且零残留。
+        let no_sidecar = dest.root.join("no-sidecar.nbskill.zip");
+        fs::copy(&bundle, &no_sidecar).expect("copy bundle");
+        let (_missing_tree, missing_root) = user_asset_root("missing-sidecar");
+        let missing_err =
+            import_impl(&no_sidecar, &missing_root, true).expect_err("缺失 sidecar 必须拒绝");
+        assert!(
+            missing_err.contains("sidecar missing"),
+            "got: {missing_err}"
+        );
+        assert!(!missing_root.join("skill_bundle").exists());
+
+        write_checksum_sidecar(&no_sidecar, &"0".repeat(64)).expect("bad sidecar");
+        let bad_sidecar_err =
+            import_impl(&no_sidecar, &missing_root, true).expect_err("错配 sidecar 必须拒绝");
+        assert!(
+            bad_sidecar_err.contains("sidecar mismatch"),
+            "got: {bad_sidecar_err}"
+        );
+        assert!(!missing_root.join("skill_bundle").exists());
+
+        // 5. unique_suffix 带单调序列计数器，连续调用永不碰撞。
+        assert_ne!(unique_suffix(), unique_suffix());
     }
 }

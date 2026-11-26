@@ -24,8 +24,7 @@ fn endpoint() -> String {
 fn last_request(log_path: &str) -> Option<String> {
     let text = std::fs::read_to_string(log_path).ok()?;
     text.lines()
-        .filter(|l| !l.trim().is_empty())
-        .next_back()
+        .rfind(|l| !l.trim().is_empty())
         .map(str::to_string)
 }
 

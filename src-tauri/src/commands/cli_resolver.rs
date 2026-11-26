@@ -112,7 +112,7 @@ fn find_cli_command_uncached(
         if let Some(path) = find_windows_cli_command(command, windows_candidates) {
             return Ok(path);
         }
-        return Err(format!("`{command}` not found on PATH"));
+        Err(format!("`{command}` not found on PATH"))
     }
 
     #[cfg(not(windows))]

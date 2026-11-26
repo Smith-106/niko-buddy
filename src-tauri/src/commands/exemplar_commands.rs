@@ -299,7 +299,7 @@ mod tests {
         assert_eq!(loaded[0].chapter_id, "ch-1");
         assert_eq!(loaded[0].mark_type, "style");
         assert_eq!(loaded[0].text, "风穿过竹林");
-        assert!(loaded[0].exemplar_id.len() > 0);
+        assert!(!loaded[0].exemplar_id.is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 

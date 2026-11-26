@@ -260,6 +260,37 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
+/// PPTX / DOCX ZIP 图片提取安全上限（防 zip bomb / 伪造 uncompressed size OOM）。
+const MAX_OFFICE_ZIP_ENTRIES: usize = 4096;
+const MAX_RELS_XML_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_SINGLE_IMAGE_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_TOTAL_OFFICE_UNPACK_BYTES: u64 = 256 * 1024 * 1024;
+
+/// 流式有界读取单个 ZIP 条目：绝不轻信 header 中的 `entry.size()` 预分配，
+/// 同时校验单条目上限与累计解压总字节上限。
+fn read_zip_entry_bounded(
+    entry: &mut zip::read::ZipFile<'_>,
+    entry_name: &str,
+    per_entry_limit: u64,
+    total_read: &mut u64,
+    total_limit: u64,
+) -> Result<Vec<u8>, String> {
+    let remaining = total_limit.saturating_sub(*total_read);
+    let cap = per_entry_limit.min(remaining);
+    let mut buf = Vec::new();
+    entry
+        .take(cap.saturating_add(1))
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("Failed to read zip entry '{entry_name}': {e}"))?;
+    if (buf.len() as u64) > cap {
+        return Err(format!(
+            "ZIP entry '{entry_name}' exceeds decompression limit (entry_limit={per_entry_limit}, total_limit={total_limit})"
+        ));
+    }
+    *total_read = total_read.saturating_add(buf.len() as u64);
+    Ok(buf)
+}
+
 /// Walk every `ppt/slides/slide<N>.xml.rels` file and record which
 /// `ppt/media/*` files each slide references. Returns a flat map
 /// `media_path -> Some(slide_number)`. If a media file isn't
@@ -267,7 +298,8 @@ fn hex_encode(bytes: &[u8]) -> String {
 /// it's absent from the map and gets `None` at the call site.
 fn build_pptx_media_slide_map(
     archive: &mut zip::ZipArchive<File>,
-) -> std::collections::HashMap<String, Option<u32>> {
+    total_unpacked_bytes: &mut u64,
+) -> Result<std::collections::HashMap<String, Option<u32>>, String> {
     use std::collections::HashMap;
     let mut out: HashMap<String, Option<u32>> = HashMap::new();
 
@@ -293,10 +325,16 @@ fn build_pptx_media_slide_map(
             Ok(e) => e,
             Err(_) => continue,
         };
-        let mut xml = String::new();
-        if entry.read_to_string(&mut xml).is_err() {
+        let xml_bytes = read_zip_entry_bounded(
+            &mut entry,
+            &rels_path,
+            MAX_RELS_XML_BYTES,
+            total_unpacked_bytes,
+            MAX_TOTAL_OFFICE_UNPACK_BYTES,
+        )?;
+        let Ok(xml) = String::from_utf8(xml_bytes) else {
             continue;
-        }
+        };
 
         // Naive extraction: rels XML has Target="../media/imageN.png"
         // attributes for image relationships. We don't bother with a
@@ -322,7 +360,7 @@ fn build_pptx_media_slide_map(
         }
     }
 
-    out
+    Ok(out)
 }
 
 // ── Extract-and-save: write to disk, skip the base64 round-trip ────────
@@ -549,11 +587,20 @@ pub fn extract_and_save_office_images(
     let mut archive =
         zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip '{path}': {e}"))?;
 
+    if archive.len() > MAX_OFFICE_ZIP_ENTRIES {
+        return Err(format!(
+            "Office archive '{path}' has {} entries, exceeding limit {MAX_OFFICE_ZIP_ENTRIES}",
+            archive.len()
+        ));
+    }
+
+    let mut total_unpacked_bytes: u64 = 0;
+
     let is_pptx = archive
         .file_names()
         .any(|n| n == "ppt/presentation.xml" || n.starts_with("ppt/slides/slide"));
     let media_to_slide = if is_pptx {
-        build_pptx_media_slide_map(&mut archive)
+        build_pptx_media_slide_map(&mut archive, &mut total_unpacked_bytes)?
     } else {
         std::collections::HashMap::new()
     };
@@ -599,11 +646,13 @@ pub fn extract_and_save_office_images(
             None => continue,
         };
 
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
-        if let Err(e) = entry.read_to_end(&mut bytes) {
-            log::warn!("[extract_and_save_office_images] read '{entry_name}' failed: {e}");
-            continue;
-        }
+        let bytes = read_zip_entry_bounded(
+            &mut entry,
+            &entry_name,
+            MAX_SINGLE_IMAGE_BYTES,
+            &mut total_unpacked_bytes,
+            MAX_TOTAL_OFFICE_UNPACK_BYTES,
+        )?;
 
         let (width, height) = match image::load_from_memory(&bytes) {
             Ok(img) => (img.width(), img.height()),
@@ -762,5 +811,44 @@ mod tests {
         assert_eq!(o.min_width, 100);
         assert_eq!(o.min_height, 100);
         assert_eq!(o.max_images, 500);
+    }
+
+    #[test]
+    fn read_zip_entry_bounded_rejects_oversized_entry_and_tracks_total() {
+        use std::io::Write;
+        let tmp = std::env::temp_dir().join(format!(
+            "nb-extract-img-limit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let zip_path = tmp.join("bomb.pptx");
+        {
+            let f = File::create(&zip_path).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            let opts = zip::write::SimpleFileOptions::default();
+            w.start_file("ppt/media/image1.png", opts).unwrap();
+            w.write_all(&[0u8; 64]).unwrap();
+            w.finish().unwrap();
+        }
+        let mut archive = zip::ZipArchive::new(File::open(&zip_path).unwrap()).unwrap();
+        let mut entry = archive.by_index(0).unwrap();
+        let mut total = 0u64;
+        let err = read_zip_entry_bounded(&mut entry, "ppt/media/image1.png", 32, &mut total, 128)
+            .expect_err("超过单条目上限必须拒绝");
+        assert!(err.contains("exceeds decompression limit"), "{err}");
+        assert_eq!(total, 0);
+
+        drop(entry);
+        let mut entry2 = archive.by_index(0).unwrap();
+        let mut total2 = 100u64;
+        let err2 =
+            read_zip_entry_bounded(&mut entry2, "ppt/media/image1.png", 128, &mut total2, 128)
+                .expect_err("超过总字节预算必须拒绝");
+        assert!(err2.contains("exceeds decompression limit"), "{err2}");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

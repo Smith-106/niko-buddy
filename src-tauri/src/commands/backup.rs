@@ -7,8 +7,8 @@
 //! Zip Slip protection, and tauri-plugin-store integration for app state.
 
 use std::fs;
-use std::io::Write;
-use std::path::Path;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -133,6 +133,13 @@ const KNOWLEDGE_DIR_CANDIDATES: &[&str] = &["QM", "wiki"];
 /// Canonical name used inside the zip archive for the knowledge directory.
 const KNOWLEDGE_ZIP_NAME: &str = "wiki";
 
+/// 备份归档安全上限（防目录环路与 zip bomb 解压耗尽磁盘/内存）。
+const MAX_BACKUP_WALK_DEPTH: usize = 64;
+const MAX_BACKUP_ENTRIES: usize = 50_000;
+const MAX_BACKUP_METADATA_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_BACKUP_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_BACKUP_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 fn emit_progress(
@@ -182,8 +189,8 @@ fn restore_app_state_via_store(
 }
 
 /// Recursively add every file under `base_dir` to the zip archive under
-/// `zip_prefix`.  Large files are streamed via `std::io::copy` to keep
-/// memory usage bounded.
+/// `zip_prefix`. Large files are streamed via `std::io::copy` to keep
+/// memory usage bounded. Never follows symlinks or Windows reparse points.
 fn add_dir_to_zip(
     zip: &mut ZipWriter<fs::File>,
     base_dir: &Path,
@@ -192,10 +199,27 @@ fn add_dir_to_zip(
     warnings: &mut Vec<String>,
     cancel: &AtomicBool,
 ) -> Result<(), String> {
+    if crate::agent_gate_policy::is_symlink_or_reparse_point(base_dir) {
+        warnings.push(format!("跳过符号链接目录: {}", base_dir.display()));
+        return Ok(());
+    }
     let opts =
         zip::write::SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
-    for walk_entry in WalkDir::new(base_dir).into_iter() {
+    let walker = WalkDir::new(base_dir)
+        .follow_links(false)
+        .max_depth(MAX_BACKUP_WALK_DEPTH)
+        .into_iter()
+        .filter_entry(|e| {
+            e.depth() == 0
+                || (!e.path_is_symlink()
+                    && !crate::agent_gate_policy::is_symlink_or_reparse_point(e.path()))
+        });
+
+    for walk_entry in walker {
+        if cancel.load(Ordering::SeqCst) {
+            return Err("备份已取消".into());
+        }
         let entry = match walk_entry {
             Ok(e) => e,
             Err(e) => {
@@ -206,6 +230,9 @@ fn add_dir_to_zip(
 
         let path = entry.path();
         if path == base_dir {
+            continue;
+        }
+        if entry.path_is_symlink() || crate::agent_gate_policy::is_symlink_or_reparse_point(path) {
             continue;
         }
 
@@ -237,16 +264,24 @@ fn add_dir_to_zip(
     Ok(())
 }
 
-/// Read a single named file from a zip archive, returning `None` if absent.
+/// Read a single named file from a zip archive with a strict byte limit, returning `None` if absent.
 fn extract_file_from_zip(
     archive: &mut zip::ZipArchive<fs::File>,
     name: &str,
+    max_bytes: u64,
 ) -> Result<Option<Vec<u8>>, String> {
     match archive.by_name(name) {
-        Ok(mut file) => {
+        Ok(file) => {
             let mut buf = Vec::new();
-            std::io::Read::read_to_end(&mut file, &mut buf)
+            std::io::Read::take(file, max_bytes.saturating_add(1))
+                .read_to_end(&mut buf)
                 .map_err(|e| format!("读取 zip 内文件 {} 失败: {e}", name))?;
+            if (buf.len() as u64) > max_bytes {
+                return Err(format!(
+                    "安全拦截：zip 内文件 \"{}\" 解压超过大小上限 {} 字节",
+                    name, max_bytes
+                ));
+            }
             Ok(Some(buf))
         }
         Err(zip::result::ZipError::FileNotFound) => Ok(None),
@@ -254,14 +289,58 @@ fn extract_file_from_zip(
     }
 }
 
+/// 校验 `path` 自身及所有已存在祖先链不含符号链接或 Windows 名称代理重解析点。
+fn assert_path_chain_has_no_symlink(path: &Path, label: &str) -> Result<(), String> {
+    let mut current = Some(path);
+    while let Some(candidate) = current {
+        if candidate.as_os_str().is_empty() {
+            break;
+        }
+        #[cfg(target_os = "macos")]
+        if candidate == Path::new("/var")
+            || candidate == Path::new("/tmp")
+            || candidate == Path::new("/etc")
+        {
+            current = candidate.parent();
+            continue;
+        }
+        match fs::symlink_metadata(candidate) {
+            Ok(meta) => {
+                if crate::agent_gate_policy::metadata_is_symlink_or_reparse_point(&meta) {
+                    return Err(format!(
+                        "安全拦截：{label}路径包含符号链接或重解析点 {}",
+                        candidate.display()
+                    ));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(format!("无法检查{label}路径 {}: {e}", candidate.display()));
+            }
+        }
+        current = candidate.parent();
+    }
+    Ok(())
+}
+
 /// Extract all entries under `zip_prefix` into `target_dir`, with
-/// Zip Slip protection via component-level path normalisation.
+/// Zip Slip protection, symlink/reparse rejection, and bounded streaming decompression.
 fn extract_dir_from_zip(
     archive: &mut zip::ZipArchive<fs::File>,
     zip_prefix: &str,
     target_dir: &Path,
 ) -> Result<usize, String> {
+    if archive.len() > MAX_BACKUP_ENTRIES {
+        return Err(format!(
+            "安全拦截：备份归档包含 {} 个条目，超过安全上限 {}",
+            archive.len(),
+            MAX_BACKUP_ENTRIES
+        ));
+    }
+    assert_path_chain_has_no_symlink(target_dir, "恢复目标目录")?;
+
     let mut written = 0usize;
+    let mut total_bytes: u64 = 0;
 
     // Collect matching entry names up front to avoid borrow issues.
     let names: Vec<String> = archive
@@ -276,28 +355,35 @@ fn extract_dir_from_zip(
         .map_err(|e| format!("无法解析目标目录: {e}"))?;
 
     for name in names {
-        let relative = &name[zip_prefix.len()..];
-        let relative = relative.trim_start_matches('/');
-        if relative.is_empty() {
+        let raw_relative = &name[zip_prefix.len()..];
+        if raw_relative.is_empty() {
+            continue;
+        }
+        // 拒绝前导斜杠、反斜杠、冒号（盘符 / NTFS ADS）、NUL 与控制字符，彻底禁止任何 `..` 静默回退。
+        if raw_relative.starts_with('/')
+            || raw_relative.contains('\\')
+            || raw_relative.contains(':')
+            || raw_relative.chars().any(|c| c == '\0' || c.is_control())
+        {
+            return Err(format!(
+                "安全拦截：zip 条目 \"{}\" 包含非法路径字符或根路径前缀",
+                name
+            ));
+        }
+        let is_dir_entry = raw_relative.ends_with('/');
+        if raw_relative.ends_with("//") {
+            return Err(format!("安全拦截：zip 条目 \"{}\" 包含非法空路径段", name));
+        }
+        let trimmed_rel = raw_relative.trim_end_matches('/');
+        if trimmed_rel.is_empty() {
             continue;
         }
 
-        // Walk each component and reject any traversal that escapes target.
         let mut safe_dest = canonical_target.clone();
-        for component in Path::new(relative).components() {
-            match component {
-                std::path::Component::ParentDir => {
-                    safe_dest.pop();
-                    if !safe_dest.starts_with(&canonical_target) {
-                        return Err(format!(
-                            "安全拦截：zip 条目 \"{}\" 试图写入目标目录之外的位置",
-                            name
-                        ));
-                    }
-                }
-                std::path::Component::CurDir => {}
-                other => safe_dest.push(other),
-            }
+        for seg in trimmed_rel.split('/') {
+            crate::agent_gate_policy::validate_safe_single_segment(seg, "zip entry segment")
+                .map_err(|e| format!("安全拦截：zip 条目 \"{}\" 路径段非法 ({e})", name))?;
+            safe_dest.push(seg);
         }
 
         if !safe_dest.starts_with(&canonical_target) {
@@ -308,27 +394,49 @@ fn extract_dir_from_zip(
             ));
         }
 
+        crate::agent_gate_policy::assert_no_symlink_in_ancestors(&canonical_target, &safe_dest)
+            .map_err(|e| format!("安全拦截：目标路径包含符号链接或重解析点 ({e})"))?;
+
         // Directory entry — just create and move on.
-        if name.ends_with('/') {
+        if is_dir_entry {
             fs::create_dir_all(&safe_dest)
                 .map_err(|e| format!("创建目录失败 {}: {e}", safe_dest.display()))?;
             continue;
         }
 
-        // File entry — ensure parent dirs then write contents.
+        // File entry — ensure parent dirs then stream contents with strict limits.
         if let Some(parent) = safe_dest.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("创建父目录失败 {}: {e}", parent.display()))?;
+            crate::agent_gate_policy::assert_no_symlink_in_ancestors(&canonical_target, parent)
+                .map_err(|e| format!("安全拦截：目标父目录包含符号链接或重解析点 ({e})"))?;
+        }
+        if crate::agent_gate_policy::is_symlink_or_reparse_point(&safe_dest) {
+            return Err(format!(
+                "安全拦截：目标文件不允许为符号链接或重解析点 {}",
+                safe_dest.display()
+            ));
         }
 
-        let mut zip_file = archive
+        let remaining = MAX_BACKUP_TOTAL_BYTES.saturating_sub(total_bytes);
+        let limit = MAX_BACKUP_ENTRY_BYTES.min(remaining);
+        let zip_file = archive
             .by_name(&name)
             .map_err(|e| format!("打开 zip 内文件 {} 失败: {e}", name))?;
-        let mut buf = Vec::new();
-        std::io::Read::read_to_end(&mut zip_file, &mut buf)
-            .map_err(|e| format!("读取 zip 内文件 {} 失败: {e}", name))?;
-        fs::write(&safe_dest, &buf)
-            .map_err(|e| format!("写入文件失败 {}: {e}", safe_dest.display()))?;
+        let mut out_file = fs::File::create(&safe_dest)
+            .map_err(|e| format!("创建目标文件失败 {}: {e}", safe_dest.display()))?;
+        let mut limited = zip_file.take(limit.saturating_add(1));
+        let copied = std::io::copy(&mut limited, &mut out_file)
+            .map_err(|e| format!("解压写入文件失败 {}: {e}", safe_dest.display()))?;
+        drop(out_file);
+        if copied > limit {
+            let _ = fs::remove_file(&safe_dest);
+            return Err(format!(
+                "安全拦截：zip 条目 \"{}\" 解压体积超过安全上限",
+                name
+            ));
+        }
+        total_bytes = total_bytes.saturating_add(copied);
         written += 1;
     }
     Ok(written)
@@ -346,7 +454,14 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
     app_state_path: &Path,
     on_progress: F,
 ) -> Result<ExportResult, String> {
+    // 持 T4 FILE_MUTATION_LOCK（同步执行，绝不跨 .await）保护备份读写一致性。
+    let _mutation = crate::commands::fs::lock_file_mutations()?;
     let save_path = Path::new(&params.save_path);
+    assert_path_chain_has_no_symlink(save_path, "备份输出文件")?;
+    assert_path_chain_has_no_symlink(app_state_path, "应用状态文件")?;
+    for project in &params.projects {
+        assert_path_chain_has_no_symlink(Path::new(&project.path), "导出项目目录")?;
+    }
     let total_steps = params.projects.len() + 2; // manifest + global + projects
 
     on_progress(&BackupProgressPayload {
@@ -465,6 +580,11 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
                     &mut warnings,
                     &BACKUP_CANCEL,
                 ) {
+                    if BACKUP_CANCEL.load(Ordering::SeqCst) {
+                        drop(zip);
+                        let _ = fs::remove_file(save_path);
+                        return Err("备份已取消".into());
+                    }
                     warnings.push(format!(
                         "复制项目 {} 的知识目录({})失败: {}",
                         project.name, candidate, e
@@ -476,6 +596,11 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
 
         // Other project subdirectories.
         for subdir in PROJECT_SUBDIRS {
+            if BACKUP_CANCEL.load(Ordering::SeqCst) {
+                drop(zip);
+                let _ = fs::remove_file(save_path);
+                return Err("备份已取消".into());
+            }
             let subdir_path = project_path.join(subdir);
             if subdir_path.is_dir() {
                 let sub_prefix = format!("{}/{}", zip_prefix, subdir);
@@ -487,6 +612,11 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
                     &mut warnings,
                     &BACKUP_CANCEL,
                 ) {
+                    if BACKUP_CANCEL.load(Ordering::SeqCst) {
+                        drop(zip);
+                        let _ = fs::remove_file(save_path);
+                        return Err("备份已取消".into());
+                    }
                     warnings.push(format!(
                         "复制项目 {} 的 {} 目录失败: {}",
                         project.name, subdir, e
@@ -497,8 +627,15 @@ pub fn do_export_backup<F: Fn(&BackupProgressPayload)>(
 
         // Top-level project files.
         for file_name in PROJECT_FILES {
+            if BACKUP_CANCEL.load(Ordering::SeqCst) {
+                drop(zip);
+                let _ = fs::remove_file(save_path);
+                return Err("备份已取消".into());
+            }
             let file_path = project_path.join(file_name);
-            if file_path.is_file() {
+            if file_path.is_file()
+                && !crate::agent_gate_policy::is_symlink_or_reparse_point(&file_path)
+            {
                 let data = fs::read(&file_path)
                     .map_err(|e| format!("读取文件失败 {}: {e}", file_path.display()))?;
                 let entry_name = format!("{}/{}", zip_prefix, file_name);
@@ -559,6 +696,8 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
     on_progress: F,
 ) -> Result<ImportResult, String> {
     let zip_path = Path::new(&params.zip_path);
+    assert_path_chain_has_no_symlink(zip_path, "备份归档文件")?;
+    assert_path_chain_has_no_symlink(app_state_dir, "应用状态目录")?;
     if !zip_path.exists() {
         return Ok(ImportResult {
             success: false,
@@ -578,31 +717,44 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
         message: "正在准备导入...".into(),
     });
 
+    // 全局锁序 DAG：T3 (MIGRATE_LOCK) -> T4 (FILE_MUTATION_LOCK)。
+    // 本段在解压/写盘期间持 T4，随后显式 `drop(_mutation)` 释放 T4，再调用 `migrate_project_dirs` (T3)。
+    let _mutation = crate::commands::fs::lock_file_mutations()?;
+
     let file = fs::File::open(zip_path).map_err(|e| format!("打开备份文件失败: {e}"))?;
     let mut archive =
         zip::ZipArchive::new(file).map_err(|e| format!("读取备份文件失败，可能已损坏: {e}"))?;
+    if archive.len() > MAX_BACKUP_ENTRIES {
+        return Err(format!(
+            "安全拦截：备份归档包含 {} 个条目，超过安全上限 {}",
+            archive.len(),
+            MAX_BACKUP_ENTRIES
+        ));
+    }
 
     let mut warnings: Vec<String> = Vec::new();
     let mut app_state: Option<serde_json::Value> = None;
     let mut local_storage_data: Option<serde_json::Value> = None;
     let mut project_results: Vec<ProjectRestoreResult> = Vec::new();
+    let mut extracted_for_migration: Vec<(PathBuf, String)> = Vec::new();
 
     // ── Read manifest ───────────────────────────────────────────────────────
-    let manifest_projects =
-        if let Some(manifest_bytes) = extract_file_from_zip(&mut archive, "manifest.json")? {
-            let manifest: BackupManifest = serde_json::from_slice(&manifest_bytes)
-                .map_err(|e| format!("解析 manifest.json 失败: {e}"))?;
-            if manifest.backup_version > 1 {
-                warnings.push(format!(
-                    "备份版本 {} 可能不兼容当前版本",
-                    manifest.backup_version
-                ));
-            }
-            manifest.projects
-        } else {
-            warnings.push("备份文件缺少 manifest.json".into());
-            vec![]
-        };
+    let manifest_projects = if let Some(manifest_bytes) =
+        extract_file_from_zip(&mut archive, "manifest.json", MAX_BACKUP_METADATA_BYTES)?
+    {
+        let manifest: BackupManifest = serde_json::from_slice(&manifest_bytes)
+            .map_err(|e| format!("解析 manifest.json 失败: {e}"))?;
+        if manifest.backup_version > 1 {
+            warnings.push(format!(
+                "备份版本 {} 可能不兼容当前版本",
+                manifest.backup_version
+            ));
+        }
+        manifest.projects
+    } else {
+        warnings.push("备份文件缺少 manifest.json".into());
+        vec![]
+    };
 
     // ── Global restore ──────────────────────────────────────────────────────
     let need_global = matches!(
@@ -620,22 +772,31 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
         });
 
         // app-state.json
-        if let Some(state_bytes) = extract_file_from_zip(&mut archive, "global/app-state.json")? {
+        if let Some(state_bytes) = extract_file_from_zip(
+            &mut archive,
+            "global/app-state.json",
+            MAX_BACKUP_METADATA_BYTES,
+        )? {
             let state_json: serde_json::Value = serde_json::from_slice(&state_bytes)
                 .map_err(|e| format!("解析 app-state.json 失败: {e}"))?;
 
             fs::create_dir_all(app_state_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
             let state_path = app_state_dir.join("app-state.json");
+            assert_path_chain_has_no_symlink(&state_path, "应用状态文件")?;
             let state_str = serde_json::to_string_pretty(&state_json)
                 .map_err(|e| format!("序列化 app-state 失败: {e}"))?;
-            fs::write(&state_path, state_str.as_bytes())
+            crate::commands::fs::write_atomic_physical_bytes(&state_path, state_str.as_bytes())
                 .map_err(|e| format!("写入 app-state.json 失败: {e}"))?;
 
             app_state = Some(state_json);
         }
 
         // local-storage.json
-        if let Some(ls_bytes) = extract_file_from_zip(&mut archive, "global/local-storage.json")? {
+        if let Some(ls_bytes) = extract_file_from_zip(
+            &mut archive,
+            "global/local-storage.json",
+            MAX_BACKUP_METADATA_BYTES,
+        )? {
             let ls_json: serde_json::Value = serde_json::from_slice(&ls_bytes)
                 .map_err(|e| format!("解析 local-storage.json 失败: {e}"))?;
             local_storage_data = Some(ls_json);
@@ -686,16 +847,15 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
 
             let zip_prefix = format!("projects/{}/", project_id);
             let target = Path::new(target_path);
+            assert_path_chain_has_no_symlink(target, "恢复目标目录")?;
 
             fs::create_dir_all(target)
                 .map_err(|e| format!("创建项目目录失败 {}: {e}", target.display()))?;
+            assert_path_chain_has_no_symlink(target, "恢复目标目录")?;
 
             match extract_dir_from_zip(&mut archive, &zip_prefix, target) {
                 Ok(_count) => {
-                    // Auto-migrate legacy directory names after extraction.
-                    if let Err(e) = crate::commands::project::migrate_project_dirs(target) {
-                        warnings.push(format!("项目 {} 目录迁移失败: {}", project_name, e));
-                    }
+                    extracted_for_migration.push((target.to_path_buf(), project_name.clone()));
                     project_results.push(ProjectRestoreResult {
                         id: project_id.clone(),
                         path: target_path.clone(),
@@ -714,6 +874,17 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
                     });
                 }
             }
+        }
+    }
+
+    // 严格遵守全局锁序 T3 (MIGRATE_LOCK) -> T4 (FILE_MUTATION_LOCK)：
+    // 必须显式释放 T4 后再调用获取 T3 的 `migrate_project_dirs`，杜绝锁序反转死锁。
+    drop(_mutation);
+
+    for (target, project_name) in extracted_for_migration {
+        // Auto-migrate legacy directory names after extraction.
+        if let Err(e) = crate::commands::project::migrate_project_dirs(&target) {
+            warnings.push(format!("项目 {} 目录迁移失败: {}", project_name, e));
         }
     }
 
@@ -744,6 +915,7 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
 #[tauri::command]
 pub fn cancel_backup() {
     BACKUP_CANCEL.store(true, Ordering::SeqCst);
+    crate::canon::export::request_cancel();
 }
 
 #[tauri::command]
@@ -934,5 +1106,238 @@ mod tests {
         assert!(target.join("sub/chapter2.md").exists());
 
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn do_export_backup_aborts_and_deletes_partial_zip_when_cancelled_mid_pack() {
+        static CANCEL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = CANCEL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        BACKUP_CANCEL.store(false, Ordering::SeqCst);
+
+        let tmp = std::env::temp_dir().join(format!(
+            "nb-backup-cancel-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let proj = tmp.join("proj");
+        std::fs::create_dir_all(proj.join("QM")).unwrap();
+        std::fs::write(proj.join("QM").join("ch1.md"), "正文").unwrap();
+        let save_path = tmp.join("cancelled.zip");
+        let app_state_path = tmp.join("app-state.json");
+        std::fs::write(&app_state_path, "{}").unwrap();
+
+        let params = ExportParams {
+            save_path: save_path.to_string_lossy().to_string(),
+            local_storage_data: serde_json::json!({}),
+            projects: vec![ProjectBackupInfo {
+                id: "p1".into(),
+                path: proj.to_string_lossy().to_string(),
+                name: "Test".into(),
+            }],
+        };
+
+        let result = do_export_backup(params, &app_state_path, |payload| {
+            // 在进入 packing 阶段触发取消：此时 add_dir_to_zip 必须中断并删掉半成品 zip，不得吞进 warnings。
+            if payload.stage == "packing" {
+                BACKUP_CANCEL.store(true, Ordering::SeqCst);
+            }
+        });
+        BACKUP_CANCEL.store(false, Ordering::SeqCst);
+
+        let err = result.expect_err("取消后导出必须返回 Err 而非带 warnings 的 Ok");
+        assert!(err.contains("取消"), "got: {err}");
+        assert!(!save_path.exists(), "取消后不得残留半成品 zip 文件");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn extract_file_from_zip_enforces_streaming_size_limit() {
+        let tmp = std::env::temp_dir().join(format!(
+            "nb-backup-limit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let zip_path = tmp.join("big.zip");
+        {
+            let zip_file = std::fs::File::create(&zip_path).unwrap();
+            let mut zip = ZipWriter::new(zip_file);
+            zip.start_file("manifest.json", SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(&[b'a'; 128]).unwrap();
+            zip.finish().unwrap();
+        }
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+        let err = extract_file_from_zip(&mut archive, "manifest.json", 64)
+            .expect_err("超过字节上限必须拒绝");
+        assert!(err.contains("安全拦截"), "{err}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn extract_dir_rejects_midpath_dotdot_separators_control_and_reserved_names() {
+        let tmp = std::env::temp_dir().join(format!(
+            "nb-backup-strict-seg-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        for bad_entry in [
+            "prefix/a/b/../../evil.txt",
+            "prefix/./dot.txt",
+            r"prefix/a\b.txt",
+            "prefix/C:evil.txt",
+            "prefix/ads.txt:$DATA",
+            "prefix/bad\x01ctrl.txt",
+            "prefix/trailing.",
+            "prefix/trailing ",
+            "prefix/CON",
+            "prefix/nul.md",
+            "prefix/COM1.txt",
+            "prefix//double-slash.txt",
+        ] {
+            let zip_path = tmp.join("case.zip");
+            {
+                let zip_file = std::fs::File::create(&zip_path).unwrap();
+                let mut zip = ZipWriter::new(zip_file);
+                zip.start_file(bad_entry, SimpleFileOptions::default())
+                    .unwrap();
+                zip.write_all(b"payload").unwrap();
+                zip.finish().unwrap();
+            }
+            let target = tmp.join("target");
+            let _ = std::fs::remove_dir_all(&target);
+            std::fs::create_dir_all(&target).unwrap();
+            let mut archive =
+                zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+            let result = extract_dir_from_zip(&mut archive, "prefix/", &target);
+            assert!(result.is_err(), "非法 zip 条目必须被拒: {bad_entry:?}");
+            let err = result.unwrap_err();
+            assert!(
+                err.contains("安全拦截"),
+                "bad_entry={bad_entry:?}, err={err}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn export_and_import_roundtrip_succeeds_and_rejects_symlink_paths() {
+        let tmp = std::env::temp_dir().join(format!(
+            "nb-backup-symlink-dag-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let src_proj = tmp.join("src-proj");
+        std::fs::create_dir_all(src_proj.join("QM")).unwrap();
+        std::fs::write(src_proj.join("QM").join("ch1.md"), "# Chapter 1").unwrap();
+        let app_state_path = tmp.join("app-state.json");
+        std::fs::write(&app_state_path, r#"{"theme":"light"}"#).unwrap();
+        let save_path = tmp.join("backup.zip");
+
+        let export_res = do_export_backup(
+            ExportParams {
+                save_path: save_path.to_string_lossy().to_string(),
+                local_storage_data: serde_json::json!({"k":"v"}),
+                projects: vec![ProjectBackupInfo {
+                    id: "p1".into(),
+                    path: src_proj.to_string_lossy().to_string(),
+                    name: "MyNovel".into(),
+                }],
+            },
+            &app_state_path,
+            |_| {},
+        )
+        .expect("normal export should succeed");
+        assert!(export_res.success);
+
+        let restore_proj = tmp.join("restored-proj");
+        let restore_state_dir = tmp.join("restored-state");
+        let import_res = do_import_backup(
+            ImportParams {
+                zip_path: save_path.to_string_lossy().to_string(),
+                strategy: ImportStrategy::Selective,
+                projects: Some(vec![ProjectRestoreInfo {
+                    id: "p1".into(),
+                    target_path: restore_proj.to_string_lossy().to_string(),
+                }]),
+            },
+            &restore_state_dir,
+            |_| {},
+        )
+        .expect("normal import should succeed without T4->T3 deadlock");
+        assert!(import_res.success);
+        assert!(
+            restore_proj.join("wiki").join("ch1.md").is_file()
+                || restore_proj.join("QM").join("ch1.md").is_file()
+        );
+
+        // 构造目录 symlink/junction，验证 do_export_backup 与 do_import_backup 均拦截。
+        let outside = tmp.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let link_dir = tmp.join("link-dir");
+        let linked = {
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(&outside, &link_dir).is_ok()
+            }
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_dir(&outside, &link_dir).is_ok()
+                    || std::process::Command::new("cmd")
+                        .args([
+                            "/c",
+                            "mklink",
+                            "/J",
+                            &link_dir.to_string_lossy(),
+                            &outside.to_string_lossy(),
+                        ])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                        .is_ok_and(|s| s.success())
+            }
+        };
+        if linked {
+            let export_err = do_export_backup(
+                ExportParams {
+                    save_path: link_dir.join("out.zip").to_string_lossy().to_string(),
+                    local_storage_data: serde_json::json!({}),
+                    projects: vec![],
+                },
+                &app_state_path,
+                |_| {},
+            )
+            .expect_err("symlink ancestor in save_path must be rejected");
+            assert!(export_err.contains("安全拦截"), "{export_err}");
+
+            let import_err = do_import_backup(
+                ImportParams {
+                    zip_path: save_path.to_string_lossy().to_string(),
+                    strategy: ImportStrategy::Selective,
+                    projects: Some(vec![ProjectRestoreInfo {
+                        id: "p1".into(),
+                        target_path: link_dir.join("target").to_string_lossy().to_string(),
+                    }]),
+                },
+                &restore_state_dir,
+                |_| {},
+            )
+            .expect_err("symlink ancestor in restore target must be rejected");
+            assert!(import_err.contains("安全拦截"), "{import_err}");
+
+            let _ = std::fs::remove_dir(&link_dir);
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

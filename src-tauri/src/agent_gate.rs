@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 
 // M9-2：目标策略纯层已剥离至 `agent_gate_policy.rs`——file_sync_watch 模式：新文件 + 原文件回引，外部 import 面零变化。
 pub(crate) use crate::agent_gate_policy::{
-    append_audit, effective_decision, fingerprint, halt_path, normalize_target, outcome,
-    protected_prefix, relative_to_root,
+    append_audit, audit_dir_path, effective_decision, fingerprint, halt_path, is_audit_surface,
+    normalize_target, outcome, protected_prefix, relative_to_root,
 };
 pub use crate::agent_gate_policy::{
     classify_rebuild_class, hit_criteria, is_destructive_op, is_protected_target, now_ms,
@@ -24,8 +24,12 @@ pub use crate::agent_gate_policy::{
 pub const GATE_TIMEOUT_MS: u64 = 120_000;
 /// 循环检测的滑动窗口。
 pub const LOOP_WINDOW_MS: u64 = 60_000;
-/// 窗口内同指纹重复达到该次数即熔断。
+/// 循环检测窗口内同指纹重复达到该次数即熔断。
 pub const LOOP_THRESHOLD: u32 = 3;
+/// 批量原子新建后的单次内容锁定回滚凭据有效期（仅用于失败补偿，防止误删既有内容）。
+pub const ROLLBACK_TICKET_TTL_MS: u64 = 60_000;
+/// 内存回滚凭据容量上限；超限时淘汰最早过期的条目。
+pub const MAX_ROLLBACK_TICKETS: usize = 64;
 
 pub const GATE_AUDIT_DIR: &str = ".novel/audit";
 
@@ -33,11 +37,16 @@ pub const GATE_AUDIT_DIR: &str = ".novel/audit";
 /// 重置它。任何读写门状态或依赖「授权必须存活到下一次调用」的用例，都必须持这把**跨模块共享**的锁，
 /// 否则会表现为「别的模块的用例随机失败」——这类串扰极易被误判成被测代码的缺陷。
 #[cfg(test)]
-pub(crate) static GATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static GATE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[cfg(test)]
-pub(crate) fn gate_test_serial() -> std::sync::MutexGuard<'static, ()> {
-    GATE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+pub(crate) fn gate_test_serial() -> tokio::sync::MutexGuard<'static, ()> {
+    GATE_TEST_LOCK.blocking_lock()
+}
+
+#[cfg(test)]
+pub(crate) async fn gate_test_serial_async() -> tokio::sync::MutexGuard<'static, ()> {
+    GATE_TEST_LOCK.lock().await
 }
 /// 仅审计用途的追加日志，不构成第二真源。
 pub const GATE_AUDIT_FILE: &str = ".novel/audit/gate-audit.jsonl";
@@ -232,6 +241,12 @@ struct HaltRecord {
     reason: String,
 }
 
+#[derive(Debug, Clone)]
+struct RollbackTicket {
+    content_sha256: [u8; 32],
+    expires_at_ms: u64,
+}
+
 struct GateState {
     root: Option<PathBuf>,
     pending: BTreeMap<String, PendingGate>,
@@ -240,6 +255,7 @@ struct GateState {
     timed_out: Vec<String>,
     halt: Option<HaltRecord>,
     counter: u64,
+    rollback_tickets: BTreeMap<String, RollbackTicket>,
 }
 
 impl GateState {
@@ -252,6 +268,7 @@ impl GateState {
             timed_out: Vec::new(),
             halt: None,
             counter: 0,
+            rollback_tickets: BTreeMap::new(),
         }
     }
 }
@@ -262,10 +279,18 @@ fn state() -> &'static Mutex<GateState> {
     GATE.get_or_init(|| Mutex::new(GateState::empty()))
 }
 
-/// 项目根；审计与熔断标记都相对于它落盘（与 `fs::set_resource_dir_hint` 同惯例）。
+/// 项目根；审计与熔断标记都相对于它落盘（由项目创建/打开入口绑定）。
 pub fn set_gate_project_root(dir: PathBuf) {
     let mut g = state().lock().unwrap_or_else(|e| e.into_inner());
-    g.root = Some(dir);
+    if g.root.as_deref() != Some(dir.as_path()) {
+        g.root = Some(dir);
+        g.halt = None;
+        g.grants.clear();
+        g.pending.clear();
+        g.events.clear();
+        g.timed_out.clear();
+        g.rollback_tickets.clear();
+    }
     hydrate_halt_from_disk(&mut g);
 }
 
@@ -303,7 +328,7 @@ fn record_event(g: &mut GateState, key: &str, now: u64) -> bool {
             ),
         };
         if let Some(root) = g.root.clone() {
-            let _ = std::fs::create_dir_all(root.join(GATE_AUDIT_DIR));
+            let _ = std::fs::create_dir_all(audit_dir_path(&root));
             if let Ok(body) = serde_json::to_string(&rec) {
                 let _ = std::fs::write(halt_path(&root), body);
             }
@@ -431,6 +456,17 @@ pub fn gate_authorize(op: &str, target: &str, actor: GateActor) -> GateOutcome {
         );
     }
 
+    if is_audit_surface(&effective) && actor != GateActor::User {
+        audit(&g, op, target, class, &hits, Decision::Denied, actor);
+        return outcome(
+            Decision::Denied,
+            class,
+            hits,
+            None,
+            "audit surface cannot be modified by non-human actors",
+        );
+    }
+
     // 非破坏性操作不进门裁决面，也不参与循环计数（否则正常写入会被误判为循环）。
     // **例外**：非人类主体写受保护区——真源面绝不允许被 Agent/CLI/External 静默写入，
     // 这类请求必须落到人工确认（见 `effective_decision`），并参与循环计数。
@@ -481,7 +517,7 @@ pub fn gate_authorize(op: &str, target: &str, actor: GateActor) -> GateOutcome {
         );
     }
 
-    let (decision, reason) = effective_decision(op, target, class, actor);
+    let (decision, reason) = effective_decision(op, &effective, class, actor);
     if decision == Decision::RequireConfirm {
         let request_id = format!("gate-{}-{}", now, g.counter);
         g.counter += 1;
@@ -513,6 +549,115 @@ pub fn gate_authorize(op: &str, target: &str, actor: GateActor) -> GateOutcome {
     outcome(decision, class, hits, None, reason)
 }
 
+fn ct_eq_sha256(a: &[u8; 32], b: &[u8; 32]) -> bool {
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// 为 `write_files_atomic` 刚新建的文件登记单次内容锁定回滚凭据（R-2）。
+/// 超出 [`MAX_ROLLBACK_TICKETS`] 时淘汰最早过期的条目。
+pub(crate) fn register_creation_rollback_ticket(canonical_key: &str, content_sha256: [u8; 32]) {
+    let now = now_ms();
+    let mut g = state().lock().unwrap_or_else(|e| e.into_inner());
+    g.rollback_tickets.retain(|_, t| t.expires_at_ms > now);
+    g.rollback_tickets.remove(canonical_key);
+    while g.rollback_tickets.len() >= MAX_ROLLBACK_TICKETS {
+        let Some(oldest_key) = g
+            .rollback_tickets
+            .iter()
+            .min_by_key(|(_, t)| t.expires_at_ms)
+            .map(|(k, _)| k.clone())
+        else {
+            break;
+        };
+        g.rollback_tickets.remove(&oldest_key);
+    }
+    g.rollback_tickets.insert(
+        canonical_key.to_string(),
+        RollbackTicket {
+            content_sha256,
+            expires_at_ms: now.saturating_add(ROLLBACK_TICKET_TTL_MS),
+        },
+    );
+}
+
+/// 后续写入覆盖同一物理文件时立即吊销其新建回滚凭据。
+pub(crate) fn invalidate_rollback_ticket(canonical_key: &str) {
+    let mut g = state().lock().unwrap_or_else(|e| e.into_inner());
+    g.rollback_tickets.remove(canonical_key);
+}
+
+/// 内容锁定回滚删除的门控入口（R-2）：
+/// - 熔断态优先级最高，仍硬拒 `Decision::Denied`；
+/// - 凭据未过期且定长 SHA-256 比对一致时单次消耗并放行，落 `rollbackDeleteFile` 审计；
+/// - 未命中则释放锁后回落标准 `gate_authorize("deleteFile", ...)`（受保护区仍 100% 硬拒）。
+pub(crate) fn gate_authorize_rollback_delete(
+    target: &str,
+    canonical_key: &str,
+    expected_sha256: &[u8; 32],
+) -> GateOutcome {
+    let now = now_ms();
+    {
+        let mut g = state().lock().unwrap_or_else(|e| e.into_inner());
+        hydrate_halt_from_disk(&mut g);
+        sweep_timeouts(&mut g, now);
+        g.rollback_tickets.retain(|_, t| t.expires_at_ms > now);
+
+        let root = g.root.clone();
+        let effective = relative_to_root(root.as_deref(), target);
+        let class = classify_rebuild_class(&effective);
+
+        // 熔断态优先级最高：即使持有效回滚凭据也必须硬拒。
+        if let Some(halt) = g.halt.clone() {
+            let hits = hit_criteria("deleteFile", &effective, GateActor::Agent);
+            audit(
+                &g,
+                "deleteFile",
+                target,
+                class,
+                &hits,
+                Decision::Denied,
+                GateActor::Agent,
+            );
+            return outcome(
+                Decision::Denied,
+                class,
+                hits,
+                Some(halt.request_id),
+                "loop halted; waiting for human ResumeAfterHalt",
+            );
+        }
+
+        if let Some(ticket) = g.rollback_tickets.get(canonical_key) {
+            if ct_eq_sha256(&ticket.content_sha256, expected_sha256) {
+                g.rollback_tickets.remove(canonical_key);
+                let mut hits = hit_criteria("deleteFile", &effective, GateActor::Agent);
+                hits.push("rollback_ticket_verified".to_string());
+                audit(
+                    &g,
+                    "rollbackDeleteFile",
+                    target,
+                    class,
+                    &hits,
+                    Decision::Allowed,
+                    GateActor::Agent,
+                );
+                return outcome(
+                    Decision::Allowed,
+                    class,
+                    hits,
+                    None,
+                    "allowed by single-use creation rollback ticket",
+                );
+            }
+        }
+    }
+    gate_authorize("deleteFile", target, GateActor::Agent)
+}
+
 pub fn classify_impl(op: &str, target: &str, actor: GateActor) -> GateOutcome {
     let now = now_ms();
     let mut g = state().lock().unwrap_or_else(|e| e.into_inner());
@@ -531,7 +676,7 @@ pub fn classify_impl(op: &str, target: &str, actor: GateActor) -> GateOutcome {
             "loop halted; waiting for human ResumeAfterHalt",
         );
     }
-    let (decision, reason) = effective_decision(op, target, class, actor);
+    let (decision, reason) = effective_decision(op, &effective, class, actor);
     outcome(decision, class, hits, None, reason)
 }
 
@@ -713,7 +858,7 @@ pub async fn confirm_gate_loop_state() -> Result<LoopState, String> {
 mod tests {
     use super::*;
 
-    fn serial() -> std::sync::MutexGuard<'static, ()> {
+    fn serial() -> tokio::sync::MutexGuard<'static, ()> {
         gate_test_serial()
     }
 
@@ -873,13 +1018,13 @@ mod tests {
     fn rebuildable_targets_pass_and_are_audited() {
         let _serial = serial();
         let t = use_tree("rebuildable");
-        let snap = gate_authorize(
+        let draft = gate_authorize(
             "deleteFile",
-            ".novel/snapshots/ch1/body.md",
+            ".novel/drafts/ch1/draft.json",
             GateActor::Agent,
         );
-        assert_eq!(snap.decision, Decision::Allowed);
-        assert_eq!(snap.class, RebuildClass::Rebuildable);
+        assert_eq!(draft.decision, Decision::Allowed);
+        assert_eq!(draft.class, RebuildClass::DerivedRebuildable);
 
         let derived = gate_authorize("deleteFolder", ".niko-buddy/lancedb", GateActor::Agent);
         assert_eq!(derived.decision, Decision::Allowed);
@@ -1094,5 +1239,586 @@ mod tests {
             !loop_state_impl().halted,
             "本用例必须清理熔断态，避免污染同进程其他用例"
         );
+    }
+
+    #[test]
+    fn protected_targets_are_case_insensitive_and_match_truth_surface() {
+        let _serial = serial();
+        let _t = use_tree("case-insensitive");
+
+        for target in [
+            ".novel/STATUS.JSON",
+            ".NOVEL/Schema.MD",
+            "qm/raw/a.md",
+            "qm",
+            "QM",
+            "CANON",
+            "Canon/entities.json",
+            r"C:\proj\.NOVEL\STATUS.JSON",
+            r"C:\proj\qm\raw\a.md",
+            r"C:\proj\CANON\ch-01.md",
+        ] {
+            assert!(
+                is_protected_target(target),
+                "保护路径变体必须命中保护判定：{target}"
+            );
+            assert_eq!(
+                classify_rebuild_class(target),
+                RebuildClass::Irreversible,
+                "保护路径变体必须为 Irreversible：{target}"
+            );
+            let del = gate_authorize("deleteFile", target, GateActor::Agent);
+            assert_eq!(
+                del.decision,
+                Decision::Denied,
+                "保护路径变体的破坏性操作必须硬拒绝：{target}"
+            );
+            let write_classified = classify_impl("writeFile", target, GateActor::Agent);
+            assert_eq!(
+                write_classified.decision,
+                Decision::RequireConfirm,
+                "非人类写保护路径变体必须要求人工确认：{target}"
+            );
+        }
+
+        // 不得误报包含相似子串的非保护路径。
+        for safe in [
+            "book/my-canon-notes.md",
+            ".novel/drafts/status.json",
+            "book/qm-notes/chapter-1.md",
+            "book/schema.md",
+        ] {
+            assert!(
+                !is_protected_target(safe),
+                "非保护路径不应误报受保护：{safe}"
+            );
+            let write_classified = classify_impl("writeFile", safe, GateActor::Agent);
+            assert_eq!(
+                write_classified.decision,
+                Decision::Allowed,
+                "非保护路径的常规写入不应被误拦：{safe}"
+            );
+        }
+        assert_eq!(
+            classify_rebuild_class(".novel/drafts/status.json"),
+            RebuildClass::DerivedRebuildable
+        );
+    }
+
+    #[test]
+    fn protected_targets_catch_traversal_and_keep_parent_dir_conservative() {
+        let _serial = serial();
+        let _t = use_tree("traversal");
+
+        for sneaky in [
+            ".novel/drafts/../status.json",
+            r".novel\drafts\..\STATUS.JSON",
+            "book/../qm/raw/a.md",
+            "QM/../book/ok.md",
+            "foo/bar/../../CANON/ch.md",
+            ".novel/./SCHEMA.MD",
+        ] {
+            assert!(
+                is_protected_target(sneaky),
+                "穿越变体必须命中保护判定：{sneaky}"
+            );
+            assert_eq!(
+                classify_rebuild_class(sneaky),
+                RebuildClass::Irreversible,
+                "穿越变体必须判为 Irreversible：{sneaky}"
+            );
+            let del = gate_authorize("deleteFile", sneaky, GateActor::Cli);
+            assert_eq!(
+                del.decision,
+                Decision::Denied,
+                "穿越变体的删除操作必须硬拒绝：{sneaky}"
+            );
+        }
+
+        // 含 `..` 的非保护路径仍保守判为 Irreversible，禁止被归类为可重建而跳过确认。
+        assert_eq!(
+            classify_rebuild_class(".novel/snapshots/../other.md"),
+            RebuildClass::Irreversible
+        );
+        assert_eq!(
+            classify_rebuild_class("backups/../book/chapter-1.md"),
+            RebuildClass::Irreversible
+        );
+        // 目录本体 `.novel` 包含 status.json/schema.md，不得归类为可重建。
+        assert_eq!(classify_rebuild_class(".novel"), RebuildClass::Irreversible);
+    }
+
+    #[test]
+    fn fingerprint_normalizes_op_case_and_windows_target_case() {
+        assert_eq!(
+            fingerprint("deleteFile", "output/a.bin"),
+            fingerprint("DELETEFILE", "output/a.bin")
+        );
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                fingerprint("deleteFile", r"C:\Proj\Output\A.BIN"),
+                fingerprint("DELETEFILE", "c:/proj/output/a.bin")
+            );
+            assert_eq!(
+                relative_to_root(Some(std::path::Path::new(r"C:\Proj")), r"c:\proj\book\a.md"),
+                "book/a.md"
+            );
+            assert!(is_protected_target(r"C:\proj\.novel\status.json::$DATA"));
+            assert!(is_protected_target(r".novel\STATUS.JSON."));
+            assert!(is_protected_target(r"qm \raw\notes.md"));
+        }
+    }
+
+    #[test]
+    fn resource_dir_hint_does_not_overwrite_gate_project_root() {
+        let _serial = serial();
+        let project = use_tree("resource-hint-proj");
+        let resource = TempTree::new("resource-hint-res");
+
+        crate::commands::fs_pdf::set_resource_dir_hint(resource.root.clone());
+
+        {
+            let g = state().lock().unwrap();
+            assert_eq!(
+                g.root.as_deref(),
+                Some(project.root.as_path()),
+                "set_resource_dir_hint 不得改写确认门的项目根"
+            );
+        }
+
+        let out = gate_authorize("writeFile", "book/ch-1.md", GateActor::Agent);
+        assert_eq!(out.decision, Decision::Allowed);
+        assert!(
+            project.path(GATE_AUDIT_FILE).is_file(),
+            "审计日志仍应写入真实项目根"
+        );
+        assert!(
+            !resource.path(GATE_AUDIT_FILE).exists(),
+            "审计日志不得落盘到资源目录"
+        );
+    }
+
+    #[test]
+    fn create_project_impl_binds_real_project_root() {
+        let _serial = serial();
+        let _old = use_tree("before-create-proj");
+        let parent = TempTree::new("create-proj-parent");
+
+        let created = crate::commands::project::create_project_impl(
+            "bound-novel".to_string(),
+            parent.root.to_string_lossy().to_string(),
+        )
+        .expect("create_project_impl 应成功");
+        assert_eq!(created.name, "bound-novel");
+
+        let created_root = parent.root.join("bound-novel");
+        let expected_root =
+            std::fs::canonicalize(&created_root).unwrap_or_else(|_| created_root.clone());
+        {
+            let g = state().lock().unwrap();
+            assert_eq!(
+                g.root.as_deref(),
+                Some(expected_root.as_path()),
+                "create_project_impl 必须将确认门绑定到新建项目的规范化根路径"
+            );
+        }
+
+        let draft_abs = created_root
+            .join(".novel")
+            .join("drafts")
+            .join("ch1")
+            .join("draft.json");
+        let out = gate_authorize("deleteFile", &draft_abs.to_string_lossy(), GateActor::Agent);
+        assert_eq!(out.class, RebuildClass::DerivedRebuildable);
+        assert_eq!(out.decision, Decision::Allowed);
+        assert!(
+            created_root
+                .join(".novel")
+                .join("audit")
+                .join("gate-audit.jsonl")
+                .is_file(),
+            "绑定后的审计日志应落盘到新建项目根下"
+        );
+    }
+
+    #[test]
+    fn switching_project_root_clears_stale_grants_and_hydrates_new_disk_halt() {
+        let _serial = serial();
+        let _tree_a = use_tree("switch-root-a");
+
+        // 项目 A：建立人工 grant、挂起 pending，并触发熔断。
+        let grant_target = "output/secret-a.bin";
+        let first = gate_authorize("deleteFile", grant_target, GateActor::Agent);
+        assert_eq!(first.decision, Decision::RequireConfirm);
+        let grant_req_id = first.request_id.expect("grant request id");
+        assert_eq!(
+            resolve_impl(&grant_req_id, Decision::Allowed, "ok")
+                .expect("resolve grant")
+                .decision,
+            Decision::Allowed
+        );
+        let granted = gate_authorize("deleteFile", grant_target, GateActor::Agent);
+        assert_eq!(granted.decision, Decision::Allowed);
+        assert!(granted.reason.contains("grant"));
+
+        let pending_req = gate_authorize("deleteFile", "output/pending-a.bin", GateActor::Agent);
+        assert_eq!(pending_req.decision, Decision::RequireConfirm);
+        assert!(!pending_impl().is_empty());
+
+        let loop_target = "output/loop-a.bin";
+        for _ in 0..(LOOP_THRESHOLD - 1) {
+            let out = gate_authorize("deleteFile", loop_target, GateActor::Agent);
+            assert_eq!(out.decision, Decision::RequireConfirm);
+            let id = out.request_id.expect("loop req id");
+            let _ = resolve_impl(&id, Decision::Denied, "no");
+        }
+        let halted = gate_authorize("deleteFile", loop_target, GateActor::Agent);
+        assert_eq!(halted.decision, Decision::Denied);
+        assert!(loop_state_impl().halted);
+
+        // 切到干净项目 B：旧 grant / pending / halt 必须全部清空，不得跨项目泄漏。
+        let tree_b = TempTree::new("switch-root-b");
+        set_gate_project_root(tree_b.root.clone());
+        assert!(!loop_state_impl().halted, "切根后旧项目熔断态不得残留");
+        assert!(pending_impl().is_empty(), "切根后旧项目待确认队列必须清空");
+        let after_switch = gate_authorize("deleteFile", grant_target, GateActor::Agent);
+        assert_eq!(
+            after_switch.decision,
+            Decision::RequireConfirm,
+            "项目 A 的 grant 不得泄漏到项目 B"
+        );
+
+        // 切到盘上已有熔断标记的项目 C：必须立即加载项目 C 的盘上 halt。
+        let tree_c = TempTree::new("switch-root-c");
+        let disk_halt = HaltRecord {
+            fingerprint: "deletefile|output/c-loop.bin".to_string(),
+            request_id: "halt-disk-c".to_string(),
+            count: LOOP_THRESHOLD,
+            ts: now_ms(),
+            reason: "persisted halt on project C".to_string(),
+        };
+        std::fs::write(
+            halt_path(&tree_c.root),
+            serde_json::to_string(&disk_halt).expect("serialize halt"),
+        )
+        .expect("write project C halt");
+
+        set_gate_project_root(tree_c.root.clone());
+        let state_c = loop_state_impl();
+        assert!(state_c.halted, "切到项目 C 后应立即加载其盘上熔断态");
+        assert_eq!(state_c.halt_request_id.as_deref(), Some("halt-disk-c"));
+        let blocked = gate_authorize("deleteFile", "book/ok.md", GateActor::Agent);
+        assert_eq!(blocked.decision, Decision::Denied);
+
+        // 收尾清理熔断态，避免影响同进程后续用例。
+        resolve_impl("halt-disk-c", Decision::ResumeAfterHalt, "test cleanup").expect("resume C");
+        assert!(!loop_state_impl().halted);
+    }
+
+    #[test]
+    fn bare_protected_roots_denied_and_agent_run_command_requires_confirm() {
+        let _serial = serial();
+        let _t = use_tree("bare-protected-roots");
+
+        for target in ["QM", "qm", "Qm", "canon", "CANON", "Canon"] {
+            for op in ["deleteFolder", "deleteFile", "runCommand"] {
+                for actor in [
+                    GateActor::Agent,
+                    GateActor::Cli,
+                    GateActor::User,
+                    GateActor::External,
+                ] {
+                    let out = gate_authorize(op, target, actor);
+                    assert_eq!(
+                        out.decision,
+                        Decision::Denied,
+                        "无尾斜杠保护根与大小写变体必须硬拒绝：op={op} target={target} actor={actor:?}"
+                    );
+                    assert!(!out.may_proceed());
+                }
+            }
+        }
+
+        // 收紧策略：非 CLI actor 发起 runCommand 指向不可重建目标须走人工确认，CLI 仍放行。
+        let agent_cmd = gate_authorize("runCommand", "book/chapter-1.md", GateActor::Agent);
+        assert_eq!(agent_cmd.decision, Decision::RequireConfirm);
+        let cli_cmd = gate_authorize("runCommand", "book/chapter-2.md", GateActor::Cli);
+        assert_eq!(cli_cmd.decision, Decision::Allowed);
+    }
+
+    #[test]
+    fn rollback_tickets_evict_earliest_expire_and_clear_on_root_switch() {
+        let _serial = serial();
+        let _tree_a = use_tree("rollback-tickets-a");
+        let digest = [0x42u8; 32];
+
+        // 装满容量上限，并人为将 k-000 设为最早过期项。
+        for i in 0..MAX_ROLLBACK_TICKETS {
+            register_creation_rollback_ticket(&format!("k-{i:03}"), digest);
+        }
+        {
+            let mut g = state().lock().unwrap();
+            assert_eq!(g.rollback_tickets.len(), MAX_ROLLBACK_TICKETS);
+            let oldest = g.rollback_tickets.get_mut("k-000").expect("k-000 present");
+            oldest.expires_at_ms = now_ms().saturating_add(1_000);
+        }
+
+        // 第 65 条写入必须淘汰最早过期的 k-000。
+        register_creation_rollback_ticket("k-extra", digest);
+        {
+            let g = state().lock().unwrap();
+            assert_eq!(g.rollback_tickets.len(), MAX_ROLLBACK_TICKETS);
+            assert!(!g.rollback_tickets.contains_key("k-000"));
+            assert!(g.rollback_tickets.contains_key("k-extra"));
+        }
+
+        // 过期票据不得放行，必须回落至标准硬拒。
+        {
+            let mut g = state().lock().unwrap();
+            let extra = g
+                .rollback_tickets
+                .get_mut("k-extra")
+                .expect("k-extra present");
+            extra.expires_at_ms = now_ms().saturating_sub(1);
+        }
+        let expired = gate_authorize_rollback_delete("QM/chapters/ch.md", "k-extra", &digest);
+        assert_eq!(expired.decision, Decision::Denied);
+
+        // 切根必须清空所有未消费回滚票据。
+        register_creation_rollback_ticket("k-switch", digest);
+        let tree_b = TempTree::new("rollback-tickets-b");
+        set_gate_project_root(tree_b.root.clone());
+        let after_switch = gate_authorize_rollback_delete("QM/chapters/ch.md", "k-switch", &digest);
+        assert_eq!(after_switch.decision, Decision::Denied);
+    }
+
+    #[test]
+    fn snapshots_and_audit_surfaces_are_irreversible_and_audit_is_denied_for_non_human() {
+        let _serial = serial();
+        let _t = use_tree("r2-s07-audit-snapshots");
+
+        // .novel/snapshots/* 归为 Irreversible，破坏性操作须人工确认，不得静默放行。
+        for snap_target in [
+            ".novel/snapshots/ch1/body.md",
+            r".NOVEL\SNAPSHOTS\s1\status.json",
+            ".novel/drafts/../snapshots/s1/body.md",
+        ] {
+            assert_eq!(
+                classify_rebuild_class(snap_target),
+                RebuildClass::Irreversible,
+                "快照目录必须判为不可重建：{snap_target}"
+            );
+            let out = gate_authorize("deleteFile", snap_target, GateActor::Agent);
+            assert_eq!(
+                out.decision,
+                Decision::RequireConfirm,
+                "Agent 删除快照必须要求确认：{snap_target}"
+            );
+            assert!(!out.may_proceed());
+        }
+
+        // .novel/audit/* 归为 Irreversible，且对非 User 的任何写入或删除操作一律硬拒绝。
+        for audit_target in [
+            ".novel/audit/gate-halt.json",
+            ".novel/audit/gate-audit.jsonl",
+            ".novel/drafts/../audit/gate-halt.json",
+            ".novel/AUDIT/gate-halt.json.",
+            ".novel/audit/gate-halt.json::$DATA",
+        ] {
+            assert_eq!(
+                classify_rebuild_class(audit_target),
+                RebuildClass::Irreversible,
+                "审计目录必须判为不可重建：{audit_target}"
+            );
+            for actor in [GateActor::Agent, GateActor::Cli, GateActor::External] {
+                for op in ["deleteFile", "writeFile"] {
+                    let classified = classify_impl(op, audit_target, actor);
+                    assert_eq!(
+                        classified.decision,
+                        Decision::Denied,
+                        "非人类对审计面的 {op} 分类必须硬拒绝：actor={actor:?} target={audit_target}"
+                    );
+                    let out = gate_authorize(op, audit_target, actor);
+                    assert_eq!(
+                        out.decision,
+                        Decision::Denied,
+                        "非人类对审计面的 {op} 必须硬拒绝：actor={actor:?} target={audit_target}"
+                    );
+                    assert!(!out.may_proceed());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fingerprint_folds_traversal_dots_and_ads_to_prevent_loop_bypass() {
+        let _serial = serial();
+        let _t = use_tree("r2-s07-fingerprint");
+
+        let base = fingerprint("deleteFile", "book/c1.md");
+        for variant in [
+            "book/./c1.md",
+            "book/sub/../c1.md",
+            "book/c1.md.",
+            "book/c1.md::$DATA",
+            r"BOOK\sub\..\c1.md",
+            "book//./c1.md ",
+        ] {
+            assert_eq!(
+                fingerprint("deleteFile", variant),
+                base,
+                "路径变体应折叠为同一指纹：{variant}"
+            );
+        }
+
+        // 交替使用等价路径变体仍必须在第 3 次触发循环熔断。
+        let first = gate_authorize("deleteFile", "book/./c1.md", GateActor::Agent);
+        assert_eq!(first.decision, Decision::RequireConfirm);
+        let second = gate_authorize("deleteFile", "book/sub/../c1.md", GateActor::Agent);
+        assert_eq!(second.decision, Decision::RequireConfirm);
+        let third = gate_authorize("deleteFile", "book/c1.md::$DATA", GateActor::Agent);
+        assert_eq!(third.decision, Decision::Denied);
+        assert!(
+            loop_state_impl().halted,
+            "等价路径变体不得绕过 3 次循环熔断"
+        );
+
+        // 清理全局熔断态，避免影响同进程其他测试。
+        let halt_id = loop_state_impl().halt_request_id.expect("halt id");
+        resolve_impl(&halt_id, Decision::ResumeAfterHalt, "test cleanup").expect("resume");
+        assert!(!loop_state_impl().halted);
+    }
+
+    #[test]
+    fn path_guard_primitives_validate_segments_and_reject_symlinks() {
+        use crate::agent_gate_policy::{
+            assert_no_symlink_in_ancestors, validate_safe_single_segment,
+        };
+
+        assert_eq!(
+            validate_safe_single_segment("chapter-01_v2.md", "id").unwrap(),
+            "chapter-01_v2.md"
+        );
+        assert_eq!(
+            validate_safe_single_segment("1.2.3", "version").unwrap(),
+            "1.2.3"
+        );
+        for bad in [
+            "",
+            "   ",
+            " lead",
+            "trail ",
+            ".",
+            "..",
+            "a/b",
+            r"a\b",
+            "bad\0name",
+            "bad\nname",
+            "a<b",
+            "a:b",
+            "a|b",
+            "a?b",
+            "a*b",
+            "trailing.",
+            "CON",
+            "con.txt",
+            "PRN.md",
+            "aux",
+            "NUL.zip",
+            "COM1",
+            "com9.json",
+            "LPT1",
+            "lpt9.md",
+        ] {
+            assert!(
+                validate_safe_single_segment(bad, "seg").is_err(),
+                "非法单段名必须拒绝：{bad:?}"
+            );
+        }
+
+        let tree = TempTree::new("guard-ancestors");
+        let sub = tree.root.join("safe").join("nested.txt");
+        assert!(assert_no_symlink_in_ancestors(&tree.root, &sub).is_ok());
+        assert!(assert_no_symlink_in_ancestors(&tree.root, &tree.root.join("../escape")).is_err());
+    }
+
+    #[test]
+    fn gate_test_serial_sync_and_async_are_mutually_exclusive() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        // 方向 1：同步锁持有期间，异步 gate_test_serial_async().await 必须阻塞且零重叠。
+        let in_critical = Arc::new(AtomicBool::new(false));
+        let async_entered = Arc::new(AtomicBool::new(false));
+        let overlap = Arc::new(AtomicBool::new(false));
+
+        let sync_guard = gate_test_serial();
+        in_critical.store(true, Ordering::SeqCst);
+
+        let in_c = Arc::clone(&in_critical);
+        let entered_c = Arc::clone(&async_entered);
+        let overlap_c = Arc::clone(&overlap);
+        let handle = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build current_thread runtime");
+            rt.block_on(async move {
+                let _async_guard = gate_test_serial_async().await;
+                if in_c.swap(true, Ordering::SeqCst) {
+                    overlap_c.store(true, Ordering::SeqCst);
+                }
+                entered_c.store(true, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(15)).await;
+                in_c.store(false, Ordering::SeqCst);
+            });
+        });
+
+        std::thread::sleep(Duration::from_millis(30));
+        assert!(
+            !async_entered.load(Ordering::SeqCst),
+            "async waiter must stay blocked while sync gate_test_serial guard is held"
+        );
+        in_critical.store(false, Ordering::SeqCst);
+        drop(sync_guard);
+
+        handle.join().expect("async thread should finish");
+        assert!(async_entered.load(Ordering::SeqCst));
+        assert!(
+            !overlap.load(Ordering::SeqCst),
+            "sync and async gate_test_serial guards must never overlap"
+        );
+
+        // 方向 2：异步锁跨 .await 持有期间，同步 gate_test_serial() 必须阻塞直至释放。
+        let async_active = Arc::new(AtomicBool::new(false));
+        let async_started = Arc::new(AtomicBool::new(false));
+        let active_c = Arc::clone(&async_active);
+        let started_c = Arc::clone(&async_started);
+        let handle2 = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build current_thread runtime");
+            rt.block_on(async move {
+                let _async_guard = gate_test_serial_async().await;
+                active_c.store(true, Ordering::SeqCst);
+                started_c.store(true, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(35)).await;
+                active_c.store(false, Ordering::SeqCst);
+            });
+        });
+
+        while !async_started.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let sync_guard2 = gate_test_serial();
+        assert!(
+            !async_active.load(Ordering::SeqCst),
+            "sync gate_test_serial must not acquire lock while async guard is still active"
+        );
+        drop(sync_guard2);
+        handle2.join().expect("second async thread should finish");
     }
 }

@@ -209,17 +209,38 @@ pub const ALL_WRITE_TARGETS: [WriteTarget; 10] = [
     WriteTarget::Other,
 ];
 
-/// 把任意（相对 / 绝对 / Windows / POSIX）路径归类为 [`WriteTarget`]。
-///
-/// 判定规则：从左到右找**第一个**库根标记段（`.novel` / `qm` / `canon`），并按其后
-/// 首段细分；无标记时检查路径段中是否含用户资产域根（`user-assets`）。
-pub fn classify_target(target: &Path) -> WriteTarget {
-    let segments = normalized_segments(target);
+fn target_severity(target: WriteTarget) -> u8 {
+    match target {
+        WriteTarget::StatusJson => 9,
+        WriteTarget::SchemaDoc => 8,
+        WriteTarget::Canon => 7,
+        WriteTarget::Reference => 6,
+        WriteTarget::UserAssetBody => 5,
+        WriteTarget::UserAssetRef => 4,
+        WriteTarget::Other => 3,
+        WriteTarget::Procedure => 2,
+        WriteTarget::MarketCache => 1,
+        WriteTarget::Drafts => 0,
+    }
+}
+
+fn stricter_decision(a: WriteDecision, b: WriteDecision) -> WriteDecision {
+    match (a, b) {
+        (WriteDecision::Deny, _) | (_, WriteDecision::Deny) => WriteDecision::Deny,
+        (WriteDecision::RequireGate, _) | (_, WriteDecision::RequireGate) => {
+            WriteDecision::RequireGate
+        }
+        (WriteDecision::Allow, WriteDecision::Allow) => WriteDecision::Allow,
+    }
+}
+
+fn classify_segments(segments: &[String]) -> Vec<WriteTarget> {
+    let mut hits = Vec::new();
     for (index, segment) in segments.iter().enumerate() {
         match segment.as_str() {
             ".novel" => {
                 let rest = segments.get(index + 1).map(String::as_str);
-                return match rest {
+                let target = match rest {
                     Some("status.json") => WriteTarget::StatusJson,
                     Some("schema.md") => WriteTarget::SchemaDoc,
                     Some("drafts") => WriteTarget::Drafts,
@@ -227,16 +248,52 @@ pub fn classify_target(target: &Path) -> WriteTarget {
                     Some("user-asset-refs.json") => WriteTarget::UserAssetRef,
                     _ => WriteTarget::Procedure,
                 };
+                hits.push(target);
             }
-            "qm" => return WriteTarget::Reference,
-            "canon" => return WriteTarget::Canon,
+            "qm" => hits.push(WriteTarget::Reference),
+            "canon" => hits.push(WriteTarget::Canon),
+            "user-assets" => hits.push(WriteTarget::UserAssetBody),
             _ => {}
         }
     }
-    if segments.iter().any(|s| s == "user-assets") {
-        return WriteTarget::UserAssetBody;
+    if hits.is_empty() {
+        hits.push(WriteTarget::Other);
     }
-    WriteTarget::Other
+    hits
+}
+
+/// 收集路径在 raw（保留 `..`）与 folded（折叠 `..`）双视角下命中的所有落位类别。
+/// 含 `..` 穿越段时，绝不降格为可直写的暂存区（`Drafts`/`MarketCache`/`Procedure`），
+/// 未命中保护面一律保守归为 [`WriteTarget::Other`]。
+fn candidate_targets(target: &Path) -> Vec<WriteTarget> {
+    let raw_str = target.to_string_lossy();
+    let (raw, folded) = crate::agent_gate_policy::normalized_lower_segments(&raw_str);
+    let has_traversal = raw.iter().any(|seg| seg == "..");
+    let mut targets = classify_segments(&raw);
+    targets.extend(classify_segments(&folded));
+    if has_traversal {
+        for item in &mut targets {
+            if matches!(
+                *item,
+                WriteTarget::Drafts | WriteTarget::MarketCache | WriteTarget::Procedure
+            ) {
+                *item = WriteTarget::Other;
+            }
+        }
+        targets.push(WriteTarget::Other);
+    }
+    targets
+}
+
+/// 把任意（相对 / 绝对 / Windows / POSIX）路径归类为 [`WriteTarget`]。
+///
+/// 复用 `agent_gate_policy::normalized_lower_segments`，在 raw 与 folded 双视角下
+/// 取最高风险落位类别；含 `..` 且未命中保护面时保守归为 [`WriteTarget::Other`]。
+pub fn classify_target(target: &Path) -> WriteTarget {
+    candidate_targets(target)
+        .into_iter()
+        .max_by_key(|t| target_severity(*t))
+        .unwrap_or(WriteTarget::Other)
 }
 
 /// 纯函数权限表（来源 × 落位类别）。矩阵变更只在此处发生。
@@ -303,9 +360,12 @@ pub fn decision_for(source: WriteSource, target: WriteTarget) -> WriteDecision {
     }
 }
 
-/// 权限判定主入口：给定来源与目标路径，返回三态判定。
+/// 权限判定主入口：对 raw 与 folded 双视角命中的所有落位类别逐一裁决，按最严权限 fail-closed 返回。
 pub fn may_write(source: WriteSource, target: &Path) -> WriteDecision {
-    decision_for(source, classify_target(target))
+    candidate_targets(target)
+        .into_iter()
+        .map(|t| decision_for(source, t))
+        .fold(WriteDecision::Allow, stricter_decision)
 }
 
 // ───────────────────────── C-008 / C-009 的矩阵侧契约 ─────────────────────────
@@ -513,16 +573,6 @@ fn escape_json(value: &str) -> String {
         }
     }
     out
-}
-
-fn normalized_segments(target: &Path) -> Vec<String> {
-    target
-        .to_string_lossy()
-        .replace('\\', "/")
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_ascii_lowercase())
-        .collect()
 }
 
 #[cfg(test)]
@@ -841,8 +891,8 @@ mod tests {
 
     #[test]
     fn audit_cannot_be_disabled() {
-        // C-008：审计没有开关。改这个常量就会在启动时 panic。
-        assert!(!AUDIT_CAN_BE_DISABLED);
+        // C-008：审计没有开关。改这个常量在编译期即拒绝。
+        const _: () = assert!(!AUDIT_CAN_BE_DISABLED);
         // 所有外部来源都要审计，包括新增的 ExternalAgent。
         for source in [
             WriteSource::SkillImport,
@@ -923,5 +973,81 @@ mod tests {
         assert_eq!(escape_json("line1\nline2"), "line1\\nline2");
         assert_eq!(escape_json("tab\there"), "tab\\there");
         assert_eq!(escape_json("\u{1}"), "\\u0001");
+    }
+
+    #[test]
+    fn adversarial_traversal_dots_and_ads_fail_closed() {
+        // 借 .. 折入真源面：必须按折叠后真源裁决 Deny。
+        for sneaky in [
+            ".novel/drafts/../status.json",
+            r".novel\drafts\..\STATUS.JSON",
+            ".novel/./status.json",
+            ".novel/status.json.",
+            ".novel/status.json::$DATA",
+            ".novel/drafts/../schema.md",
+            ".novel/drafts/../../canon/ch-01.md",
+            "book/../QM/raw/notes.md",
+        ] {
+            assert_eq!(
+                may_write(WriteSource::SkillImport, &p(sneaky)),
+                WriteDecision::Deny,
+                "SkillImport 穿越/变形路径必须 Deny: {sneaky}"
+            );
+            assert_eq!(
+                may_write(WriteSource::AiSuggestion, &p(sneaky)),
+                WriteDecision::Deny,
+                "AiSuggestion 穿越/变形路径必须 Deny: {sneaky}"
+            );
+        }
+
+        // 先触达真源面再借 .. 折出到草稿区：raw 视角仍命中真源，按最严权限 Deny。
+        for fold_out in [
+            "QM/../.novel/drafts/ok.md",
+            "canon/../.novel/market/cache.json",
+            ".novel/status.json/../drafts/a.md",
+        ] {
+            assert_eq!(
+                may_write(WriteSource::SkillImport, &p(fold_out)),
+                WriteDecision::Deny,
+                "先经真源再折出必须 fail-closed Deny: {fold_out}"
+            );
+            assert_eq!(
+                may_write(WriteSource::AiSuggestion, &p(fold_out)),
+                WriteDecision::Deny,
+                "AiSuggestion 先经真源再折出必须 Deny: {fold_out}"
+            );
+        }
+
+        // 含 .. 但未命中保护面：保守归为 Other，绝不判为 Drafts/MarketCache 放行。
+        assert_eq!(
+            classify_target(&p(".novel/drafts/sub/../a.md")),
+            WriteTarget::Other
+        );
+        assert_eq!(
+            may_write(WriteSource::AiSuggestion, &p(".novel/drafts/sub/../a.md")),
+            WriteDecision::RequireGate
+        );
+        assert_eq!(
+            may_write(WriteSource::SyncPull, &p(".novel/drafts/sub/../a.md")),
+            WriteDecision::Deny
+        );
+        assert_eq!(
+            may_write(
+                WriteSource::ExternalFetch,
+                &p(".novel/market/sub/../a.json")
+            ),
+            WriteDecision::RequireGate
+        );
+        assert_eq!(
+            may_write(WriteSource::ExternalAgent, &p(".novel/drafts/sub/../a.md")),
+            WriteDecision::RequireGate
+        );
+        assert_eq!(
+            may_write(
+                WriteSource::ExternalAgent,
+                &p(".novel/drafts/../status.json")
+            ),
+            WriteDecision::Deny
+        );
     }
 }

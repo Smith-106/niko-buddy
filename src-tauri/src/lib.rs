@@ -433,7 +433,11 @@ pub fn run() {
             // 架构-1：进程退出时停掉 status.json 监听线程（切项目由
             // start_status_watcher 内部先停旧后启新处理）。
             if let tauri::RunEvent::Exit = event {
+                use tauri::Manager;
                 status_watcher::stop_status_watcher(app);
+                if let Some(mcp) = app.try_state::<mcp_server::McpServerHandle>() {
+                    mcp.stop();
+                }
             }
             let _ = (app, event); // suppress unused warnings on non-macOS
         });

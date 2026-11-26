@@ -130,7 +130,7 @@ pub fn apply_proxy_env(config: &ProxyConfig) -> String {
 /// `http://***@host:port`. URLs without a userinfo component pass
 /// through unchanged. This prevents proxy passwords from persisting
 /// in stderr, Console.app, or journalctl output.
-fn redact_url(url: &str) -> String {
+pub(crate) fn redact_url(url: &str) -> String {
     let scheme_end = match url.find("://") {
         Some(pos) => pos + 3,
         None => return url.to_string(),

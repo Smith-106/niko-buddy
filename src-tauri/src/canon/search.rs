@@ -53,7 +53,7 @@
 //!   - 不引入第二份会话状态文件；canon_revision 复用 `CanonStore` 的写入计数
 //!     语义（ingest/supersede 触发自增），缓存层只持有内存计数副本。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
@@ -523,16 +523,16 @@ impl CanonGraph {
             return Vec::new();
         }
         let mut visited: HashSet<&str> = HashSet::new();
-        let mut frontier: Vec<(&str, u32)> = vec![(start, 0)];
+        let mut frontier: VecDeque<(&str, u32)> = VecDeque::from([(start, 0)]);
         visited.insert(start);
-        while let Some((node, depth)) = frontier.pop() {
+        while let Some((node, depth)) = frontier.pop_front() {
             if depth >= max_depth {
                 continue;
             }
             // 邻接表已物化：无需再走 petgraph 边迭代器（T32）。
             for nxt in &self.adjacency[node] {
                 if visited.insert(nxt.as_str()) {
-                    frontier.push((nxt.as_str(), depth + 1));
+                    frontier.push_back((nxt.as_str(), depth + 1));
                 }
             }
         }
@@ -713,13 +713,20 @@ impl CanonSearch {
             .execute()
             .await
             .map_err(|e| format!("open {table_name}: {e}"))?;
+        let has_archived_col = db_table
+            .schema()
+            .await
+            .map_err(|e| format!("schema {table_name}: {e}"))?
+            .field_with_name("archived")
+            .is_ok();
         let fts = FullTextSearchQuery::new(term.to_string())
             .with_column("data".to_string())
             .map_err(|e| format!("fts column: {e}"))?;
-        let batches = db_table
-            .query()
-            .full_text_search(fts)
-            .limit(limit)
+        let mut query = db_table.query().full_text_search(fts).limit(limit);
+        if has_archived_col {
+            query = query.only_if("(archived = false OR archived IS NULL)");
+        }
+        let batches = query
             .execute()
             .await
             .map_err(|e| format!("fts query: {e}"))?
@@ -742,7 +749,10 @@ impl CanonSearch {
                     continue;
                 }
                 let json = arr.value(i);
-                let (id, ref_ch) = extract_id_and_chapter(table, json);
+                let (id, ref_ch, archived) = extract_id_chapter_archived(table, json);
+                if archived {
+                    continue;
+                }
                 let raw = match scores {
                     Some(s) if !s.is_null(i) => s.value(i) as f64,
                     _ => 1.0,
@@ -776,10 +786,21 @@ impl CanonSearch {
             .execute()
             .await
             .map_err(|e| format!("open {table_name}: {e}"))?;
+        let has_archived_col = db_table
+            .schema()
+            .await
+            .map_err(|e| format!("schema {table_name}: {e}"))?
+            .field_with_name("archived")
+            .is_ok();
         let like = sql_like(term);
+        let filter = if has_archived_col {
+            format!("(archived = false OR archived IS NULL) AND LOWER(data) LIKE LOWER({like})")
+        } else {
+            format!("LOWER(data) LIKE LOWER({like})")
+        };
         let batches = db_table
             .query()
-            .only_if(format!("LOWER(data) LIKE LOWER({})", like))
+            .only_if(filter)
             .limit(limit)
             .execute()
             .await
@@ -800,7 +821,10 @@ impl CanonSearch {
                     continue;
                 }
                 let json = arr.value(i);
-                let (id, ref_ch) = extract_id_and_chapter(table, json);
+                let (id, ref_ch, archived) = extract_id_chapter_archived(table, json);
+                if archived {
+                    continue;
+                }
                 out.push(RecallItem::new(
                     id,
                     RecallSource::Fts,
@@ -833,14 +857,24 @@ impl CanonSearch {
             .execute()
             .await
             .map_err(|e| format!("open {table_name}: {e}"))?;
+        let has_archived_col = db_table
+            .schema()
+            .await
+            .map_err(|e| format!("schema {table_name}: {e}"))?
+            .field_with_name("archived")
+            .is_ok();
         // LanceDB 0.27 vector_search 默认探测向量列（与 vectorstore.rs 同源
         // API；多向量列场景在 T13/T32 接入具体 embedding 通道时通过
         // `.column(name)` 显式指定，此处保持默认探测）。
         let _ = _vector_column;
-        let stream = db_table
+        let mut query = db_table
             .vector_search(query_embedding)
             .map_err(|e| format!("vector_search init: {e}"))?
-            .limit(limit)
+            .limit(limit);
+        if has_archived_col {
+            query = query.only_if("(archived = false OR archived IS NULL)");
+        }
+        let stream = query
             .execute()
             .await
             .map_err(|e| format!("vector_search exec: {e}"))?;
@@ -864,7 +898,10 @@ impl CanonSearch {
                     continue;
                 }
                 let json = arr.value(i);
-                let (id, ref_ch) = extract_id_and_chapter(table, json);
+                let (id, ref_ch, archived) = extract_id_chapter_archived(table, json);
+                if archived {
+                    continue;
+                }
                 // raw_score = 1/(1+distance)（vectorstore.rs 同款约定，诊断用）
                 let raw = match dists {
                     Some(d) if !d.is_null(i) => 1.0 / (1.0 + d.value(i) as f64),
@@ -901,13 +938,14 @@ impl CanonFtsTable {
     }
 }
 
-/// 从 `data` JSON 列抽取 id 与参考章节（按表类型）。
-fn extract_id_and_chapter(table: CanonFtsTable, json: &str) -> (String, Option<i32>) {
-    // 轻量解析：优先 serde_json；失败则退化（id 占位）。
+/// 从 `data` JSON 列抽取 id、参考章节与 archived 软删标记（按表类型）。
+fn extract_id_chapter_archived(table: CanonFtsTable, json: &str) -> (String, Option<i32>, bool) {
+    // 轻量解析：优先 serde_json；失败则退化（id 占位，archived=false）。
     let v: serde_json::Value = match serde_json::from_str(json) {
         Ok(v) => v,
-        Err(_) => return (json.to_string(), None),
+        Err(_) => return (json.to_string(), None, false),
     };
+    let archived = v.get("archived").and_then(|x| x.as_bool()).unwrap_or(false);
     let id = v
         .get("id")
         .and_then(|x| x.as_str())
@@ -921,21 +959,24 @@ fn extract_id_and_chapter(table: CanonFtsTable, json: &str) -> (String, Option<i
             .and_then(|x| x.as_i64())
             .or_else(|| v.get("reference_time").and_then(|x| x.as_i64())),
     };
-    (id, ref_ch.map(|x| x as i32))
+    (id, ref_ch.map(|x| x as i32), archived)
 }
 
-/// SQL LIKE 转义（单引号包裹 + 内部单引号加倍 + % _ 转义）。防注入。
+/// 从 `data` JSON 列抽取 id 与参考章节（按表类型）。
+fn extract_id_and_chapter(table: CanonFtsTable, json: &str) -> (String, Option<i32>) {
+    let (id, ref_ch, _) = extract_id_chapter_archived(table, json);
+    (id, ref_ch)
+}
+
+/// SQL LIKE 转义（先转义 `\` → `\\`，再转义 `%` / `_` 与 SQL 单引号 `'` → `''`，最后以 `'%...%'` 包裹）。
+/// DataFusion 52 / arrow-string 默认以 `\` 为 LIKE 转义符，顺序不可颠倒，防通配符与 SQL 注入。
 fn sql_like(term: &str) -> String {
-    let escaped: String = term
-        .chars()
-        .map(|c| match c {
-            '\'' => "''".to_string(),
-            '%' => "\\%".to_string(),
-            '_' => "\\_".to_string(),
-            _ => c.to_string(),
-        })
-        .collect();
-    format!("'%{}%'", escaped)
+    let escaped = term
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+        .replace('\'', "''");
+    format!("'%{escaped}%'")
 }
 
 // （本任务 IO 层为「契约存在 + 编译通过」，自包含 Connection，不依赖
@@ -1455,6 +1496,235 @@ mod tests {
         );
         assert!(hits.iter().all(|h| h.source == RecallSource::Vector));
     }
+
+    #[test]
+    fn graph_bfs_uses_true_fifo_shortest_path_not_dfs() {
+        // 捷径菱形图：
+        //   a -> b -> c -> d（真实最短距离：b=1, c=2, d=3）
+        //   a -> z -> y -> b（另一条更长路径：z=1, y=2, b=3）
+        // 邻接表排序后 a 的邻居为 ["b", "z"]；若误用 Vec::pop (DFS)，
+        // 会先弹 "z" 走 a->z->y->b 把 b 标在 depth=3 处，导致 c、d 被错误剪枝！
+        let edges = vec![
+            edge("e1", "a", "b"),
+            edge("e2", "b", "c"),
+            edge("e3", "c", "d"),
+            edge("e4", "a", "z"),
+            edge("e5", "z", "y"),
+            edge("e6", "y", "b"),
+        ];
+        let g = CanonGraph::from_edges(&edges);
+        let reach = g.bfs_depth("a", 3);
+        assert!(
+            reach.contains(&"c".to_string()),
+            "c 距离 2 必须可达: {reach:?}"
+        );
+        assert!(
+            reach.contains(&"d".to_string()),
+            "d 距离 3 必须可达: {reach:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn canon_search_filters_archived_in_fts_like_and_vector_queries() {
+        use arrow_array::BooleanArray;
+
+        let p = tmp_project();
+        let search = CanonSearch::open(&p.to_string_lossy()).await.unwrap();
+        let db = search.connection();
+        let dim = 4i32;
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("archived", DataType::Boolean, true),
+            Field::new("data", DataType::Utf8, false),
+            Field::new(
+                "embedding",
+                DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, true)), dim),
+                false,
+            ),
+        ]));
+        db.create_table(
+            CANON_TABLE_ENTITIES,
+            vec![RecordBatch::new_empty(schema.clone())],
+        )
+        .execute()
+        .await
+        .unwrap();
+        let table = db.open_table(CANON_TABLE_ENTITIES).execute().await.unwrap();
+        let emb = |vals: &[f32]| -> ArrayRef {
+            Arc::new(FixedSizeListArray::new(
+                Arc::new(Field::new("item", DataType::Float32, true)),
+                dim,
+                Arc::new(Float32Array::from(vals.to_vec())),
+                None,
+            ))
+        };
+        let rows = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(BooleanArray::from(vec![
+                    Some(false),
+                    None,
+                    Some(true),
+                    Some(false),
+                ])),
+                Arc::new(StringArray::from(vec![
+                    Some(r#"{"id":"active-false","canonical_name":"Alice","first_seen_chapter":1,"archived":false}"#),
+                    Some(r#"{"id":"active-null","canonical_name":"Alice","first_seen_chapter":2}"#),
+                    Some(r#"{"id":"phys-archived","canonical_name":"Alice","first_seen_chapter":3,"archived":true}"#),
+                    Some(r#"{"id":"json-archived","canonical_name":"Alice","first_seen_chapter":4,"archived":true}"#),
+                ])),
+                emb(&[
+                    1.0, 0.0, 0.0, 0.0, // active-false
+                    0.9, 0.1, 0.0, 0.0, // active-null
+                    1.0, 0.0, 0.0, 0.0, // phys-archived
+                    1.0, 0.0, 0.0, 0.0, // json-archived
+                ]),
+            ],
+        )
+        .unwrap();
+        table.add(vec![rows]).execute().await.unwrap();
+
+        let fts_hits = search
+            .fts_query(CanonFtsTable::Entities, "Alice", 10)
+            .await
+            .unwrap();
+        let fts_ids: Vec<&str> = fts_hits.iter().map(|h| h.id.as_str()).collect();
+        assert!(fts_ids.contains(&"active-false"));
+        assert!(fts_ids.contains(&"active-null"));
+        assert!(!fts_ids.contains(&"phys-archived"));
+        assert!(!fts_ids.contains(&"json-archived"));
+
+        let like_hits = search
+            .fts_query_like(CanonFtsTable::Entities, "Alice", 10)
+            .await
+            .unwrap();
+        let like_ids: Vec<&str> = like_hits.iter().map(|h| h.id.as_str()).collect();
+        assert!(like_ids.contains(&"active-false"));
+        assert!(like_ids.contains(&"active-null"));
+        assert!(!like_ids.contains(&"phys-archived"));
+        assert!(!like_ids.contains(&"json-archived"));
+
+        let vec_hits = search
+            .vector_query(
+                CanonFtsTable::Entities,
+                vec![1.0, 0.0, 0.0, 0.0],
+                10,
+                "embedding",
+            )
+            .await
+            .unwrap();
+        let vec_ids: Vec<&str> = vec_hits.iter().map(|h| h.id.as_str()).collect();
+        assert!(vec_ids.contains(&"active-false"));
+        assert!(vec_ids.contains(&"active-null"));
+        assert!(!vec_ids.contains(&"phys-archived"));
+        assert!(!vec_ids.contains(&"json-archived"));
+    }
+
+    #[test]
+    fn sql_like_escapes_backslash_before_wildcards_and_quotes() {
+        assert_eq!(sql_like(r"a\b"), r"'%a\\b%'");
+        assert_eq!(sql_like(r"end\"), r"'%end\\%'");
+        assert_eq!(sql_like("100%"), r"'%100\%%'");
+        assert_eq!(sql_like("foo_bar"), r"'%foo\_bar%'");
+        assert_eq!(sql_like(r"\%_"), r"'%\\\%\_%'");
+        assert_eq!(sql_like("O'Brien"), "'%O''Brien%'");
+    }
+
+    #[tokio::test]
+    async fn canon_search_lancedb_fts_query_like_handles_backslashes_and_wildcards() {
+        use arrow_array::BooleanArray;
+
+        let p = tmp_project();
+        let search = CanonSearch::open(&p.to_string_lossy()).await.unwrap();
+        let db = search.connection();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("archived", DataType::Boolean, true),
+            Field::new("data", DataType::Utf8, false),
+        ]));
+        db.create_table(
+            CANON_TABLE_ENTITIES,
+            vec![RecordBatch::new_empty(schema.clone())],
+        )
+        .execute()
+        .await
+        .unwrap();
+        let table = db.open_table(CANON_TABLE_ENTITIES).execute().await.unwrap();
+        let rows = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(BooleanArray::from(vec![
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                ])),
+                Arc::new(StringArray::from(vec![
+                    Some(r#"{"id":"pct-hit","canonical_name":"100%","first_seen_chapter":1}"#),
+                    Some(r#"{"id":"pct-decoy","canonical_name":"1000","first_seen_chapter":1}"#),
+                    Some(r#"{"id":"us-hit","canonical_name":"foo_bar","first_seen_chapter":1}"#),
+                    Some(r#"{"id":"us-decoy","canonical_name":"fooXbar","first_seen_chapter":1}"#),
+                    Some("raw:a\\b"),
+                    Some("raw:ab"),
+                    Some("raw:aXb"),
+                    Some("raw:end\\"),
+                    Some("raw:end%"),
+                    Some(r#"{"id":"quote-hit","canonical_name":"O'Brien","first_seen_chapter":1}"#),
+                ])),
+            ],
+        )
+        .unwrap();
+        table.add(vec![rows]).execute().await.unwrap();
+
+        let pct_hits: Vec<String> = search
+            .fts_query_like(CanonFtsTable::Entities, "100%", 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(pct_hits, ["pct-hit"]);
+
+        let us_hits: Vec<String> = search
+            .fts_query_like(CanonFtsTable::Entities, "foo_bar", 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(us_hits, ["us-hit"]);
+
+        let mid_bs_hits: Vec<String> = search
+            .fts_query_like(CanonFtsTable::Entities, "a\\b", 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(mid_bs_hits, ["raw:a\\b"]);
+
+        let trailing_bs_hits: Vec<String> = search
+            .fts_query_like(CanonFtsTable::Entities, "end\\", 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(trailing_bs_hits, ["raw:end\\"]);
+
+        let quote_hits: Vec<String> = search
+            .fts_query_like(CanonFtsTable::Entities, "O'Brien", 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(quote_hits, ["quote-hit"]);
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1661,8 +1931,8 @@ mod t32_retune_tests {
     ///
     /// 长篇形态编码：
     /// - 36 条查询，at_chapter ∈ [100, 240] 步进 4（中后期叙事窗）。
-    /// - 相关集 6 条/查询 = 4 近章事实（d ∈ [0,7]，gain=2：当前场景活跃）
-    ///   + 2 远期回调（d ∈ [90,170]，gain=1：「前期伏笔回调」型）。
+    /// - 相关集 6 条/查询 = 4 近章事实（d ∈ [0,7]，gain=2：当前场景活跃）与
+    ///   2 远期回调（d ∈ [90,170]，gain=1：「前期伏笔回调」型）。
     ///   分级增益编码产品语义——近章优先，但远回调并非噪声。
     /// - FTS 通道（30 条）：近相关占头部 rank0..3；填充按与 at 的距离升序；
     ///   远相关固定插中段 rank9/14（BM25 只认文本匹配，回调会命中但不在顶）。
@@ -1966,7 +2236,7 @@ mod perf_tests {
         let vector = synthetic_vector(200, 2);
         // warmup（页缓存/分支预测）
         for i in 0..20 {
-            let _ = engine.search(&fts, &vector, Some(150 + i as i32), 50);
+            let _ = engine.search(&fts, &vector, Some(150 + i), 50);
         }
         let runs = 400usize;
         let t0 = Instant::now();

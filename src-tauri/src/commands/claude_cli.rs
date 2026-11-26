@@ -294,6 +294,16 @@ fn claude_gate_target(
     cli_gate_target("claude", model, &refs)
 }
 
+/// Parameters for [`do_claude_cli_spawn`].
+pub struct ClaudeCliSpawnParams {
+    pub stream_id: String,
+    pub model: String,
+    pub messages: Vec<ClaudeMessage>,
+    pub isolate_local_config: bool,
+    pub json_schema: Option<serde_json::Value>,
+    pub retry_attempt: u32,
+}
+
 /// Spawn `claude -p --output-format stream-json --verbose --model <model>`
 /// and pipe either `text` or `stream-json` input via stdin, depending on the
 /// conversation shape. Emits a final done event with `{ code }` when the
@@ -303,13 +313,16 @@ fn claude_gate_target(
 pub async fn do_claude_cli_spawn<E: CliEmitter>(
     state: &ClaudeCliState,
     emitter: E,
-    stream_id: String,
-    model: String,
-    messages: Vec<ClaudeMessage>,
-    isolate_local_config: bool,
-    json_schema: Option<serde_json::Value>,
-    retry_attempt: u32,
+    params: ClaudeCliSpawnParams,
 ) -> Result<(), String> {
+    let ClaudeCliSpawnParams {
+        stream_id,
+        model,
+        messages,
+        isolate_local_config,
+        json_schema,
+        retry_attempt,
+    } = params;
     // F-001：CLI 是外部进程，其逐次写入不在本进程可见范围内；可强制的人工边界是
     // 不得被指向受保护区，且重复执行触发循环熔断。
     // 门控目标 = spawn 的专用工作目录 + 本次请求摘要（cli_gate_target）：
@@ -634,6 +647,8 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
     Ok(())
 }
 
+// Tauri IPC commands require flat argument signatures matching frontend invoke payloads.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn claude_cli_spawn(
     app: AppHandle,
@@ -649,12 +664,14 @@ pub async fn claude_cli_spawn(
     do_claude_cli_spawn(
         &state,
         emitter,
-        stream_id,
-        model,
-        messages,
-        isolate_local_config,
-        json_schema,
-        retry_attempt.unwrap_or(0),
+        ClaudeCliSpawnParams {
+            stream_id,
+            model,
+            messages,
+            isolate_local_config,
+            json_schema,
+            retry_attempt: retry_attempt.unwrap_or(0),
+        },
     )
     .await
 }
@@ -1121,6 +1138,7 @@ mod tests {
         assert!(message.contains("path: C:/Tools/claude.exe"));
     }
 
+    #[cfg(windows)]
     fn tempdir_for_test() -> std::path::PathBuf {
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

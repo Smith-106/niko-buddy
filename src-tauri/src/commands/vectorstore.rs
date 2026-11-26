@@ -119,7 +119,7 @@ async fn prune_chunk_table_versions(table: &Table) -> Result<(u64, u64), String>
 
     // Descending by version; keep the newest K, prune everything older.
     let mut sorted: Vec<_> = versions.iter().collect();
-    sorted.sort_by(|a, b| b.version.cmp(&a.version));
+    sorted.sort_by_key(|v| std::cmp::Reverse(v.version));
     let oldest_to_keep = &sorted[CHUNK_RETAIN_VERSIONS as usize - 1];
 
     let now = chrono::Utc::now();
@@ -162,6 +162,20 @@ static CHUNK_WRITE_MUTATIONS: LazyLock<Mutex<HashMap<String, u64>>> =
 static CHUNK_LAST_MUTATION_TS: LazyLock<Mutex<HashMap<String, u64>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+fn lock_chunk_write_mutations() -> std::sync::MutexGuard<'static, HashMap<String, u64>> {
+    CHUNK_WRITE_MUTATIONS.lock().unwrap_or_else(|poisoned| {
+        log::error!("[vectorstore] CHUNK_WRITE_MUTATIONS poisoned; recovering");
+        poisoned.into_inner()
+    })
+}
+
+fn lock_chunk_last_mutation_ts() -> std::sync::MutexGuard<'static, HashMap<String, u64>> {
+    CHUNK_LAST_MUTATION_TS.lock().unwrap_or_else(|poisoned| {
+        log::error!("[vectorstore] CHUNK_LAST_MUTATION_TS poisoned; recovering");
+        poisoned.into_inner()
+    })
+}
+
 /// Minimum dirty count required before an idle-time compaction is triggered.
 pub const IDLE_COMPACTION_DIRTY_THRESHOLD: u64 = 10;
 /// Minimum quiet/idle duration (ms) after the last mutation before compaction can run.
@@ -181,16 +195,16 @@ fn now_epoch_ms() -> u64 {
 ///   - Best-effort maintenance: the mutation has already committed; a
 ///     compaction hiccup must not roll back or error the caller.
 ///   - Throttle: rows accumulate per project; only once a project's total
-///     >= CHUNK_COMPACTION_THRESHOLD is compact_chunks dispatched, and that
-///     project's counter resets to 0 so we compact at most once per
+///     reaches `>= CHUNK_COMPACTION_THRESHOLD` is `compact_chunks` dispatched,
+///     and that project's counter resets to 0 so we compact at most once per
 ///     THRESHOLD writes to the same project rather than continuously.
 ///   - Missing table: compact_chunks returns an empty report (Ok) → no-op.
 ///   - Errors are swallowed (logged on debug builds) and never propagated.
 async fn maybe_trigger_after_write(project_path: &str, delta: u64) {
     let now = now_epoch_ms();
     let (total, reached) = {
-        let mut counters = CHUNK_WRITE_MUTATIONS.lock().unwrap();
-        let mut ts_map = CHUNK_LAST_MUTATION_TS.lock().unwrap();
+        let mut counters = lock_chunk_write_mutations();
+        let mut ts_map = lock_chunk_last_mutation_ts();
         ts_map.insert(project_path.to_string(), now);
 
         let entry = counters.entry(project_path.to_string()).or_insert(0);
@@ -227,8 +241,8 @@ pub async fn adaptive_idle_compaction(
 ) -> Result<Option<ChunkCompactionReport>, String> {
     let now = now_epoch_ms();
     let should_run = {
-        let mut counters = CHUNK_WRITE_MUTATIONS.lock().unwrap();
-        let ts_map = CHUNK_LAST_MUTATION_TS.lock().unwrap();
+        let mut counters = lock_chunk_write_mutations();
+        let ts_map = lock_chunk_last_mutation_ts();
         let dirty = counters.get(project_path).copied().unwrap_or(0);
         let last_ts = ts_map.get(project_path).copied().unwrap_or(0);
 
@@ -1461,10 +1475,7 @@ mod tests_v2 {
         // need 100 synthetic writes. Reading the counter back as 0 asserts
         // compaction dispatched and reset it. Keying by this project's temp
         // path keeps the test deterministic even though tests run in parallel.
-        CHUNK_WRITE_MUTATIONS
-            .lock()
-            .unwrap()
-            .insert(pp.clone(), CHUNK_COMPACTION_THRESHOLD - 2);
+        lock_chunk_write_mutations().insert(pp.clone(), CHUNK_COMPACTION_THRESHOLD - 2);
 
         let result =
             vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 2, 16)).await;
@@ -1474,12 +1485,7 @@ mod tests_v2 {
         );
 
         // Compaction dispatched ⇒ the project's counter reset to 0.
-        let remaining = CHUNK_WRITE_MUTATIONS
-            .lock()
-            .unwrap()
-            .get(&pp)
-            .copied()
-            .unwrap_or(0);
+        let remaining = lock_chunk_write_mutations().get(&pp).copied().unwrap_or(0);
         assert_eq!(
             remaining, 0,
             "crossing the threshold resets the project's cumulative counter"
@@ -1507,11 +1513,8 @@ mod tests_v2 {
         let pp = p.to_string_lossy().to_string();
 
         // Dirty count below threshold -> Ok(None)
-        CHUNK_WRITE_MUTATIONS
-            .lock()
-            .unwrap()
-            .insert(pp.clone(), IDLE_COMPACTION_DIRTY_THRESHOLD - 1);
-        CHUNK_LAST_MUTATION_TS.lock().unwrap().insert(pp.clone(), 0); // Window elapsed long ago
+        lock_chunk_write_mutations().insert(pp.clone(), IDLE_COMPACTION_DIRTY_THRESHOLD - 1);
+        lock_chunk_last_mutation_ts().insert(pp.clone(), 0); // Window elapsed long ago
 
         let res = adaptive_idle_compaction(&pp).await.unwrap();
         assert!(res.is_none());
@@ -1527,11 +1530,8 @@ mod tests_v2 {
             .unwrap();
 
         // Set dirty count at/above threshold, and last mutation timestamp in the past
-        CHUNK_WRITE_MUTATIONS
-            .lock()
-            .unwrap()
-            .insert(pp.clone(), IDLE_COMPACTION_DIRTY_THRESHOLD);
-        CHUNK_LAST_MUTATION_TS.lock().unwrap().insert(
+        lock_chunk_write_mutations().insert(pp.clone(), IDLE_COMPACTION_DIRTY_THRESHOLD);
+        lock_chunk_last_mutation_ts().insert(
             pp.clone(),
             now_epoch_ms().saturating_sub(IDLE_COMPACTION_WINDOW_MS + 100),
         );
@@ -1540,13 +1540,37 @@ mod tests_v2 {
         assert!(res.is_some());
 
         // Dirty count reset to 0 after compaction
-        let remaining = CHUNK_WRITE_MUTATIONS
-            .lock()
-            .unwrap()
-            .get(&pp)
-            .copied()
-            .unwrap_or(0);
+        let remaining = lock_chunk_write_mutations().get(&pp).copied().unwrap_or(0);
         assert_eq!(remaining, 0);
+    }
+
+    #[tokio::test]
+    async fn compaction_mutexes_recover_from_poison() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        let _ = std::thread::spawn(|| {
+            let _counters = CHUNK_WRITE_MUTATIONS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let _ts = CHUNK_LAST_MUTATION_TS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            panic!("intentional poison for vectorstore compaction mutexes");
+        })
+        .join();
+
+        assert!(CHUNK_WRITE_MUTATIONS.is_poisoned());
+        assert!(CHUNK_LAST_MUTATION_TS.is_poisoned());
+
+        // 生产写路径与空闲压缩路径在锁被毒化后均须优雅恢复而非 panic。
+        maybe_trigger_after_write(&pp, 3).await;
+        assert_eq!(lock_chunk_write_mutations().get(&pp).copied(), Some(3));
+        let idle = adaptive_idle_compaction(&pp).await.unwrap();
+        assert!(idle.is_none());
+
+        CHUNK_WRITE_MUTATIONS.clear_poison();
+        CHUNK_LAST_MUTATION_TS.clear_poison();
     }
 
     // ── P1-IMP-10: startup reconcile executor (scan + run) ──
@@ -1783,6 +1807,168 @@ mod tests_v2 {
             1,
             "failed re-provision keeps the pending entry"
         );
+    }
+
+    // ── R-5: 向量对账豁免社区摘要命名空间 ──
+
+    #[test]
+    fn reconcile_exempts_community_summary_prefixes_and_deletes_stale_others() {
+        use super::super::vectorstore_reconcile::{
+            is_reconcile_exempt_page, RECONCILE_EXEMPT_PAGE_PREFIXES,
+        };
+
+        assert_eq!(
+            RECONCILE_EXEMPT_PAGE_PREFIXES,
+            ["community-summary-", "community:"]
+        );
+        assert!(is_reconcile_exempt_page("community-summary-0.1"));
+        assert!(is_reconcile_exempt_page("community-summary-1.9"));
+        assert!(is_reconcile_exempt_page("community:4"));
+        assert!(!is_reconcile_exempt_page("stale-page"));
+        assert!(!is_reconcile_exempt_page("community-other"));
+
+        let expected = vec![ExpectedChunk {
+            page_id: "page-a".into(),
+            chunk_index: 0,
+        }];
+        let actual = vec![
+            ActualChunk {
+                page_id: "page-a".into(),
+                chunk_index: 0,
+            },
+            ActualChunk {
+                page_id: "community-summary-0.1".into(),
+                chunk_index: 0,
+            },
+            ActualChunk {
+                page_id: "community-summary-1.9".into(),
+                chunk_index: 0,
+            },
+            ActualChunk {
+                page_id: "community:4".into(),
+                chunk_index: 0,
+            },
+            ActualChunk {
+                page_id: "stale-page".into(),
+                chunk_index: 0,
+            },
+            ActualChunk {
+                page_id: "community-other".into(),
+                chunk_index: 0,
+            },
+        ];
+
+        let plan = reconcile_chunks(&expected, &actual);
+        assert_eq!(
+            plan.to_delete_pages,
+            vec!["community-other".to_string(), "stale-page".to_string()]
+        );
+        assert!(plan.to_reupsert_pages.is_empty());
+        assert!(plan.to_upsert.is_empty());
+        assert_eq!(
+            plan.unchanged_pages,
+            vec![
+                "community-summary-0.1".to_string(),
+                "community-summary-1.9".to_string(),
+                "community:4".to_string(),
+                "page-a".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn reconcile_still_reupserts_exempt_page_when_explicitly_expected_and_changed() {
+        let expected = vec![
+            ExpectedChunk {
+                page_id: "community-summary-0.1".into(),
+                chunk_index: 0,
+            },
+            ExpectedChunk {
+                page_id: "community-summary-0.1".into(),
+                chunk_index: 1,
+            },
+        ];
+        let actual = vec![ActualChunk {
+            page_id: "community-summary-0.1".into(),
+            chunk_index: 0,
+        }];
+
+        let plan = reconcile_chunks(&expected, &actual);
+        assert!(plan.to_delete_pages.is_empty());
+        assert!(plan.unchanged_pages.is_empty());
+        assert_eq!(
+            plan.to_reupsert_pages,
+            vec!["community-summary-0.1".to_string()]
+        );
+        assert_eq!(
+            plan.to_upsert,
+            vec![ExpectedChunk {
+                page_id: "community-summary-0.1".into(),
+                chunk_index: 1,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn startup_reconcile_preserves_community_summaries_and_deletes_stale_page() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        // 写入常规页 page-a、过期页 page-b 与新前缀社区摘要 community-summary-0.1。
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+        vector_upsert_chunks(pp.clone(), "page-b".into(), make_chunks("page-b", 2, 16))
+            .await
+            .unwrap();
+        vector_upsert_chunks(
+            pp.clone(),
+            "community-summary-0.1".into(),
+            make_chunks("community-summary-0.1", 1, 16),
+        )
+        .await
+        .unwrap();
+
+        // 直接向真实 LanceDB 表注入旧前缀 community:2（历史存量行）。
+        let db = connect(&db_path(&pp)).execute().await.unwrap();
+        let table = db.open_table(TABLE_V2).execute().await.unwrap();
+        let legacy_batch = make_batch_v2(
+            make_schema_v2(16),
+            "community:2",
+            &make_chunks("community:2", 1, 16),
+            16,
+        )
+        .unwrap();
+        table.add(vec![legacy_batch]).execute().await.unwrap();
+
+        assert_eq!(vector_count_chunks(pp.clone()).await.unwrap(), 7);
+
+        // expected 仅含常规页 page-a：对账必须删掉 page-b，同时保留两条社区摘要且 drifted == 0。
+        let report = run_startup_reconcile(pp.clone(), expected_inputs("page-a", 3, 16))
+            .await
+            .unwrap();
+        assert_eq!(report.deleted_pages, vec!["page-b".to_string()]);
+        assert!(report.upserted_pages.is_empty());
+        assert!(report.failed_pages.is_empty());
+        assert_eq!(report.drifted, 0);
+        assert!(report
+            .unchanged_pages
+            .iter()
+            .any(|id| id == "community-summary-0.1"));
+        assert!(report.unchanged_pages.iter().any(|id| id == "community:2"));
+        assert!(report.unchanged_pages.iter().any(|id| id == "page-a"));
+
+        let remaining_pages: HashSet<String> = scan_actual_chunks(&pp)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|c| c.page_id)
+            .collect();
+        assert!(remaining_pages.contains("page-a"));
+        assert!(remaining_pages.contains("community-summary-0.1"));
+        assert!(remaining_pages.contains("community:2"));
+        assert!(!remaining_pages.contains("page-b"));
+        assert_eq!(vector_count_chunks(pp).await.unwrap(), 5);
     }
 }
 

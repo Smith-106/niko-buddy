@@ -362,6 +362,24 @@ fn probe_with(backend: &dyn SecretBackend) -> CredentialProbe {
     }
 }
 
+async fn available_async_with<B, F>(make_backend: F) -> bool
+where
+    B: SecretBackend + 'static,
+    F: FnOnce() -> B + Send + 'static,
+{
+    match tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("secret_available", || {
+            let backend = make_backend();
+            Ok(available_with(&backend))
+        })
+    })
+    .await
+    {
+        Ok(Ok(available)) => available,
+        Ok(Err(_)) | Err(_) => false,
+    }
+}
+
 // ── Tauri commands ─────────────────────────────────────────────────────────
 
 /// 写入凭据。**返回 `credential_ref`，绝不返回 secret 值。**
@@ -374,25 +392,43 @@ pub async fn secret_put(
     account: String,
     secret: String,
 ) -> Result<String, String> {
-    put_with(&default_backend(), &service, &account, &secret)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("secret_put", || {
+            put_with(&default_backend(), &service, &account, &secret)
+        })
+    })
+    .await
+    .map_err(|e| format!("[secret_store] secret_put blocking task join error: {e}"))?
 }
 
 /// 读取凭据。**唯一的 secret 值出口**（传输层即时消费，禁止落盘缓存）。
 #[tauri::command]
 pub async fn secret_get(service: String, account: String) -> Result<String, String> {
-    get_with(&default_backend(), &service, &account)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("secret_get", || {
+            get_with(&default_backend(), &service, &account)
+        })
+    })
+    .await
+    .map_err(|e| format!("[secret_store] secret_get blocking task join error: {e}"))?
 }
 
 /// 删除凭据；返回是否确实删除了既有条目（`false` = 原本不存在）。
 #[tauri::command]
 pub async fn secret_delete(service: String, account: String) -> Result<bool, String> {
-    delete_with(&default_backend(), &service, &account)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::panic_guard::run_guarded("secret_delete", || {
+            delete_with(&default_backend(), &service, &account)
+        })
+    })
+    .await
+    .map_err(|e| format!("[secret_store] secret_delete blocking task join error: {e}"))?
 }
 
 /// OS keyring 是否可用。`false` 时调用方 MUST 关闭该传输目标（禁止明文回退）。
 #[tauri::command]
 pub async fn secret_available() -> bool {
-    available_with(&default_backend())
+    available_async_with(default_backend).await
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -653,4 +689,37 @@ fn unavailable_is_reported() {
         !with_value.contains(leaked),
         "degradation error must stay opaque: {with_value}"
     );
+}
+
+#[cfg(test)]
+struct PanickingBackend;
+
+#[cfg(test)]
+impl SecretBackend for PanickingBackend {
+    fn available(&self) -> bool {
+        panic!("simulated keyring backend panic");
+    }
+    fn set(&self, _service: &str, _account: &str, _secret: &str) -> Result<(), String> {
+        panic!("simulated keyring set panic");
+    }
+    fn get(&self, _service: &str, _account: &str) -> Result<Option<String>, String> {
+        panic!("simulated keyring get panic");
+    }
+    fn delete(&self, _service: &str, _account: &str) -> Result<bool, String> {
+        panic!("simulated keyring delete panic");
+    }
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn secret_available_offloads_to_blocking_and_fails_closed_on_panic() {
+    assert!(available_async_with(MemoryBackend::new).await);
+    assert!(!available_async_with(|| UnavailableBackend).await);
+    assert!(
+        !available_async_with(|| PanickingBackend).await,
+        "panic inside blocking keyring probe must fail closed as false"
+    );
+
+    // 确认公开异步命令入口可经 spawn_blocking 正常完成且不阻塞当前 worker。
+    let _ = secret_available().await;
 }

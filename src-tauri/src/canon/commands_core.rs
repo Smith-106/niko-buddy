@@ -206,12 +206,31 @@ pub async fn canon_ingest_episode_impl(
     let lock = state.write_lock(&project_id);
     let _guard = lock.lock().await;
     let store = CanonStore::open(&project_id).await?;
-    let inserted = store.ingest_episode(episode).await?;
-    let max_revision = state.bump_revision(&project_id);
-    state.persist_revision(&project_id, &store).await?;
+    // M2-01：重启后首次写前先懒加载磁盘 revision，防止从 0 自增回退覆盖持久化 revision。
+    if !state.is_loaded(&project_id) {
+        state.lazy_load_revision(&project_id, &store).await?;
+    }
+    let next_revision = state.current_revision(&project_id) + 1;
+    let inserted = match store.ingest_episode(episode).await {
+        Ok(v) => v,
+        Err(err) => {
+            state.invalidate_project(&project_id);
+            return Err(err);
+        }
+    };
+    if let Err(err) = store.save_revision(next_revision).await {
+        state.invalidate_project(&project_id);
+        return Err(err);
+    }
+    state.set_revision(&project_id, next_revision);
+    if inserted && state.record_writes_and_should_compact(&project_id, 1) {
+        if let Err(err) = store.compact_tables().await {
+            log::warn!("[canon] auto-compaction failed after ingest_episode: {err}");
+        }
+    }
     Ok(CanonWriteResponse {
         inserted,
-        max_revision,
+        max_revision: next_revision,
     })
 }
 
@@ -241,24 +260,52 @@ pub async fn canon_supersede_edges_impl(
     let lock = state.write_lock(&project_id);
     let _guard = lock.lock().await;
     let store = CanonStore::open(&project_id).await?;
-    // A2: bump revision 提前到 store.supersede_edges 之前，使 new_edges 能带上
-    // post-bump 的 recorded_revision 戳（as-of-revision 溯源标记）。
-    let max_revision = state.bump_revision(&project_id);
-    // 对 new_edges 逐个戳 recorded_revision = Some(max_revision)；old_edge_ids 走
+    // M2-01：重启后首次写前先懒加载磁盘 revision，确保 next_revision 与 recorded_revision 严格单调递增。
+    if !state.is_loaded(&project_id) {
+        state.lazy_load_revision(&project_id, &store).await?;
+    }
+    // 入口早检新边时态不变量，避免在非法请求上追加无效审计事件。
+    for e in &request.new_edges {
+        crate::canon::types::validate_edge_temporal(e)
+            .map_err(|err| format!("invalid new edge temporal bounds: {err}"))?;
+    }
+    // 先算 next_revision，待审计事件、边变更与持久化 revision 全落盘成功后再更新内存 revision；
+    // 中途任一步失败则 invalidate_project 返回 Err，杜绝内存 revision 超前于磁盘。
+    let next_revision = state.current_revision(&project_id) + 1;
+    // 对 new_edges 逐个戳 recorded_revision = Some(next_revision)；old_edge_ids 走
     // invalidate_edge（不动 recorded_revision），封顶边原戳自动保留（A3 自动满足）。
     let mut request = request;
     for e in &mut request.new_edges {
-        e.recorded_revision = Some(max_revision);
+        e.recorded_revision = Some(next_revision);
     }
     // §B：先落审计日志，再改状态（done-when #3：日志失败即中止变更，零边变更）。
-    // event_id 服务端派生 f(project_id, max_revision, payload-hash)，caused_by 透传。
-    let mut ev = CanonEvent::new_supersede(max_revision, &request);
-    store.append_canon_event(&mut ev).await?;
-    let result = store.supersede_edges(request).await?;
-    state.persist_revision(&project_id, &store).await?;
+    // event_id 服务端派生 f(project_id, next_revision, payload-hash)，caused_by 透传。
+    let mut ev = CanonEvent::new_supersede(next_revision, &request);
+    if let Err(err) = store.append_canon_event(&mut ev).await {
+        state.invalidate_project(&project_id);
+        return Err(err);
+    }
+    let result = match store.supersede_edges(request).await {
+        Ok(r) => r,
+        Err(err) => {
+            state.invalidate_project(&project_id);
+            return Err(err);
+        }
+    };
+    if let Err(err) = store.save_revision(next_revision).await {
+        state.invalidate_project(&project_id);
+        return Err(err);
+    }
+    state.set_revision(&project_id, next_revision);
+    let write_delta = (result.capped + result.inserted) as u64;
+    if write_delta > 0 && state.record_writes_and_should_compact(&project_id, write_delta) {
+        if let Err(err) = store.compact_tables().await {
+            log::warn!("[canon] auto-compaction failed after supersede_edges: {err}");
+        }
+    }
     Ok(CanonSupersedeResponse {
         result,
-        max_revision,
+        max_revision: next_revision,
     })
 }
 
@@ -312,9 +359,12 @@ pub async fn canon_get_revision_impl(
 /// DEBT-20260820-15b 偿还：twoPhaseReconcile 告警后调用，
 /// 将差异留痕写入 store，供后续审计/诊断查询。
 pub async fn canon_save_divergence_trace_impl(
+    state: &CanonCommandState,
     project_id: String,
     trace_json: String,
 ) -> Result<(), String> {
+    let lock = state.write_lock(&project_id);
+    let _guard = lock.lock().await;
     let store = CanonStore::open(&project_id).await?;
     store.save_divergence_trace(&trace_json).await
 }

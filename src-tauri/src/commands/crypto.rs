@@ -10,6 +10,16 @@
 //! The same fingerprint also backs the device binding of `commands::secret_store`
 //! (C-011 credential landing zone): the OS keyring account is namespaced by the
 //! fingerprint prefix so an entry written on one machine is invisible on another.
+//!
+//! ## Security Contract & Read-Only Boundary
+//! - [`get_device_fingerprint`] is strictly a **machine-binding identifier** retained
+//!   for backward compatibility with existing locally-encrypted frontend settings.
+//! - Its derivation formula (`qmai::{hostname}::{username}::{os_id}::device-key-v1`)
+//!   is low-entropy by design and **must not** be used as a substitute for high-entropy
+//!   cryptographic keys or standalone password/passphrase hashing.
+//! - All new credential storage must use the OS keyring (`credential_vault` or
+//!   `commands::secret_store`), and app-lock passphrase verification must use the
+//!   salted PBKDF2-HMAC-SHA256 v2 scheme in `app_lock`.
 
 use sha2::{Digest, Sha256};
 
@@ -53,9 +63,14 @@ pub(crate) fn get_device_fingerprint() -> String {
 ///
 /// The frontend calls this once at startup to derive an AES-256 key that
 /// encrypts locally-stored API keys, binding them to the current machine.
+/// Read-only compatibility boundary: do not repurpose for new password hashing
+/// or credential storage (use `credential_vault` / `app_lock` v2 instead).
 #[tauri::command]
 pub async fn get_device_fingerprint_cmd() -> Result<String, String> {
-    Ok(get_device_fingerprint())
+    crate::panic_guard::run_guarded(
+        "get_device_fingerprint_cmd",
+        || Ok(get_device_fingerprint()),
+    )
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -79,5 +94,30 @@ mod tests {
             fp.chars().all(|c| c.is_ascii_hexdigit()),
             "Fingerprint must contain only ASCII hex digits"
         );
+    }
+
+    #[tokio::test]
+    async fn cmd_returns_64_hex_and_preserves_legacy_formula() {
+        let fp = get_device_fingerprint_cmd()
+            .await
+            .expect("get_device_fingerprint_cmd should succeed");
+        assert_eq!(fp.len(), 64);
+        assert!(fp.chars().all(|c| c.is_ascii_hexdigit()));
+
+        let hostname = std::env::var("COMPUTERNAME")
+            .or_else(|_| std::env::var("HOSTNAME"))
+            .unwrap_or_else(|_| "unknown-host".to_string());
+        let username = std::env::var("USERNAME")
+            .or_else(|_| std::env::var("USER"))
+            .unwrap_or_else(|_| "unknown-user".to_string());
+        let raw = format!(
+            "qmai::{hostname}::{username}::{}::device-key-v1",
+            std::env::consts::OS
+        );
+        let expected: String = Sha256::digest(raw.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(fp, expected);
     }
 }

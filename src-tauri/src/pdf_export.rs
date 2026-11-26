@@ -10,6 +10,7 @@
 //! （`commands::fs::pdfium()` / `lock_pdfium()`），不新建第二套绑定。
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,8 +24,23 @@ pub const LINE_HEIGHT_RATIO: f32 = 1.5;
 pub const DEFAULT_FONT_SIZE_PT: f32 = 11.0;
 /// 页边距（pt）。
 pub const PAGE_MARGIN_PT: f32 = 56.0;
-/// 数据区目录名（一律不可作为导出目标）。
+/// 数据区目录名（一律不可作为导出目标；保留旧公开常量兼容外部引用）。
 pub const DATA_SECTIONS: [&str; 4] = [".novel", "QM", ".niko-buddy", "backups"];
+/// 完整导出禁止数据区路径段（小写归一后匹配，用于校验落在 `project_root` 内部的路径）。
+const FORBIDDEN_EXPORT_SEGMENTS: [&str; 7] = [
+    ".novel",
+    "qm",
+    "wiki",
+    ".niko-buddy",
+    "canon",
+    "backups",
+    ".qm-drafts",
+];
+/// 强特征数据区目录段：即使独立导出（无 `project_root`）也一律禁止。
+const STRONG_DATA_SEGMENTS: [&str; 3] = [".novel", ".niko-buddy", ".qm-drafts"];
+/// 项目通用词数据区目录段：仅当其直接父目录存在 `.novel` 目录或 `.novel/status.json`（真实项目根）时拦截，
+/// 避免误杀项目外用户目录（如 `D:\Backups\book.docx`、`D:\wiki\book.epub`）。
+const PROJECT_DATA_SEGMENTS: [&str; 4] = ["qm", "wiki", "canon", "backups"];
 /// A4 高度（pt），用于换页判断。
 pub const A4_HEIGHT_PT: f32 = 841.89;
 
@@ -79,44 +95,323 @@ fn normalized(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-/// 硬拦：导出目标不得落在数据区，也不得指向数据区内的父目录。
-///
-/// 判据是**路径段**而不是字符串包含：`book/notes/.novelish.md` 合法，
-/// `book/.novel/drafts/x.md` 与 `.novel/x.pdf` 一律拒绝。
+/// 剥离 Windows canonicalize 产出的 `//?/` / `//?/UNC/` 逐字前缀，确保词法路径与规范化路径可一致比较。
+pub(crate) fn strip_windows_verbatim_prefix(text: &str) -> &str {
+    if let Some(rest) = text.strip_prefix("//?/UNC/") {
+        rest
+    } else if let Some(rest) = text.strip_prefix("//?/") {
+        rest
+    } else {
+        text
+    }
+}
+
+fn is_windows_drive_segment(seg: &str) -> bool {
+    let b = seg.as_bytes();
+    b.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':'
+}
+
+fn clean_export_segment(seg: &str) -> &str {
+    let without_ads = seg.split(':').next().unwrap_or(seg);
+    without_ads.trim_end_matches(['.', ' '])
+}
+
+pub(crate) fn has_illegal_colon(path_str: &str) -> bool {
+    let replaced = path_str.replace('\\', "/");
+    for seg in replaced.split('/') {
+        if seg.is_empty() || seg == "?" || is_windows_drive_segment(seg) {
+            continue;
+        }
+        if seg.contains(':') {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_symlink_or_reparse_point(path: &Path) -> bool {
+    crate::agent_gate_policy::is_symlink_or_reparse_point(path)
+}
+
+fn is_macos_system_symlink(path: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        matches!(path.to_str(), Some("/var" | "/tmp" | "/etc"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+pub(crate) fn assert_no_symlink_in_path(path: &Path) -> Result<(), String> {
+    for ancestor in path.ancestors() {
+        if ancestor.as_os_str().is_empty() || ancestor.file_name().is_none() {
+            break;
+        }
+        if !is_macos_system_symlink(ancestor) && is_symlink_or_reparse_point(ancestor) {
+            return Err(format!(
+                "export path '{}' traverses symlink or reparse point '{}'",
+                path.display(),
+                ancestor.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn canonicalize_existing_prefix(path: &Path) -> Option<PathBuf> {
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut cur = path;
+    loop {
+        if cur.exists() {
+            let mut base = std::fs::canonicalize(cur).ok()?;
+            for part in tail.into_iter().rev() {
+                base.push(part);
+            }
+            return Some(base);
+        }
+        let name = cur.file_name()?.to_os_string();
+        tail.push(name);
+        cur = cur.parent()?;
+        if cur.as_os_str().is_empty() {
+            return None;
+        }
+    }
+}
+
+fn check_segments_outside_data_sections(
+    raw: &[String],
+    folded: &[String],
+    scope_desc: &str,
+) -> Result<(), String> {
+    if raw.iter().any(|s| s == "..") {
+        return Err(format!("target escapes via '..': {scope_desc}"));
+    }
+    for seg in raw.iter().chain(folded.iter()) {
+        if is_windows_drive_segment(seg) {
+            continue;
+        }
+        let cleaned = clean_export_segment(seg);
+        if FORBIDDEN_EXPORT_SEGMENTS.contains(&cleaned) {
+            return Err(format!(
+                "target '{scope_desc}' is inside data section '{cleaned}'"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn is_project_root_dir(dir: &Path) -> bool {
+    let probe = if dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        dir
+    };
+    let novel_dir = probe.join(".novel");
+    novel_dir.is_dir() || novel_dir.join("status.json").is_file()
+}
+
+fn check_standalone_path_components(path: &Path, scope_desc: &str) -> Result<(), String> {
+    let mut prefix = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            std::path::Component::ParentDir => {
+                return Err(format!("target escapes via '..': {scope_desc}"));
+            }
+            std::path::Component::Prefix(_)
+            | std::path::Component::RootDir
+            | std::path::Component::CurDir => {
+                prefix.push(comp.as_os_str());
+            }
+            std::path::Component::Normal(os_seg) => {
+                let lower = os_seg.to_string_lossy().to_ascii_lowercase();
+                let cleaned = clean_export_segment(&lower);
+                if STRONG_DATA_SEGMENTS.contains(&cleaned) {
+                    return Err(format!(
+                        "target '{scope_desc}' is inside data section '{cleaned}'"
+                    ));
+                }
+                if PROJECT_DATA_SEGMENTS.contains(&cleaned) && is_project_root_dir(&prefix) {
+                    return Err(format!(
+                        "target '{scope_desc}' is inside project data section '{cleaned}'"
+                    ));
+                }
+                prefix.push(os_seg);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 独立导出路径安全校验（DOCX / EPUB 等无 `project_root` 场景共用）：
+/// 1. 基础安全校验：非空、无控制字节、有文件名、无非法 NTFS ADS `:`、无 `..`、无符号链接/Windows 重解析点；
+/// 2. 强特征目录（`.novel` / `.niko-buddy` / `.qm-drafts`）始终禁止；
+/// 3. 通用词段（`backups` / `wiki` / `qm` / `canon`）仅当其直接父目录为真实项目根（存在 `.novel` 目录或 `.novel/status.json`）时拦截，
+///    放行 `D:\Backups\book.docx`、`D:\wiki\book.epub` 等合法项目外目录。
+pub(crate) fn assert_standalone_export_path_safe(target: &Path) -> Result<(), String> {
+    let raw_str = target.to_string_lossy();
+    if raw_str.trim().is_empty() {
+        return Err("export path must not be empty".to_string());
+    }
+    if raw_str.chars().any(|c| (c as u32) < 0x20) {
+        return Err(format!("export path contains control bytes: {raw_str}"));
+    }
+    if target.file_name().is_none() {
+        return Err(format!("export path has no file name: {raw_str}"));
+    }
+    if has_illegal_colon(&raw_str) {
+        return Err(format!(
+            "export path contains illegal NTFS ADS colon: {raw_str}"
+        ));
+    }
+
+    let target_norm = normalized(target);
+    let (raw, _) = crate::agent_gate_policy::normalized_lower_segments(
+        strip_windows_verbatim_prefix(&target_norm),
+    );
+    if raw.iter().any(|s| s == "..") {
+        return Err(format!("target escapes via '..': {raw_str}"));
+    }
+
+    check_standalone_path_components(target, &raw_str)?;
+    assert_no_symlink_in_path(target)?;
+
+    if let Some(canon) = canonicalize_existing_prefix(target) {
+        let canon_norm = normalized(&canon);
+        let (c_raw, _) = crate::agent_gate_policy::normalized_lower_segments(
+            strip_windows_verbatim_prefix(&canon_norm),
+        );
+        if c_raw.iter().any(|s| s == "..") {
+            return Err(format!("target escapes via '..': {raw_str}"));
+        }
+        check_standalone_path_components(&canon, &raw_str)?;
+    }
+    Ok(())
+}
+
+/// 硬拦：导出目标若落在 `project_root` 内部，不得落在项目数据区内；
+/// 若规范化后位于 `project_root` 外部，仅执行基础安全校验（非空、无控制字节、无非法 ADS、无 `..`、无符号链接、有文件名），
+/// 不对项目外无关祖先目录（如 `D:\Backups\book.pdf`）套用项目数据区黑名单。
 pub fn assert_export_path_outside_data_sections(
     project_root: &Path,
     target: &Path,
 ) -> Result<PathBuf, PdfExportError> {
+    let raw_target_str = target.to_string_lossy();
+    if raw_target_str.trim().is_empty() {
+        return Err(PdfExportError::PathInsideDataSection(
+            "target path must not be empty".to_string(),
+        ));
+    }
+    if raw_target_str.chars().any(|c| (c as u32) < 0x20) {
+        return Err(PdfExportError::PathInsideDataSection(format!(
+            "target contains control bytes: {raw_target_str}"
+        )));
+    }
+    if has_illegal_colon(&raw_target_str) {
+        return Err(PdfExportError::PathInsideDataSection(format!(
+            "target contains illegal ADS colon: {raw_target_str}"
+        )));
+    }
+
+    let raw_target_norm = normalized(target);
+    let (target_raw, _) = crate::agent_gate_policy::normalized_lower_segments(
+        strip_windows_verbatim_prefix(&raw_target_norm),
+    );
+    if target_raw.iter().any(|s| s == "..") {
+        return Err(PdfExportError::PathInsideDataSection(format!(
+            "target escapes the project root: {raw_target_str}"
+        )));
+    }
+
     let resolved = if target.is_absolute() {
         target.to_path_buf()
     } else {
         project_root.join(target)
     };
-    let as_text = normalized(&resolved);
-    let root_text = normalized(project_root);
-    let relative = as_text
-        .strip_prefix(&root_text)
-        .unwrap_or(&as_text)
-        .trim_start_matches('/')
-        .to_string();
-
-    if relative.is_empty() {
+    if resolved.file_name().is_none() {
         return Err(PdfExportError::PathInsideDataSection(format!(
-            "target resolves to the project root: {as_text}"
+            "target has no file name: {}",
+            normalized(&resolved)
         )));
     }
-    for segment in relative.split('/') {
-        if DATA_SECTIONS.iter().any(|s| segment == *s) {
+
+    let resolved_text = normalized(&resolved);
+    let root_text = normalized(project_root);
+    let (res_raw, res_folded) = crate::agent_gate_policy::normalized_lower_segments(
+        strip_windows_verbatim_prefix(&resolved_text),
+    );
+    let (root_raw, root_folded) = crate::agent_gate_policy::normalized_lower_segments(
+        strip_windows_verbatim_prefix(&root_text),
+    );
+
+    if res_raw.iter().any(|s| s == "..") {
+        return Err(PdfExportError::PathInsideDataSection(format!(
+            "target escapes the project root: {resolved_text}"
+        )));
+    }
+
+    let lex_in_project = (!target.is_absolute())
+        || (!root_folded.is_empty() && res_folded.starts_with(&root_folded));
+    if lex_in_project {
+        if !root_folded.is_empty() && res_folded == root_folded {
             return Err(PdfExportError::PathInsideDataSection(format!(
-                "target '{relative}' is inside data section '{segment}'"
+                "target resolves to the project root: {resolved_text}"
             )));
         }
+        let rel_folded = if !root_folded.is_empty() && res_folded.starts_with(&root_folded) {
+            &res_folded[root_folded.len()..]
+        } else {
+            res_folded.as_slice()
+        };
+        let rel_raw = if !root_raw.is_empty() && res_raw.starts_with(&root_raw) {
+            &res_raw[root_raw.len()..]
+        } else if !root_folded.is_empty() && res_folded.starts_with(&root_folded) {
+            rel_folded
+        } else {
+            res_raw.as_slice()
+        };
+        if rel_folded.is_empty() {
+            return Err(PdfExportError::PathInsideDataSection(format!(
+                "target resolves to the project root: {resolved_text}"
+            )));
+        }
+        check_segments_outside_data_sections(rel_raw, rel_folded, &resolved_text)
+            .map_err(PdfExportError::PathInsideDataSection)?;
     }
-    if relative.split('/').any(|s| s == "..") {
-        return Err(PdfExportError::PathInsideDataSection(format!(
-            "target escapes the project root: {relative}"
-        )));
+
+    assert_no_symlink_in_path(&resolved).map_err(PdfExportError::PathInsideDataSection)?;
+
+    if let (Some(canon_resolved), Ok(canon_root)) = (
+        canonicalize_existing_prefix(&resolved),
+        std::fs::canonicalize(project_root),
+    ) {
+        let canon_text = normalized(&canon_resolved);
+        let canon_root_text = normalized(&canon_root);
+        let (c_raw, c_folded) = crate::agent_gate_policy::normalized_lower_segments(
+            strip_windows_verbatim_prefix(&canon_text),
+        );
+        let (cr_raw, cr_folded) = crate::agent_gate_policy::normalized_lower_segments(
+            strip_windows_verbatim_prefix(&canon_root_text),
+        );
+        if !cr_folded.is_empty() && c_folded.starts_with(&cr_folded) {
+            if c_folded == cr_folded {
+                return Err(PdfExportError::PathInsideDataSection(format!(
+                    "target resolves to the project root: {canon_text}"
+                )));
+            }
+            let c_rel_folded = &c_folded[cr_folded.len()..];
+            let c_rel_raw = if !cr_raw.is_empty() && c_raw.starts_with(&cr_raw) {
+                &c_raw[cr_raw.len()..]
+            } else {
+                c_rel_folded
+            };
+            check_segments_outside_data_sections(c_rel_raw, c_rel_folded, &canon_text)
+                .map_err(PdfExportError::PathInsideDataSection)?;
+        }
     }
+
     Ok(resolved)
 }
 
@@ -168,7 +463,61 @@ fn wrap_paragraph(paragraph: &str, width: usize) -> Vec<String> {
         .collect()
 }
 
-/// 生成 PDF。同步实现：pdfium 绑定是全局单例，调用期间持锁。
+struct PdfTempGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl PdfTempGuard {
+    fn new(target: &Path) -> Result<Self, PdfExportError> {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let parent = target
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent).map_err(|e| PdfExportError::Io(e.to_string()))?;
+        for _ in 0..1024 {
+            let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+            let tmp = parent.join(format!(".nb-pdf-{}-{seq}.tmp", std::process::id()));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&tmp)
+            {
+                Ok(file) => {
+                    // 立即关闭句柄以防 Windows 占用冲突，由 pdfium 覆写该唯一临时文件
+                    drop(file);
+                    return Ok(Self {
+                        path: tmp,
+                        armed: true,
+                    });
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(PdfExportError::Io(e.to_string())),
+            }
+        }
+        Err(PdfExportError::Io(
+            "failed to allocate unique temporary pdf file".to_string(),
+        ))
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for PdfTempGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// 生成 PDF。同步实现（BLOCKING-5 锁序不变量）：
+/// 1. 先持 `PDFIUM_LOCK` (T5) 渲染到同目录唯一临时文件 `.nb-pdf-{pid}-{seq}.tmp`；
+/// 2. 显式 `drop(document)` 与 `drop(_guard)` 释放 `PDFIUM_LOCK` (T5)；
+/// 3. 再获取 `lock_file_mutations()` (T4)，二次校验目标非符号链接/非数据区后原子替换。
 pub fn export_pdf(request: &PdfExportRequest) -> Result<PdfExportReport, PdfExportError> {
     use pdfium_render::prelude::*;
 
@@ -178,65 +527,85 @@ pub fn export_pdf(request: &PdfExportRequest) -> Result<PdfExportReport, PdfExpo
     )?;
     let font_path = resolve_cjk_font(&request.project_root, request.font_path.as_deref())?;
 
-    let _guard = crate::commands::fs::lock_pdfium();
-    let pdfium = crate::commands::fs::pdfium().map_err(PdfExportError::Render)?;
-    let mut document = pdfium
-        .create_new_pdf()
-        .map_err(|e| PdfExportError::Render(e.to_string()))?;
+    let mut temp_guard = PdfTempGuard::new(&target)?;
 
-    let font_size = DEFAULT_FONT_SIZE_PT;
-    let line_height = font_size * LINE_HEIGHT_RATIO;
-    let font_token = document
-        .fonts_mut()
-        .load_type1_from_file(&font_path, true)
-        .map_err(|e| PdfExportError::Render(format!("load font failed: {e}")))?;
+    let pages = {
+        let _guard = crate::commands::fs::lock_pdfium();
+        let pdfium = crate::commands::fs::pdfium().map_err(PdfExportError::Render)?;
+        let mut document = pdfium
+            .create_new_pdf()
+            .map_err(|e| PdfExportError::Render(e.to_string()))?;
 
-    let width = chars_per_line(font_size, PdfPagePaperSize::a4().width().value);
-    let mut pages = 0usize;
-    let mut cursor_y = A4_HEIGHT_PT - PAGE_MARGIN_PT;
-    let mut page = document
-        .pages_mut()
-        .create_page_at_end(PdfPagePaperSize::a4())
-        .map_err(|e| PdfExportError::Render(e.to_string()))?;
-    pages += 1;
+        let font_size = DEFAULT_FONT_SIZE_PT;
+        let line_height = font_size * LINE_HEIGHT_RATIO;
+        let font_token = document
+            .fonts_mut()
+            .load_type1_from_file(&font_path, true)
+            .map_err(|e| PdfExportError::Render(format!("load font failed: {e}")))?;
 
-    let mut index = 0usize;
-    for paragraph in &request.paragraphs {
-        for line in wrap_paragraph(paragraph, width) {
-            if cursor_y <= PAGE_MARGIN_PT {
-                page = document
-                    .pages_mut()
-                    .create_page_at_end(PdfPagePaperSize::a4())
-                    .map_err(|e| PdfExportError::Render(e.to_string()))?;
-                pages += 1;
-                cursor_y = A4_HEIGHT_PT - PAGE_MARGIN_PT;
-                index = 0;
+        let width = chars_per_line(font_size, PdfPagePaperSize::a4().width().value);
+        let mut pages = 0usize;
+        let mut cursor_y = A4_HEIGHT_PT - PAGE_MARGIN_PT;
+        let mut page = document
+            .pages_mut()
+            .create_page_at_end(PdfPagePaperSize::a4())
+            .map_err(|e| PdfExportError::Render(e.to_string()))?;
+        pages += 1;
+
+        let mut index = 0usize;
+        for paragraph in &request.paragraphs {
+            for line in wrap_paragraph(paragraph, width) {
+                if cursor_y <= PAGE_MARGIN_PT {
+                    page = document
+                        .pages_mut()
+                        .create_page_at_end(PdfPagePaperSize::a4())
+                        .map_err(|e| PdfExportError::Render(e.to_string()))?;
+                    pages += 1;
+                    cursor_y = A4_HEIGHT_PT - PAGE_MARGIN_PT;
+                    index = 0;
+                }
+                let mut object =
+                    PdfPageTextObject::new(&document, line, font_token, PdfPoints::new(font_size))
+                        .map_err(|e| PdfExportError::Render(format!("text object failed: {e}")))?;
+                object
+                    .translate(PdfPoints::new(PAGE_MARGIN_PT), PdfPoints::new(cursor_y))
+                    .map_err(|e| PdfExportError::Render(format!("place text failed: {e}")))?;
+                page.objects_mut()
+                    .insert_object_at_index(index, PdfPageObject::Text(object))
+                    .map_err(|e| PdfExportError::Render(format!("insert object failed: {e}")))?;
+                index += 1;
+                cursor_y -= line_height;
             }
-            let mut object =
-                PdfPageTextObject::new(&document, line, font_token, PdfPoints::new(font_size))
-                    .map_err(|e| PdfExportError::Render(format!("text object failed: {e}")))?;
-            object
-                .translate(PdfPoints::new(PAGE_MARGIN_PT), PdfPoints::new(cursor_y))
-                .map_err(|e| PdfExportError::Render(format!("place text failed: {e}")))?;
-            page.objects_mut()
-                .insert_object_at_index(index, PdfPageObject::Text(object))
-                .map_err(|e| PdfExportError::Render(format!("insert object failed: {e}")))?;
-            index += 1;
+            // 段间空一行，仍按 1.5 行距计。
             cursor_y -= line_height;
         }
-        // 段间空一行，仍按 1.5 行距计。
-        cursor_y -= line_height;
-    }
 
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| PdfExportError::Io(e.to_string()))?;
-    }
-    document
-        .save_to_file(&target)
-        .map_err(|e| PdfExportError::Render(format!("save failed: {e}")))?;
-    let bytes_written = std::fs::metadata(&target)
-        .map(|m| m.len())
-        .map_err(|e| PdfExportError::Io(e.to_string()))?;
+        document
+            .save_to_file(&temp_guard.path)
+            .map_err(|e| PdfExportError::Render(format!("save failed: {e}")))?;
+        // BLOCKING-5：按 page → document → PDFIUM_LOCK (T5) 顺序显式释放，绝不持 T5 再取 T4！
+        drop(page);
+        drop(document);
+        drop(_guard);
+        pages
+    };
+
+    let bytes_written = {
+        let _mutation = crate::commands::fs::lock_file_mutations().map_err(PdfExportError::Io)?;
+        assert_export_path_outside_data_sections(&request.project_root, &target)?;
+        if is_symlink_or_reparse_point(&target) {
+            return Err(PdfExportError::PathInsideDataSection(format!(
+                "target '{}' is a symlink or reparse point",
+                target.display()
+            )));
+        }
+        std::fs::rename(&temp_guard.path, &target)
+            .map_err(|e| PdfExportError::Io(format!("atomic replace failed: {e}")))?;
+        temp_guard.disarm();
+        std::fs::metadata(&target)
+            .map(|m| m.len())
+            .map_err(|e| PdfExportError::Io(e.to_string()))?
+    };
 
     Ok(PdfExportReport {
         target: normalized(&target),
@@ -260,20 +629,25 @@ pub mod api {
         title: String,
         paragraphs: Vec<String>,
     ) -> Result<PdfExportReport, String> {
-        let request = PdfExportRequest {
-            project_root: PathBuf::from(&project_path),
-            target: assert_export_path_outside_data_sections(
-                Path::new(&project_path),
-                Path::new(&target),
-            )
-            .map_err(|e| e.to_string())?
-            .to_string_lossy()
-            .to_string(),
-            title,
-            paragraphs,
-            font_path: None,
-        };
-        super::export_pdf(&request).map_err(|e| e.to_string())
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::panic_guard::run_guarded("export_pdf", || {
+                let safe_target = assert_export_path_outside_data_sections(
+                    Path::new(&project_path),
+                    Path::new(&target),
+                )
+                .map_err(|e| e.to_string())?;
+                let request = PdfExportRequest {
+                    project_root: PathBuf::from(&project_path),
+                    target: safe_target.to_string_lossy().to_string(),
+                    title,
+                    paragraphs,
+                    font_path: None,
+                };
+                super::export_pdf(&request).map_err(|e| e.to_string())
+            })
+        })
+        .await
+        .map_err(|e| format!("export_pdf blocking task join error: {e}"))?
     }
 }
 
@@ -359,6 +733,122 @@ mod pdfexport {
     }
 
     #[test]
+    fn rejects_case_variants_ads_trailing_dots_and_extra_data_sections() {
+        let root = repo_root();
+        for bad in [
+            "qm/out.pdf",
+            "Qm./out.pdf",
+            "QM:ads/out.pdf",
+            "exports/book.pdf:stream",
+            "wiki/out.pdf",
+            "WiKi/out.pdf",
+            "canon/out.pdf",
+            ".qm-drafts/out.pdf",
+            ".NOVEL/out.pdf",
+            "exports/../QM/out.pdf",
+        ] {
+            assert!(
+                assert_export_path_outside_data_sections(&root, Path::new(bad)).is_err(),
+                "expected project export guard to reject {bad:?}"
+            );
+        }
+        // 独立导出对强特征目录、ADS 与 `..` 始终无条件拒绝。
+        for always_bad in [
+            "QM:ads/out.docx",
+            "exports/book.docx:stream",
+            ".qm-drafts/out.docx",
+            ".NOVEL/out.docx",
+            ".niko-buddy/out.epub",
+            "exports/../QM/out.docx",
+        ] {
+            assert!(
+                assert_standalone_export_path_safe(Path::new(always_bad)).is_err(),
+                "expected standalone export guard to reject {always_bad:?}"
+            );
+        }
+        assert!(assert_standalone_export_path_safe(Path::new("exports/book.docx")).is_ok());
+    }
+
+    #[test]
+    fn allows_external_backups_and_wiki_while_blocking_real_project_data_sections() {
+        let base =
+            std::env::temp_dir().join(format!("niko-pdf-guard-r2-01-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let project = base.join("my-novel");
+        std::fs::create_dir_all(project.join(".novel")).expect("mkdir .novel");
+        let external_backups = base.join("Backups");
+        let external_wiki = base.join("wiki");
+        std::fs::create_dir_all(&external_backups).expect("mkdir Backups");
+        std::fs::create_dir_all(&external_wiki).expect("mkdir wiki");
+
+        // 1) 项目外合法目录（Backups/wiki）放行 PDF / DOCX / EPUB
+        assert!(
+            assert_export_path_outside_data_sections(&project, &external_backups.join("book.pdf"))
+                .is_ok(),
+            "项目外 Backups/book.pdf 不应被误杀"
+        );
+        assert!(
+            assert_export_path_outside_data_sections(&project, &external_wiki.join("book.pdf"))
+                .is_ok(),
+            "项目外 wiki/book.pdf 不应被误杀"
+        );
+        assert!(
+            assert_standalone_export_path_safe(&external_backups.join("book.docx")).is_ok(),
+            "独立导出到非项目根下的 Backups/book.docx 应放行"
+        );
+        assert!(
+            assert_standalone_export_path_safe(&external_wiki.join("book.epub")).is_ok(),
+            "独立导出到非项目根下的 wiki/book.epub 应放行"
+        );
+
+        // 2) 真实项目根（含 .novel/）下的数据区目录仍严格拒绝
+        for bad_rel in [
+            "QM/book.docx",
+            "Qm./book.docx",
+            "backups/book.epub",
+            "wiki/book.docx",
+            "canon/book.epub",
+            ".novel/book.docx",
+            ".niko-buddy/book.epub",
+            ".qm-drafts/book.docx",
+        ] {
+            let bad_path = project.join(bad_rel);
+            assert!(
+                assert_standalone_export_path_safe(&bad_path).is_err(),
+                "真实项目根下的 {bad_rel} 必须被独立导出拦截"
+            );
+            assert!(
+                assert_export_path_outside_data_sections(&project, &bad_path).is_err(),
+                "真实项目根下的 {bad_rel} 必须被项目导出拦截"
+            );
+        }
+
+        // 3) 若项目本身位于名为 Backups 的外层目录下，项目内 exports/ 仍放行，而项目内 backups/ 仍拦截
+        let nested_project = external_backups.join("nested-novel");
+        std::fs::create_dir_all(nested_project.join(".novel")).expect("mkdir nested .novel");
+        assert!(assert_export_path_outside_data_sections(
+            &nested_project,
+            &nested_project.join("exports").join("book.pdf")
+        )
+        .is_ok());
+        assert!(assert_standalone_export_path_safe(
+            &nested_project.join("exports").join("book.docx")
+        )
+        .is_ok());
+        assert!(assert_export_path_outside_data_sections(
+            &nested_project,
+            &nested_project.join("backups").join("book.pdf")
+        )
+        .is_err());
+        assert!(assert_standalone_export_path_safe(
+            &nested_project.join("backups").join("book.epub")
+        )
+        .is_err());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn line_spacing_is_fixed_at_one_point_five() {
         assert_eq!(LINE_HEIGHT_RATIO, 1.5);
         let advance = DEFAULT_FONT_SIZE_PT * LINE_HEIGHT_RATIO;
@@ -384,7 +874,7 @@ mod pdfexport {
     }
 
     /// 生成 F-008 交付样本 docs/p5/f008-sample.pdf（返回报告与段落，供断言复用）。
-    fn write_f008_sample(root: &PathBuf) -> (PdfExportReport, Vec<String>) {
+    fn write_f008_sample(root: &std::path::Path) -> (PdfExportReport, Vec<String>) {
         let out_dir = root.join("docs").join("p5");
         std::fs::create_dir_all(&out_dir).expect("mkdir docs/p5");
         let target = out_dir.join("f008-sample.pdf");
@@ -397,7 +887,7 @@ mod pdfexport {
             })
             .collect();
         let report = export_pdf(&PdfExportRequest {
-            project_root: root.clone(),
+            project_root: root.to_path_buf(),
             target: target.to_string_lossy().to_string(),
             title: "F-008 样本".to_string(),
             paragraphs: paragraphs.clone(),
@@ -498,7 +988,7 @@ mod pdfexport {
         let _guard = crate::commands::fs::lock_pdfium();
         let pdfium = crate::commands::fs::pdfium().expect("pdfium");
         let doc = pdfium.load_pdf_from_file(pdf_path, None).expect("load pdf");
-        assert!(doc.pages().len() >= 1, "PDF 至少一页");
+        assert!(!doc.pages().is_empty(), "PDF 至少一页");
         let page = doc.pages().get(0).expect("page 0");
         let page_h_pt = page.height().value as f64;
 
@@ -531,7 +1021,7 @@ mod pdfexport {
         let mut rows = vec![0u32; h as usize];
         for (i, p) in img.pixels().enumerate() {
             if (p.0[0] as i32 - bg).abs() > 64 {
-                rows[i as usize / w as usize] += 1;
+                rows[i / w as usize] += 1;
             }
         }
         let mut bands: Vec<(f64, u32)> = Vec::new();

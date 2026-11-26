@@ -54,7 +54,6 @@ pub(crate) static RESOURCE_DIR_HINT: std::sync::OnceLock<std::path::PathBuf> =
 /// Called from Tauri's setup() with the resolved resource directory.
 /// No-op if already set.
 pub fn set_resource_dir_hint(dir: std::path::PathBuf) {
-    crate::agent_gate::set_gate_project_root(dir.clone());
     let _ = RESOURCE_DIR_HINT.set(dir);
 }
 
@@ -65,6 +64,7 @@ pub fn set_resource_dir_hint(dir: std::path::PathBuf) {
 ///   3. Paths relative to the executable where Tauri's bundler lands
 ///      resources on each platform (macOS Frameworks / Resources /
 ///      MacOS dir, Windows sibling, Linux sibling)
+///
 /// 测试/诊断用：候选路径里是否存在任一 pdfium 动态库（只做文件存在性探测，不 dlopen）。
 /// CI 的 mac/ubuntu 作业会把 pdfium 解压到 `src-tauri/pdfium/libpdfium.dylib|so`，
 /// 因此该探测与 CI 解包布局对齐后即可让渲染类测试在三平台真实运行。
