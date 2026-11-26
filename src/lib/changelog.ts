@@ -31,7 +31,7 @@ export const ENTRIES: ChangelogEntry[] = [
         "打通 TXT、DOCX、EPUB、PDF 真实成书导出与持久化导出历史，并将全书稿备份升级至 v2 格式，完整覆盖正文、设定元数据与正史 Canon 数据。",
         "加固长篇写作主链与记忆一致性：严格守恒 Draft-first 边界（追读债迁入正式采纳锁内落盘），解除非阻断质量警告导致的草稿采纳死锁，升级多模型共识双链路与跨项目检索隔离。",
         "全面优化作家向界面与无障碍体验：模型分工视图支持响应式刷新，设置与向导改用作家向表达，清零 WCAG Level A 键盘与弹窗可访问性缺陷，切换布局不再卸载编辑器，并补齐中英双语文案。",
-        "加固桌面端安全控制面与工程治理：将 `assetProtocol.scope` 收窄为按项目动态授权，强化 MCP `Host`/`Origin` 校验与 PBKDF2 v2 凭据加密，补齐 Canon 自动压实并实现 Rust Clippy 零告警，启用 ESLint 分层门禁并将 `fast-diff` 升为生产依赖。",
+        "加固桌面端安全控制面与工程治理：将 assetProtocol.scope 收窄为按项目动态授权，强化 MCP Host/Origin 校验与 PBKDF2 v2 凭据加密，补齐 Canon 自动压实并实现 Rust Clippy 零告警，启用 ESLint 分层门禁并将 fast-diff 升为生产依赖。",
       ],
     },
   },

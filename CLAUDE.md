@@ -83,7 +83,7 @@
 | Canon 编辑器只读前端 | `src/components/canon-editor/`（T18a，canon_query_batch 渲染事实表 + known_by/valid_at_chapter 过滤 + max_revision 展示） |
 | Canon 影子双写 + 持久队列 | `src/lib/novel/canon-dual-write.ts`（T15，影子双写旧/新并行 + reconcile + T+5 退役检查 + 写失败→.novel/canon-pending.jsonl 持久队列 digest 幂等+退避封顶+重放） |
 | chapter-ingest 双写钩子 | `src/lib/novel/chapter-ingest.ts`（T16，validateCanonConflicts 后单点追加影子双写钩子，DI 注入 CanonDualWriteDeps，仅 final/accepted 路径，reject 先于双写；isCanonDualWriteEligible/runCanonDualWriteHook 导出） |
-| Canon 对账两阶段重放 | `src/lib/novel/canon-reconcile.ts`（T17，两阶段重放先 digest 补齐差异→仍不一致告警+留痕 + fast-diff 差异度量 + fast-check 幂等，fast-diff devDep） |
+| Canon 对账两阶段重放 | `src/lib/novel/canon-reconcile.ts`（T17，两阶段重放先 digest 补齐差异→仍不一致告警+留痕 + fast-diff 差异度量 + fast-check 幂等，fast-diff dep） |
 | **T18 硬门：stage-output-journal** | `src/lib/novel/stage-output-journal.ts`（T18，编排面 LLM 工件缓存，复用 T07 digest，.novel/journal/{digest}.jsonl TTL 过期，崩溃后命中跳过重调 LLM） |
 | **T18 硬门：故障注入矩阵** | `src/lib/novel/fault-injection.spec.ts`（T18，6 类种子化 SIGKILL/部分写/磁盘满/文件锁/OOM/时钟偏移，LCG seed 确定性续跑一致） |
 | **T18 硬门：端到端切片** | `src/lib/novel/e2e-chapter-hardgate.spec.ts`（T18，6 阶段垂直切片 canon→审计→门控→accept→双写→reconcile 零差异，含×5 崩溃/×2 重放） |
