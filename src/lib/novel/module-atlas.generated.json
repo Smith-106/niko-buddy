@@ -91,7 +91,7 @@
   "specOnly": 200,
   "barrelOnly": 0,
   "edges": 4747,
-  "loc": 304186
+  "loc": 304207
  },
  "modules": [
   {
@@ -7460,7 +7460,7 @@
   {
    "p": "src/lib/changelog.ts",
    "s": 18,
-   "l": 2636,
+   "l": 2657,
    "r": true,
    "o": false,
    "x": false,
