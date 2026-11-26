@@ -32,3 +32,4 @@ pub mod sync_target;
 pub mod sync_target_decision;
 pub mod vectorstore;
 pub mod vectorstore_reconcile;
+pub mod writer_plugin;

@@ -123,12 +123,64 @@ impl SessionScope {
     }
 }
 
+/// MCP 工具曝光 Profile（按会话在 `initialize` 时冻结，防中途提权）。
+///
+/// 与 [`SessionScope`] 正交：
+/// - `SessionScope` 管「授权边界」（只读 / 设置 / 项目 / 自动 / 直写）；
+/// - `ToolProfile` 管「工具面裁剪」（订阅写作模式隐藏内部 LLM 管线工具，只暴露零 LLM 原语与受控写工具）。
+///
+/// 两者取交集（单调子集）：只有 `scope.satisfies(required) && profile.allows(name)` 才可见、可调。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ToolProfile {
+    /// 订阅写作主模式（16 工具）：隐藏所有内部 API LLM 管线与全量直写工具，保留零 LLM 上下文/门控与 Draft-first 写工具。
+    WriterSub,
+    /// 只读审查模式（13 工具）：全部为 `Read` 工具，严格零写工具（用于 `canon-auditor` / `literary-critic`）。
+    Reviewer,
+    /// 架构规划模式（12 工具）：聚焦开书/世界观/大纲/角色规划，不含章节正文写入与章节深审工具。
+    Architect,
+    /// 全量兼容模式（全部 30 工具）：保持既有外部客户端（Claude Code / 旧配置）100% 行为兼容。
+    #[default]
+    FullLegacy,
+}
+
+impl ToolProfile {
+    pub const ALL: [ToolProfile; 4] = [
+        Self::WriterSub,
+        Self::Reviewer,
+        Self::Architect,
+        Self::FullLegacy,
+    ];
+
+    /// 严格解析 profile 名；未知或空值返回 `None`（fail-closed，不猜）。
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "writer-sub" => Some(Self::WriterSub),
+            "reviewer" => Some(Self::Reviewer),
+            "architect" => Some(Self::Architect),
+            "full-legacy" => Some(Self::FullLegacy),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WriterSub => "writer-sub",
+            Self::Reviewer => "reviewer",
+            Self::Architect => "architect",
+            Self::FullLegacy => "full-legacy",
+        }
+    }
+}
+
 /// 一条活跃会话。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SessionInfo {
     pub id: String,
     /// 该会话被授予的权限域（`initialize` 时从服务端继承）。
     pub scope: SessionScope,
+    /// 该会话在 `initialize` 时冻结的工具曝光 Profile（后续请求不可切换或提权）。
+    pub profile: ToolProfile,
     /// 建立连接的时间（unix 毫秒）。
     pub connected_at: u64,
     /// 最近一次调用的时间（unix 毫秒）。
@@ -167,14 +219,37 @@ impl SessionRegistry {
         self.create_at(scope, now_ms())
     }
 
-    /// 新建带客户端身份元数据的会话，返回会话 id。
+    /// 新建带客户端身份元数据的会话（默认 `ToolProfile::FullLegacy`），返回会话 id。
     pub fn create_with_client(
         &self,
         scope: SessionScope,
         client_name: Option<String>,
         client_version: Option<String>,
     ) -> String {
-        self.create_at_with_client(scope, now_ms(), client_name, client_version)
+        self.create_at_with_client_and_profile(
+            scope,
+            now_ms(),
+            client_name,
+            client_version,
+            ToolProfile::FullLegacy,
+        )
+    }
+
+    /// 新建带客户端身份元数据与冻结 `ToolProfile` 的会话，返回会话 id。
+    pub fn create_with_client_and_profile(
+        &self,
+        scope: SessionScope,
+        client_name: Option<String>,
+        client_version: Option<String>,
+        profile: ToolProfile,
+    ) -> String {
+        self.create_at_with_client_and_profile(
+            scope,
+            now_ms(),
+            client_name,
+            client_version,
+            profile,
+        )
     }
 
     /// 清理所有已超过 [`SESSION_IDLE_TTL_MS`] 的空闲会话。
@@ -194,14 +269,33 @@ impl SessionRegistry {
         self.create_at_with_client(scope, now, None, None)
     }
 
-    /// 指定时间戳新建带客户端身份元数据的会话：先淘汰超过 [`SESSION_IDLE_TTL_MS`] 的空闲会话，
-    /// 若仍达到 [`MAX_SESSIONS`] 则淘汰最久未活跃项。
+    /// 指定时间戳新建带客户端身份元数据的会话（默认 `ToolProfile::FullLegacy`）：
+    /// 先淘汰超过 [`SESSION_IDLE_TTL_MS`] 的空闲会话，若仍达到 [`MAX_SESSIONS`] 则淘汰最久未活跃项。
     pub fn create_at_with_client(
         &self,
         scope: SessionScope,
         now: u64,
         client_name: Option<String>,
         client_version: Option<String>,
+    ) -> String {
+        self.create_at_with_client_and_profile(
+            scope,
+            now,
+            client_name,
+            client_version,
+            ToolProfile::FullLegacy,
+        )
+    }
+
+    /// 指定时间戳新建带客户端身份元数据与冻结 `ToolProfile` 的会话：
+    /// 先淘汰超过 [`SESSION_IDLE_TTL_MS`] 的空闲会话，若仍达到 [`MAX_SESSIONS`] 则淘汰最久未活跃项。
+    pub fn create_at_with_client_and_profile(
+        &self,
+        scope: SessionScope,
+        now: u64,
+        client_name: Option<String>,
+        client_version: Option<String>,
+        profile: ToolProfile,
     ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         let mut guard = self.lock();
@@ -226,6 +320,7 @@ impl SessionRegistry {
             SessionInfo {
                 id: id.clone(),
                 scope,
+                profile,
                 connected_at: now,
                 last_call_at: now,
                 calls: 0,
@@ -265,6 +360,11 @@ impl SessionRegistry {
     /// 取某会话的权限域。未知 id 返回 `None`（调用方按**最小权限**处理，不隐式创建）。
     pub fn scope_of(&self, id: &str) -> Option<SessionScope> {
         self.lock().get(id).map(|s| s.scope)
+    }
+
+    /// 取某会话在 `initialize` 时冻结的工具 Profile。未知 id 返回 `None`。
+    pub fn profile_of(&self, id: &str) -> Option<ToolProfile> {
+        self.lock().get(id).map(|s| s.profile)
     }
 
     /// 某会话**实际生效**的权限域：普通 scope 叠加逐会话 `full` / `auto` 授权。
@@ -745,9 +845,77 @@ mod tests {
         let serialized = serde_json::to_value(client).expect("serialize SessionInfo");
         assert_eq!(serialized["client_name"], "antigravity-ide");
         assert_eq!(serialized["client_version"], "1.2.3");
+        assert_eq!(serialized["profile"], "full-legacy");
         assert!(
             serialized.get("clientName").is_none(),
             "SessionInfo 必须保持 snake_case"
         );
+    }
+
+    #[test]
+    fn tool_profile_parse_serde_and_session_freezing_work() {
+        assert_eq!(ToolProfile::ALL.len(), 4);
+        assert_eq!(ToolProfile::default(), ToolProfile::FullLegacy);
+        for (raw, expected) in [
+            ("writer-sub", ToolProfile::WriterSub),
+            ("reviewer", ToolProfile::Reviewer),
+            ("architect", ToolProfile::Architect),
+            ("full-legacy", ToolProfile::FullLegacy),
+        ] {
+            assert_eq!(ToolProfile::parse(raw), Some(expected));
+            assert_eq!(expected.as_str(), raw);
+            let encoded = serde_json::to_value(expected).expect("serialize ToolProfile");
+            assert_eq!(encoded, serde_json::json!(raw));
+            let decoded: ToolProfile =
+                serde_json::from_value(encoded).expect("deserialize ToolProfile");
+            assert_eq!(decoded, expected);
+        }
+        for invalid in [
+            "",
+            " ",
+            "WRITER-SUB",
+            "writer_sub",
+            "admin",
+            "full",
+            "writer-sub ",
+        ] {
+            assert_eq!(
+                ToolProfile::parse(invalid),
+                None,
+                "非法 profile `{invalid}` 必须拒绝"
+            );
+        }
+
+        let reg = SessionRegistry::new();
+        let default_id = reg.create(SessionScope::Read);
+        assert_eq!(reg.profile_of(&default_id), Some(ToolProfile::FullLegacy));
+        assert_eq!(reg.profile_of("unknown-session"), None);
+
+        let sub_id = reg.create_with_client_and_profile(
+            SessionScope::Project,
+            Some("niko-buddy".to_string()),
+            Some("2.30.0".to_string()),
+            ToolProfile::WriterSub,
+        );
+        assert_eq!(reg.profile_of(&sub_id), Some(ToolProfile::WriterSub));
+
+        let rev_id = reg.create_at_with_client_and_profile(
+            SessionScope::Read,
+            99_000,
+            Some("antigravity".to_string()),
+            None,
+            ToolProfile::Reviewer,
+        );
+        assert_eq!(reg.profile_of(&rev_id), Some(ToolProfile::Reviewer));
+        let info = reg
+            .list()
+            .into_iter()
+            .find(|s| s.id == rev_id)
+            .expect("rev session");
+        assert_eq!(info.profile, ToolProfile::Reviewer);
+        let serialized = serde_json::to_value(&info).expect("serialize");
+        assert_eq!(serialized["profile"], "reviewer");
+        assert_eq!(serialized["client_name"], "antigravity");
+        assert!(serialized.get("clientName").is_none());
     }
 }

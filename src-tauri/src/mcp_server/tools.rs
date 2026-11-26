@@ -30,7 +30,7 @@ use tauri::{AppHandle, Manager};
 
 use super::protocol::SERVER_VERSION;
 use super::registry::ToolError;
-use super::session::SessionScope;
+use super::session::{SessionScope, ToolProfile};
 use super::state_bridge::{self, StateBridgeState, StateQuery};
 
 /// boxed future 别名（避免引入 async_trait）。
@@ -52,6 +52,8 @@ pub struct ToolContext {
     /// `ServerState` 上原地改：`ctx` 是全局共享资源，把某个会话的 scope 写进去会
     /// 让之后任何请求都读到别人的授权。共享实例上的值只是安全基线（`Read`）。
     pub caller_scope: SessionScope,
+    /// **本次请求**调用方冻结的工具曝光 Profile（`app.status` 如实回报它）。
+    pub caller_profile: ToolProfile,
 }
 
 impl ToolContext {
@@ -63,20 +65,27 @@ impl ToolContext {
             bridge: StateBridgeState::new(),
             port: 0,
             caller_scope: SessionScope::Read,
+            caller_profile: ToolProfile::FullLegacy,
         }
     }
 
-    /// 派生一个**请求局部**的上下文：共享同一批运行时资源，只替换调用方 scope。
+    /// 派生一个**请求局部**的上下文：共享同一批运行时资源，只替换调用方 scope（沿用当前 profile）。
     ///
     /// `AppHandle` 与 `StateBridgeState` 的克隆不复制状态（桥内部是 `Arc`，克隆
     /// 共享同一张待决表），因此这里只把「谁在调」这一条**请求事实**带进工具，
     /// 不新增任何持久状态、也不把 scope 写回共享句柄。
     pub fn for_caller(&self, caller: SessionScope) -> Self {
+        self.for_caller_with_profile(caller, self.caller_profile)
+    }
+
+    /// 派生一个带指定 `SessionScope` 与 `ToolProfile` 的请求局部上下文。
+    pub fn for_caller_with_profile(&self, caller: SessionScope, profile: ToolProfile) -> Self {
         Self {
             app: self.app.clone(),
             bridge: self.bridge.clone(),
             port: self.port,
             caller_scope: caller,
+            caller_profile: profile,
         }
     }
 
@@ -140,6 +149,7 @@ impl super::registry::McpTool for AppStatusTool {
                 // 权限（那仍是 `full` 的逐会话授权），故同时回 `scope` 让人看清。
                 "readOnly": scope == SessionScope::Read,
                 "scope": scope.as_str(),
+                "profile": ctx.caller_profile.as_str(),
             }))
         })
     }
@@ -608,9 +618,6 @@ impl super::registry::McpTool for ContextInspectTool {
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
             let tool = "context.inspect";
-            let object = args
-                .as_object()
-                .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 参数必须是 object")))?;
             let allowed_fields = [
                 "chapter",
                 "task",
@@ -622,22 +629,16 @@ impl super::registry::McpTool for ContextInspectTool {
                 "promptOffset",
                 "promptLimit",
             ];
-            for (field, value) in object {
-                if !allowed_fields.contains(&field.as_str()) {
-                    return Err(ToolError::invalid_params(format!(
-                        "{tool}: 未知参数 `{field}`"
-                    )));
-                }
-                if value.is_null() {
-                    return Err(ToolError::invalid_params(format!(
-                        "{tool}: `{field}` 不接受显式 null"
-                    )));
-                }
-            }
-            let chapter = require_str(args, tool, "chapter")?;
+            let normalized = Value::Object(normalize_strict_object_args(
+                args,
+                tool,
+                &allowed_fields,
+                &["chapter"],
+            )?);
+            let chapter = require_str(&normalized, tool, "chapter")?;
             let mut params = json!({ "chapter": chapter });
 
-            match args.get("task") {
+            match normalized.get("task") {
                 None => {}
                 Some(Value::String(task)) if !task.trim().is_empty() => {
                     params["task"] = json!(task);
@@ -648,7 +649,7 @@ impl super::registry::McpTool for ContextInspectTool {
                     )))
                 }
             }
-            match args.get("dimension") {
+            match normalized.get("dimension") {
                 None => {}
                 Some(Value::String(dim)) if !dim.trim().is_empty() => {
                     params["dimension"] = json!(dim);
@@ -659,7 +660,7 @@ impl super::registry::McpTool for ContextInspectTool {
                     )))
                 }
             }
-            match args.get("inspectionId") {
+            match normalized.get("inspectionId") {
                 None => {}
                 Some(Value::String(id)) if !id.trim().is_empty() => {
                     params["inspectionId"] = json!(id);
@@ -672,15 +673,17 @@ impl super::registry::McpTool for ContextInspectTool {
             }
 
             for field in ["includePack", "includeChapter", "allowRetrievalNetwork"] {
-                if let Some(value) = optional_bool(args, tool, field)? {
+                if let Some(value) = optional_bool(&normalized, tool, field)? {
                     params[field] = json!(value);
                 }
             }
-            if let Some(offset) = optional_int_in_range(args, tool, "promptOffset", 0, u64::MAX)? {
+            if let Some(offset) =
+                optional_int_in_range(&normalized, tool, "promptOffset", 0, u64::MAX)?
+            {
                 params["promptOffset"] = json!(offset);
             }
             if let Some(limit) = optional_int_in_range(
-                args,
+                &normalized,
                 tool,
                 "promptLimit",
                 1,
@@ -816,6 +819,18 @@ where
 /// 全文检索，实际只做了精确匹配。因此这里暴露真实字段，让过滤语义与存储一致。
 pub struct CanonQueryTool;
 
+fn parse_canon_query_filter(
+    args: &Value,
+) -> Result<crate::canon::types_query::CanonEdgeFilter, ToolError> {
+    let filter_value = args
+        .get("filter")
+        .filter(|v| !v.is_null())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    serde_json::from_value(filter_value)
+        .map_err(|e| ToolError::invalid_params(format!("`filter` is invalid: {e}")))
+}
+
 impl super::registry::McpTool for CanonQueryTool {
     fn name(&self) -> &'static str {
         "canon.query"
@@ -860,14 +875,10 @@ impl super::registry::McpTool for CanonQueryTool {
         Box::pin(async move {
             use crate::canon::commands::CanonCommandState;
             use crate::canon::commands_core::canon_query_impl;
-            use crate::canon::types_query::CanonEdgeFilter;
 
+            let filter = parse_canon_query_filter(args)?;
             let app = ctx.app()?.clone();
             let project_path = ctx.project_path().await?;
-
-            let filter_value = args.get("filter").cloned().unwrap_or_else(|| json!({}));
-            let filter: CanonEdgeFilter = serde_json::from_value(filter_value)
-                .map_err(|e| ToolError::invalid_params(format!("`filter` is invalid: {e}")))?;
 
             let state = app.state::<CanonCommandState>();
             let response = canon_query_impl(&state, project_path, filter)
@@ -891,15 +902,21 @@ const RULES_GET_ALLOWED_SECTIONS: [&str; 4] = ["writingStyle", "antiAi", "bookRu
 const MECHANICAL_GATE_MAX_CHAPTER_CHARS: usize = 256;
 const MECHANICAL_GATE_MAX_TEXT_CHARS: usize = 100_000;
 
-/// 严格校验工具入参：必须是 JSON object，拒绝未知键与显式 `null`。
-fn validate_strict_object_args<'a>(
-    args: &'a Value,
+/// 严格校验并归一化工具入参：
+/// - 必须是 JSON object；
+/// - 拒绝未知键（即使值为 `null`）；
+/// - 拒绝必填字段设为显式 `null`；
+/// - 剥离可选字段上的显式 `null`（便于容错某些 JSON Schema 客户端为可选字段发送 `null`）。
+fn normalize_strict_object_args(
+    args: &Value,
     tool: &str,
     allowed_fields: &[&str],
-) -> Result<&'a serde_json::Map<String, Value>, ToolError> {
+    required_fields: &[&str],
+) -> Result<serde_json::Map<String, Value>, ToolError> {
     let object = args
         .as_object()
         .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 参数必须是 object")))?;
+    let mut normalized = serde_json::Map::with_capacity(object.len());
     for (field, value) in object {
         if !allowed_fields.contains(&field.as_str()) {
             return Err(ToolError::invalid_params(format!(
@@ -907,12 +924,16 @@ fn validate_strict_object_args<'a>(
             )));
         }
         if value.is_null() {
-            return Err(ToolError::invalid_params(format!(
-                "{tool}: `{field}` 不接受显式 null"
-            )));
+            if required_fields.contains(&field.as_str()) {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: 必填参数 `{field}` 不接受 null"
+                )));
+            }
+            continue;
         }
+        normalized.insert(field.clone(), value.clone());
     }
-    Ok(object)
+    Ok(normalized)
 }
 
 /// 严格校验 `draftId`：1..=128 个 ASCII `[a-zA-Z0-9_-]` 字符。
@@ -949,20 +970,25 @@ fn validate_mechanical_chapter<'a>(raw: &'a str, tool: &str) -> Result<&'a str, 
 }
 
 fn build_draft_list_query(args: &Value) -> Result<StateQuery, ToolError> {
-    validate_strict_object_args(args, "draft.list", &[])?;
+    normalize_strict_object_args(args, "draft.list", &[], &[])?;
     Ok(StateQuery::new("draft-list"))
 }
 
 fn build_draft_read_query(args: &Value) -> Result<StateQuery, ToolError> {
     let tool = "draft.read";
-    validate_strict_object_args(args, tool, &["draftId", "offset", "limit"])?;
-    let draft_id = args
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &["draftId", "offset", "limit"],
+        &["draftId"],
+    )?);
+    let draft_id = normalized
         .get("draftId")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `draftId`")))?;
     let draft_id = validate_draft_id(draft_id, tool)?;
-    let offset = optional_int_in_range(args, tool, "offset", 0, u64::MAX)?.unwrap_or(0);
-    let limit = optional_int_in_range(args, tool, "limit", 1, DRAFT_READ_MAX_LIMIT)?
+    let offset = optional_int_in_range(&normalized, tool, "offset", 0, u64::MAX)?.unwrap_or(0);
+    let limit = optional_int_in_range(&normalized, tool, "limit", 1, DRAFT_READ_MAX_LIMIT)?
         .unwrap_or(DRAFT_READ_DEFAULT_LIMIT);
     Ok(StateQuery::new("draft-read").with_params(json!({
         "draftId": draft_id,
@@ -973,8 +999,13 @@ fn build_draft_read_query(args: &Value) -> Result<StateQuery, ToolError> {
 
 fn build_rules_get_query(args: &Value) -> Result<StateQuery, ToolError> {
     let tool = "rules.get";
-    validate_strict_object_args(args, tool, &["sections"])?;
-    let sections: Vec<&'static str> = match args.get("sections") {
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &["sections", "compact"],
+        &[],
+    )?);
+    let sections: Vec<&'static str> = match normalized.get("sections") {
         None => RULES_GET_ALLOWED_SECTIONS.to_vec(),
         Some(value) => {
             let arr = value.as_array().ok_or_else(|| {
@@ -1015,13 +1046,21 @@ fn build_rules_get_query(args: &Value) -> Result<StateQuery, ToolError> {
             deduped
         }
     };
-    Ok(StateQuery::new("rules-get").with_params(json!({ "sections": sections })))
+    let mut params = json!({ "sections": sections });
+    if let Some(compact) = optional_bool(&normalized, tool, "compact")? {
+        params["compact"] = json!(compact);
+    }
+    Ok(StateQuery::new("rules-get").with_params(params))
 }
 
 fn build_gate_check_mechanical_query(args: &Value) -> Result<StateQuery, ToolError> {
     let tool = "gate.check_mechanical";
-    let object =
-        validate_strict_object_args(args, tool, &["draftId", "chapter", "text", "chapterNumber"])?;
+    let object = normalize_strict_object_args(
+        args,
+        tool,
+        &["draftId", "chapter", "text", "chapterNumber", "detailLevel"],
+        &[],
+    )?;
     let source_count = ["draftId", "chapter", "text"]
         .iter()
         .filter(|field| object.contains_key(**field))
@@ -1063,7 +1102,24 @@ fn build_gate_check_mechanical_query(args: &Value) -> Result<StateQuery, ToolErr
         params["text"] = json!(raw);
     }
 
-    if let Some(chapter_number) = optional_int_in_range(args, tool, "chapterNumber", 1, u64::MAX)? {
+    if let Some(v) = object.get("detailLevel") {
+        let level = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!(
+                "{tool}: `detailLevel` 只接受 compact / full，收到 {v}"
+            ))
+        })?;
+        if !matches!(level, "compact" | "full") {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `detailLevel` 只接受 compact / full，收到 {level}"
+            )));
+        }
+        params["detailLevel"] = json!(level);
+    }
+
+    let normalized = Value::Object(object);
+    if let Some(chapter_number) =
+        optional_int_in_range(&normalized, tool, "chapterNumber", 1, u64::MAX)?
+    {
         params["chapterNumber"] = json!(chapter_number);
     }
 
@@ -1159,7 +1215,7 @@ impl super::registry::McpTool for RulesGetTool {
     }
 
     fn description(&self) -> &'static str {
-        "Read active writing rules and planning guidance for the current project. Optional `sections` filters any subset of [writingStyle, antiAi, bookRules, planning] (default: all four). Read-only, zero LLM calls."
+        "Read active writing rules and planning guidance for the current project. Optional `sections` filters any subset of [writingStyle, antiAi, bookRules, planning] (default: all four); optional `compact` returns condensed rule summaries. Read-only, zero LLM calls."
     }
 
     fn input_schema(&self) -> Value {
@@ -1175,6 +1231,10 @@ impl super::registry::McpTool for RulesGetTool {
                         "enum": RULES_GET_ALLOWED_SECTIONS
                     },
                     "description": "Rule sections to fetch (default: all four)"
+                },
+                "compact": {
+                    "type": "boolean",
+                    "description": "When true, return condensed rule summaries optimized for low-token prompt injection"
                 }
             },
             "additionalProperties": false
@@ -1202,7 +1262,7 @@ impl super::registry::McpTool for GateCheckMechanicalTool {
     }
 
     fn description(&self) -> &'static str {
-        "Run deterministic zero-LLM mechanical gate checks (anti-AI patterns, formatting, word/line metrics) on exactly one of `draftId`, `chapter`, or raw `text`. Read-only; never modifies chapters, drafts, or memory."
+        "Run deterministic zero-LLM mechanical gate checks covering P0 Continuity preflight + BookRules + P1 Anti-AI patterns and word/line metrics on exactly one of `draftId`, `chapter`, or raw `text`. When passing raw `text`, include `chapterNumber` to activate P0 Continuity preflight checks. Optional `detailLevel` (`compact` | `full`) controls verbosity. Read-only; never modifies chapters, drafts, or memory."
     }
 
     fn input_schema(&self) -> Value {
@@ -1226,12 +1286,17 @@ impl super::registry::McpTool for GateCheckMechanicalTool {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": MECHANICAL_GATE_MAX_TEXT_CHARS,
-                    "description": "Raw chapter text to check mechanically (mutually exclusive with draftId and chapter)"
+                    "description": "Raw chapter text to check mechanically (mutually exclusive with draftId and chapter; include chapterNumber to activate P0 Continuity preflight)"
                 },
                 "chapterNumber": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": "Optional 1-based chapter number for mechanical check context"
+                    "description": "Optional 1-based chapter number; strongly recommended when passing raw `text` to activate P0 Continuity preflight"
+                },
+                "detailLevel": {
+                    "type": "string",
+                    "enum": ["compact", "full"],
+                    "description": "Optional output verbosity: \"compact\" (concise summary/top findings) or \"full\" (complete diagnostic payload)"
                 }
             },
             "additionalProperties": false
@@ -1259,7 +1324,7 @@ const JS_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> {
     let tool = "context.prepare_write";
-    let object = validate_strict_object_args(
+    let object = normalize_strict_object_args(
         args,
         tool,
         &[
@@ -1271,20 +1336,23 @@ fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> 
             "includePlanningView",
             "dimension",
             "allowRetrievalNetwork",
+            "retrievalMode",
             "offset",
             "limit",
         ],
+        &[],
     )?;
+    let normalized = Value::Object(object);
 
     let mut params = json!({});
 
     if let Some(target_chapter) =
-        optional_int_in_range(args, tool, "targetChapter", 1, JS_MAX_SAFE_INTEGER)?
+        optional_int_in_range(&normalized, tool, "targetChapter", 1, JS_MAX_SAFE_INTEGER)?
     {
         params["targetChapter"] = json!(target_chapter);
     }
 
-    if let Some(v) = object.get("draftId") {
+    if let Some(v) = normalized.get("draftId") {
         let raw = v.as_str().ok_or_else(|| {
             ToolError::invalid_params(format!("{tool}: `draftId` 必须是字符串，收到 {v}"))
         })?;
@@ -1292,7 +1360,7 @@ fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> 
         params["draftId"] = json!(draft_id);
     }
 
-    if let Some(v) = object.get("task") {
+    if let Some(v) = normalized.get("task") {
         let raw = v.as_str().ok_or_else(|| {
             ToolError::invalid_params(format!("{tool}: `task` 必须是字符串，收到 {v}"))
         })?;
@@ -1311,12 +1379,12 @@ fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> 
     }
 
     for field in ["includePack", "includeDraft", "includePlanningView"] {
-        if let Some(flag) = optional_bool(args, tool, field)? {
+        if let Some(flag) = optional_bool(&normalized, tool, field)? {
             params[field] = json!(flag);
         }
     }
 
-    if let Some(v) = object.get("dimension") {
+    if let Some(v) = normalized.get("dimension") {
         let raw = v.as_str().ok_or_else(|| {
             ToolError::invalid_params(format!("{tool}: `dimension` 必须是字符串，收到 {v}"))
         })?;
@@ -1334,13 +1402,47 @@ fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> 
         params["dimension"] = json!(raw);
     }
 
-    let allow_retrieval_network =
-        optional_bool(args, tool, "allowRetrievalNetwork")?.unwrap_or(false);
-    let offset = optional_int_in_range(args, tool, "offset", 0, JS_MAX_SAFE_INTEGER)?.unwrap_or(0);
-    let limit = optional_int_in_range(args, tool, "limit", 1, CONTEXT_PREPARE_LIMIT_MAX)?
+    let retrieval_mode = match normalized.get("retrievalMode") {
+        None => None,
+        Some(v) => {
+            let mode = v.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!(
+                    "{tool}: `retrievalMode` 只接受 local_only / configured_network，收到 {v}"
+                ))
+            })?;
+            if !matches!(mode, "local_only" | "configured_network") {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `retrievalMode` 只接受 local_only / configured_network，收到 {mode}"
+                )));
+            }
+            Some(mode)
+        }
+    };
+    let allow_retrieval_network = optional_bool(&normalized, tool, "allowRetrievalNetwork")?;
+
+    if matches!(
+        (retrieval_mode, allow_retrieval_network),
+        (Some("local_only"), Some(true)) | (Some("configured_network"), Some(false))
+    ) {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `retrievalMode={}` 与 `allowRetrievalNetwork={}` 冲突",
+            retrieval_mode.unwrap_or(""),
+            allow_retrieval_network.unwrap_or(false)
+        )));
+    }
+
+    if let Some(flag) = allow_retrieval_network {
+        params["allowRetrievalNetwork"] = json!(flag);
+    }
+    if let Some(mode) = retrieval_mode {
+        params["retrievalMode"] = json!(mode);
+    }
+
+    let offset =
+        optional_int_in_range(&normalized, tool, "offset", 0, JS_MAX_SAFE_INTEGER)?.unwrap_or(0);
+    let limit = optional_int_in_range(&normalized, tool, "limit", 1, CONTEXT_PREPARE_LIMIT_MAX)?
         .unwrap_or(CONTEXT_PREPARE_DEFAULT_LIMIT);
 
-    params["allowRetrievalNetwork"] = json!(allow_retrieval_network);
     params["offset"] = json!(offset);
     params["limit"] = json!(limit);
 
@@ -1348,14 +1450,14 @@ fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> 
 }
 
 fn build_director_check_query(args: &Value) -> Result<StateQuery, ToolError> {
-    validate_strict_object_args(args, "director.check", &[])?;
+    normalize_strict_object_args(args, "director.check", &[], &[])?;
     Ok(StateQuery::new("director-check"))
 }
 
 /// `context.prepare_write` —— 为下一章写作准备只读上下文包与规划视图（零 LLM 调用）。
 ///
 /// 复用共享异步桥轮询机制（`context-prepare-start` / `context-prepare-poll`），
-/// 默认 `allowRetrievalNetwork = false` 避免隐式出网；`dimension` 不在 Rust 侧列举枚举，
+/// 默认不隐式出网；`dimension` 不在 Rust 侧列举枚举，
 /// 统一由前端真源 `SIX_REVIEW_DIMENSION_ORDER` 校验。
 pub struct ContextPrepareWriteTool;
 
@@ -1365,7 +1467,7 @@ impl super::registry::McpTool for ContextPrepareWriteTool {
     }
 
     fn description(&self) -> &'static str {
-        "Assemble read-only writing preparation context (effective config, planning view, optional draft snippet, optional ContextPack/dimension prompt) for the target chapter or draft. Zero LLM calls; allowRetrievalNetwork defaults to false and refuses network retrieval unless explicitly opted in. Never modifies chapters, drafts, memory, or settings."
+        "Assemble read-only writing preparation context (effective config, planning view, optional draft snippet, optional ContextPack/dimension prompt for thrill, consistency, pacing, character, continuity, pull) for the target chapter or draft. Zero LLM calls; supports retrievalMode (`local_only` | `configured_network`) and explicit allowRetrievalNetwork opt-in (refuses network retrieval by default). Never modifies chapters, drafts, memory, or settings."
     }
 
     fn input_schema(&self) -> Value {
@@ -1407,11 +1509,16 @@ impl super::registry::McpTool for ContextPrepareWriteTool {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": CONTEXT_PREPARE_MAX_DIMENSION_CHARS,
-                    "description": "Optional six-dimension review key validated in the WebView against SIX_REVIEW_DIMENSION_ORDER"
+                    "description": "Optional six-dimension review key (thrill, consistency, pacing, character, continuity, pull), validated in the WebView against SIX_REVIEW_DIMENSION_ORDER"
                 },
                 "allowRetrievalNetwork": {
                     "type": "boolean",
                     "description": "Explicit opt-in for network embedding/rerank retrieval when building a pack (default false)"
+                },
+                "retrievalMode": {
+                    "type": "string",
+                    "enum": ["local_only", "configured_network"],
+                    "description": "Optional retrieval network policy: \"local_only\" (zero outbound network calls) or \"configured_network\" (allow configured remote retrieval)"
                 },
                 "offset": {
                     "type": "integer",
@@ -2004,15 +2111,20 @@ fn validate_outline_filename<'a>(raw: &'a str, tool: &str) -> Result<&'a str, To
 
 fn build_outline_write_query(args: &Value) -> Result<StateQuery, ToolError> {
     let tool = "outline.write";
-    let object = validate_strict_object_args(args, tool, &["filename", "content", "syncModel"])?;
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &["filename", "content", "syncModel"],
+        &["filename", "content"],
+    )?);
 
-    let filename_raw = object
+    let filename_raw = normalized
         .get("filename")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `filename`")))?;
     let filename = validate_outline_filename(filename_raw, tool)?;
 
-    let content = object
+    let content = normalized
         .get("content")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `content`")))?;
@@ -2028,7 +2140,7 @@ fn build_outline_write_query(args: &Value) -> Result<StateQuery, ToolError> {
         )));
     }
 
-    let sync_model = optional_bool(args, tool, "syncModel")?.unwrap_or(true);
+    let sync_model = optional_bool(&normalized, tool, "syncModel")?.unwrap_or(true);
     Ok(StateQuery::new("outline-write").with_params(json!({
         "filename": filename,
         "content": content,
@@ -3654,8 +3766,8 @@ mod tests {
 
     #[tokio::test]
     async fn app_status_defaults_to_read_only() {
-        // 默认上下文（无调用方）就是最小权限：readOnly=true、scope=read，且
-        // version / mode / listen 三个既有字段的名称与结构都不变。
+        // 默认上下文（无调用方）就是最小权限：readOnly=true、scope=read、profile=full-legacy，
+        // 且 version / mode / listen 三个既有字段的名称与结构都不变。
         let ctx = ToolContext::for_test();
         let out = AppStatusTool
             .call(&ctx, &json!({}))
@@ -3663,9 +3775,16 @@ mod tests {
             .expect("app.status 不依赖 AppHandle，必须成功");
         assert_eq!(out["readOnly"], json!(true), "{out}");
         assert_eq!(out["scope"], json!("read"), "{out}");
+        assert_eq!(out["profile"], json!("full-legacy"), "{out}");
         assert_eq!(out["version"], json!(SERVER_VERSION), "{out}");
         assert_eq!(out["listen"], json!("127.0.0.1:0"), "{out}");
         assert!(out["mode"].is_string(), "mode 必须保留: {out}");
+
+        let sub_ctx = ctx.for_caller_with_profile(SessionScope::Project, ToolProfile::WriterSub);
+        let sub_out = AppStatusTool.call(&sub_ctx, &json!({})).await.expect("ok");
+        assert_eq!(sub_out["scope"], json!("project"));
+        assert_eq!(sub_out["profile"], json!("writer-sub"));
+        assert_eq!(ctx.caller_profile, ToolProfile::FullLegacy);
     }
 
     #[tokio::test]
@@ -3917,17 +4036,30 @@ mod tests {
     #[tokio::test]
     async fn context_inspect_rejects_unknown_keys_and_explicit_nulls_before_bridge() {
         let ctx = ToolContext::for_test();
-        let mut cases = vec![
+        let cases = vec![
             json!({ "chapter": "1", "includePacks": true }),
+            json!({ "chapter": "1", "extra": null }),
             json!({ "chapter": "1", "dimenion": "thrill" }),
             json!({ "chapter": "1", "extra": 1 }),
             json!({ "chapter": "1", "inspectionId": 42 }),
             json!({ "chapter": "1", "inspectionId": " " }),
+            json!({ "chapter": null }),
             json!([]),
             Value::Null,
         ];
+        for args in cases {
+            let err = ContextInspectTool
+                .call(&ctx, &args)
+                .await
+                .expect_err("未知键与必填项显式 null 必须在 bridge 前拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "args={args}: {err:?}"
+            );
+        }
+        // 可选字段显式 null 会被 normalize_strict_object_args 剥离并放行至状态桥（无 AppHandle -> INTERNAL_ERROR）。
         for field in [
-            "chapter",
             "task",
             "inspectionId",
             "dimension",
@@ -3939,17 +4071,14 @@ mod tests {
         ] {
             let mut args = json!({ "chapter": "1" });
             args[field] = Value::Null;
-            cases.push(args);
-        }
-        for args in cases {
             let err = ContextInspectTool
                 .call(&ctx, &args)
                 .await
-                .expect_err("未知键和显式 null 必须在 bridge 前拒绝");
+                .expect_err("可选 null 归一化后应直达状态桥并因缺 AppHandle 报内部错");
             assert_eq!(
                 err.code,
-                crate::mcp_server::protocol::INVALID_PARAMS,
-                "args={args}: {err:?}"
+                crate::mcp_server::protocol::INTERNAL_ERROR,
+                "field={field} args={args}: {err:?}"
             );
         }
     }
@@ -4974,6 +5103,18 @@ mod tests {
             Some(json!({ "draftId": "A".repeat(128), "offset": 15, "limit": 2000 }))
         );
 
+        // 可选字段传 null 会归一化为默认值，必填 draftId 传 null 仍严格拒绝。
+        let q_opt_null = build_draft_read_query(&json!({
+            "draftId": "ok_1",
+            "offset": null,
+            "limit": null,
+        }))
+        .expect("optional nulls normalized");
+        assert_eq!(
+            q_opt_null.params,
+            Some(json!({ "draftId": "ok_1", "offset": 0, "limit": 200 }))
+        );
+
         let ctx = ToolContext::for_test();
         for bad in [
             json!(null),
@@ -4987,8 +5128,6 @@ mod tests {
             json!({ "draftId": "a".repeat(129) }),
             json!({ "draftId": 123 }),
             json!({ "draftId": null }),
-            json!({ "draftId": "ok_1", "offset": null }),
-            json!({ "draftId": "ok_1", "limit": null }),
             json!({ "draftId": "ok_1", "offset": -1 }),
             json!({ "draftId": "ok_1", "offset": "0" }),
             json!({ "draftId": "ok_1", "offset": 1.5 }),
@@ -4996,6 +5135,7 @@ mod tests {
             json!({ "draftId": "ok_1", "limit": 2001 }),
             json!({ "draftId": "ok_1", "limit": "200" }),
             json!({ "draftId": "ok_1", "unknown": true }),
+            json!({ "draftId": "ok_1", "unknown": null }),
         ] {
             let err = DraftReadTool
                 .call(&ctx, &bad)
@@ -5018,6 +5158,25 @@ mod tests {
             Some(json!({ "sections": ["writingStyle", "antiAi", "bookRules", "planning"] }))
         );
 
+        // 可选字段 sections / compact 传 null 会归一化为缺省，不转发 compact 键。
+        let q_opt_null =
+            build_rules_get_query(&json!({ "sections": null, "compact": null })).expect("ok");
+        assert_eq!(
+            q_opt_null.params,
+            Some(json!({ "sections": ["writingStyle", "antiAi", "bookRules", "planning"] }))
+        );
+
+        // 显式传入 compact 才转发给 StateQuery。
+        let q_compact = build_rules_get_query(&json!({
+            "sections": ["antiAi"],
+            "compact": true,
+        }))
+        .expect("compact true ok");
+        assert_eq!(
+            q_compact.params,
+            Some(json!({ "sections": ["antiAi"], "compact": true }))
+        );
+
         let q_dedup = build_rules_get_query(&json!({
             "sections": ["planning", "antiAi", "planning", "writingStyle", "antiAi"]
         }))
@@ -5037,14 +5196,16 @@ mod tests {
         for bad in [
             json!(null),
             json!([]),
-            json!({ "sections": null }),
             json!({ "sections": "antiAi" }),
             json!({ "sections": [] }),
             json!({ "sections": ["unknownSection"] }),
             json!({ "sections": ["antiAi", 42] }),
             json!({ "sections": ["antiAi", null] }),
             json!({ "sections": too_many }),
+            json!({ "compact": "true" }),
+            json!({ "compact": 1 }),
             json!({ "extra": 1 }),
+            json!({ "extra": null }),
         ] {
             let err = RulesGetTool
                 .call(&ctx, &bad)
@@ -5089,22 +5250,59 @@ mod tests {
             Some(json!({ "text": "正文段落，用于零 LLM 机械检查。" }))
         );
 
+        // 显式 detailLevel 才转发给 StateQuery；可选字段 null 会被剥离。
+        let q_compact = build_gate_check_mechanical_query(&json!({
+            "draftId": null,
+            "text": "hello",
+            "chapterNumber": null,
+            "detailLevel": "compact"
+        }))
+        .expect("optional nulls normalized and detailLevel forwarded");
+        assert_eq!(
+            q_compact.params,
+            Some(json!({ "text": "hello", "detailLevel": "compact" }))
+        );
+
+        let q_full = build_gate_check_mechanical_query(&json!({
+            "text": "hello",
+            "detailLevel": "full"
+        }))
+        .expect("detailLevel full ok");
+        assert_eq!(
+            q_full.params,
+            Some(json!({ "text": "hello", "detailLevel": "full" }))
+        );
+
+        let q_detail_null = build_gate_check_mechanical_query(&json!({
+            "text": "hello",
+            "detailLevel": null
+        }))
+        .expect("detailLevel null normalized");
+        assert_eq!(q_detail_null.params, Some(json!({ "text": "hello" })));
+
+        let desc = GateCheckMechanicalTool.description();
+        assert!(desc.contains("P0 Continuity") && desc.contains("chapterNumber"));
+
         let ctx = ToolContext::for_test();
         for bad in [
             json!(null),
             json!([]),
-            // 0-of-3
+            // 0-of-3（含全部显式 null 归一化后归零）
             json!({}),
             json!({ "chapterNumber": 1 }),
+            json!({ "draftId": null, "chapter": null, "text": null }),
             // >1-of-3
             json!({ "draftId": "d1", "chapter": "1" }),
             json!({ "draftId": "d1", "text": "hello" }),
             json!({ "chapter": "1", "text": "hello" }),
             json!({ "draftId": "d1", "chapter": "1", "text": "hello" }),
-            // explicit nulls / unknown keys
-            json!({ "draftId": null, "text": "hello" }),
-            json!({ "text": "hello", "chapterNumber": null }),
+            // unknown keys (even if null)
             json!({ "text": "hello", "extra": 1 }),
+            json!({ "text": "hello", "extra": null }),
+            // invalid detailLevel
+            json!({ "text": "hello", "detailLevel": "verbose" }),
+            json!({ "text": "hello", "detailLevel": "" }),
+            json!({ "text": "hello", "detailLevel": true }),
             // invalid draftId
             json!({ "draftId": "" }),
             json!({ "draftId": "bad/id" }),
@@ -5181,11 +5379,33 @@ mod tests {
         assert!(!r.names().contains(&"draft.accept"));
         assert!(!listed_names.contains(&"draft.accept"));
 
-        // context.prepare_write 的 dimension 不得在 Rust 侧锁死 enum（TS 侧按 SIX_REVIEW_DIMENSION_ORDER 校验）。
+        // context.prepare_write 的 dimension 不得在 Rust 侧锁死 enum（TS 侧按 SIX_REVIEW_DIMENSION_ORDER 校验），
+        // 但 description 与 dimension.description 必须明确列出全部六个键。
         let schema = ContextPrepareWriteTool.input_schema();
         assert_eq!(schema["additionalProperties"], json!(false));
         assert_eq!(schema["properties"]["dimension"]["type"], json!("string"));
         assert!(schema["properties"]["dimension"].get("enum").is_none());
+        let prep_desc = ContextPrepareWriteTool.description();
+        let dim_desc = schema["properties"]["dimension"]["description"]
+            .as_str()
+            .expect("dimension description");
+        for key in [
+            "thrill",
+            "consistency",
+            "pacing",
+            "character",
+            "continuity",
+            "pull",
+        ] {
+            assert!(
+                prep_desc.contains(key),
+                "description 应含 {key}: {prep_desc}"
+            );
+            assert!(
+                dim_desc.contains(key),
+                "dimension.description 应含 {key}: {dim_desc}"
+            );
+        }
         assert_eq!(
             schema["properties"]["targetChapter"]["maximum"],
             json!(JS_MAX_SAFE_INTEGER)
@@ -5202,15 +5422,51 @@ mod tests {
 
     #[tokio::test]
     async fn context_prepare_write_validates_defaults_bounds_and_polls_async_job() {
+        // 默认不注入 allowRetrievalNetwork / retrievalMode（仅显式提供时转发）。
         let defaults = build_context_prepare_write_params(&json!({})).expect("empty object ok");
         assert_eq!(
             defaults,
             json!({
-                "allowRetrievalNetwork": false,
                 "offset": 0,
                 "limit": 16_000,
             })
         );
+        assert!(defaults.get("allowRetrievalNetwork").is_none());
+        assert!(defaults.get("retrievalMode").is_none());
+
+        // 可选字段显式 null 会被归一化剥离。
+        let null_opts = build_context_prepare_write_params(&json!({
+            "targetChapter": null,
+            "allowRetrievalNetwork": null,
+            "retrievalMode": null,
+            "dimension": null,
+        }))
+        .expect("optional nulls normalized");
+        assert_eq!(null_opts, json!({ "offset": 0, "limit": 16_000 }));
+
+        // retrievalMode 单独传入不注入 allowRetrievalNetwork；兼容组合放行。
+        let local_only = build_context_prepare_write_params(&json!({
+            "retrievalMode": "local_only",
+        }))
+        .expect("local_only ok");
+        assert_eq!(local_only["retrievalMode"], json!("local_only"));
+        assert!(local_only.get("allowRetrievalNetwork").is_none());
+
+        let local_compat = build_context_prepare_write_params(&json!({
+            "retrievalMode": "local_only",
+            "allowRetrievalNetwork": false,
+        }))
+        .expect("local_only + false ok");
+        assert_eq!(local_compat["retrievalMode"], json!("local_only"));
+        assert_eq!(local_compat["allowRetrievalNetwork"], json!(false));
+
+        let net_compat = build_context_prepare_write_params(&json!({
+            "retrievalMode": "configured_network",
+            "allowRetrievalNetwork": true,
+        }))
+        .expect("configured_network + true ok");
+        assert_eq!(net_compat["retrievalMode"], json!("configured_network"));
+        assert_eq!(net_compat["allowRetrievalNetwork"], json!(true));
 
         let full = build_context_prepare_write_params(&json!({
             "targetChapter": 12,
@@ -5221,6 +5477,7 @@ mod tests {
             "includePlanningView": true,
             "dimension": "consistency",
             "allowRetrievalNetwork": true,
+            "retrievalMode": "configured_network",
             "offset": 100,
             "limit": 50_000,
         }))
@@ -5233,6 +5490,7 @@ mod tests {
         assert_eq!(full["includePlanningView"], json!(true));
         assert_eq!(full["dimension"], json!("consistency"));
         assert_eq!(full["allowRetrievalNetwork"], json!(true));
+        assert_eq!(full["retrievalMode"], json!("configured_network"));
         assert_eq!(full["offset"], json!(100));
         assert_eq!(full["limit"], json!(50_000));
 
@@ -5250,7 +5508,7 @@ mod tests {
             json!(null),
             json!([]),
             json!({ "extra": 1 }),
-            json!({ "targetChapter": null }),
+            json!({ "extra": null }),
             json!({ "targetChapter": 0 }),
             json!({ "targetChapter": -1 }),
             json!({ "targetChapter": JS_MAX_SAFE_INTEGER + 1 }),
@@ -5267,6 +5525,12 @@ mod tests {
             json!({ "includeDraft": 1 }),
             json!({ "includePlanningView": "yes" }),
             json!({ "allowRetrievalNetwork": "false" }),
+            json!({ "retrievalMode": "auto" }),
+            json!({ "retrievalMode": "" }),
+            json!({ "retrievalMode": 1 }),
+            // retrievalMode 与 allowRetrievalNetwork 语义冲突必须 fail-closed 拒收
+            json!({ "retrievalMode": "local_only", "allowRetrievalNetwork": true }),
+            json!({ "retrievalMode": "configured_network", "allowRetrievalNetwork": false }),
             json!({ "dimension": "" }),
             json!({ "dimension": "   " }),
             json!({ "dimension": "d".repeat(65) }),
@@ -5401,6 +5665,18 @@ mod tests {
         }))
         .is_ok());
 
+        // 可选 syncModel=null 归一化为默认 true；必填 filename/content 为 null 与未知键仍严格拒绝。
+        let q_null_sync = build_outline_write_query(&json!({
+            "filename": "ok.md",
+            "content": "ok",
+            "syncModel": null,
+        }))
+        .expect("optional syncModel=null normalized");
+        assert_eq!(
+            q_null_sync.params,
+            Some(json!({ "filename": "ok.md", "content": "ok", "syncModel": true }))
+        );
+
         let ctx = ToolContext::for_test();
         for bad in [
             json!(null),
@@ -5408,8 +5684,10 @@ mod tests {
             json!({}),
             json!({ "filename": "ok.md" }),
             json!({ "content": "ok" }),
+            json!({ "filename": null, "content": "ok" }),
+            json!({ "filename": "ok.md", "content": null }),
             json!({ "filename": "ok.md", "content": "ok", "extra": 1 }),
-            json!({ "filename": "ok.md", "content": "ok", "syncModel": null }),
+            json!({ "filename": "ok.md", "content": "ok", "extra": null }),
             json!({ "filename": "ok.md", "content": "ok", "syncModel": "true" }),
             // 非法文件名
             json!({ "filename": "", "content": "ok" }),
@@ -5459,5 +5737,38 @@ mod tests {
                 "bad={bad}: {err:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn canon_query_normalizes_null_filter_and_rejects_invalid_filter() {
+        let default_filter = parse_canon_query_filter(&json!({})).expect("omitted filter ok");
+        let null_filter =
+            parse_canon_query_filter(&json!({ "filter": null })).expect("explicit null filter ok");
+        assert_eq!(
+            serde_json::to_value(&null_filter).expect("ser"),
+            serde_json::to_value(&default_filter).expect("ser")
+        );
+
+        let scoped = parse_canon_query_filter(&json!({
+            "filter": { "known_by": "林清", "limit": 20 }
+        }))
+        .expect("valid filter ok");
+        assert_eq!(scoped.known_by.as_deref(), Some("林清"));
+        assert_eq!(scoped.limit, Some(20));
+
+        let ctx = ToolContext::for_test();
+        // 显式 `filter: null` 归一化后直达状态桥（无 AppHandle -> INTERNAL_ERROR，而非 INVALID_PARAMS）。
+        let err_null = CanonQueryTool
+            .call(&ctx, &json!({ "filter": null }))
+            .await
+            .expect_err("无 AppHandle 应报内部错");
+        assert_eq!(err_null.code, crate::mcp_server::protocol::INTERNAL_ERROR);
+
+        // 非对象 `filter` 仍严格在状态桥前报 INVALID_PARAMS。
+        let err_bad = CanonQueryTool
+            .call(&ctx, &json!({ "filter": "invalid" }))
+            .await
+            .expect_err("非法 filter 必须拒绝");
+        assert_eq!(err_bad.code, crate::mcp_server::protocol::INVALID_PARAMS);
     }
 }

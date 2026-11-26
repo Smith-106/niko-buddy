@@ -87,10 +87,10 @@ pub fn initialize_result(requested_version: Option<&str>) -> Value {
 
 /// 把工具调用的业务结果包成 MCP 的 `tools/call` result。
 ///
-/// MCP 要求 `content` 是内容块数组；我们把 JSON 结果序列化成一段 text，
-/// 这样客户端读起来是结构化文本，且不需要自定义 content type。
+/// MCP 要求 `content` 是内容块数组；我们把 JSON 结果序列化成紧凑单行 text，
+/// 既保持结构化 JSON 可解析性，又避免缩进空白浪费模型上下文 token。
 pub fn tool_result(value: &Value) -> Value {
-    let text = serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
+    let text = serde_json::to_string(value).unwrap_or_else(|_| value.to_string());
     json!({ "content": [{ "type": "text", "text": text }], "isError": false })
 }
 
@@ -141,7 +141,15 @@ mod tests {
 
     #[test]
     fn tool_result_and_error_are_distinguishable() {
-        assert_eq!(tool_result(&json!({"a": 1}))["isError"], false);
+        let ok = tool_result(&json!({"a": 1, "nested": [2, 3]}));
+        assert_eq!(ok["isError"], false);
+        let text = ok["content"][0]["text"].as_str().expect("text");
+        assert!(
+            !text.contains('\n'),
+            "tool_result 必须序列化为紧凑单行 JSON: {text}"
+        );
+        let parsed: Value = serde_json::from_str(text).expect("valid JSON");
+        assert_eq!(parsed, json!({"a": 1, "nested": [2, 3]}));
         assert_eq!(tool_error("boom")["isError"], true);
     }
 

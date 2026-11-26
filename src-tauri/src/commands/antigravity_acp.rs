@@ -38,7 +38,7 @@ use super::antigravity_cli::find_agy_command;
 use super::cli_resolver::child_path_env;
 use super::local_cli_config::{apply_local_cli_environment, ensure_cli_workspace_dir};
 use super::process_tree::{self, ProcessTree};
-use crate::mcp_server::{LocalMcpBinding, McpServerHandle};
+use crate::mcp_server::{LocalMcpBinding, McpServerHandle, ToolProfile};
 
 const INITIALIZE_TIMEOUT_SECS: u64 = 20;
 const AUTHENTICATE_TIMEOUT_SECS: u64 = 180;
@@ -105,6 +105,8 @@ pub struct AcpStatusSnapshot {
     pub http_mcp_enabled: bool,
     pub attached_local_mcp: bool,
     pub local_mcp_scope: Option<String>,
+    #[serde(rename = "localMcpProfile")]
+    pub local_mcp_profile: Option<String>,
     pub in_flight_prompt: bool,
     #[serde(rename = "supportsHttpMcp", skip_serializing_if = "Option::is_none")]
     pub supports_http_mcp: Option<bool>,
@@ -117,6 +119,8 @@ pub struct AcpStatusSnapshot {
     pub local_mcp_stale: bool,
     #[serde(rename = "localMcpStaleReason")]
     pub local_mcp_stale_reason: Option<String>,
+    #[serde(rename = "parentCodeRepoWarning")]
+    pub parent_code_repo_warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,7 +131,11 @@ pub struct AcpSessionResult {
     pub config_options: Vec<Value>,
     pub attached_local_mcp: bool,
     pub local_mcp_scope: Option<String>,
+    #[serde(rename = "localMcpProfile")]
+    pub local_mcp_profile: Option<String>,
     pub local_mcp_skip_reason: Option<String>,
+    #[serde(rename = "parentCodeRepoWarning")]
+    pub parent_code_repo_warning: Option<String>,
     pub raw_result: Value,
 }
 
@@ -189,7 +197,9 @@ struct ActiveAcpConnection {
     supports_load_session: Option<bool>,
     attached_local_mcp: bool,
     local_mcp_scope: Option<String>,
+    local_mcp_profile: Option<String>,
     attached_mcp_binding: Option<LocalMcpBinding>,
+    parent_code_repo_warning: Option<String>,
     in_flight_prompt: Arc<AtomicBool>,
     stderr_ring: StderrRing,
 }
@@ -921,10 +931,82 @@ pub(crate) fn parse_prompt_result(raw_result: Value) -> AcpPromptResult {
     }
 }
 
+/// Strip Windows verbatim prefix (`\\?\` / `\\?\UNC\`) for clean user-facing path display.
+pub(crate) fn clean_display_path(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    if let Some(unc) = raw.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{unc}");
+    }
+    if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+        return stripped.to_string();
+    }
+    raw.into_owned()
+}
+
+const MAX_PARENT_CODE_REPO_DEPTH: usize = 16;
+
+/// Walk strictly ABOVE `cwd` (never flagging `cwd` itself) up to 16 ancestor directories
+/// to detect code-repository pollution markers (`.git` dir/file, `AGENTS.md`, `GEMINI.md`).
+///
+/// Computed and cached at `connect` / `new_session` time so `antigravity_acp_status` stays O(1).
+pub(crate) fn detect_parent_code_repo_warning(cwd: &Path) -> Option<String> {
+    let resolved = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let mut hits: Vec<String> = Vec::new();
+    let mut current = resolved.parent();
+
+    for _ in 0..MAX_PARENT_CODE_REPO_DEPTH {
+        let Some(dir) = current else {
+            break;
+        };
+        let mut markers: Vec<&'static str> = Vec::new();
+        if std::fs::symlink_metadata(dir.join(".git"))
+            .is_ok_and(|meta| meta.is_dir() || meta.is_file())
+        {
+            markers.push(".git");
+        }
+        if std::fs::symlink_metadata(dir.join("AGENTS.md")).is_ok_and(|meta| meta.is_file()) {
+            markers.push("AGENTS.md");
+        }
+        if std::fs::symlink_metadata(dir.join("GEMINI.md")).is_ok_and(|meta| meta.is_file()) {
+            markers.push("GEMINI.md");
+        }
+        if !markers.is_empty() {
+            hits.push(format!(
+                "{} ({})",
+                clean_display_path(dir),
+                markers.join(", ")
+            ));
+        }
+        current = dir.parent();
+    }
+
+    if hits.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "Detected parent code-repository marker(s) above the novel workspace: {}. Antigravity may inherit ancestor code rules or Git context; consider moving the novel folder outside code repositories.",
+            hits.join("; ")
+        ))
+    }
+}
+
+/// Validate optional ACP `mcp_profile` argument (`None => WriterSub`; empty/unknown => `Err`).
+pub(crate) fn resolve_acp_mcp_profile(raw: Option<&str>) -> Result<ToolProfile, String> {
+    match raw {
+        None => Ok(ToolProfile::WriterSub),
+        Some(value) => ToolProfile::parse(value).ok_or_else(|| {
+            format!(
+                "Invalid ACP mcpProfile `{value}` (expected writer-sub, reviewer, architect, or full-legacy)"
+            )
+        }),
+    }
+}
+
 pub(crate) struct LocalMcpAttachmentPlan {
     pub mcp_servers: Vec<Value>,
     pub attached_local_mcp: bool,
     pub local_mcp_scope: Option<String>,
+    pub local_mcp_profile: Option<String>,
     pub local_mcp_skip_reason: Option<String>,
     pub attached_mcp_binding: Option<LocalMcpBinding>,
 }
@@ -934,12 +1016,14 @@ pub(crate) fn plan_local_mcp_attachment(
     http_mcp_enabled: bool,
     supports_http_mcp: Option<bool>,
     running_info: Option<(u16, String, LocalMcpBinding)>,
+    mcp_profile: ToolProfile,
 ) -> LocalMcpAttachmentPlan {
     if attach_local_mcp != Some(true) {
         return LocalMcpAttachmentPlan {
             mcp_servers: Vec::new(),
             attached_local_mcp: false,
             local_mcp_scope: None,
+            local_mcp_profile: None,
             local_mcp_skip_reason: None,
             attached_mcp_binding: None,
         };
@@ -949,6 +1033,7 @@ pub(crate) fn plan_local_mcp_attachment(
             mcp_servers: Vec::new(),
             attached_local_mcp: false,
             local_mcp_scope: None,
+            local_mcp_profile: None,
             local_mcp_skip_reason: Some("http_mcp_disabled".to_string()),
             attached_mcp_binding: None,
         };
@@ -958,6 +1043,7 @@ pub(crate) fn plan_local_mcp_attachment(
             mcp_servers: Vec::new(),
             attached_local_mcp: false,
             local_mcp_scope: None,
+            local_mcp_profile: None,
             local_mcp_skip_reason: Some("agent_unsupported".to_string()),
             attached_mcp_binding: None,
         };
@@ -965,17 +1051,20 @@ pub(crate) fn plan_local_mcp_attachment(
     match running_info {
         Some((port, token, binding)) => {
             let scope = binding.scope;
+            let profile_id = mcp_profile.as_str();
             LocalMcpAttachmentPlan {
                 mcp_servers: vec![json!({
                     "type": "http",
                     "name": "niko-buddy",
-                    "url": format!("http://127.0.0.1:{port}/mcp"),
+                    "url": format!("http://127.0.0.1:{port}/mcp?profile={profile_id}"),
                     "headers": [
-                        { "name": "Authorization", "value": format!("Bearer {token}") }
+                        { "name": "Authorization", "value": format!("Bearer {token}") },
+                        { "name": "X-Niko-Profile", "value": profile_id }
                     ]
                 })],
                 attached_local_mcp: true,
                 local_mcp_scope: Some(scope.as_str().to_string()),
+                local_mcp_profile: Some(profile_id.to_string()),
                 local_mcp_skip_reason: None,
                 attached_mcp_binding: Some(binding),
             }
@@ -984,6 +1073,7 @@ pub(crate) fn plan_local_mcp_attachment(
             mcp_servers: Vec::new(),
             attached_local_mcp: false,
             local_mcp_scope: None,
+            local_mcp_profile: None,
             local_mcp_skip_reason: Some("mcp_server_not_running".to_string()),
             attached_mcp_binding: None,
         },
@@ -1589,11 +1679,13 @@ async fn snapshot_from_conn(
         http_mcp_enabled: c.http_mcp_enabled,
         attached_local_mcp: c.attached_local_mcp,
         local_mcp_scope: c.local_mcp_scope.clone(),
+        local_mcp_profile: c.local_mcp_profile.clone(),
         in_flight_prompt: c.in_flight_prompt.load(Ordering::Acquire),
         supports_http_mcp: c.supports_http_mcp,
         supports_load_session: c.supports_load_session,
         local_mcp_stale,
         local_mcp_stale_reason: local_mcp_stale_reason.map(String::from),
+        parent_code_repo_warning: c.parent_code_repo_warning.clone(),
     }
 }
 
@@ -1693,6 +1785,11 @@ pub async fn antigravity_acp_connect(
     let args = build_acp_args(http_mcp);
     let effective_cwd = resolve_spawn_cwd(cwd.as_deref())?;
     let effective_cwd_str = effective_cwd.to_string_lossy().to_string();
+    let warning_cwd = effective_cwd.clone();
+    let parent_code_repo_warning =
+        tokio::task::spawn_blocking(move || detect_parent_code_repo_warning(&warning_cwd))
+            .await
+            .unwrap_or(None);
 
     let mut cmd = Command::new(&bin);
     suppress_windows_console(&mut cmd);
@@ -1866,7 +1963,9 @@ pub async fn antigravity_acp_connect(
         supports_load_session: parsed_caps.supports_load_session,
         attached_local_mcp: false,
         local_mcp_scope: None,
+        local_mcp_profile: None,
         attached_mcp_binding: None,
+        parent_code_repo_warning,
         in_flight_prompt: Arc::new(AtomicBool::new(false)),
         stderr_ring,
     };
@@ -1930,7 +2029,10 @@ pub async fn antigravity_acp_new_session(
     mcp_handle: State<'_, McpServerHandle>,
     cwd: String,
     attach_local_mcp: Option<bool>,
+    mcp_profile: Option<String>,
 ) -> Result<AcpSessionResult, String> {
+    // Validate inputs strictly BEFORE locking connection, draining permissions, or issuing RPC.
+    let resolved_profile = resolve_acp_mcp_profile(mcp_profile.as_deref())?;
     let trimmed_cwd = cwd.trim().to_string();
     let cwd_path = Path::new(&trimmed_cwd);
     if trimmed_cwd.is_empty() || !cwd_path.is_absolute() || !cwd_path.is_dir() {
@@ -1938,6 +2040,11 @@ pub async fn antigravity_acp_new_session(
             "Invalid session workspace directory (must be an existing absolute path): {trimmed_cwd}"
         ));
     }
+    let warning_cwd = cwd_path.to_path_buf();
+    let parent_code_repo_warning =
+        tokio::task::spawn_blocking(move || detect_parent_code_repo_warning(&warning_cwd))
+            .await
+            .unwrap_or(None);
 
     let (
         my_epoch,
@@ -1987,6 +2094,7 @@ pub async fn antigravity_acp_new_session(
         http_mcp_enabled,
         supports_http_mcp,
         running_info,
+        resolved_profile,
     );
 
     let raw_result = send_rpc_request(
@@ -2028,7 +2136,9 @@ pub async fn antigravity_acp_new_session(
                 active.config_options = config_options.clone();
                 active.attached_local_mcp = plan.attached_local_mcp;
                 active.local_mcp_scope = plan.local_mcp_scope.clone();
+                active.local_mcp_profile = plan.local_mcp_profile.clone();
                 active.attached_mcp_binding = plan.attached_mcp_binding.clone();
+                active.parent_code_repo_warning = parent_code_repo_warning.clone();
             }
             _ => {
                 return Err("ACP connection superseded or closed during session/new".to_string());
@@ -2056,7 +2166,9 @@ pub async fn antigravity_acp_new_session(
         config_options,
         attached_local_mcp: plan.attached_local_mcp,
         local_mcp_scope: plan.local_mcp_scope,
+        local_mcp_profile: plan.local_mcp_profile,
         local_mcp_skip_reason: plan.local_mcp_skip_reason,
+        parent_code_repo_warning,
         raw_result: sanitized_raw_result,
     })
 }
@@ -2658,12 +2770,14 @@ mod tests {
             generation: gen,
         };
 
-        // 1) attach != Some(true) -> skip_reason MUST be None
+        // 1) attach != Some(true) -> skip_reason MUST be None, profile MUST be None
         for opt in [None, Some(false)] {
-            let plan = plan_local_mcp_attachment(opt, false, Some(true), None);
+            let plan =
+                plan_local_mcp_attachment(opt, false, Some(true), None, ToolProfile::WriterSub);
             assert!(!plan.attached_local_mcp);
             assert!(plan.mcp_servers.is_empty());
             assert_eq!(plan.local_mcp_scope, None);
+            assert_eq!(plan.local_mcp_profile, None);
             assert_eq!(plan.local_mcp_skip_reason, None);
             assert_eq!(plan.attached_mcp_binding, None);
         }
@@ -2678,9 +2792,11 @@ mod tests {
                 "tok".into(),
                 make_binding(45871, SessionScope::Read, "fp1", 1),
             )),
+            ToolProfile::WriterSub,
         );
         assert!(!disabled.attached_local_mcp);
         assert_eq!(disabled.local_mcp_scope, None);
+        assert_eq!(disabled.local_mcp_profile, None);
         assert_eq!(
             disabled.local_mcp_skip_reason.as_deref(),
             Some("http_mcp_disabled")
@@ -2697,10 +2813,12 @@ mod tests {
                 "tok".into(),
                 make_binding(45871, SessionScope::Read, "fp1", 1),
             )),
+            ToolProfile::WriterSub,
         );
         assert!(!unsupported.attached_local_mcp);
         assert!(unsupported.mcp_servers.is_empty());
         assert_eq!(unsupported.local_mcp_scope, None);
+        assert_eq!(unsupported.local_mcp_profile, None);
         assert_eq!(
             unsupported.local_mcp_skip_reason.as_deref(),
             Some("agent_unsupported")
@@ -2708,9 +2826,11 @@ mod tests {
         assert_eq!(unsupported.attached_mcp_binding, None);
 
         // 4) attach == Some(true), http_mcp_enabled == true, MCP server not running
-        let not_running = plan_local_mcp_attachment(Some(true), true, Some(true), None);
+        let not_running =
+            plan_local_mcp_attachment(Some(true), true, Some(true), None, ToolProfile::WriterSub);
         assert!(!not_running.attached_local_mcp);
         assert_eq!(not_running.local_mcp_scope, None);
+        assert_eq!(not_running.local_mcp_profile, None);
         assert_eq!(
             not_running.local_mcp_skip_reason.as_deref(),
             Some("mcp_server_not_running")
@@ -2719,19 +2839,36 @@ mod tests {
 
         // 5) attach == Some(true), http_mcp_enabled == true, supports_http_mcp == Some(true) or None (legacy), running
         for caps in [Some(true), None] {
-            let binding = make_binding(45871, SessionScope::Project, "fp_proj", 7);
-            let attached = plan_local_mcp_attachment(
-                Some(true),
-                true,
-                caps,
-                Some((45871, "secret_tok".into(), binding.clone())),
-            );
-            assert!(attached.attached_local_mcp);
-            assert_eq!(attached.local_mcp_scope.as_deref(), Some("project"));
-            assert_eq!(attached.local_mcp_skip_reason, None);
-            assert_eq!(attached.attached_mcp_binding, Some(binding));
-            assert_eq!(attached.mcp_servers.len(), 1);
-            assert_eq!(attached.mcp_servers[0]["url"], "http://127.0.0.1:45871/mcp");
+            for profile in ToolProfile::ALL {
+                let binding = make_binding(45871, SessionScope::Project, "fp_proj", 7);
+                let attached = plan_local_mcp_attachment(
+                    Some(true),
+                    true,
+                    caps,
+                    Some((45871, "secret_tok".into(), binding.clone())),
+                    profile,
+                );
+                assert!(attached.attached_local_mcp);
+                assert_eq!(attached.local_mcp_scope.as_deref(), Some("project"));
+                assert_eq!(
+                    attached.local_mcp_profile.as_deref(),
+                    Some(profile.as_str())
+                );
+                assert_eq!(attached.local_mcp_skip_reason, None);
+                assert_eq!(attached.attached_mcp_binding, Some(binding));
+                assert_eq!(attached.mcp_servers.len(), 1);
+                assert_eq!(
+                    attached.mcp_servers[0]["url"],
+                    format!("http://127.0.0.1:45871/mcp?profile={}", profile.as_str())
+                );
+                assert_eq!(
+                    attached.mcp_servers[0]["headers"],
+                    json!([
+                        { "name": "Authorization", "value": "Bearer secret_tok" },
+                        { "name": "X-Niko-Profile", "value": profile.as_str() }
+                    ])
+                );
+            }
         }
     }
 
@@ -3694,5 +3831,122 @@ mod tests {
         }
         cancelled_ids.sort();
         assert_eq!(cancelled_ids, vec![10, 30]);
+    }
+
+    #[test]
+    fn resolve_acp_mcp_profile_defaults_to_writer_sub_and_rejects_invalid() {
+        assert_eq!(resolve_acp_mcp_profile(None), Ok(ToolProfile::WriterSub));
+        assert_eq!(
+            resolve_acp_mcp_profile(Some("writer-sub")),
+            Ok(ToolProfile::WriterSub)
+        );
+        assert_eq!(
+            resolve_acp_mcp_profile(Some("reviewer")),
+            Ok(ToolProfile::Reviewer)
+        );
+        assert_eq!(
+            resolve_acp_mcp_profile(Some("architect")),
+            Ok(ToolProfile::Architect)
+        );
+        assert_eq!(
+            resolve_acp_mcp_profile(Some("full-legacy")),
+            Ok(ToolProfile::FullLegacy)
+        );
+        for bad in ["", " ", "unknown", "WRITER-SUB", "writer_sub", "admin"] {
+            assert!(
+                resolve_acp_mcp_profile(Some(bad)).is_err(),
+                "invalid mcpProfile `{bad}` must fail-closed"
+            );
+        }
+    }
+
+    #[test]
+    fn status_and_session_structs_serialize_profile_and_parent_repo_warning() {
+        let default_snap = serde_json::to_value(AcpStatusSnapshot::default()).unwrap();
+        assert_eq!(default_snap["localMcpProfile"], Value::Null);
+        assert_eq!(default_snap["parentCodeRepoWarning"], Value::Null);
+
+        let populated_snap = AcpStatusSnapshot {
+            connected: true,
+            local_mcp_profile: Some("writer-sub".to_string()),
+            parent_code_repo_warning: Some("parent warning".to_string()),
+            ..Default::default()
+        };
+        let snap_json = serde_json::to_value(populated_snap).unwrap();
+        assert_eq!(snap_json["localMcpProfile"], json!("writer-sub"));
+        assert_eq!(snap_json["parentCodeRepoWarning"], json!("parent warning"));
+
+        let session_res = AcpSessionResult {
+            session_id: "sess-1".to_string(),
+            cwd: "/novel".to_string(),
+            config_options: Vec::new(),
+            attached_local_mcp: true,
+            local_mcp_scope: Some("project".to_string()),
+            local_mcp_profile: Some("reviewer".to_string()),
+            local_mcp_skip_reason: None,
+            parent_code_repo_warning: Some("repo above".to_string()),
+            raw_result: json!({}),
+        };
+        let sess_json = serde_json::to_value(session_res).unwrap();
+        assert_eq!(sess_json["localMcpProfile"], json!("reviewer"));
+        assert_eq!(sess_json["parentCodeRepoWarning"], json!("repo above"));
+    }
+
+    #[test]
+    fn detect_parent_code_repo_warning_walks_strictly_above_cwd_and_strips_verbatim_prefix() {
+        assert_eq!(
+            clean_display_path(Path::new(r"\\?\C:\Users\niko\novel")),
+            r"C:\Users\niko\novel"
+        );
+        assert_eq!(
+            clean_display_path(Path::new(r"\\?\UNC\server\share\novel")),
+            r"\\server\share\novel"
+        );
+
+        let root = std::env::temp_dir().join(format!(
+            "niko-acp-parent-repo-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let clean_child = root.join("clean-novel");
+        std::fs::create_dir_all(&clean_child).unwrap();
+        // Markers inside `cwd` itself must NEVER be flagged as parent pollution.
+        std::fs::create_dir_all(clean_child.join(".git")).unwrap();
+        std::fs::write(clean_child.join("AGENTS.md"), "# Novel AGENTS").unwrap();
+        std::fs::write(clean_child.join("GEMINI.md"), "# Novel GEMINI").unwrap();
+        // Ensure temp dir itself isn't inside a code repo; if root's own ancestors are clean, clean_child returns None.
+        let baseline_warning = detect_parent_code_repo_warning(&root);
+        assert_eq!(
+            detect_parent_code_repo_warning(&clean_child),
+            baseline_warning,
+            "markers inside cwd itself must NOT trigger parent warning"
+        );
+
+        // Parent with `.git` dir + `AGENTS.md` + `GEMINI.md` MUST be detected.
+        let repo_parent = root.join("code-repo");
+        let nested_novel = repo_parent.join("books").join("my-novel");
+        std::fs::create_dir_all(&nested_novel).unwrap();
+        std::fs::create_dir_all(repo_parent.join(".git")).unwrap();
+        std::fs::write(repo_parent.join("AGENTS.md"), "# Code Repo").unwrap();
+        std::fs::write(repo_parent.join("GEMINI.md"), "# Gemini Rules").unwrap();
+
+        let warn = detect_parent_code_repo_warning(&nested_novel).expect("must detect parent repo");
+        assert!(warn.contains(".git"), "{warn}");
+        assert!(warn.contains("AGENTS.md"), "{warn}");
+        assert!(warn.contains("GEMINI.md"), "{warn}");
+        assert!(
+            !warn.contains(r"\\?\"),
+            "Windows verbatim prefix must be stripped cleanly: {warn}"
+        );
+
+        // Worktree-style `.git` file (not directory) MUST also be detected.
+        let worktree_parent = root.join("worktree-repo");
+        let wt_novel = worktree_parent.join("sub-novel");
+        std::fs::create_dir_all(&wt_novel).unwrap();
+        std::fs::write(worktree_parent.join(".git"), "gitdir: ../.git/worktrees/wt").unwrap();
+        let wt_warn = detect_parent_code_repo_warning(&wt_novel).expect("must detect .git file");
+        assert!(wt_warn.contains(".git"), "{wt_warn}");
+        assert!(wt_warn.contains("worktree-repo"), "{wt_warn}");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

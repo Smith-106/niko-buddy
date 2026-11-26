@@ -12,8 +12,220 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use super::protocol::{INTERNAL_ERROR, INVALID_PARAMS};
-use super::session::SessionScope;
+use super::session::{SessionScope, ToolProfile};
 use super::tools::{ToolContext, ToolFuture};
+
+impl ToolProfile {
+    /// 判断某个工具名是否在当前 Profile 下可见、可调。
+    ///
+    /// 与 `SessionScope` 取交集：
+    /// - `FullLegacy`：全部 30 个已注册工具；
+    /// - `WriterSub`（16 个）：零 LLM 读写原语 + Draft-first 写工具，隐藏全部内部 API LLM 管线与全量直写工具；
+    /// - `Reviewer`（13 个）：严格全只读工具，零写工具；
+    /// - `Architect`（12 个）：聚焦开书/世界观/大纲/角色规划，不含正文写入与章节深审工具。
+    pub fn allows(self, tool_name: &str) -> bool {
+        match self {
+            Self::FullLegacy => true,
+            Self::WriterSub => matches!(
+                tool_name,
+                "app.ping"
+                    | "app.status"
+                    | "project.state"
+                    | "chapter.list"
+                    | "chapter.read"
+                    | "context.inspect"
+                    | "canon.query"
+                    | "draft.list"
+                    | "draft.read"
+                    | "rules.get"
+                    | "gate.check_mechanical"
+                    | "context.prepare_write"
+                    | "director.check"
+                    | "chapter.write"
+                    | "outline.write"
+                    | "character.upsert"
+            ),
+            Self::Reviewer => matches!(
+                tool_name,
+                "app.ping"
+                    | "app.status"
+                    | "project.state"
+                    | "chapter.list"
+                    | "chapter.read"
+                    | "context.inspect"
+                    | "canon.query"
+                    | "draft.list"
+                    | "draft.read"
+                    | "rules.get"
+                    | "gate.check_mechanical"
+                    | "context.prepare_write"
+                    | "director.check"
+            ),
+            Self::Architect => matches!(
+                tool_name,
+                "app.ping"
+                    | "app.status"
+                    | "project.state"
+                    | "chapter.list"
+                    | "chapter.read"
+                    | "canon.query"
+                    | "draft.list"
+                    | "rules.get"
+                    | "context.prepare_write"
+                    | "director.check"
+                    | "outline.write"
+                    | "character.upsert"
+            ),
+        }
+    }
+
+    /// 当工具被当前 Profile 隐藏时，返回零 LLM 替代工具集合与清晰引导文案。
+    ///
+    /// 不变量：返回切片中的每一个替代工具都必须本身被 `self.allows(...)` 放行，
+    /// 避免向只读 `reviewer` 或 `architect` 会话推荐其不可见的写工具。
+    pub fn blocked_guidance(self, tool_name: &str) -> (&'static [&'static str], &'static str) {
+        match tool_name {
+            "pipeline.run_chapter" | "chapter.batch" => match self {
+                Self::Reviewer => (
+                    &[
+                        "context.prepare_write",
+                        "rules.get",
+                        "gate.check_mechanical",
+                        "draft.read",
+                    ],
+                    "Internal LLM pipeline tools are hidden in the read-only reviewer profile. Inspect context with context.prepare_write/rules.get, read drafts via draft.read, and audit via gate.check_mechanical.",
+                ),
+                Self::Architect => (
+                    &[
+                        "context.prepare_write",
+                        "rules.get",
+                        "outline.write",
+                        "character.upsert",
+                    ],
+                    "Internal LLM chapter pipelines are hidden in the architect profile. Plan structure with context.prepare_write, rules.get, outline.write, and character.upsert, or switch to writer-sub to draft chapters.",
+                ),
+                _ => (
+                    &[
+                        "context.prepare_write",
+                        "rules.get",
+                        "gate.check_mechanical",
+                        "chapter.write",
+                    ],
+                    "Internal LLM pipeline tools are hidden in this profile. Prepare context with context.prepare_write and rules.get, author directly with the host model, save drafts via chapter.write, and verify with gate.check_mechanical.",
+                ),
+            },
+            "pipeline.status" => (
+                &["draft.list", "project.state"],
+                "Internal pipeline polling is hidden in this profile. Inspect project progress via project.state and pending drafts via draft.list.",
+            ),
+            "gate.run" => match self {
+                Self::Architect => (
+                    &["context.prepare_write", "rules.get", "director.check"],
+                    "Internal LLM gate runner is hidden in the architect profile. Inspect planning readiness with context.prepare_write, rules.get, and director.check, or switch to reviewer/writer-sub for mechanical chapter checks.",
+                ),
+                _ => (
+                    &[
+                        "gate.check_mechanical",
+                        "context.inspect",
+                        "context.prepare_write",
+                    ],
+                    "Internal LLM gate runner is hidden in this profile. Run deterministic P0/P1 checks via gate.check_mechanical and inspect context/six-dim prompts via context.inspect or context.prepare_write.",
+                ),
+            },
+            "outline.generate" => match self {
+                Self::Reviewer => (
+                    &["director.check", "rules.get", "project.state"],
+                    "Internal LLM outline generation is hidden in the read-only reviewer profile. Inspect setup status via director.check, rules.get, and project.state, or switch to architect/writer-sub to edit outlines.",
+                ),
+                _ => (
+                    &["director.check", "rules.get", "outline.write"],
+                    "Internal LLM outline generation is hidden in this profile. Inspect setup status via director.check and rules.get, draft the outline with the host model, and save it via outline.write.",
+                ),
+            },
+            "director.advance" => match self {
+                Self::Reviewer => (
+                    &["director.check", "project.state", "canon.query"],
+                    "Internal LLM director advancement is hidden in the read-only reviewer profile. Diagnose setup gates via director.check, project.state, and canon.query, or switch to architect/writer-sub to update planning docs.",
+                ),
+                _ => (
+                    &["director.check", "character.upsert", "outline.write"],
+                    "Internal LLM director advancement is hidden in this profile. Diagnose gates via director.check, then write character entities and outlines directly via character.upsert and outline.write.",
+                ),
+            },
+            "chapter.write_direct" => match self {
+                Self::Reviewer => (
+                    &["draft.list", "draft.read", "gate.check_mechanical"],
+                    "Direct formal-chapter writes are hidden in the read-only reviewer profile. Inspect drafts via draft.list/draft.read and audit via gate.check_mechanical.",
+                ),
+                Self::Architect => (
+                    &["draft.list", "outline.write", "context.prepare_write"],
+                    "Direct formal-chapter writes are hidden in the architect profile. Use outline.write for planning, or switch to writer-sub to save Draft-first chapters.",
+                ),
+                _ => (
+                    &["chapter.write"],
+                    "Direct formal-chapter writes are hidden in this profile to preserve Draft-first safety. Save drafts via chapter.write and accept them in Niko Buddy.",
+                ),
+            },
+            "memory.write" => match self {
+                Self::Reviewer => (
+                    &["canon.query", "draft.read", "project.state"],
+                    "Direct formal-memory writes are hidden in the read-only reviewer profile. Query canon via canon.query and inspect drafts/project state without mutating formal memory.",
+                ),
+                Self::Architect => (
+                    &["canon.query", "character.upsert", "outline.write"],
+                    "Direct formal-memory writes are hidden in the architect profile to preserve Draft-first safety. Query canon via canon.query and maintain planning docs via character.upsert/outline.write.",
+                ),
+                _ => (
+                    &["canon.query", "character.upsert", "chapter.write"],
+                    "Direct formal-memory writes are hidden in this profile to preserve Draft-first safety. Query canon via canon.query, update planning characters via character.upsert, or keep draft changes via chapter.write.",
+                ),
+            },
+            "undo_last" => (
+                &["draft.list", "project.state"],
+                "Direct-write rollback is hidden in this profile because direct formal writes are disabled. Inspect drafts via draft.list and state via project.state.",
+            ),
+            "chapter.write" => match self {
+                Self::Reviewer => (
+                    &["draft.list", "draft.read", "gate.check_mechanical"],
+                    "Write tools are hidden in the read-only reviewer profile. Inspect drafts with draft.list/draft.read and audit via gate.check_mechanical, or switch session to writer-sub.",
+                ),
+                Self::Architect => (
+                    &["outline.write", "character.upsert", "draft.list"],
+                    "Chapter drafting is hidden in the architect profile. Use outline.write and character.upsert for planning, or switch session to writer-sub to draft chapters.",
+                ),
+                _ => (
+                    &["draft.list"],
+                    "chapter.write is hidden by the active tool profile.",
+                ),
+            },
+            "outline.write" | "character.upsert" => (
+                &["director.check", "project.state", "canon.query"],
+                "Planning write tools are hidden in the read-only reviewer profile. Inspect project state via director.check, project.state, and canon.query, or switch session to architect/writer-sub.",
+            ),
+            "context.inspect" | "draft.read" | "gate.check_mechanical" => (
+                &[
+                    "context.prepare_write",
+                    "draft.list",
+                    "rules.get",
+                    "director.check",
+                ],
+                "Detailed chapter review tools are hidden in the architect profile. Use context.prepare_write, rules.get, and director.check for planning, or switch to writer-sub/reviewer.",
+            ),
+            "settings.schema" | "settings.list" | "settings.get" | "settings.set" => (
+                &["app.status", "rules.get", "project.state"],
+                "App settings tools are hidden in writing profiles to keep context focused. Read writing rules via rules.get or switch to full-legacy for settings administration.",
+            ),
+            "export.run" => (
+                &["project.state", "draft.list"],
+                "Backup export is hidden in writing profiles. Inspect project status via project.state or switch to full-legacy to run project backup exports.",
+            ),
+            _ => (
+                &["app.status", "project.state"],
+                "This tool is hidden by the active MCP tool profile. Switch to full-legacy if you explicitly need legacy tools.",
+            ),
+        }
+    }
+}
 
 /// 工具执行错误。
 ///
@@ -101,11 +313,28 @@ impl ToolRegistry {
         self.tools.push(tool);
     }
 
-    /// `tools/list` 的 result 体。
+    /// `tools/list` 的全量 result 体（保持既有内省与兼容性测试语义不变）。
     pub fn list(&self) -> Value {
         let tools: Vec<Value> = self
             .tools
             .iter()
+            .map(|t| {
+                json!({
+                    "name": t.name(),
+                    "description": t.description(),
+                    "inputSchema": t.input_schema(),
+                })
+            })
+            .collect();
+        json!({ "tools": tools })
+    }
+
+    /// 按 `(scope, profile)` 单调交集过滤后的 `tools/list` result 体。
+    pub fn list_for(&self, scope: SessionScope, profile: ToolProfile) -> Value {
+        let tools: Vec<Value> = self
+            .tools
+            .iter()
+            .filter(|t| scope.satisfies(t.required_scope()) && profile.allows(t.name()))
             .map(|t| {
                 json!({
                     "name": t.name(),
@@ -153,6 +382,19 @@ impl ToolRegistry {
         self.tools
             .iter()
             .filter(|t| scope.satisfies(t.required_scope()))
+            .map(|t| t.name())
+            .collect()
+    }
+
+    /// 按 `(scope, profile)` 单调交集可见的工具名（`scope.satisfies(required) && profile.allows(name)`）。
+    pub fn names_visible_to_profile(
+        &self,
+        scope: SessionScope,
+        profile: ToolProfile,
+    ) -> Vec<&'static str> {
+        self.tools
+            .iter()
+            .filter(|t| scope.satisfies(t.required_scope()) && profile.allows(t.name()))
             .map(|t| t.name())
             .collect()
     }
@@ -253,5 +495,145 @@ mod tests {
     #[test]
     fn names_preserve_registration_order() {
         assert_eq!(registry().names(), vec!["app.ping"]);
+    }
+
+    #[test]
+    fn profile_visibility_matrix_is_monotonic_and_matches_exact_counts() {
+        let reg = crate::mcp_server::tools::build_registry();
+        assert_eq!(reg.len(), 30, "全量注册表应保持 30 个工具");
+
+        let full_all = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::FullLegacy);
+        assert_eq!(full_all.len(), 30);
+
+        let writer_full = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::WriterSub);
+        let writer_proj =
+            reg.names_visible_to_profile(SessionScope::Project, ToolProfile::WriterSub);
+        assert_eq!(writer_full.len(), 16);
+        assert_eq!(
+            writer_full, writer_proj,
+            "WriterSub 即使在 Full scope 下也不得暴露任何 Full 专属工具或 Settings 工具"
+        );
+
+        let reviewer_full = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::Reviewer);
+        let reviewer_read = reg.names_visible_to_profile(SessionScope::Read, ToolProfile::Reviewer);
+        assert_eq!(reviewer_full.len(), 13);
+        assert_eq!(
+            reviewer_full, reviewer_read,
+            "Reviewer 必须严格全只读：Full 与 Read 下工具集合完全一致"
+        );
+        for name in &reviewer_full {
+            assert_eq!(
+                reg.required_scope(name),
+                Some(SessionScope::Read),
+                "Reviewer 严禁包含非 Read 工具: {name}"
+            );
+        }
+
+        let architect_full =
+            reg.names_visible_to_profile(SessionScope::Full, ToolProfile::Architect);
+        let architect_proj =
+            reg.names_visible_to_profile(SessionScope::Project, ToolProfile::Architect);
+        assert_eq!(architect_full.len(), 12);
+        assert_eq!(architect_full, architect_proj);
+
+        // 单调子集不变量：任意 (scope, profile) 必为 names_visible_to(scope) 子集，且 list_for 与 names_visible_to_profile 1:1 对齐。
+        for scope in [
+            SessionScope::Read,
+            SessionScope::Settings,
+            SessionScope::Project,
+            SessionScope::Auto,
+            SessionScope::Full,
+        ] {
+            let scope_visible = reg.names_visible_to(scope);
+            for profile in ToolProfile::ALL {
+                let visible = reg.names_visible_to_profile(scope, profile);
+                let list_payload = reg.list_for(scope, profile);
+                let listed: Vec<&str> = list_payload
+                    .get("tools")
+                    .and_then(Value::as_array)
+                    .expect("tools array")
+                    .iter()
+                    .filter_map(|t| t["name"].as_str())
+                    .collect();
+                assert_eq!(listed, visible, "list_for 与 names_visible_to_profile 漂移");
+                for name in &visible {
+                    assert!(scope_visible.contains(name));
+                    assert!(profile.allows(name));
+                }
+            }
+        }
+
+        // 所有被 WriterSub / Reviewer / Architect 隐藏的工具必须有非空零 LLM 引导与替代工具，
+        // 且每个替代工具本身必须被当前 profile 放行（绝不向只读 reviewer 推荐隐藏写工具）。
+        for profile in [
+            ToolProfile::WriterSub,
+            ToolProfile::Reviewer,
+            ToolProfile::Architect,
+        ] {
+            for name in reg.names() {
+                if !profile.allows(name) {
+                    let (replacements, msg) = profile.blocked_guidance(name);
+                    assert!(
+                        !replacements.is_empty(),
+                        "{profile:?} 隐藏工具 {name} 必须提供替代工具"
+                    );
+                    assert!(!msg.trim().is_empty());
+                    for replacement in replacements {
+                        assert!(
+                            profile.allows(replacement),
+                            "{profile:?} 隐藏工具 {name} 推荐的替代工具 `{replacement}` 必须本身在 {profile:?} 下可见可用"
+                        );
+                    }
+                }
+            }
+        }
+
+        // 核对关键替代工具清单。
+        assert_eq!(
+            ToolProfile::WriterSub
+                .blocked_guidance("pipeline.run_chapter")
+                .0,
+            &[
+                "context.prepare_write",
+                "rules.get",
+                "gate.check_mechanical",
+                "chapter.write"
+            ]
+        );
+        assert_eq!(
+            ToolProfile::WriterSub.blocked_guidance("chapter.batch").0,
+            &[
+                "context.prepare_write",
+                "rules.get",
+                "gate.check_mechanical",
+                "chapter.write"
+            ]
+        );
+        assert_eq!(
+            ToolProfile::WriterSub.blocked_guidance("gate.run").0,
+            &[
+                "gate.check_mechanical",
+                "context.inspect",
+                "context.prepare_write"
+            ]
+        );
+        assert_eq!(
+            ToolProfile::WriterSub
+                .blocked_guidance("outline.generate")
+                .0,
+            &["director.check", "rules.get", "outline.write"]
+        );
+        assert_eq!(
+            ToolProfile::WriterSub
+                .blocked_guidance("director.advance")
+                .0,
+            &["director.check", "character.upsert", "outline.write"]
+        );
+        assert_eq!(
+            ToolProfile::WriterSub
+                .blocked_guidance("chapter.write_direct")
+                .0,
+            &["chapter.write"]
+        );
     }
 }

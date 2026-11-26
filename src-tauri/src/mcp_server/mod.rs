@@ -26,12 +26,14 @@ pub mod state_bridge;
 pub mod tools;
 pub mod writes;
 
+pub use session::ToolProfile;
+
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, State};
+use axum::extract::{DefaultBodyLimit, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
@@ -222,15 +224,25 @@ impl RunningServer {
 ///
 /// 返回 `None` 表示这是通知（无 `id`），按 MCP 规范不得回响应体。
 pub async fn dispatch(state: &ServerState, req: &JsonRpcRequest) -> Option<Value> {
-    // 默认按**最小权限**分发：调用方没声明身份时不得获得写权限。
+    // 默认按**最小权限** + `FullLegacy` 分发：调用方没声明身份时不得获得写权限。
     dispatch_as(state, req, session::SessionScope::Read).await
 }
 
-/// 按调用方权限域分发。
+/// 按调用方权限域分发（默认 `ToolProfile::FullLegacy`，保持既有全量兼容行为）。
 pub async fn dispatch_as(
     state: &ServerState,
     req: &JsonRpcRequest,
     caller: session::SessionScope,
+) -> Option<Value> {
+    dispatch_as_with_profile(state, req, caller, session::ToolProfile::FullLegacy).await
+}
+
+/// 按调用方 `(SessionScope, ToolProfile)` 分发。
+pub async fn dispatch_as_with_profile(
+    state: &ServerState,
+    req: &JsonRpcRequest,
+    caller: session::SessionScope,
+    profile: session::ToolProfile,
 ) -> Option<Value> {
     if req.is_notification() {
         // 通知一律不回响应；`notifications/initialized` 就是唯一会来的那种。
@@ -248,8 +260,10 @@ pub async fn dispatch_as(
             Some(ok_response(id, initialize_result(requested)))
         }
         "ping" => Some(ok_response(id, json!({}))),
-        "tools/list" => Some(ok_response(id, state.registry.list())),
-        "tools/call" => Some(handle_tools_call(state, id, req.params.as_ref(), caller).await),
+        "tools/list" => Some(ok_response(id, state.registry.list_for(caller, profile))),
+        "tools/call" => {
+            Some(handle_tools_call(state, id, req.params.as_ref(), caller, profile).await)
+        }
         other => Some(error_response(
             Some(id),
             METHOD_NOT_FOUND,
@@ -262,12 +276,13 @@ pub async fn dispatch_as(
 ///
 /// 区分两类失败，这个区分是 MCP 规范要求的、也是客户端重试逻辑的依据：
 /// * **协议层**失败（参数缺失/工具不存在）→ JSON-RPC `error`
-/// * **业务层**失败（工具跑了但没成）→ HTTP 200 + `isError: true`
+/// * **业务层**失败（工具被 Profile 隐藏 / scope 不足 / 工具执行失败）→ HTTP 200 + `isError: true`
 async fn handle_tools_call(
     state: &ServerState,
     id: Value,
     params: Option<&Value>,
     caller: session::SessionScope,
+    profile: session::ToolProfile,
 ) -> Value {
     let Some(params) = params else {
         return error_response(Some(id), INVALID_REQUEST, "tools/call requires params");
@@ -278,24 +293,41 @@ async fn handle_tools_call(
     let empty = json!({});
     let args = params.get("arguments").unwrap_or(&empty);
 
-    // 权限闸门放在请求管线里而不是工具实现里：授权是请求上下文的事，
-    // 让每个工具自己判断会被漏掉一个。工具声明所需 scope，这里统一比对。
-    if let Some(required) = state.registry.required_scope(name) {
-        if !caller.satisfies(required) {
-            return ok_response(
-                id,
-                tool_error(&format!(
-                    "权限不足：{name} 需要 scope=\"{}\"，当前会话是 scope=\"{}\"。请在设置页「外部控制」里打开写入授权并重新连接客户端。",
-                    required.as_str(),
-                    caller.as_str()
-                )),
-            );
-        }
+    // 1. 未知工具优先报标准 JSON-RPC -32601（不得被误归类为 Profile 隐藏）。
+    let Some(required) = state.registry.required_scope(name) else {
+        return error_response(Some(id), METHOD_NOT_FOUND, &format!("unknown tool: {name}"));
+    };
+
+    // 2. Profile 门控优先于 scope 门控：订阅写作模式下隐藏工具应直接给出零 LLM 替代方案。
+    if !profile.allows(name) {
+        let (replacements, message) = profile.blocked_guidance(name);
+        let payload = json!({
+            "code": "TOOL_HIDDEN_BY_PROFILE",
+            "tool": name,
+            "activeProfile": profile.as_str(),
+            "replacementTools": replacements,
+            "message": message,
+        });
+        let text = serde_json::to_string(&payload).unwrap_or_else(|_| payload.to_string());
+        return ok_response(id, tool_error(&text));
     }
 
-    // 单个调用走请求局部上下文：把这一次的 caller 带进工具，共享 `state.ctx`
+    // 3. 权限闸门放在请求管线里而不是工具实现里：授权是请求上下文的事，
+    //    让每个工具自己判断会被漏掉一个。工具声明所需 scope，这里统一比对。
+    if !caller.satisfies(required) {
+        return ok_response(
+            id,
+            tool_error(&format!(
+                "权限不足：{name} 需要 scope=\"{}\"，当前会话是 scope=\"{}\"。请在设置页「外部控制」里打开写入授权并重新连接客户端。",
+                required.as_str(),
+                caller.as_str()
+            )),
+        );
+    }
+
+    // 单个调用走请求局部上下文：把这一次的 caller + profile 带进工具，共享 `state.ctx`
     // 本身不被改写（它会被后续请求复用，写进去等于把授权串给别的会话）。
-    let ctx = state.ctx.for_caller(caller);
+    let ctx = state.ctx.for_caller_with_profile(caller, profile);
     match state.registry.call(&ctx, name, args).await {
         None => error_response(Some(id), METHOD_NOT_FOUND, &format!("unknown tool: {name}")),
         Some(Ok(value)) => ok_response(id, tool_result(&value)),
@@ -504,9 +536,77 @@ fn sanitize_client_info_field(raw: Option<&str>, max_chars: usize) -> Option<Str
     }
 }
 
+/// 解析并严格校验请求携带的 MCP `ToolProfile`（来自 `?profile=` 查询参数与 `X-Niko-Profile` 头）。
+///
+/// 全部异常场景均 fail-closed 返回 `Err`（由 `handle_mcp` 映射为 HTTP `400 Bad Request`）：
+/// - 空值或未知 profile（如 `?profile`、`?profile=`、`?profile=admin`、`X-Niko-Profile: invalid`）；
+/// - 重复 `?profile` 查询参数或重复 `X-Niko-Profile` 请求头；
+/// - `X-Niko-Profile` 含非 ASCII/无效编码；
+/// - query 与 header 同时存在但值冲突。
+fn resolve_requested_profile(
+    raw_query: Option<&str>,
+    headers: &HeaderMap,
+) -> Result<Option<session::ToolProfile>, String> {
+    let mut query_profile: Option<session::ToolProfile> = None;
+    if let Some(query) = raw_query {
+        for segment in query.split('&') {
+            if segment.is_empty() {
+                continue;
+            }
+            let (key, val_opt) = match segment.split_once('=') {
+                Some((k, v)) => (k, Some(v)),
+                None => (segment, None),
+            };
+            if key == "profile" {
+                if query_profile.is_some() {
+                    return Err("duplicate `profile` query parameter".to_string());
+                }
+                let raw_val = val_opt.unwrap_or("");
+                let parsed = session::ToolProfile::parse(raw_val).ok_or_else(|| {
+                    format!(
+                        "invalid MCP tool profile in query: `{raw_val}` (expected writer-sub | reviewer | architect | full-legacy)"
+                    )
+                })?;
+                query_profile = Some(parsed);
+            }
+        }
+    }
+
+    let mut header_values = headers.get_all("x-niko-profile").iter();
+    let header_profile = match header_values.next() {
+        None => None,
+        Some(first) => {
+            if header_values.next().is_some() {
+                return Err("duplicate `X-Niko-Profile` header".to_string());
+            }
+            let raw_val = first
+                .to_str()
+                .map_err(|_| "invalid `X-Niko-Profile` header encoding".to_string())?;
+            let parsed = session::ToolProfile::parse(raw_val).ok_or_else(|| {
+                format!(
+                    "invalid MCP tool profile in `X-Niko-Profile` header: `{raw_val}` (expected writer-sub | reviewer | architect | full-legacy)"
+                )
+            })?;
+            Some(parsed)
+        }
+    };
+
+    match (query_profile, header_profile) {
+        (Some(q), Some(h)) if q != h => Err(format!(
+            "conflicting MCP tool profile: query `{}` vs header `{}`",
+            q.as_str(),
+            h.as_str()
+        )),
+        (Some(q), _) => Ok(Some(q)),
+        (None, Some(h)) => Ok(Some(h)),
+        (None, None) => Ok(None),
+    }
+}
+
 /// HTTP 入口（MCP Streamable HTTP `POST /mcp`）。
 async fn handle_mcp(
     State(state): State<Arc<ServerState>>,
+    RawQuery(raw_query): RawQuery,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -520,6 +620,13 @@ async fn handle_mcp(
     if let Some(resp) = verify_mcp_http_guards(&state, &headers) {
         return resp;
     }
+
+    let requested_profile = match resolve_requested_profile(raw_query.as_deref(), &headers) {
+        Ok(p) => p,
+        Err(msg) => {
+            return (StatusCode::BAD_REQUEST, axum::Json(json!({ "error": msg }))).into_response();
+        }
+    };
 
     let req: JsonRpcRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
@@ -549,11 +656,12 @@ async fn handle_mcp(
             .into_response();
     }
 
-    // 会话：`initialize` 新建（并用 Mcp-Session-Id 头下发），其余请求按头更新活跃时间。
+    // 会话：`initialize` 新建（并用 Mcp-Session-Id 头下发，同时冻结 ToolProfile），
+    // 其余请求按头更新活跃时间并核验冻结 Profile（禁止中途切换/提权）。
     // P0 不靠会话做鉴权——鉴权是 bearer token 的事，两者不混。
     // 调用方权限域：`initialize` 时按服务端授予值新建会话；其余请求按会话 id 查表，
     // 未知/缺失 id 一律降到最小权限 `Read`（不隐式创建、不默认放行）。
-    let (session_id, caller_scope) = if req.method == "initialize" {
+    let (session_id, caller_scope, caller_profile) = if req.method == "initialize" {
         let client_info = req.params.as_ref().and_then(|p| p.get("clientInfo"));
         let client_name = sanitize_client_info_field(
             client_info
@@ -567,33 +675,64 @@ async fn handle_mcp(
                 .and_then(|v| v.as_str()),
             MAX_CLIENT_INFO_VERSION_CHARS,
         );
+        let frozen_profile = requested_profile.unwrap_or(session::ToolProfile::FullLegacy);
         (
-            Some(state.sessions.create_with_client(
+            Some(state.sessions.create_with_client_and_profile(
                 state.granted_scope,
                 client_name,
                 client_version,
+                frozen_profile,
             )),
             state.granted_scope,
+            frozen_profile,
         )
     } else {
         let sid = headers.get("mcp-session-id").and_then(|v| v.to_str().ok());
-        let scope = match sid {
+        let (scope, profile) = match sid {
             Some(id) => {
-                state.sessions.touch(id);
-                // 必须走 `effective_scope`（scope 叠加逐会话 full 授权）。
-                // 直接读 `scope_of` 会让 full 授权形同虚设，而两处各读一半是权限
-                // 系统最经典的漏法。
-                state
-                    .sessions
-                    .effective_scope(id)
-                    .unwrap_or(session::SessionScope::Read)
+                // 先驱逐过期会话，避免陈旧冻结 profile 被命中；且把 `touch(id)` 放在
+                // profile 校验通过之后，防止被 400 拒绝的提权尝试刷新活跃时间或计数。
+                state.sessions.evict_expired();
+                if let Some(frozen) = state.sessions.profile_of(id) {
+                    if let Some(req_prof) = requested_profile {
+                        if req_prof != frozen {
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                axum::Json(json!({
+                                    "error": format!(
+                                        "MCP tool profile is frozen for this session: requested `{}` does not match session profile `{}`",
+                                        req_prof.as_str(),
+                                        frozen.as_str()
+                                    )
+                                })),
+                            )
+                                .into_response();
+                        }
+                    }
+                    state.sessions.touch(id);
+                    // 必须走 `effective_scope`（scope 叠加逐会话 full/auto 授权）。
+                    let scope = state
+                        .sessions
+                        .effective_scope(id)
+                        .unwrap_or(session::SessionScope::Read);
+                    (scope, frozen)
+                } else {
+                    (
+                        session::SessionScope::Read,
+                        requested_profile.unwrap_or(session::ToolProfile::FullLegacy),
+                    )
+                }
             }
-            None => session::SessionScope::Read,
+            None => (
+                session::SessionScope::Read,
+                requested_profile.unwrap_or(session::ToolProfile::FullLegacy),
+            ),
         };
-        (None, scope)
+        (None, scope, profile)
     };
 
-    let mut resp = match dispatch_as(&state, &req, caller_scope).await {
+    let mut resp = match dispatch_as_with_profile(&state, &req, caller_scope, caller_profile).await
+    {
         None => StatusCode::ACCEPTED.into_response(),
         Some(value) => (StatusCode::OK, axum::Json(value)).into_response(),
     };
@@ -702,9 +841,10 @@ pub async fn start(
             app: Some(app),
             bridge,
             port,
-            // 共享上下文的基线是「无调用方」= 最小权限。每次请求由
-            // `handle_tools_call` 用 `for_caller` 派生带 scope 的局部副本。
+            // 共享上下文的基线是「无调用方」= 最小权限 + FullLegacy。每次请求由
+            // `handle_tools_call` 用 `for_caller_with_profile` 派生局部副本。
             caller_scope: session::SessionScope::Read,
+            caller_profile: session::ToolProfile::FullLegacy,
         }),
         sessions: Arc::new(session::SessionRegistry::new()),
         granted_scope,
@@ -1096,7 +1236,7 @@ mod tests {
         }
     }
 
-    /// `tools/call` 返回的 content 文本里是 `to_string_pretty` 过的工具结果。
+    /// `tools/call` 返回的 content 文本里是紧凑单行 JSON（`serde_json::to_string`）的工具结果。
     fn tool_payload(out: &Value) -> Value {
         let text = out["result"]["content"][0]["text"]
             .as_str()
@@ -1171,9 +1311,12 @@ mod tests {
         .expect("has response");
         assert_eq!(out["result"]["isError"], false);
         let text = out["result"]["content"][0]["text"].as_str().expect("text");
-        assert!(text.contains("\"readOnly\": true"), "{text}");
-        // 默认 dispatch 没有声明调用方 → 最小权限，且把这一事实写成 scope。
-        assert!(text.contains("\"scope\": \"read\""), "{text}");
+        assert!(!text.contains('\n'), "compact JSON 必须是单行: {text}");
+        let parsed: Value = serde_json::from_str(text).expect("valid JSON");
+        assert_eq!(parsed["readOnly"], json!(true), "{text}");
+        // 默认 dispatch 没有声明调用方 → 最小权限 + full-legacy profile。
+        assert_eq!(parsed["scope"], json!("read"), "{text}");
+        assert_eq!(parsed["profile"], json!("full-legacy"), "{text}");
     }
 
     /// 五档 scope 各自正确，且请求局部 scope 不污染共享上下文。
@@ -1577,18 +1720,37 @@ mod tests {
 
     #[tokio::test]
     async fn read_tools_are_not_gated_by_scope() {
-        // 闸门只拦写工具：只读会话调只读工具照常工作。
-        let out = dispatch(&state("t"), &req("tools/list", None))
+        // `tools/list` 按 (scope, profile) 过滤：
+        // - Read + FullLegacy 包含 settings.get、排除 settings.set；
+        // - Settings + FullLegacy 同时包含 settings.get 与 settings.set。
+        let srv = state("t");
+        let read_out = dispatch(&srv, &req("tools/list", None))
             .await
             .expect("has response");
-        let names: Vec<&str> = out["result"]["tools"]
+        let read_names: Vec<&str> = read_out["result"]["tools"]
             .as_array()
             .expect("array")
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert!(names.contains(&"settings.get"));
-        assert!(names.contains(&"settings.set"));
+        assert!(read_names.contains(&"settings.get"));
+        assert!(!read_names.contains(&"settings.set"));
+
+        let settings_out = dispatch_as(
+            &srv,
+            &req("tools/list", None),
+            session::SessionScope::Settings,
+        )
+        .await
+        .expect("has response");
+        let settings_names: Vec<&str> = settings_out["result"]["tools"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert!(settings_names.contains(&"settings.get"));
+        assert!(settings_names.contains(&"settings.set"));
     }
 
     // ── 端到端：真起监听、真发 HTTP ────────────────────────────────────────
@@ -2685,5 +2847,299 @@ mod tests {
         );
 
         project_server.stop();
+    }
+
+    #[test]
+    fn resolve_requested_profile_fails_closed_on_invalid_duplicate_or_conflicting_inputs() {
+        let empty_headers = HeaderMap::new();
+        assert_eq!(resolve_requested_profile(None, &empty_headers), Ok(None));
+        assert_eq!(
+            resolve_requested_profile(Some(""), &empty_headers),
+            Ok(None)
+        );
+        assert_eq!(
+            resolve_requested_profile(Some("foo=bar"), &empty_headers),
+            Ok(None)
+        );
+        assert_eq!(
+            resolve_requested_profile(Some("profile=writer-sub"), &empty_headers),
+            Ok(Some(ToolProfile::WriterSub))
+        );
+        assert_eq!(
+            resolve_requested_profile(Some("foo=1&profile=reviewer&bar=2"), &empty_headers),
+            Ok(Some(ToolProfile::Reviewer))
+        );
+
+        let mut hdr = HeaderMap::new();
+        hdr.insert("x-niko-profile", HeaderValue::from_static("architect"));
+        assert_eq!(
+            resolve_requested_profile(None, &hdr),
+            Ok(Some(ToolProfile::Architect))
+        );
+        assert_eq!(
+            resolve_requested_profile(Some("profile=architect"), &hdr),
+            Ok(Some(ToolProfile::Architect))
+        );
+        // 冲突（query vs header）必须拒绝。
+        assert!(resolve_requested_profile(Some("profile=reviewer"), &hdr).is_err());
+
+        // 空值、未知值、重复 query、重复 header 全部 fail-closed。
+        for bad_q in [
+            "profile",
+            "profile=",
+            "profile=unknown",
+            "profile=WRITER-SUB",
+            "profile=writer-sub&profile=writer-sub",
+            "profile=writer-sub&profile=reviewer",
+        ] {
+            assert!(
+                resolve_requested_profile(Some(bad_q), &empty_headers).is_err(),
+                "bad query `{bad_q}` 必须报错"
+            );
+        }
+
+        let mut dup_hdr = HeaderMap::new();
+        dup_hdr.append("x-niko-profile", HeaderValue::from_static("writer-sub"));
+        dup_hdr.append("x-niko-profile", HeaderValue::from_static("writer-sub"));
+        assert!(resolve_requested_profile(None, &dup_hdr).is_err());
+
+        let mut bad_hdr = HeaderMap::new();
+        bad_hdr.insert("x-niko-profile", HeaderValue::from_static("invalid"));
+        assert!(resolve_requested_profile(None, &bad_hdr).is_err());
+
+        let mut empty_hdr = HeaderMap::new();
+        empty_hdr.insert("x-niko-profile", HeaderValue::from_static(""));
+        assert!(resolve_requested_profile(None, &empty_hdr).is_err());
+    }
+
+    #[tokio::test]
+    async fn http_mcp_profile_freezing_filtering_guidance_and_anti_escalation() {
+        let project_state = ServerState {
+            token: "secret-token".into(),
+            port: 0,
+            registry: Arc::new(tools::build_registry()),
+            ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Project,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::default_policy()),
+        };
+        let server = serve(project_state, 0).await.expect("start project server");
+        let base_url = format!("http://127.0.0.1:{}/mcp", server.port);
+        let client = reqwest::Client::new();
+
+        // 1) 非法/冲突/重复 profile 均返回 HTTP 400（鉴权之后）。
+        for (suffix, header) in [
+            ("?profile=bogus", None),
+            ("?profile=", None),
+            ("?profile", None),
+            ("?profile=writer-sub&profile=writer-sub", None),
+            ("", Some("unknown")),
+            ("?profile=reviewer", Some("writer-sub")),
+        ] {
+            let mut req_builder = client
+                .post(format!("{base_url}{suffix}"))
+                .bearer_auth("secret-token")
+                .body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#);
+            if let Some(h) = header {
+                req_builder = req_builder.header("X-Niko-Profile", h);
+            }
+            let resp = req_builder.send().await.expect("send bad profile");
+            assert_eq!(
+                resp.status(),
+                400,
+                "suffix={suffix:?} header={header:?} 必须返回 HTTP 400"
+            );
+        }
+
+        // 2) 以 `?profile=writer-sub` + 匹配 `X-Niko-Profile: writer-sub` 握手并冻结。
+        let init_resp = client
+            .post(format!("{base_url}?profile=writer-sub"))
+            .bearer_auth("secret-token")
+            .header("X-Niko-Profile", "writer-sub")
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"niko-buddy","version":"2.30.0"}}}"#)
+            .send()
+            .await
+            .expect("init writer-sub");
+        assert_eq!(init_resp.status(), 200);
+        let sid = init_resp
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("sid")
+            .to_string();
+        assert_eq!(
+            server.state.sessions.profile_of(&sid),
+            Some(ToolProfile::WriterSub)
+        );
+
+        // 3) 后续请求不带 profile 时沿用冻结的 `writer-sub`：`tools/list` 仅返回 16 工具。
+        let list_resp = client
+            .post(&base_url)
+            .bearer_auth("secret-token")
+            .header("mcp-session-id", &sid)
+            .body(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#)
+            .send()
+            .await
+            .expect("tools/list");
+        assert_eq!(list_resp.status(), 200);
+        let list_json: Value = list_resp.json().await.expect("json");
+        let list_names: Vec<&str> = list_json["result"]["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert_eq!(list_names.len(), 16);
+        assert!(list_names.contains(&"chapter.write"));
+        assert!(!list_names.contains(&"pipeline.run_chapter"));
+        assert!(!list_names.contains(&"settings.get"));
+
+        // `app.status` 回报冻结的 `profile: "writer-sub"`。
+        let status_body = http_call_tool(&client, &base_url, &sid, "app.status", json!({})).await;
+        let status_payload = tool_payload(&status_body);
+        assert_eq!(status_payload["profile"], json!("writer-sub"));
+        assert_eq!(status_payload["scope"], json!("project"));
+
+        // 4) 尝试带不同 profile 提权必须 fail-closed 返回 HTTP 400，且不得刷新会话 calls 计数。
+        let calls_before_escalation = server
+            .sessions()
+            .into_iter()
+            .find(|s| s.id == sid)
+            .expect("active session")
+            .calls;
+        let escalate_q = client
+            .post(format!("{base_url}?profile=full-legacy"))
+            .bearer_auth("secret-token")
+            .header("mcp-session-id", &sid)
+            .body(r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#)
+            .send()
+            .await
+            .expect("escalate query");
+        assert_eq!(escalate_q.status(), 400);
+
+        let escalate_h = client
+            .post(&base_url)
+            .bearer_auth("secret-token")
+            .header("mcp-session-id", &sid)
+            .header("X-Niko-Profile", "architect")
+            .body(r#"{"jsonrpc":"2.0","id":4,"method":"tools/list"}"#)
+            .send()
+            .await
+            .expect("escalate header");
+        assert_eq!(escalate_h.status(), 400);
+
+        let calls_after_escalation = server
+            .sessions()
+            .into_iter()
+            .find(|s| s.id == sid)
+            .expect("active session")
+            .calls;
+        assert_eq!(
+            calls_after_escalation, calls_before_escalation,
+            "被 400 拒绝的 profile 提权请求不得增加会话 calls 计数"
+        );
+
+        // 带匹配的 profile 仍放行 200 并正常计数。
+        let matching = client
+            .post(format!("{base_url}?profile=writer-sub"))
+            .bearer_auth("secret-token")
+            .header("mcp-session-id", &sid)
+            .header("X-Niko-Profile", "writer-sub")
+            .body(r#"{"jsonrpc":"2.0","id":5,"method":"ping"}"#)
+            .send()
+            .await
+            .expect("matching profile");
+        assert_eq!(matching.status(), 200);
+        let calls_after_matching = server
+            .sessions()
+            .into_iter()
+            .find(|s| s.id == sid)
+            .expect("active session")
+            .calls;
+        assert_eq!(calls_after_matching, calls_before_escalation + 1);
+
+        // 5) 调用被 Profile 隐藏的工具返回 HTTP 200 + isError:true + 紧凑单行 TOOL_HIDDEN_BY_PROFILE JSON；
+        //    调用未知工具仍返回 JSON-RPC -32601。
+        let hidden = http_call_tool(
+            &client,
+            &base_url,
+            &sid,
+            "pipeline.run_chapter",
+            json!({ "userRequest": "写一章" }),
+        )
+        .await;
+        assert!(hidden["error"].is_null(), "{hidden}");
+        assert_eq!(hidden["result"]["isError"], json!(true));
+        let hidden_text = hidden["result"]["content"][0]["text"]
+            .as_str()
+            .expect("hidden text");
+        assert!(
+            !hidden_text.contains('\n'),
+            "必须紧凑单行 JSON: {hidden_text}"
+        );
+        let hidden_json: Value = serde_json::from_str(hidden_text).expect("valid JSON");
+        assert_eq!(hidden_json["code"], json!("TOOL_HIDDEN_BY_PROFILE"));
+        assert_eq!(hidden_json["tool"], json!("pipeline.run_chapter"));
+        assert_eq!(hidden_json["activeProfile"], json!("writer-sub"));
+        assert_eq!(
+            hidden_json["replacementTools"],
+            json!([
+                "context.prepare_write",
+                "rules.get",
+                "gate.check_mechanical",
+                "chapter.write"
+            ])
+        );
+
+        let unknown = http_call_tool(&client, &base_url, &sid, "nope.unknown", json!({})).await;
+        assert_eq!(unknown["error"]["code"], json!(METHOD_NOT_FOUND));
+
+        // 6) `reviewer` 会话即便在 Project 服务端下也仅可见 13 个 Read 工具，且调 `chapter.write` 报 TOOL_HIDDEN_BY_PROFILE。
+        let rev_init = client
+            .post(format!("{base_url}?profile=reviewer"))
+            .bearer_auth("secret-token")
+            .body(r#"{"jsonrpc":"2.0","id":6,"method":"initialize","params":{}}"#)
+            .send()
+            .await
+            .expect("init reviewer");
+        assert_eq!(rev_init.status(), 200);
+        let rev_sid = rev_init
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("rev sid")
+            .to_string();
+        let rev_list: Value = client
+            .post(&base_url)
+            .bearer_auth("secret-token")
+            .header("mcp-session-id", &rev_sid)
+            .body(r#"{"jsonrpc":"2.0","id":7,"method":"tools/list"}"#)
+            .send()
+            .await
+            .expect("rev list")
+            .json()
+            .await
+            .expect("json");
+        assert_eq!(rev_list["result"]["tools"].as_array().unwrap().len(), 13);
+
+        let rev_write = http_call_tool(
+            &client,
+            &base_url,
+            &rev_sid,
+            "chapter.write",
+            json!({ "chapterName": "ch1", "content": "x" }),
+        )
+        .await;
+        let rev_write_json: Value = serde_json::from_str(
+            rev_write["result"]["content"][0]["text"]
+                .as_str()
+                .expect("text"),
+        )
+        .expect("json");
+        assert_eq!(rev_write_json["code"], json!("TOOL_HIDDEN_BY_PROFILE"));
+        assert_eq!(rev_write_json["activeProfile"], json!("reviewer"));
+
+        server.stop();
     }
 }
