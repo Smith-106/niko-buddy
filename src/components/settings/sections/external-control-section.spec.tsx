@@ -11,8 +11,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
-import { render, screen, fireEvent, waitFor } from "@/test-helpers/component-test-utils"
+import { act, render, screen, fireEvent, waitFor } from "@/test-helpers/component-test-utils"
 import { ExternalControlSection } from "./external-control-section"
+import { useWikiStore } from "@/stores/wiki-store"
+import zhLocale from "@/i18n/zh.json"
+import enLocale from "@/i18n/en.json"
 
 const invokeMock = vi.hoisted(() => vi.fn())
 
@@ -700,5 +703,128 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     expect(alert).toBe(screen.getByTestId("external-control-error"))
     expect(alert).toHaveTextContent("bind failed")
     expect(screen.getByTestId("external-control-toggle")).toHaveAttribute("aria-checked", "false")
+  })
+
+  it("Antigravity 官方 MCP 卡片展示标准 Streamable HTTP mcp_config.json 且支持一键复制", async () => {
+    const writeText = stubClipboard()
+    invokeMock.mockResolvedValue(RUNNING_STATUS)
+    render(<ExternalControlSection />)
+
+    const card = await screen.findByTestId("external-control-antigravity-card")
+    expect(card).toBeInTheDocument()
+    const snippetEl = screen.getByTestId("external-control-antigravity-snippet")
+    const parsed = JSON.parse(snippetEl.textContent ?? "{}") as {
+      mcpServers?: {
+        "niko-buddy"?: {
+          serverUrl?: string
+          headers?: { Authorization?: string }
+          timeoutSeconds?: number
+        }
+      }
+    }
+    expect(parsed.mcpServers?.["niko-buddy"]?.serverUrl).toBe("http://127.0.0.1:45871/mcp")
+    expect(parsed.mcpServers?.["niko-buddy"]?.headers?.Authorization).toBe("Bearer <YOUR_BEARER_TOKEN>")
+    expect(parsed.mcpServers?.["niko-buddy"]?.timeoutSeconds).toBe(600)
+
+    // 显露 token 后，片段应自动带入真实 Bearer token
+    invokeMock.mockResolvedValueOnce("tok-antigravity-1234")
+    fireEvent.click(screen.getByTestId("external-control-reveal"))
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-antigravity-snippet")).toHaveTextContent(
+        "Bearer tok-antigravity-1234",
+      )
+    })
+
+    fireEvent.click(screen.getByTestId("external-control-copy-antigravity-mcp"))
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining('"serverUrl": "http://127.0.0.1:45871/mcp"'))
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("Bearer tok-antigravity-1234"))
+    })
+    expect(screen.queryByTestId("external-control-antigravity-copy-warning")).toBeNull()
+  })
+
+  it("会话行展示 client_name/client_version 徽标，且支持手动刷新按钮重读状态", async () => {
+    const withClient = {
+      ...RUNNING_STATUS,
+      sessions: [
+        {
+          id: "abc12345-0000-1111-2222-333344445555",
+          scope: "project",
+          connected_at: 1,
+          last_call_at: 2,
+          calls: 4,
+          full_granted: false,
+          auto_granted: false,
+          client_name: "antigravity-ide",
+          client_version: "1.6.0",
+        },
+      ],
+    }
+    invokeMock.mockResolvedValue(withClient)
+    render(<ExternalControlSection />)
+
+    const badge = await screen.findByTestId("external-control-session-client")
+    expect(badge).toHaveTextContent("antigravity-ide v1.6.0")
+
+    const beforeCalls = invokeMock.mock.calls.filter(([cmd]) => cmd === "mcp_server_status").length
+    fireEvent.click(screen.getByTestId("external-control-refresh"))
+    await waitFor(() => {
+      const afterCalls = invokeMock.mock.calls.filter(([cmd]) => cmd === "mcp_server_status").length
+      expect(afterCalls).toBeGreaterThan(beforeCalls)
+    })
+  })
+
+  it("停服或隐藏 token 时复制 mcp_config.json 仍执行复制，并用 role=\"status\" 给出警告（不污染 role=\"alert\"）", async () => {
+    const writeText = stubClipboard()
+    invokeMock.mockResolvedValue(STOPPED)
+    render(<ExternalControlSection />)
+
+    const stoppedHint = await screen.findByTestId("external-control-antigravity-stopped-hint")
+    expect(stoppedHint).toHaveAttribute("role", "status")
+    expect(screen.queryByRole("alert")).toBeNull()
+
+    fireEvent.click(screen.getByTestId("external-control-copy-antigravity-mcp"))
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("<YOUR_BEARER_TOKEN>"))
+    })
+    const copyWarn = await screen.findByTestId("external-control-antigravity-copy-warning")
+    expect(copyWarn).toHaveAttribute("role", "status")
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("zh/en 词条中 scopeProjectHint 不得误提 memory.write（与后端 project 权限域一致）", () => {
+    expect(zhLocale.settings.sections.externalControl.scopeProjectHint).not.toContain("memory.write")
+    expect(enLocale.settings.sections.externalControl.scopeProjectHint).not.toContain("memory.write")
+  })
+
+  it("未打开小说项目时禁用「打开 Antigravity ACP 面板」并给出提示，打开项目后可跳转", async () => {
+    invokeMock.mockResolvedValue(RUNNING_STATUS)
+    useWikiStore.setState({ project: null, activeView: "settings" })
+    try {
+      const { rerender } = render(<ExternalControlSection />)
+      await waitFor(() => {
+        expect(screen.getByTestId("external-control-endpoint")).toHaveTextContent("45871")
+      })
+      const openBtn = screen.getByTestId("external-control-open-acp")
+      expect(openBtn).toBeDisabled()
+      expect(screen.getByTestId("external-control-open-acp-project-hint")).toBeInTheDocument()
+      fireEvent.click(openBtn)
+      expect(useWikiStore.getState().activeView).toBe("settings")
+
+      act(() => {
+        useWikiStore.setState({
+          project: { id: "p-acp", name: "ACP Novel", path: "C:\\books\\acp-novel" },
+        })
+      })
+      rerender(<ExternalControlSection />)
+      expect(screen.getByTestId("external-control-open-acp")).not.toBeDisabled()
+      expect(screen.queryByTestId("external-control-open-acp-project-hint")).toBeNull()
+      fireEvent.click(screen.getByTestId("external-control-open-acp"))
+      expect(useWikiStore.getState().activeView).toBe("antigravityAcp")
+    } finally {
+      act(() => {
+        useWikiStore.setState({ project: null, activeView: "wiki" })
+      })
+    }
   })
 })

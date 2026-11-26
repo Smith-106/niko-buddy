@@ -146,7 +146,8 @@
     "llmServiceExpand": "Set up model service (required for AI writing)",
     "llmServiceCollapse": "Collapse model service settings",
     "llmConfigure": "Configure now",
-    "llmSkipHint": "You can skip for now — but chapter generation and AI features will be unavailable; only local editing works. Configure later in Settings → LLM provider.",
+    "llmSkipHint": "You can skip API key setup for now — built-in direct API writing will be paused, while you can still write with your official Antigravity subscription in the Antigravity Panel (ACP) after creating the project, or configure an API key later in Settings → LLM provider.",
+    "llmAntigravityHint": "Zero-API-key option: Already have a Google Antigravity subscription? After creating the project, open Antigravity Panel (ACP) in the sidebar to write directly via local agy acp without an API key.",
     "stepName": "Name",
     "stepPath": "Folder",
     "stepLlm": "Model service",
@@ -762,7 +763,7 @@
     "recentProjects": "Novel Shelf",
     "quickStart": "Quick Start",
     "quickStart1": "New project — create a workspace (novel writing mode is on by default: wiki + .novel memory)",
-    "quickStart2": "Set up an AI model: in the New Project dialog, click Configure now under Model service and enter your API key (proxy supported)",
+    "quickStart2": "Set up AI (zero-API-key option supported): enter an API key in the New Project dialog, or open Antigravity Panel (ACP) after creating a project to write with your official Antigravity subscription",
     "quickStart3": "Start writing — chapter generation is Draft-first: AI draft writes to canon only after accept",
     "quickStart1Action": "Create a project, start quick-start step 1",
     "restoreBackup": "Restore previous data",
@@ -1607,7 +1608,7 @@
           "installPrefix": "Install with",
           "installSuffix": "then re-check.",
           "antigravityDetecting": "Detecting Antigravity CLI…",
-          "antigravityReady": "Antigravity CLI ready{{versionSuffix}} (local binary · Google account · no API key)",
+          "antigravityReady": "Antigravity CLI ready{{versionSuffix}} (official agy · ACP panel & official MCP)",
           "antigravityFallback": "gemini kernel fallback",
           "antigravityUnavailable": "Antigravity CLI unavailable"
         },
@@ -1680,7 +1681,21 @@
           "unavailable": "Proxy unavailable"
         },
         "enableProvider": "Enable {{name}}",
-        "httpTimeoutDefault": "Default"
+        "httpTimeoutDefault": "Default",
+        "antigravityMigration": {
+          "title": "Legacy Antigravity CLI internal LLM wrapper retired",
+          "description": "Per Google Antigravity Terms of Service, third-party apps must not wrap consumer subscriptions as a silent background LLM endpoint. Use the official interactive Antigravity ACP Panel (agy acp) or official MCP External Control with your subscription instead.",
+          "openAcp": "Open Antigravity Panel (ACP)",
+          "openMcp": "Open Official MCP Setup",
+          "clearLegacy": "Clear legacy config"
+        },
+        "antigravityGuide": {
+          "title": "Use your official Google Antigravity subscription",
+          "description": "Use your Antigravity subscription and all available models without API keys or proxies: collaborate in the interactive ACP Panel (agy acp) or connect Antigravity App, IDE, or CLI through the local External Control MCP server.",
+          "openAcp": "Open Antigravity Panel (ACP)",
+          "openMcp": "Open Official MCP Setup",
+          "requiresProject": "Open or create a novel project first before jumping to the Antigravity Panel or External Control settings."
+        }
       },
       "embedding": {
         "title": "Vector Search / Embedding Model",
@@ -2127,7 +2142,7 @@
       },
       "externalControl": {
         "title": "External Control",
-        "description": "Let an external agent (Claude Code, PI) connect to this app over a loopback-only MCP endpoint. Read-only by default; write actions follow the scope and per-session grants below. The app must stay running.",
+        "description": "Let an external agent (Antigravity, Claude Code, PI) connect to this app over a loopback-only MCP endpoint. Read-only by default; write actions follow the scope and per-session grants below. The app must stay running.",
         "enable": "Allow external control",
         "enableHint": "Turning this off stops the listener immediately, releases the port, and drops every connected session.",
         "endpoint": "Connection address",
@@ -2150,14 +2165,25 @@
         "scopeSettings": "Read + settings",
         "scopeSettingsHint": "Also allows settings.set. Every write is appended to the project audit log and cannot be turned off.",
         "scopeProject": "Read + project actions",
-        "scopeProjectHint": "Also allows chapter.write, memory.write, pipeline.run_chapter and gate.run. Output only ever lands in the draft area.",
+        "scopeProjectHint": "Also allows chapter.write, pipeline.run_chapter and gate.run. Output only ever lands in the draft area, never directly modifying formal chapters or formal memory.",
         "grantFull": "Grant full write",
         "revokeFull": "Revoke full write",
         "grantAuto": "Grant auto (settings + actions)",
         "revokeAuto": "Revoke auto",
         "autoGranted": "Auto orchestration",
         "fullGranted": "Full write",
-        "fullNote": "Full write (direct edits to formal chapters and memory) is never granted at startup. Grant it per session below, and revoke it any time."
+        "fullNote": "Full write (direct edits to formal chapters and memory) is never granted at startup. Grant it per session below, and revoke it any time.",
+        "refreshSessions": "Refresh",
+        "antigravityMcpTitle": "Google Antigravity (Official MCP Integration)",
+        "antigravityMcpHint": "Connect Antigravity App, CLI (agy), or IDE directly to Niko Buddy using your official Antigravity subscription and all available models — zero reverse proxy, zero credential extraction, fully compliant with Google Terms of Service.",
+        "antigravityMcpCopy": "Copy mcp_config.json",
+        "openAntigravityAcp": "Open Antigravity ACP Panel",
+        "openAntigravityAcpRequiresProject": "Create or open a novel project first before opening the Antigravity ACP Panel.",
+        "antigravityMcpPathHint": "Paste into %USERPROFILE%\\.gemini\\config\\mcp_config.json (Windows global), ~/.gemini/config/mcp_config.json (macOS/Linux global), or <workspace>/.agents/mcp_config.json (workspace). Reveal the Bearer token above first to pre-fill it. Never commit a workspace mcp_config.json containing a Bearer token to Git.",
+        "antigravityMcpStoppedHint": "External Control is currently stopped. Enable Allow external control above before connecting Antigravity.",
+        "antigravityCopyWarnMasked": "Copied snippet with placeholder <YOUR_BEARER_TOKEN> because the Bearer token is hidden. Reveal the token above and copy again, or replace it manually.",
+        "antigravityCopyWarnStopped": "Copied snippet, but the External Control server is currently stopped. Enable Allow external control above before connecting from Antigravity.",
+        "antigravityCopyWarnStoppedAndMasked": "Copied snippet while the server is stopped and the Bearer token is hidden (<YOUR_BEARER_TOKEN>). Start the server and reveal the token above before connecting."
       }
     },
     "feedback": {
@@ -2357,7 +2383,8 @@
       "railLabel": "Main navigation",
       "more": "More ({{count}})",
       "less": "Collapse",
-      "close": "Close"
+      "close": "Close",
+      "antigravityAcp": "Antigravity Panel (ACP)"
     },
     "backupExport": {
       "cancelled": "Cancelled",
@@ -4847,6 +4874,8 @@
       "bookshelfDesc": "Work cards · continue writing",
       "creativeHub": "Creative Hub",
       "creativeHubDesc": "Bind novel · diagnose blockers · next steps",
+      "antigravityAcp": "Antigravity Panel (ACP)",
+      "antigravityAcpDesc": "Official ACP v1 interactive co-writing & draft review",
       "skillLibrary": "Skill Library",
       "skillLibraryDesc": "Reusable writing skill assets",
       "canonEditor": "Canon Editor",
@@ -5071,6 +5100,116 @@
       "acceptSuccess": "Accepted and saved {{accepted}} chapter(s).",
       "accepting": "Saving final chapters...",
       "batchAccept": "Batch Accept & Save ({{count}})"
+    }
+  },
+  "antigravityAcp": {
+    "title": "Google Antigravity Panel (ACP v1)",
+    "subtitle": "Interactive collaboration panel built on the official Agent Client Protocol (agy acp), using your official Antigravity subscription and native sign-in with zero reverse proxy or token extraction.",
+    "openMcpSettings": "Official MCP Setup",
+    "recheck": "Re-check",
+    "connect": "Connect agy acp",
+    "connectAndStart": "Connect & Start Session",
+    "disconnect": "Disconnect",
+    "cliStatusLabel": "Official Antigravity CLI (agy)",
+    "cliInstalled": "Official agy CLI ready ({{version}})",
+    "cliMissing": "Official agy CLI not found. Install Antigravity CLI and re-check.",
+    "cliUnsupported": "Detected agy CLI ({{version}}), but this version does not support official agy acp. Upgrade Google Antigravity CLI and re-check.",
+    "workspaceLabel": "Workspace",
+    "workspacePlaceholder": "Enter or select a novel project directory",
+    "browseWorkspace": "Browse",
+    "newSession": "New Session",
+    "attachMcpOption": "Attach running local Niko Buddy MCP server (uses --process-per-session)",
+    "authRequiredTitle": "Antigravity sign-in required (ACP -32000)",
+    "authOptionalTitle": "Antigravity authentication methods",
+    "authHint": "Sign-in is handled entirely by your local agy binary and Google authentication. Niko Buddy never touches passwords or OAuth tokens.",
+    "authCompleted": "Antigravity authentication completed ({{method}}). Click New Session to begin.",
+    "workspaceRequired": "Please provide a valid workspace directory path.",
+    "sessionStarted": "ACP session started ({{sessionId}}).",
+    "sessionStartedWithMcp": "ACP session started ({{sessionId}}) with local Niko Buddy MCP server attached.",
+    "permissionTitle": "Antigravity requests manual permission",
+    "permissionCancel": "Cancel",
+    "emptyDisconnected": "Click Connect agy acp above to start an interactive official Antigravity session.",
+    "emptyCreateSession": "Connected. Confirm the workspace directory and click New Session to begin.",
+    "emptyReady": "Session ready. Send writing, review, or refactoring instructions to Antigravity below.",
+    "thoughtLabel": "Thinking",
+    "attachCurrentDoc": "Attach excerpt of current document ({{file}})",
+    "contextTruncated": "Truncated safely at {{limit}} chars",
+    "clearTranscript": "Clear transcript",
+    "copyMessage": "Copy",
+    "copiedMessage": "Copied",
+    "saveAsDraft": "Save as Draft",
+    "savingAsDraft": "Saving...",
+    "savedAsDraft": "Saved to drafts ({{chapter}})",
+    "saveAsDraftFailed": "Failed to save draft: {{error}}",
+    "saveAsDraftNoProject": "Open a novel project first to save as a draft.",
+    "pendingDraftsBadge": "Pending drafts ({{count}})",
+    "jumpToLatest": "Jump to latest",
+    "inputLabel": "Message for Antigravity",
+    "inputPlaceholder": "Type a message (Ctrl/Cmd + Enter to send)...",
+    "inputDisabledPlaceholder": "Connect and create an ACP session first...",
+    "send": "Send",
+    "cancel": "Stop",
+    "complianceNotice": "Compliance notice: This panel follows the official Google Antigravity ACP v1 protocol with honest client identity (niko-buddy), explicit manual permission approval, and no silent background proxying.",
+    "mcpStrip": {
+      "title": "Local Writing MCP Bridge",
+      "running": "Running · Scope: {{scope}} · {{count}} tools",
+      "stopped": "Stopped (ACP session cannot call app draft/canon/gate tools)",
+      "unknown": "Local MCP status unavailable",
+      "startProject": "Start MCP (Draft-safe project)",
+      "switchProject": "Switch to project scope (restarts MCP sessions)",
+      "startRead": "Start read-only (read)",
+      "scopeRestartNote": "Note: Switching scope on a running MCP server restarts it and disconnects existing MCP sessions.",
+      "skipNotRunning": "Local MCP was not running when this session started, so app tools were not attached. Start local MCP (project scope) above, then start a New Session.",
+      "skipHttpDisabled": "Local HTTP MCP attachment (--process-per-session) was disabled when connecting. Disconnect, enable the checkbox, and reconnect to attach app tools.",
+      "skipAgentUnsupported": "The active Antigravity CLI does not advertise ACP HTTP MCP support (agent_unsupported). You can still chat below and click Save as Draft on any reply, or configure this app in Antigravity via Official MCP Setup.",
+      "unattachedRunning": "Local MCP server is running ({{scope}} scope), but this ACP session has not attached it yet. Rebuild the session in one click to enable draft/canon/gate tools.",
+      "rebuildSession": "Rebuild Session with MCP",
+      "reconnectWithMcp": "Reconnect with MCP Enabled",
+      "restartMcpAndRebuild": "Start MCP & Rebuild Session",
+      "staleTitle": "Local MCP bridge is stale — rebuild session required",
+      "staleReasons": {
+        "mcp_server_stopped": "The local MCP server has stopped. Start local MCP (project scope) and rebuild the ACP session.",
+        "token_rotated": "The local MCP Bearer token was rotated, so this ACP session's token is no longer valid. Rebuild the session in one click to refresh credentials.",
+        "port_changed": "The local MCP server port has changed. Rebuild the session in one click to bind to the new port.",
+        "scope_changed": "The local MCP permission scope changed. Rebuild the session in one click to apply the new scope.",
+        "server_restarted": "The local MCP server restarted. Rebuild the session in one click to reconnect.",
+        "unknown": "The local MCP connection state changed. Rebuild the ACP session to reconnect."
+      }
+    },
+    "quickActions": {
+      "toolbarLabel": "Writer quick actions (pre-fills composer only, never auto-sends)",
+      "hint": "Clicks only pre-fill the composer below for your review",
+      "draftNext": "Draft Ch. {{chapter}}",
+      "reviewCurrent": "Review Current",
+      "polishDraft": "Polish Draft",
+      "canonAudit": "Canon Audit",
+      "bookSetup": "Book Setup / Outline"
+    },
+    "draftHandoff": {
+      "title": "Antigravity wrote a pending draft (Draft-first safe zone)",
+      "description": "Formal chapters are untouched. Review and accept the draft in Main Control Drafts or Review Center.",
+      "openMainControlDrafts": "Go to Main Control Drafts",
+      "openReviewCenter": "Go to Review Center",
+      "dismiss": "Dismiss"
+    },
+    "permission": {
+      "toolKind": "Tool kind",
+      "locations": "Affected locations",
+      "rawInput": "Inspect raw parameters",
+      "allowAlwaysWarning": "Caution: Always-allow options broaden permissions for this session. Verify paths and parameters first.",
+      "submitting": "Submitting..."
+    },
+    "stopReason": {
+      "label": "Stop reason: {{reason}}",
+      "end_turn": "Completed (end_turn)",
+      "max_tokens": "Token limit reached (max_tokens)",
+      "refusal": "Refused (refusal)",
+      "cancelled": "Cancelled (cancelled)"
+    },
+    "stderr": {
+      "drawerTitle": "Diagnostics (stderr, {{count}})",
+      "empty": "No stderr diagnostics recorded.",
+      "clear": "Clear"
     }
   }
 }

@@ -18,6 +18,7 @@ import {
   ArchiveRestore,
   BookOpen,
   BookMarked,
+  Bot,
   Brain,
   Clapperboard,
   Flame,
@@ -66,6 +67,7 @@ const MODULE_CARDS: ModuleCard[] = [
   { view: "followUpCenter", icon: ListChecks, labelKey: "wb.card.followUp", descKey: "wb.card.followUpDesc", group: "production" },
   { view: "bookshelf", icon: BookMarked, labelKey: "wb.card.bookshelf", descKey: "wb.card.bookshelfDesc", group: "production" },
   { view: "creativeHub", icon: PenTool, labelKey: "wb.card.creativeHub", descKey: "wb.card.creativeHubDesc", group: "production" },
+  { view: "antigravityAcp", icon: Bot, labelKey: "wb.card.antigravityAcp", descKey: "wb.card.antigravityAcpDesc", group: "production" },
   // 资产库
   { view: "skillLibrary", icon: Sparkles, labelKey: "wb.card.skillLibrary", descKey: "wb.card.skillLibraryDesc", group: "assets" },
   { view: "canonEditor", icon: ScrollText, labelKey: "wb.card.canonEditor", descKey: "wb.card.canonEditorDesc", group: "assets" },

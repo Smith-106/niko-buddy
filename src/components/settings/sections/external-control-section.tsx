@@ -1,13 +1,14 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, Copy, Eye, EyeOff, Loader2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SettingsSwitch } from "../settings-widgets"
 import { toErrorMessage } from "@/lib/utils"
+import { useWikiStore } from "@/stores/wiki-store"
 
 /** 与 `src-tauri/src/mcp_server/mod.rs::McpServerStatus` 一一对应。 */
 interface McpSession {
@@ -20,6 +21,10 @@ interface McpSession {
   full_granted: boolean
   /** 是否被用户逐会话授予了自动编排（auto = settings + project，不含直写正文）。 */
   auto_granted: boolean
+  /** 客户端在 MCP `initialize` 握手中上报的 `clientInfo.name`（可选）。 */
+  client_name?: string | null
+  /** 客户端在 MCP `initialize` 握手中上报的 `clientInfo.version`（可选）。 */
+  client_version?: string | null
 }
 
 /**
@@ -84,11 +89,18 @@ export function ExternalControlSection() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedAntigravity, setCopiedAntigravity] = useState(false)
+  const [antigravityCopyWarning, setAntigravityCopyWarning] = useState<
+    "stopped_and_masked" | "stopped" | "masked" | null
+  >(null)
   // 停止状态下先记住用户想要的权限域，下次启动时带上去。
   const [wantScope, setWantScope] = useState<McpScope>("read")
   const mountedRef = useRef(true)
   const tokenGenRef = useRef(0)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copiedAntigravityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const project = useWikiStore((s) => s.project)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
 
   useEffect(() => {
     mountedRef.current = true
@@ -97,6 +109,10 @@ export function ExternalControlSection() {
       if (copiedTimerRef.current !== null) {
         clearTimeout(copiedTimerRef.current)
         copiedTimerRef.current = null
+      }
+      if (copiedAntigravityTimerRef.current !== null) {
+        clearTimeout(copiedAntigravityTimerRef.current)
+        copiedAntigravityTimerRef.current = null
       }
     }
   }, [])
@@ -302,6 +318,52 @@ export function ExternalControlSection() {
     }
   }, [status])
 
+  const antigravityMcpSnippet = useMemo(() => {
+    const endpoint = status?.endpoint ?? "http://127.0.0.1:45871/mcp"
+    const bearer = token && tokenVisible ? token : "<YOUR_BEARER_TOKEN>"
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "niko-buddy": {
+            serverUrl: endpoint,
+            headers: {
+              Authorization: `Bearer ${bearer}`,
+            },
+            timeoutSeconds: 600,
+          },
+        },
+      },
+      null,
+      2,
+    )
+  }, [status?.endpoint, token, tokenVisible])
+
+  const copyAntigravityConfig = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(antigravityMcpSnippet)
+      if (!mountedRef.current) return
+      setCopiedAntigravity(true)
+      const isMasked = !tokenVisible || !token
+      const isStopped = !running
+      if (isStopped && isMasked) {
+        setAntigravityCopyWarning("stopped_and_masked")
+      } else if (isStopped) {
+        setAntigravityCopyWarning("stopped")
+      } else if (isMasked) {
+        setAntigravityCopyWarning("masked")
+      } else {
+        setAntigravityCopyWarning(null)
+      }
+      if (copiedAntigravityTimerRef.current !== null) clearTimeout(copiedAntigravityTimerRef.current)
+      copiedAntigravityTimerRef.current = setTimeout(() => {
+        copiedAntigravityTimerRef.current = null
+        if (mountedRef.current) setCopiedAntigravity(false)
+      }, 1500)
+    } catch (e) {
+      if (mountedRef.current) setError(toErrorMessage(e))
+    }
+  }, [antigravityMcpSnippet, running, token, tokenVisible])
+
   const sessions = status?.sessions ?? []
 
   return (
@@ -501,19 +563,154 @@ export function ExternalControlSection() {
         </p>
       </div>
 
+      <div
+        className="space-y-3 rounded-lg border border-border/60 bg-muted/15 p-4"
+        data-testid="external-control-antigravity-card"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-medium">
+              {t("settings.sections.externalControl.antigravityMcpTitle", {
+                defaultValue: "Google Antigravity (Official MCP Integration)",
+              })}
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {t("settings.sections.externalControl.antigravityMcpHint", {
+                defaultValue:
+                  "Connect Antigravity App, CLI (agy), or IDE directly to Niko Buddy using your official Antigravity subscription and all available models — zero reverse proxy, fully compliant with Google Terms of Service.",
+              })}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void copyAntigravityConfig()}
+              data-testid="external-control-copy-antigravity-mcp"
+            >
+              <Copy className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+              {copiedAntigravity
+                ? t("settings.sections.externalControl.copied", { defaultValue: "Copied" })
+                : t("settings.sections.externalControl.antigravityMcpCopy", {
+                    defaultValue: "Copy mcp_config.json",
+                  })}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={!project}
+              title={
+                !project
+                  ? t("settings.sections.externalControl.openAntigravityAcpRequiresProject", {
+                      defaultValue:
+                        "Create or open a novel project first before opening the Antigravity ACP Panel.",
+                    })
+                  : undefined
+              }
+              onClick={() => {
+                /* v8 ignore next -- 按钮在 !project 时 disabled，此处为双重守卫 */
+                if (!project) return
+                setActiveView("antigravityAcp")
+              }}
+              data-testid="external-control-open-acp"
+            >
+              {t("settings.sections.externalControl.openAntigravityAcp", {
+                defaultValue: "Open Antigravity ACP Panel",
+              })}
+            </Button>
+          </div>
+        </div>
+        {!project ? (
+          <p
+            role="status"
+            data-testid="external-control-open-acp-project-hint"
+            className="text-xs text-muted-foreground"
+          >
+            {t("settings.sections.externalControl.openAntigravityAcpRequiresProject", {
+              defaultValue:
+                "Create or open a novel project first before opening the Antigravity ACP Panel.",
+            })}
+          </p>
+        ) : null}
+        <pre
+          className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs"
+          data-testid="external-control-antigravity-snippet"
+        >
+          {antigravityMcpSnippet}
+        </pre>
+        {status && !running ? (
+          <p
+            role="status"
+            data-testid="external-control-antigravity-stopped-hint"
+            className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning-foreground"
+          >
+            {t("settings.sections.externalControl.antigravityMcpStoppedHint", {
+              defaultValue:
+                "External Control is currently stopped. Enable Allow external control above before connecting Antigravity.",
+            })}
+          </p>
+        ) : null}
+        {antigravityCopyWarning ? (
+          <p
+            role="status"
+            data-testid="external-control-antigravity-copy-warning"
+            className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning-foreground"
+          >
+            {antigravityCopyWarning === "stopped_and_masked"
+              ? t("settings.sections.externalControl.antigravityCopyWarnStoppedAndMasked", {
+                  defaultValue:
+                    "Copied snippet while the server is stopped and the Bearer token is hidden (<YOUR_BEARER_TOKEN>). Start the server and reveal the token above before connecting.",
+                })
+              : antigravityCopyWarning === "stopped"
+                ? t("settings.sections.externalControl.antigravityCopyWarnStopped", {
+                    defaultValue:
+                      "Copied snippet, but the External Control server is currently stopped. Enable Allow external control above before connecting from Antigravity.",
+                  })
+                : t("settings.sections.externalControl.antigravityCopyWarnMasked", {
+                    defaultValue:
+                      "Copied snippet with placeholder <YOUR_BEARER_TOKEN> because the Bearer token is hidden. Reveal the token above and copy again, or replace it manually.",
+                  })}
+          </p>
+        ) : null}
+        <p className="text-xs text-muted-foreground">
+          {t("settings.sections.externalControl.antigravityMcpPathHint", {
+            defaultValue:
+              "Paste into %USERPROFILE%\\.gemini\\config\\mcp_config.json (Windows global), ~/.gemini/config/mcp_config.json (macOS/Linux global), or <workspace>/.agents/mcp_config.json (workspace). Reveal the Bearer token above first to pre-fill it. Never commit a workspace mcp_config.json containing a Bearer token to Git.",
+          })}
+        </p>
+      </div>
+
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div className="text-sm font-medium">
             {t("settings.sections.externalControl.sessions", {
               defaultValue: "Connected sessions",
             })}
           </div>
-          <span className="text-xs text-muted-foreground" data-testid="external-control-tool-count">
-            {t("settings.sections.externalControl.toolCount", {
-              defaultValue: "{{count}} available tools",
-              count: status?.tool_count ?? 0,
-            })}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground" data-testid="external-control-tool-count">
+              {t("settings.sections.externalControl.toolCount", {
+                defaultValue: "{{count}} available tools",
+                count: status?.tool_count ?? 0,
+              })}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              disabled={busy}
+              onClick={() => void refresh()}
+              data-testid="external-control-refresh"
+            >
+              <RefreshCw className="mr-1 h-3 w-3" aria-hidden="true" />
+              {t("settings.sections.externalControl.refreshSessions", {
+                defaultValue: "Refresh",
+              })}
+            </Button>
+          </div>
         </div>
         {sessions.length === 0 ? (
           <p
@@ -533,6 +730,16 @@ export function ExternalControlSection() {
                 data-testid="external-control-session-row"
               >
                 <code className="truncate font-mono">{session.id.slice(0, 8)}</code>
+                {session.client_name ? (
+                  <span
+                    className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+                    data-testid="external-control-session-client"
+                  >
+                    {session.client_version
+                      ? `${session.client_name} v${session.client_version}`
+                      : session.client_name}
+                  </span>
+                ) : null}
                 <span className="text-muted-foreground">{session.scope}</span>
                 {session.auto_granted ? (
                   <span

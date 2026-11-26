@@ -163,6 +163,10 @@ vi.mock("@/components/novel/mcp-manager-view", () => ({
   McpManagerView: () => <div>mock-mcp-manager</div>,
 }))
 
+vi.mock("@/components/novel/antigravity-acp-view", () => ({
+  AntigravityAcpView: () => <div>mock-antigravity-acp</div>,
+}))
+
 vi.mock("@/components/novel/workflow-editor-view", () => ({
   WorkflowEditorView: () => <div>mock-workflow-editor</div>,
 }))
@@ -387,6 +391,7 @@ describe("ContentArea — W3 剩余视图全路由", () => {
     ["antiAiRules", "mock-anti-ai-rules"],
     ["modelRoutes", "mock-model-routes"],
     ["mcpManager", "mock-mcp-manager"],
+    ["antigravityAcp", "mock-antigravity-acp"],
     ["workflowEditor", "mock-workflow-editor"],
     ["marketRadar", "mock-market-radar"],
     ["help", "mock-help"],

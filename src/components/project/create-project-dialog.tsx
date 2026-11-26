@@ -291,6 +291,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated, onC
                     </Button>
                     <span>{t("project.llmSkipHint")}</span>
                   </div>
+                  <p className="text-muted-foreground">{t("project.llmAntigravityHint")}</p>
                 </div>
               )}
             </div>

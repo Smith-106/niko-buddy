@@ -57,13 +57,18 @@ describe("nav 六组（批次三·10）", () => {
 })
 
 describe("nav tier 分层", () => {
-  it("31 项总量（批次三·12 AI 实况并入主控 + 状态总览入口 D2），主次分层 17/14", () => {
-    expect(NAV_ITEMS).toHaveLength(31)
+  it("32 项总量（含 Antigravity ACP 官方交互面板），主次分层 18/14，maint 保持 8 项", () => {
+    expect(NAV_ITEMS).toHaveLength(32)
     const primary = NAV_ITEMS.filter(isNavPrimaryTier)
     const secondary = NAV_ITEMS.filter((i) => !isNavPrimaryTier(i))
-    expect(primary).toHaveLength(17)
+    expect(primary).toHaveLength(18)
     expect(secondary).toHaveLength(14)
     expect(NAV_ITEMS.some((i) => i.view === "liveExecution")).toBe(false)
+
+    const acpEntry = NAV_ITEMS.find((i) => i.view === "antigravityAcp")
+    expect(acpEntry?.group).toBe("tools")
+    expect(acpEntry?.tier).toBe("primary")
+    expect(NAV_ITEMS.filter((i) => i.group === "maint")).toHaveLength(8)
   })
 
   it("主控直达：ma 组 primary，复用 content-area mainControl 分支", () => {

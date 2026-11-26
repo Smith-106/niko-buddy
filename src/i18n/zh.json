@@ -278,7 +278,7 @@
     "recentProjects": "小说书架",
     "quickStart": "快速上手",
     "quickStart1": "新建小说：选一个文件夹存放书稿和记忆",
-    "quickStart2": "配置 AI 模型：在新建窗口的「模型服务」点「立即配置」，填入 API Key（支持代理）",
+    "quickStart2": "配置 AI 模型（零 API Key 也可直接写作）：可在新建窗口配置 API Key，或建项后打开左侧「Antigravity 面板 (ACP)」直接使用官方 Antigravity 订阅",
     "quickStart3": "开始写作：AI 写的内容先放进草稿，你点「采纳」后才写入正文和记忆",
     "quickStart1Action": "新建项目，开始快速上手第一步",
     "restoreBackup": "恢复先前数据",
@@ -334,7 +334,8 @@
     "llmServiceExpand": "配置模型服务（AI 写作需要）",
     "llmServiceCollapse": "收起模型服务设置",
     "llmConfigure": "立即配置",
-    "llmSkipHint": "可暂不配置——但生成章节、AI 写作等功能将不可用，仅本地编辑可用。可稍后在「设置 → LLM 提供商」配置。",
+    "llmSkipHint": "可暂不配置 API Key——内置直连 API 写作暂不可用，但建项后仍可通过左侧「Antigravity 面板 (ACP)」使用官方 Antigravity 订阅直接写作，或稍后在「设置 → LLM 提供商」配置 API Key。",
+    "llmAntigravityHint": "零 API Key 方案：已有 Google Antigravity 订阅？建项后可直接在左侧「Antigravity 面板 (ACP)」连接本地 agy acp 写作，无需填写 API Key。",
     "stepName": "名称",
     "stepPath": "目录",
     "stepLlm": "模型服务",
@@ -973,7 +974,7 @@
           "installPrefix": "可执行",
           "installSuffix": "安装后再重新检查。",
           "antigravityDetecting": "正在检测 Antigravity CLI…",
-          "antigravityReady": "Antigravity CLI 已就绪{{versionSuffix}}（本地 binary · Google 账号 · 无需 API key）",
+          "antigravityReady": "Antigravity CLI 已就绪{{versionSuffix}}（官方 agy · 支持 ACP 交互面板与官方 MCP）",
           "antigravityFallback": "gemini 内核降级",
           "antigravityUnavailable": "Antigravity CLI 不可用"
         },
@@ -1045,7 +1046,21 @@
           "unavailable": "代理不可用"
         },
         "enableProvider": "启用 {{name}}",
-        "httpTimeoutDefault": "默认"
+        "httpTimeoutDefault": "默认",
+        "antigravityMigration": {
+          "title": "旧版 Antigravity CLI 内部模型封装已合规下线",
+          "description": "根据 Google Antigravity 服务条款，第三方应用不得将消费者订阅包装为后台静默 LLM 接口。请改用官方 Antigravity ACP 交互面板（agy acp）或官方 MCP 外部控制来使用您的 Antigravity 订阅与全部模型。",
+          "openAcp": "打开 Antigravity 面板 (ACP)",
+          "openMcp": "查看官方 MCP 接入",
+          "clearLegacy": "清除旧版配置"
+        },
+        "antigravityGuide": {
+          "title": "使用 Google Antigravity 官方订阅",
+          "description": "无需 API Key 或反代即可使用 Antigravity 订阅与全部模型：在交互式 ACP 面板（agy acp）中协作写作，或通过「外部控制」本地 MCP 端点接入 Antigravity App / IDE / CLI。",
+          "openAcp": "打开 Antigravity 面板 (ACP)",
+          "openMcp": "前往官方 MCP 设置",
+          "requiresProject": "请先打开或创建一个小说项目后再跳转至 Antigravity 面板或外部控制设置。"
+        }
       },
       "embedding": {
         "title": "向量检索/Embedding模型",
@@ -1492,7 +1507,7 @@
       },
       "externalControl": {
         "title": "外部控制",
-        "description": "允许外部 Agent（Claude Code / PI）通过仅回环地址的 MCP 端点连入本应用。默认只读，可按下方权限域与会话授权放开写操作；应用必须保持运行。",
+        "description": "允许外部 Agent（Antigravity / Claude Code / PI）通过仅回环地址的 MCP 端点连入本应用。默认只读，可按下方权限域与会话授权放开写操作；应用必须保持运行。",
         "enable": "允许外部控制",
         "enableHint": "关闭后立即停止监听、释放端口，并断开所有已连接会话。",
         "endpoint": "连接地址",
@@ -1515,14 +1530,25 @@
         "scopeSettings": "只读 + 改设置",
         "scopeSettingsHint": "额外允许 settings.set。每次写入都会追加到项目审计日志，不可关闭。",
         "scopeProject": "只读 + 项目动作",
-        "scopeProjectHint": "额外允许 chapter.write / memory.write / pipeline.run_chapter / gate.run。产出只会进草稿区，不会直接改正式正文或正式记忆。",
+        "scopeProjectHint": "额外允许 chapter.write / pipeline.run_chapter / gate.run。产出只会进草稿区，不会直接改正式正文或正式记忆。",
         "grantFull": "授予完整写入",
         "revokeFull": "吊销完整写入",
         "grantAuto": "授予 auto（设置 + 项目动作）",
         "revokeAuto": "撤销 auto",
         "autoGranted": "auto 编排",
         "fullGranted": "完整写入",
-        "fullNote": "完整写入（直改正式正文与正式记忆）不会在启动时授予。请在下方对具体会话单独授权，随时可吊销。"
+        "fullNote": "完整写入（直改正式正文与正式记忆）不会在启动时授予。请在下方对具体会话单独授权，随时可吊销。",
+        "refreshSessions": "刷新会话",
+        "antigravityMcpTitle": "Google Antigravity（官方 MCP 集成）",
+        "antigravityMcpHint": "直接使用官方 Antigravity 订阅与全部可用模型连接本应用，零反代、零凭据提取，完全符合 Google 服务条款与官方 MCP 规范。",
+        "antigravityMcpCopy": "复制 mcp_config.json",
+        "openAntigravityAcp": "打开 Antigravity ACP 面板",
+        "openAntigravityAcpRequiresProject": "请先新建或打开一个小说项目，再打开 Antigravity ACP 面板。",
+        "antigravityMcpPathHint": "粘贴到 %USERPROFILE%\\.gemini\\config\\mcp_config.json（Windows 全局）、~/.gemini/config/mcp_config.json（macOS/Linux 全局）或 <工作区>/.agents/mcp_config.json（项目级）。若需自动填入真实 Bearer Token，请先点击上方「显示」。切勿将包含明文 Bearer Token 的工作区 mcp_config.json 提交到 Git 仓库。",
+        "antigravityMcpStoppedHint": "当前外部控制服务尚未开启。请先打开上方「允许外部控制」开关，再让 Antigravity 连接本端点。",
+        "antigravityCopyWarnMasked": "已复制配置片段，但 Bearer Token 尚未展开（当前为占位符 <YOUR_BEARER_TOKEN>）。请点击上方「显示」后再复制，或手动替换占位符。",
+        "antigravityCopyWarnStopped": "已复制配置片段，但外部控制服务当前未启动。请先开启上方「允许外部控制」开关后再在 Antigravity 中连接。",
+        "antigravityCopyWarnStoppedAndMasked": "已复制配置片段，但外部控制服务未启动且 Bearer Token 尚未展开（含占位符 <YOUR_BEARER_TOKEN>）。请先开启服务并点击「显示」后再复制。"
       }
     },
     "llm": "模型",
@@ -1975,7 +2001,8 @@
       "railLabel": "主导航",
       "more": "更多 ({{count}})",
       "less": "收起",
-      "close": "关闭"
+      "close": "关闭",
+      "antigravityAcp": "Antigravity 面板 (ACP)"
     },
     "backupExport": {
       "cancelled": "已取消",
@@ -4847,6 +4874,8 @@
       "bookshelfDesc": "作品卡片浏览·继续创作",
       "creativeHub": "创作中枢",
       "creativeHubDesc": "绑定小说·诊断阻塞·下一步建议",
+      "antigravityAcp": "Antigravity 面板 (ACP)",
+      "antigravityAcpDesc": "官方 ACP v1 交互式协作写作与草稿送审",
       "skillLibrary": "技能库",
       "skillLibraryDesc": "可复用写作技能资产",
       "canonEditor": "设定校正",
@@ -5071,6 +5100,116 @@
       "acceptSuccess": "已成功验收写入 {{accepted}} 章节。",
       "accepting": "正在写入正式章节...",
       "batchAccept": "批量验收并写入正文 ({{count}})"
+    }
+  },
+  "antigravityAcp": {
+    "title": "Google Antigravity 面板 (ACP v1)",
+    "subtitle": "基于官方 Agent Client Protocol (agy acp) 的交互式协作面板，直接使用您的 Antigravity 订阅与官方登录态，零反代、不读取 OAuth 凭据。",
+    "openMcpSettings": "官方 MCP 设置",
+    "recheck": "重新检测",
+    "connect": "连接 agy acp",
+    "connectAndStart": "一键连接并开会话",
+    "disconnect": "断开连接",
+    "cliStatusLabel": "官方 Antigravity CLI (agy)",
+    "cliInstalled": "已检测到官方 agy CLI ({{version}})",
+    "cliMissing": "未检测到官方 agy CLI。请先安装 Antigravity CLI 后重新检测。",
+    "cliUnsupported": "已检测到 agy CLI（{{version}}），但该版本暂不支持官方 agy acp 协议。请升级到最新版 Google Antigravity CLI 后重新检测。",
+    "workspaceLabel": "工作区目录",
+    "workspacePlaceholder": "输入或选择小说项目路径",
+    "browseWorkspace": "选择目录",
+    "newSession": "新建会话",
+    "attachMcpOption": "自动挂载本应用运行中的本地 MCP 服务（需 --process-per-session）",
+    "authRequiredTitle": "需要先完成 Antigravity 官方登录（ACP -32000）",
+    "authOptionalTitle": "Antigravity 官方登录方式",
+    "authHint": "登录流程完全由本机 agy 进程与 Google 官方认证页面处理，Niko Buddy 不会接触任何密码或 OAuth Token。",
+    "authCompleted": "已完成 Antigravity 官方认证（{{method}}），现在可以点击「新建会话」。",
+    "workspaceRequired": "请先填写有效的工作区目录路径。",
+    "sessionStarted": "已创建 ACP 会话（{{sessionId}}）。",
+    "sessionStartedWithMcp": "已创建 ACP 会话（{{sessionId}}），并已挂载本应用本地 MCP 服务。",
+    "permissionTitle": "Antigravity 请求人工权限确认",
+    "permissionCancel": "取消",
+    "emptyDisconnected": "点击右上角「连接 agy acp」启动官方交互式 Antigravity 协作会话。",
+    "emptyCreateSession": "连接成功。请确认工作区目录并点击「新建会话」开始写作协作。",
+    "emptyReady": "会话已就绪。可在下方直接向 Antigravity 发送创作、审校或重构指令。",
+    "thoughtLabel": "思考过程",
+    "attachCurrentDoc": "附带当前打开文档摘录（{{file}}）",
+    "contextTruncated": "正文超过 {{limit}} 字，已安全截断",
+    "clearTranscript": "清空对话",
+    "copyMessage": "复制",
+    "copiedMessage": "已复制",
+    "saveAsDraft": "存为草稿",
+    "savingAsDraft": "保存中…",
+    "savedAsDraft": "已存入草稿（{{chapter}}）",
+    "saveAsDraftFailed": "存入草稿失败：{{error}}",
+    "saveAsDraftNoProject": "请先打开一个小说项目后再存为草稿。",
+    "pendingDraftsBadge": "待审草稿 ({{count}})",
+    "jumpToLatest": "回到底部",
+    "inputLabel": "发送给 Antigravity 的消息",
+    "inputPlaceholder": "输入消息，Ctrl/Cmd + Enter 发送…",
+    "inputDisabledPlaceholder": "请先连接并新建 ACP 会话…",
+    "send": "发送",
+    "cancel": "停止生成",
+    "complianceNotice": "合规声明：本面板严格遵循 Google Antigravity 官方 ACP v1 协议，诚实声明客户端身份（niko-buddy），不绕过权限确认，不作为后台静默反代使用。",
+    "mcpStrip": {
+      "title": "本地写作 MCP 桥接",
+      "running": "运行中 · 权限域：{{scope}} · {{count}} 个工具",
+      "stopped": "未启动（ACP 会话无法调用本应用草稿/设定/门控工具）",
+      "unknown": "尚未获取到本地 MCP 状态",
+      "startProject": "一键启动 MCP（草稿安全 project 档）",
+      "switchProject": "切换至 project 档（将重启现有 MCP 会话）",
+      "startRead": "仅只读启动（read 档）",
+      "scopeRestartNote": "提示：切换运行中 MCP 服务的权限域会重启本地监听并断开现有 MCP 会话。",
+      "skipNotRunning": "新建会话时本地 MCP 未运行，因此未自动挂载本应用工具。请先启动上方 MCP（project 档），再点击「新建会话」。",
+      "skipHttpDisabled": "本次连接未勾选「自动挂载本地 MCP 服务（--process-per-session）」。若需调用本应用工具，请断开后勾选该选项并重新连接。",
+      "skipAgentUnsupported": "当前检测到的 Antigravity CLI 暂不支持 ACP HTTP MCP 挂载（agent_unsupported）。您仍可继续在下方对话并点击单条回复的「存为草稿」，或通过上方「官方 MCP 设置」把本应用配置到 Antigravity 客户端。",
+      "unattachedRunning": "本地 MCP 服务已在运行（{{scope}} 档），但当前 ACP 会话尚未挂载它。一键重建会话即可启用草稿/设定/门控工具。",
+      "rebuildSession": "一键重建会话挂载 MCP",
+      "reconnectWithMcp": "勾选挂载并重连开会话",
+      "restartMcpAndRebuild": "启动 MCP 并重建会话",
+      "staleTitle": "本地 MCP 桥接已失效，需重建会话",
+      "staleReasons": {
+        "mcp_server_stopped": "本地 MCP 服务已停止。请先启动本地 MCP（project 档）并重建 ACP 会话。",
+        "token_rotated": "本地 MCP Bearer Token 已轮换，当前 ACP 会话持有的旧令牌已失效。点击一键重建会话以刷新凭据。",
+        "port_changed": "本地 MCP 服务监听端口已变更。点击一键重建会话以重新绑定新端口。",
+        "scope_changed": "本地 MCP 权限域已切换。点击一键重建会话以应用最新权限域。",
+        "server_restarted": "本地 MCP 服务已重启。点击一键重建会话以重新连接。",
+        "unknown": "本地 MCP 连接状态已变更，请重建 ACP 会话以重新连接。"
+      }
+    },
+    "quickActions": {
+      "toolbarLabel": "作家快捷指令（仅预填输入框，不自动发送）",
+      "hint": "点击仅预填到下方输入框，审阅后手动发送",
+      "draftNext": "起草第 {{chapter}} 章",
+      "reviewCurrent": "审查当前章/草稿",
+      "polishDraft": "精修待审草稿",
+      "canonAudit": "设定与伏笔体检",
+      "bookSetup": "新书建档/大纲"
+    },
+    "draftHandoff": {
+      "title": "检测到 Antigravity 已写入待审草稿（Draft-first 安全区）",
+      "description": "草稿尚未覆盖正式正文。请前往主控草稿箱或审查中心完成验收后再正式入库。",
+      "openMainControlDrafts": "前往主控草稿箱",
+      "openReviewCenter": "前往审查中心",
+      "dismiss": "知道了"
+    },
+    "permission": {
+      "toolKind": "工具类型",
+      "locations": "涉及路径",
+      "rawInput": "查看原始调用参数",
+      "allowAlwaysWarning": "谨慎：带有「始终允许」的选项会在当前会话放宽同类操作，请先核对路径与参数。",
+      "submitting": "提交中…"
+    },
+    "stopReason": {
+      "label": "停止原因：{{reason}}",
+      "end_turn": "正常结束 (end_turn)",
+      "max_tokens": "达到长度上限 (max_tokens)",
+      "refusal": "模型拒绝响应 (refusal)",
+      "cancelled": "已取消 (cancelled)"
+    },
+    "stderr": {
+      "drawerTitle": "诊断输出 (stderr, {{count}})",
+      "empty": "暂无 stderr 诊断输出。",
+      "clear": "清空日志"
     }
   }
 }

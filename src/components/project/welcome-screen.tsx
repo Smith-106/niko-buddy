@@ -127,7 +127,8 @@ export function WelcomeScreen({
                   className="text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
                 >
                 {t("welcome.quickStart2", {
-                  defaultValue: "配置 AI 模型：在新建窗口的「模型服务」点「立即配置」，填入 API Key",
+                  defaultValue:
+                    "配置 AI 模型（零 API Key 也可直接写作）：可在新建窗口配置 API Key，或建项后打开左侧「Antigravity 面板 (ACP)」直接使用官方 Antigravity 订阅",
                 })}
                 </button>
               </li>

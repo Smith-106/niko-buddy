@@ -151,6 +151,11 @@ const McpManagerView = lazy(async () => {
   return { default: mod.McpManagerView }
 })
 
+const AntigravityAcpView = lazy(async () => {
+  const mod = await import("@/components/novel/antigravity-acp-view")
+  return { default: mod.AntigravityAcpView }
+})
+
 const WorkflowEditorView = lazy(async () => {
   const mod = await import("@/components/novel/workflow-editor-view")
   return { default: mod.WorkflowEditorView }
@@ -394,6 +399,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <McpManagerView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "antigravityAcp":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <AntigravityAcpView />
           </Suspense>
         )
         break
