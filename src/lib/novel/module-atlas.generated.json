@@ -90,8 +90,8 @@
   "orphan": 201,
   "specOnly": 198,
   "barrelOnly": 0,
-  "edges": 4771,
-  "loc": 310143
+  "edges": 4773,
+  "loc": 311580
  },
  "modules": [
   {
@@ -2438,7 +2438,7 @@
   {
    "p": "src/components/novel/antigravity-acp-quick-actions.tsx",
    "s": 16,
-   "l": 317,
+   "l": 333,
    "r": true,
    "o": false,
    "x": false,
@@ -2455,7 +2455,7 @@
   {
    "p": "src/components/novel/antigravity-acp-view.tsx",
    "s": 16,
-   "l": 1850,
+   "l": 2258,
    "r": true,
    "o": false,
    "x": false,
@@ -5188,7 +5188,7 @@
   {
    "p": "src/components/settings/sections/external-control-section.tsx",
    "s": 16,
-   "l": 817,
+   "l": 1128,
    "r": true,
    "o": false,
    "x": false,
@@ -5196,6 +5196,7 @@
    "i": [
     282,
     303,
+    379,
     1164,
     1194
    ],
@@ -7375,7 +7376,7 @@
   {
    "p": "src/lib/antigravity-acp-client.ts",
    "s": 18,
-   "l": 329,
+   "l": 454,
    "r": true,
    "o": false,
    "x": false,
@@ -8822,7 +8823,7 @@
   {
    "p": "src/lib/mcp/context-inspection.ts",
    "s": 18,
-   "l": 1639,
+   "l": 1842,
    "r": true,
    "o": false,
    "x": false,
@@ -8830,6 +8831,7 @@
    "i": [
     4,
     772,
+    1193,
     1194
    ]
   },
@@ -8849,7 +8851,7 @@
   {
    "p": "src/lib/mcp/mechanical-gate.ts",
    "s": 18,
-   "l": 781,
+   "l": 989,
    "r": true,
    "o": false,
    "x": false,
@@ -8958,7 +8960,7 @@
   {
    "p": "src/lib/mcp/state-bridge.ts",
    "s": 18,
-   "l": 1703,
+   "l": 1813,
    "r": true,
    "o": false,
    "x": false,
@@ -19102,7 +19104,7 @@
   {
    "p": "src/stores/antigravity-acp-store.ts",
    "s": 17,
-   "l": 459,
+   "l": 515,
    "r": true,
    "o": false,
    "x": false,

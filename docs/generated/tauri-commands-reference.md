@@ -1,9 +1,9 @@
 # Tauri 命令参考（自动生成）
 
 > 生成时间：2026-11-26（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**140**（`generate_handler!` 块）；未注册声明（死命令）：**0**
+> 注册数：**143**（`generate_handler!` 块）；未注册声明（死命令）：**0**
 
-## 注册命令（140）
+## 注册命令（143）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
@@ -147,6 +147,9 @@
 | `vector_search_chunks` | vectorstore | ✓ |
 | `vector_trigger_idle_compaction` | vectorstore | ✓ |
 | `vector_upsert_chunks` | vectorstore | ✓ |
+| `writer_plugin_install_global` | writer_plugin | ✓ |
+| `writer_plugin_status` | writer_plugin | ✓ |
+| `writer_plugin_sync_project` | writer_plugin | ✓ |
 
 ## 死命令审计（声明未注册，0）
 
