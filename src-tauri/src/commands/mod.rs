@@ -1,3 +1,4 @@
+pub mod antigravity_acp;
 pub mod antigravity_cli;
 pub mod backup;
 pub mod claude_cli;

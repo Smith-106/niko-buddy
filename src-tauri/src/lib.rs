@@ -166,7 +166,7 @@ pub fn run() {
             // drained on process exit or by claude_cli_kill.
             app.manage(CanonCommandState::default());
             app.manage(commands::claude_cli::ClaudeCliState::default());
-            app.manage(commands::antigravity_cli::AntigravityCliState::default());
+            app.manage(commands::antigravity_acp::AntigravityAcpState::default());
             app.manage(commands::codex_cli::CodexCliState::default());
             app.manage(commands::mcp_stdio::McpStdioState::default());
             app.manage(commands::cursor_cli::CursorProxyState::default());
@@ -290,8 +290,15 @@ pub fn run() {
             commands::vectorstore::vector_trigger_idle_compaction,
             commands::claude_cli::claude_cli_detect,
             commands::antigravity_cli::antigravity_cli_detect,
-            commands::antigravity_cli::antigravity_cli_spawn,
-            commands::antigravity_cli::antigravity_cli_kill,
+            commands::antigravity_acp::antigravity_acp_status,
+            commands::antigravity_acp::antigravity_acp_connect,
+            commands::antigravity_acp::antigravity_acp_disconnect,
+            commands::antigravity_acp::antigravity_acp_authenticate,
+            commands::antigravity_acp::antigravity_acp_new_session,
+            commands::antigravity_acp::antigravity_acp_prompt,
+            commands::antigravity_acp::antigravity_acp_cancel,
+            commands::antigravity_acp::antigravity_acp_set_config_option,
+            commands::antigravity_acp::antigravity_acp_respond_permission,
             commands::claude_cli::claude_cli_spawn,
             commands::claude_cli::claude_cli_kill,
             commands::claude_cli::claude_cli_terminate,
@@ -437,6 +444,10 @@ pub fn run() {
                 status_watcher::stop_status_watcher(app);
                 if let Some(mcp) = app.try_state::<mcp_server::McpServerHandle>() {
                     mcp.stop();
+                }
+                if let Some(acp) = app.try_state::<commands::antigravity_acp::AntigravityAcpState>()
+                {
+                    acp.stop_sync();
                 }
             }
             let _ = (app, event); // suppress unused warnings on non-macOS

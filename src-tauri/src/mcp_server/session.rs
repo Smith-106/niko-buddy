@@ -145,6 +145,10 @@ pub struct SessionInfo {
     /// 与 `full_granted` 分开：`auto` 不含直写正文。两者同时为真时以 `full` 为准
     /// （见 [`SessionRegistry::effective_scope`]）。
     pub auto_granted: bool,
+    /// 客户端在 `initialize` 握手中上报的 `clientInfo.name`（经清洗截断）。
+    pub client_name: Option<String>,
+    /// 客户端在 `initialize` 握手中上报的 `clientInfo.version`（经清洗截断）。
+    pub client_version: Option<String>,
 }
 
 /// 会话表。
@@ -163,6 +167,16 @@ impl SessionRegistry {
         self.create_at(scope, now_ms())
     }
 
+    /// 新建带客户端身份元数据的会话，返回会话 id。
+    pub fn create_with_client(
+        &self,
+        scope: SessionScope,
+        client_name: Option<String>,
+        client_version: Option<String>,
+    ) -> String {
+        self.create_at_with_client(scope, now_ms(), client_name, client_version)
+    }
+
     /// 清理所有已超过 [`SESSION_IDLE_TTL_MS`] 的空闲会话。
     pub fn evict_expired(&self) {
         self.evict_expired_at(now_ms());
@@ -177,6 +191,18 @@ impl SessionRegistry {
     /// 指定时间戳新建会话：先淘汰超过 [`SESSION_IDLE_TTL_MS`] 的空闲会话，
     /// 若仍达到 [`MAX_SESSIONS`] 则淘汰最久未活跃项。
     pub fn create_at(&self, scope: SessionScope, now: u64) -> String {
+        self.create_at_with_client(scope, now, None, None)
+    }
+
+    /// 指定时间戳新建带客户端身份元数据的会话：先淘汰超过 [`SESSION_IDLE_TTL_MS`] 的空闲会话，
+    /// 若仍达到 [`MAX_SESSIONS`] 则淘汰最久未活跃项。
+    pub fn create_at_with_client(
+        &self,
+        scope: SessionScope,
+        now: u64,
+        client_name: Option<String>,
+        client_version: Option<String>,
+    ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         let mut guard = self.lock();
         evict_expired_locked(&mut guard, now);
@@ -205,6 +231,8 @@ impl SessionRegistry {
                 calls: 0,
                 full_granted: false,
                 auto_granted: false,
+                client_name,
+                client_version,
             },
         );
         id
@@ -330,6 +358,11 @@ impl SessionRegistry {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// 主动移除指定会话（MCP Streamable HTTP `DELETE /mcp` 使用）。返回是否存在并已移除。
+    pub fn remove(&self, id: &str) -> bool {
+        self.lock().remove(id).is_some()
     }
 
     /// 清空（停止服务时调用：监听一停，握手过期的会话就不该继续显示为"连着"）。
@@ -662,5 +695,59 @@ mod tests {
         reg.evict_expired_at(50_000 + SESSION_IDLE_TTL_MS);
         assert_eq!(reg.scope_of(&sid2), None);
         assert!(reg.is_empty());
+    }
+
+    #[test]
+    fn create_with_client_records_and_serializes_snake_case_metadata() {
+        let reg = SessionRegistry::new();
+        let plain_id = reg.create(SessionScope::Read);
+        let with_now_id = reg.create_with_client(
+            SessionScope::Settings,
+            Some("claude-code".to_string()),
+            None,
+        );
+
+        let list = reg.list();
+        let plain = list.iter().find(|s| s.id == plain_id).expect("plain");
+        assert_eq!(plain.client_name, None);
+        assert_eq!(plain.client_version, None);
+
+        let with_now = list.iter().find(|s| s.id == with_now_id).expect("with_now");
+        assert_eq!(with_now.client_name.as_deref(), Some("claude-code"));
+        assert_eq!(with_now.client_version, None);
+
+        // 固定时间戳场景单独用一致时钟验证 `create_at` / `create_at_with_client`。
+        let clocked = SessionRegistry::new();
+        let clocked_plain_id = clocked.create_at(SessionScope::Read, 41_000);
+        let client_id = clocked.create_at_with_client(
+            SessionScope::Project,
+            42_000,
+            Some("antigravity-ide".to_string()),
+            Some("1.2.3".to_string()),
+        );
+        let clocked_list = clocked.list();
+        let clocked_plain = clocked_list
+            .iter()
+            .find(|s| s.id == clocked_plain_id)
+            .expect("clocked_plain");
+        assert_eq!(clocked_plain.client_name, None);
+        assert_eq!(clocked_plain.client_version, None);
+
+        let client = clocked_list
+            .iter()
+            .find(|s| s.id == client_id)
+            .expect("client");
+        assert_eq!(client.client_name.as_deref(), Some("antigravity-ide"));
+        assert_eq!(client.client_version.as_deref(), Some("1.2.3"));
+        assert_eq!(client.connected_at, 42_000);
+        assert_eq!(client.scope, SessionScope::Project);
+
+        let serialized = serde_json::to_value(client).expect("serialize SessionInfo");
+        assert_eq!(serialized["client_name"], "antigravity-ide");
+        assert_eq!(serialized["client_version"], "1.2.3");
+        assert!(
+            serialized.get("clientName").is_none(),
+            "SessionInfo 必须保持 snake_case"
+        );
     }
 }

@@ -153,6 +153,31 @@ pub struct ServerState {
     rate_limiter: Mutex<RateLimiter>,
 }
 
+/// 本地回环 MCP 服务的运行期绑定指纹（供同进程 ACP 会话活体检测漂移/停机）。
+///
+/// 安全不变量：
+/// - 刻意不派生 `Serialize`，绝不直接透传给 WebView；
+/// - 仅保存 Bearer token 的 SHA-256 十六进制摘要，绝不存明文 token；
+/// - 手动实现 `Debug` 并对 `token_fingerprint` 脱敏，防止日志泄露凭据或摘要。
+#[derive(Clone, PartialEq, Eq)]
+pub struct LocalMcpBinding {
+    pub port: u16,
+    pub scope: session::SessionScope,
+    pub token_fingerprint: String,
+    pub generation: u64,
+}
+
+impl std::fmt::Debug for LocalMcpBinding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalMcpBinding")
+            .field("port", &self.port)
+            .field("scope", &self.scope)
+            .field("token_fingerprint", &"<redacted>")
+            .field("generation", &self.generation)
+            .finish()
+    }
+}
+
 /// 一次运行中的服务端句柄。
 ///
 /// `stop()` 会 abort 监听任务——listener 随任务一起被 drop，端口真正释放。
@@ -162,6 +187,8 @@ pub struct RunningServer {
     abort: tokio::task::AbortHandle,
     /// 保留状态句柄，让 `mcp_server_status` 能读到会话表。
     state: Arc<ServerState>,
+    /// 单调递增实例代数（每次启动/重启/token 轮换递增），供 `LocalMcpBinding` 区分重启实例。
+    generation: u64,
 }
 
 impl RunningServer {
@@ -178,6 +205,16 @@ impl RunningServer {
     pub fn sessions(&self) -> Vec<session::SessionInfo> {
         self.state.sessions.evict_expired();
         self.state.sessions.list()
+    }
+
+    /// 构造当前运行实例的脱敏绑定指纹（SHA-256 摘要，不含明文 token）。
+    fn binding(&self) -> LocalMcpBinding {
+        LocalMcpBinding {
+            port: self.port,
+            scope: self.state.granted_scope,
+            token_fingerprint: writes::sha256_hex(self.state.token.as_bytes()),
+            generation: self.generation,
+        }
     }
 }
 
@@ -379,40 +416,33 @@ fn rate_limited_response(error: &str, retry_after_secs: u64) -> Response {
     resp
 }
 
-/// HTTP 入口。
-async fn handle_mcp(
-    State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Response {
-    // 鉴权前先拦 DNS Rebinding（Host）与跨站浏览器请求（Origin）。
-    if !is_allowed_host(&headers, state.port) {
-        return (
-            StatusCode::FORBIDDEN,
-            axum::Json(json!({ "error": "forbidden host header" })),
-        )
-            .into_response();
+/// 共享 HTTP 安全与鉴权闸门（`POST /mcp` 与 `DELETE /mcp` 同源复用，零绕过）：
+/// 依次校验 Host（DNS Rebinding）、Origin（CSRF）、限流/退避与 Bearer Token。
+fn verify_mcp_http_guards(state: &ServerState, headers: &HeaderMap) -> Option<Response> {
+    if !is_allowed_host(headers, state.port) {
+        return Some(
+            (
+                StatusCode::FORBIDDEN,
+                axum::Json(json!({ "error": "forbidden host header" })),
+            )
+                .into_response(),
+        );
     }
-    if !is_allowed_origin(&headers) {
-        return (
-            StatusCode::FORBIDDEN,
-            axum::Json(json!({ "error": "forbidden origin header" })),
-        )
-            .into_response();
-    }
-    if body.len() > MAX_BODY_BYTES {
-        return (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            axum::Json(json!({ "error": "request body exceeds limit" })),
-        )
-            .into_response();
+    if !is_allowed_origin(headers) {
+        return Some(
+            (
+                StatusCode::FORBIDDEN,
+                axum::Json(json!({ "error": "forbidden origin header" })),
+            )
+                .into_response(),
+        );
     }
 
     let now = Instant::now();
     {
         let mut limiter = state.rate_limiter.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(retry_after) = limiter.check_and_record_request(now) {
-            return rate_limited_response("rate limit exceeded", retry_after);
+            return Some(rate_limited_response("rate limit exceeded", retry_after));
         }
     }
 
@@ -420,11 +450,13 @@ async fn handle_mcp(
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok());
     if state.revoked.load(std::sync::atomic::Ordering::Acquire) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            axum::Json(json!({ "error": "missing or invalid bearer token" })),
-        )
-            .into_response();
+        return Some(
+            (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(json!({ "error": "missing or invalid bearer token" })),
+            )
+                .into_response(),
+        );
     }
     if !auth::verify_authorization(auth_header, &state.token) {
         let backoff = {
@@ -432,17 +464,61 @@ async fn handle_mcp(
             limiter.record_auth_failure(now)
         };
         if let Some(retry_after) = backoff {
-            return rate_limited_response("too many authentication failures", retry_after);
+            return Some(rate_limited_response(
+                "too many authentication failures",
+                retry_after,
+            ));
         }
-        return (
-            StatusCode::UNAUTHORIZED,
-            axum::Json(json!({ "error": "missing or invalid bearer token" })),
-        )
-            .into_response();
+        return Some(
+            (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(json!({ "error": "missing or invalid bearer token" })),
+            )
+                .into_response(),
+        );
     }
     {
         let mut limiter = state.rate_limiter.lock().unwrap_or_else(|e| e.into_inner());
         limiter.record_auth_success();
+    }
+    None
+}
+
+const MAX_CLIENT_INFO_NAME_CHARS: usize = 128;
+const MAX_CLIENT_INFO_VERSION_CHARS: usize = 64;
+
+/// 清洗 `initialize` 的 `params.clientInfo.{name, version}`：剥离控制字符并按字符数截断（UTF-8 安全）。
+fn sanitize_client_info_field(raw: Option<&str>, max_chars: usize) -> Option<String> {
+    let value = raw?;
+    let cleaned: String = value
+        .chars()
+        .filter(|c| !c.is_control())
+        .skip_while(|c| c.is_whitespace())
+        .take(max_chars)
+        .collect();
+    let trimmed = cleaned.trim_end();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// HTTP 入口（MCP Streamable HTTP `POST /mcp`）。
+async fn handle_mcp(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if body.len() > MAX_BODY_BYTES {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            axum::Json(json!({ "error": "request body exceeds limit" })),
+        )
+            .into_response();
+    }
+    if let Some(resp) = verify_mcp_http_guards(&state, &headers) {
+        return resp;
     }
 
     let req: JsonRpcRequest = match serde_json::from_slice(&body) {
@@ -478,8 +554,25 @@ async fn handle_mcp(
     // 调用方权限域：`initialize` 时按服务端授予值新建会话；其余请求按会话 id 查表，
     // 未知/缺失 id 一律降到最小权限 `Read`（不隐式创建、不默认放行）。
     let (session_id, caller_scope) = if req.method == "initialize" {
+        let client_info = req.params.as_ref().and_then(|p| p.get("clientInfo"));
+        let client_name = sanitize_client_info_field(
+            client_info
+                .and_then(|ci| ci.get("name"))
+                .and_then(|v| v.as_str()),
+            MAX_CLIENT_INFO_NAME_CHARS,
+        );
+        let client_version = sanitize_client_info_field(
+            client_info
+                .and_then(|ci| ci.get("version"))
+                .and_then(|v| v.as_str()),
+            MAX_CLIENT_INFO_VERSION_CHARS,
+        );
         (
-            Some(state.sessions.create(state.granted_scope)),
+            Some(state.sessions.create_with_client(
+                state.granted_scope,
+                client_name,
+                client_version,
+            )),
             state.granted_scope,
         )
     } else {
@@ -513,10 +606,22 @@ async fn handle_mcp(
     resp
 }
 
+/// MCP Streamable HTTP 会话终止入口（`DELETE /mcp`）：校验同一套安全/鉴权闸门后移除对应 `Mcp-Session-Id`。
+async fn handle_mcp_delete(State(state): State<Arc<ServerState>>, headers: HeaderMap) -> Response {
+    if let Some(resp) = verify_mcp_http_guards(&state, &headers) {
+        return resp;
+    }
+    if let Some(sid) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok()) {
+        state.sessions.remove(sid);
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
 /// 构造 router。单独抽出来便于在测试里直接驱动。
+/// 支持 `POST /mcp`（请求/通知）与 `DELETE /mcp`（会话终止）；`GET /mcp` 按 MCP Streamable HTTP 规范返回 `405 Method Not Allowed`。
 pub fn router(state: Arc<ServerState>) -> Router {
     Router::new()
-        .route("/mcp", post(handle_mcp))
+        .route("/mcp", post(handle_mcp).delete(handle_mcp_delete))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
 }
@@ -577,6 +682,7 @@ async fn serve(state: ServerState, port: u16) -> Result<RunningServer, String> {
         port: bound,
         abort: handle.abort_handle(),
         state,
+        generation: 0,
     })
 }
 
@@ -648,6 +754,7 @@ pub fn internal_error(message: impl Into<String>) -> ToolError {
 pub struct McpServerHandle {
     inner: std::sync::Mutex<Option<RunningServer>>,
     lifecycle: tokio::sync::Mutex<()>,
+    generation: std::sync::atomic::AtomicU64,
 }
 
 impl McpServerHandle {
@@ -661,6 +768,48 @@ impl McpServerHandle {
     pub fn scope(&self) -> Option<session::SessionScope> {
         let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         guard.as_ref().map(|s| s.state.granted_scope)
+    }
+
+    /// 返回当前运行实例的脱敏绑定指纹（端口、scope、token SHA-256 摘要、单调代数）。
+    /// 绝不暴露明文 Bearer token。
+    pub async fn running_binding_fingerprint(&self) -> Option<LocalMcpBinding> {
+        let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().map(RunningServer::binding)
+    }
+
+    /// 供同进程官方 ACP 会话（`antigravity_acp_new_session`）读取当前运行中的本地回环端口、
+    /// Bearer token 与脱敏绑定指纹。仅限 Rust crate 内部使用（`pub(crate)`），绝不向 webview 或日志泄露明文 token。
+    pub(crate) async fn running_connection_info_with_binding(
+        &self,
+    ) -> Option<(u16, String, LocalMcpBinding)> {
+        let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        guard
+            .as_ref()
+            .map(|server| (server.port, server.state.token.clone(), server.binding()))
+    }
+
+    /// 供同进程官方 ACP 会话读取当前运行中的本地回环端口、Bearer token 与授予权限域。
+    /// 仅限 Rust crate 内部使用（`pub(crate)`），绝不向 webview 泄露明文 token。
+    #[allow(dead_code)]
+    pub(crate) fn running_connection_info_with_scope(
+        &self,
+    ) -> Option<(u16, String, session::SessionScope)> {
+        let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().map(|server| {
+            (
+                server.port,
+                server.state.token.clone(),
+                server.state.granted_scope,
+            )
+        })
+    }
+
+    /// 供同进程官方 ACP 会话读取当前运行中的本地回环端口与 Bearer token。
+    /// 仅限 Rust crate 内部使用（`pub(crate)`），绝不向 webview 泄露明文 token。
+    #[allow(dead_code)]
+    pub(crate) fn running_connection_info(&self) -> Option<(u16, String)> {
+        self.running_connection_info_with_scope()
+            .map(|(port, token, _scope)| (port, token))
     }
 
     /// 当前会话快照（未运行则为空）。
@@ -695,7 +844,13 @@ impl McpServerHandle {
         if let Some(previous) = guard.take() {
             previous.stop();
         }
-        *guard = next;
+        *guard = next.map(|mut server| {
+            server.generation = self
+                .generation
+                .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+                + 1;
+            server
+        });
     }
 
     /// 停止运行中的服务端并释放监听端口（进程退出清理用）。
@@ -1137,6 +1292,10 @@ mod tests {
         assert!(write_like.contains(&"settings.set"), "实际: {write_like:?}");
         assert!(
             write_like.contains(&"chapter.write"),
+            "实际: {write_like:?}"
+        );
+        assert!(
+            write_like.contains(&"outline.write"),
             "实际: {write_like:?}"
         );
         assert!(write_like.contains(&"memory.write"), "实际: {write_like:?}");
@@ -1913,5 +2072,618 @@ mod tests {
         assert_eq!(handle.port(), Some(expected_port));
         assert_eq!(handle.scope(), Some(expected_scope));
         handle.stop();
+    }
+
+    #[tokio::test]
+    async fn streamable_http_post_delete_and_get_405_for_antigravity_mcp() {
+        let server = start_test_server().await;
+        let url = format!("http://127.0.0.1:{}/mcp", server.port);
+        let client = reqwest::Client::new();
+
+        // 1) Antigravity Streamable HTTP 客户端握手（Accept 同时声明 json 与 event-stream）
+        let init_resp = client
+            .post(&url)
+            .bearer_auth("secret-token")
+            .header("accept", "application/json, text/event-stream")
+            .header("content-type", "application/json")
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#)
+            .send()
+            .await
+            .expect("init post");
+        assert_eq!(init_resp.status(), 200);
+        let sid = init_resp
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("mcp-session-id header")
+            .to_string();
+        assert_eq!(server.sessions().len(), 1);
+
+        // 2) GET /mcp 无独立 SSE 流时返回标准 405 Method Not Allowed
+        let get_resp = client
+            .get(&url)
+            .bearer_auth("secret-token")
+            .header("accept", "text/event-stream")
+            .send()
+            .await
+            .expect("get probe");
+        assert_eq!(get_resp.status(), 405);
+
+        // 3) DELETE /mcp 无鉴权必须被 401 拒绝且保留会话
+        let unauth_del = client
+            .delete(&url)
+            .header("mcp-session-id", &sid)
+            .send()
+            .await
+            .expect("unauth delete");
+        assert_eq!(unauth_del.status(), 401);
+        assert_eq!(server.sessions().len(), 1);
+
+        // 4) DELETE /mcp 携带正确 Bearer + Mcp-Session-Id 返回 204 并清理会话
+        let del_resp = client
+            .delete(&url)
+            .bearer_auth("secret-token")
+            .header("mcp-session-id", &sid)
+            .send()
+            .await
+            .expect("auth delete");
+        assert_eq!(del_resp.status(), 204);
+        assert!(server.sessions().is_empty());
+
+        server.stop();
+    }
+
+    #[tokio::test]
+    async fn initialize_captures_and_sanitizes_client_info() {
+        let server = start_test_server().await;
+        let url = format!("http://127.0.0.1:{}/mcp", server.port);
+        let client = reqwest::Client::new();
+
+        // 含控制字符、超长名字与超长版本（含多字节 UTF-8），必须安全剥离并截断至 128 / 64 字符。
+        let long_name = format!("  \r\n\t{}\x00\x1f  ", "甲".repeat(140));
+        let long_version = format!("\n\x07{}\r\n", "v".repeat(80));
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "clientInfo": {
+                    "name": long_name,
+                    "version": long_version
+                }
+            }
+        });
+        let resp = client
+            .post(&url)
+            .bearer_auth("secret-token")
+            .body(body.to_string())
+            .send()
+            .await
+            .expect("init with clientInfo");
+        assert_eq!(resp.status(), 200);
+        let sid = resp
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("mcp-session-id")
+            .to_string();
+
+        // 仅含控制字符与空白时应归一化为 None。
+        let blank_body = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "initialize",
+            "params": {
+                "clientInfo": {
+                    "name": "\x00\r\n   ",
+                    "version": "\t\x1b"
+                }
+            }
+        });
+        let blank_resp = client
+            .post(&url)
+            .bearer_auth("secret-token")
+            .body(blank_body.to_string())
+            .send()
+            .await
+            .expect("init blank clientInfo");
+        assert_eq!(blank_resp.status(), 200);
+        let blank_sid = blank_resp
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("blank mcp-session-id")
+            .to_string();
+
+        let sessions = server.sessions();
+        let first = sessions
+            .iter()
+            .find(|s| s.id == sid)
+            .expect("first session");
+        assert_eq!(
+            first.client_name.as_deref(),
+            Some("甲".repeat(MAX_CLIENT_INFO_NAME_CHARS).as_str())
+        );
+        assert_eq!(
+            first.client_version.as_deref(),
+            Some("v".repeat(MAX_CLIENT_INFO_VERSION_CHARS).as_str())
+        );
+        assert!(first
+            .client_name
+            .as_deref()
+            .unwrap()
+            .chars()
+            .all(|c| !c.is_control()));
+        assert!(first
+            .client_version
+            .as_deref()
+            .unwrap()
+            .chars()
+            .all(|c| !c.is_control()));
+
+        let second = sessions
+            .iter()
+            .find(|s| s.id == blank_sid)
+            .expect("second session");
+        assert_eq!(second.client_name, None);
+        assert_eq!(second.client_version, None);
+
+        server.stop();
+    }
+
+    #[tokio::test]
+    async fn running_connection_info_with_scope_delegates_and_recovers_from_poison() {
+        let handle = Arc::new(McpServerHandle::default());
+        assert_eq!(handle.running_connection_info_with_scope(), None);
+        assert_eq!(handle.running_connection_info(), None);
+
+        let project_state = ServerState {
+            token: "scoped-secret".into(),
+            port: 0,
+            registry: Arc::new(tools::build_registry()),
+            ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Project,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::default_policy()),
+        };
+        let server = serve(project_state, 0).await.expect("start scoped server");
+        let port = server.port;
+        handle.replace(Some(server));
+
+        assert_eq!(
+            handle.running_connection_info_with_scope(),
+            Some((
+                port,
+                "scoped-secret".to_string(),
+                session::SessionScope::Project
+            ))
+        );
+        assert_eq!(
+            handle.running_connection_info(),
+            Some((port, "scoped-secret".to_string()))
+        );
+
+        let poisoned = Arc::clone(&handle);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoned.inner.lock().unwrap();
+            panic!("intentional poison for running_connection_info_with_scope");
+        })
+        .join();
+        assert!(handle.inner.is_poisoned());
+        assert_eq!(
+            handle.running_connection_info_with_scope(),
+            Some((
+                port,
+                "scoped-secret".to_string(),
+                session::SessionScope::Project
+            ))
+        );
+        assert_eq!(
+            handle.running_connection_info(),
+            Some((port, "scoped-secret".to_string()))
+        );
+
+        handle.stop();
+        assert_eq!(handle.running_connection_info_with_scope(), None);
+    }
+
+    #[tokio::test]
+    async fn local_mcp_binding_tracks_generation_redacts_debug_and_recovers_from_poison() {
+        let handle = Arc::new(McpServerHandle::default());
+        assert_eq!(handle.running_binding_fingerprint().await, None);
+        assert_eq!(handle.running_connection_info_with_binding().await, None);
+
+        let raw_token_1 = "super-secret-bearer-token-v1";
+        let state_1 = ServerState {
+            token: raw_token_1.into(),
+            port: 0,
+            registry: Arc::new(tools::build_registry()),
+            ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Read,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::default_policy()),
+        };
+        let server_1 = serve(state_1, 0).await.expect("start server 1");
+        let port_1 = server_1.port;
+        handle.replace(Some(server_1));
+
+        let binding_1 = handle
+            .running_binding_fingerprint()
+            .await
+            .expect("binding 1");
+        assert_eq!(binding_1.port, port_1);
+        assert_eq!(binding_1.scope, session::SessionScope::Read);
+        assert_eq!(binding_1.generation, 1);
+        assert_eq!(
+            binding_1.token_fingerprint,
+            writes::sha256_hex(raw_token_1.as_bytes())
+        );
+        assert_eq!(binding_1.token_fingerprint.len(), 64);
+        assert_ne!(binding_1.token_fingerprint, raw_token_1);
+
+        // Debug 输出必须脱敏：严禁泄露明文 token 或完整 SHA-256 指纹。
+        let debug_str = format!("{binding_1:?}");
+        assert!(debug_str.contains("<redacted>"), "{debug_str}");
+        assert!(!debug_str.contains(raw_token_1), "{debug_str}");
+        assert!(
+            !debug_str.contains(&binding_1.token_fingerprint),
+            "{debug_str}"
+        );
+
+        let conn_1 = handle
+            .running_connection_info_with_binding()
+            .await
+            .expect("conn info 1");
+        assert_eq!(conn_1, (port_1, raw_token_1.to_string(), binding_1.clone()));
+
+        // 重启（即使 token 与 scope 相同）必须单调递增 generation。
+        let state_2 = ServerState {
+            token: raw_token_1.into(),
+            port: 0,
+            registry: Arc::new(tools::build_registry()),
+            ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Read,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::default_policy()),
+        };
+        let server_2 = serve(state_2, 0).await.expect("start server 2");
+        handle.replace(Some(server_2));
+        let binding_2 = handle
+            .running_binding_fingerprint()
+            .await
+            .expect("binding 2");
+        assert_eq!(binding_2.generation, 2);
+        assert_ne!(binding_1, binding_2);
+
+        // 停服后返回 None；再次启动继续单调递增至 3，且轮换 token 会改变 token_fingerprint。
+        handle.stop();
+        assert_eq!(handle.running_binding_fingerprint().await, None);
+
+        let raw_token_3 = "rotated-secret-bearer-token-v3";
+        let state_3 = ServerState {
+            token: raw_token_3.into(),
+            port: 0,
+            registry: Arc::new(tools::build_registry()),
+            ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Project,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::default_policy()),
+        };
+        let server_3 = serve(state_3, 0).await.expect("start server 3");
+        handle.replace(Some(server_3));
+        let binding_3 = handle
+            .running_binding_fingerprint()
+            .await
+            .expect("binding 3");
+        assert_eq!(binding_3.generation, 3);
+        assert_eq!(binding_3.scope, session::SessionScope::Project);
+        assert_ne!(binding_3.token_fingerprint, binding_1.token_fingerprint);
+
+        // Mutex 投毒后仍能安全恢复，不 panic。
+        let poisoned = Arc::clone(&handle);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoned.inner.lock().unwrap();
+            panic!("intentional poison for LocalMcpBinding");
+        })
+        .join();
+        assert!(handle.inner.is_poisoned());
+        assert_eq!(
+            handle.running_binding_fingerprint().await,
+            Some(binding_3.clone())
+        );
+
+        handle.stop();
+    }
+
+    /// 注册表驱动的 P2/P3 全量权限矩阵测试：
+    /// - 遍历注册表中所有工具 × 全部 5 档 scope，验证拒绝边界与放行边界零漂移；
+    /// - 显式验证 `Auto` 被所有 `Full` 专属工具拒绝；
+    /// - 显式验证 `outline.write` 需 `Project` 且拒 `Read`/`Settings`；
+    /// - 显式验证 `context.prepare_write` 与 `director.check` 在 `Read` 下过闸门；
+    /// - 显式验证 `draft.accept` 永不注册。
+    #[tokio::test]
+    async fn registry_driven_scope_rejection_matrix_enforces_all_tiers_and_auto_isolation() {
+        let srv_state = state("t");
+        let reg = &srv_state.registry;
+        let all_names = reg.names();
+        assert!(!all_names.contains(&"draft.accept"));
+        assert!(all_names.contains(&"context.prepare_write"));
+        assert!(all_names.contains(&"director.check"));
+        assert!(all_names.contains(&"outline.write"));
+
+        let all_scopes = [
+            session::SessionScope::Read,
+            session::SessionScope::Settings,
+            session::SessionScope::Project,
+            session::SessionScope::Auto,
+            session::SessionScope::Full,
+        ];
+
+        for name in &all_names {
+            let required = reg.required_scope(name).expect("registered scope");
+            for caller in all_scopes {
+                let out = dispatch_as(
+                    &srv_state,
+                    &req("tools/call", Some(json!({ "name": name, "arguments": {} }))),
+                    caller,
+                )
+                .await
+                .expect("response");
+                if !caller.satisfies(required) {
+                    assert_eq!(
+                        out["result"]["isError"],
+                        json!(true),
+                        "{name} (required={required:?}) 在 {caller:?} 下必须返回权限拒绝"
+                    );
+                    let text = out["result"]["content"][0]["text"]
+                        .as_str()
+                        .unwrap_or_default();
+                    assert!(
+                        text.contains("权限不足") && text.contains(required.as_str()),
+                        "{name} 在 {caller:?} 下拒绝文案异常: {text}"
+                    );
+                } else if let Some(text) = out["result"]["content"][0]["text"].as_str() {
+                    assert!(
+                        !text.contains("权限不足"),
+                        "{name} (required={required:?}) 在 {caller:?} 下不应被权限闸门拦截: {text}"
+                    );
+                }
+            }
+        }
+
+        // 显式核对 Auto 被所有 Full 专属工具拒绝（即使携带合法参数）。
+        let full_only_tools: Vec<&str> = all_names
+            .iter()
+            .copied()
+            .filter(|n| reg.required_scope(n) == Some(session::SessionScope::Full))
+            .collect();
+        assert!(full_only_tools.contains(&"chapter.write_direct"));
+        assert!(full_only_tools.contains(&"memory.write"));
+        assert!(full_only_tools.contains(&"undo_last"));
+        for full_tool in full_only_tools {
+            let out = dispatch_as(
+                &srv_state,
+                &req(
+                    "tools/call",
+                    Some(json!({ "name": full_tool, "arguments": {} })),
+                ),
+                session::SessionScope::Auto,
+            )
+            .await
+            .expect("response");
+            let text = out["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default();
+            assert!(
+                text.contains("权限不足") && text.contains("full"),
+                "Auto 绝不能调用 Full 工具 {full_tool}: {text}"
+            );
+        }
+
+        // 显式核对 Round 2 三个新工具的权限档位。
+        assert_eq!(
+            reg.required_scope("context.prepare_write"),
+            Some(session::SessionScope::Read)
+        );
+        assert_eq!(
+            reg.required_scope("director.check"),
+            Some(session::SessionScope::Read)
+        );
+        assert_eq!(
+            reg.required_scope("outline.write"),
+            Some(session::SessionScope::Project)
+        );
+    }
+
+    async fn http_call_tool(
+        client: &reqwest::Client,
+        url: &str,
+        sid: &str,
+        name: &str,
+        arguments: Value,
+    ) -> Value {
+        let resp = client
+            .post(url)
+            .bearer_auth("secret-token")
+            .header("mcp-session-id", sid)
+            .body(
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": 10,
+                    "method": "tools/call",
+                    "params": { "name": name, "arguments": arguments }
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .expect("http tools/call");
+        assert_eq!(resp.status(), 200);
+        resp.json().await.expect("json response")
+    }
+
+    /// 真实 HTTP `POST /mcp` 集成测试：覆盖全部 6 个零 LLM 只读工具与 `outline.write`
+    /// （含权限闸门、路径穿越、Windows 保留设备名、非 `.md`、超大正文及 `director.check` 非空参数拒绝）。
+    #[tokio::test]
+    async fn http_post_mcp_covers_six_zero_llm_read_tools_and_outline_write() {
+        let client = reqwest::Client::new();
+
+        // 1) Read 会话：6 个零 LLM 只读工具均过鉴权+权限+校验到达桥层；`outline.write` 被权限闸门拦截。
+        let read_server = start_test_server().await;
+        let read_url = format!("http://127.0.0.1:{}/mcp", read_server.port);
+        let read_sid = http_initialize(&read_server).await;
+
+        let valid_six_read_calls: [(&str, Value); 6] = [
+            ("draft.list", json!({})),
+            ("draft.read", json!({ "draftId": "draft_01-ok" })),
+            ("rules.get", json!({ "sections": ["antiAi", "bookRules"] })),
+            (
+                "gate.check_mechanical",
+                json!({ "text": "这是一段用于机械门控检查的正文。" }),
+            ),
+            (
+                "context.prepare_write",
+                json!({ "targetChapter": 3, "includePlanningView": true }),
+            ),
+            ("director.check", json!({})),
+        ];
+        for (name, args) in valid_six_read_calls {
+            let body = http_call_tool(&client, &read_url, &read_sid, name, args).await;
+            assert!(
+                body["error"].is_null(),
+                "{name} 合法参数不应触发协议层 error: {body}"
+            );
+            assert_eq!(body["result"]["isError"], json!(true), "{name}: {body}");
+            let text = body["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default();
+            assert!(!text.contains("权限不足"), "{name} 不应被权限拦截: {text}");
+            assert!(
+                text.contains("状态桥"),
+                "{name} 应通过鉴权/权限/参数校验到达状态桥: {text}"
+            );
+        }
+
+        // `director.check` 拒绝任何非空参数（协议层 INVALID_PARAMS）。
+        let bad_dir = http_call_tool(
+            &client,
+            &read_url,
+            &read_sid,
+            "director.check",
+            json!({ "unexpected": true }),
+        )
+        .await;
+        assert_eq!(
+            bad_dir["error"]["code"],
+            json!(protocol::INVALID_PARAMS),
+            "{bad_dir}"
+        );
+
+        // `context.prepare_write` 拒绝非法参数（协议层 INVALID_PARAMS）。
+        let bad_prep = http_call_tool(
+            &client,
+            &read_url,
+            &read_sid,
+            "context.prepare_write",
+            json!({ "targetChapter": 0 }),
+        )
+        .await;
+        assert_eq!(
+            bad_prep["error"]["code"],
+            json!(protocol::INVALID_PARAMS),
+            "{bad_prep}"
+        );
+
+        // Read 会话下调用 `outline.write` 必须被权限闸门拦截。
+        let denied_outline = http_call_tool(
+            &client,
+            &read_url,
+            &read_sid,
+            "outline.write",
+            json!({ "filename": "main.md", "content": "# 大纲" }),
+        )
+        .await;
+        let denied_text = denied_outline["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        assert_eq!(denied_outline["result"]["isError"], json!(true));
+        assert!(
+            denied_text.contains("权限不足") && denied_text.contains("project"),
+            "Read 调 outline.write 应被拒绝: {denied_text}"
+        );
+        read_server.stop();
+
+        // 2) Project 会话：`outline.write` 在 HTTP 层严格拦截所有危险文件名/超大正文，合法入参到达状态桥。
+        let project_state = ServerState {
+            token: "secret-token".into(),
+            port: 0,
+            registry: Arc::new(tools::build_registry()),
+            ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Project,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::default_policy()),
+        };
+        let project_server = serve(project_state, 0).await.expect("start project server");
+        let project_url = format!("http://127.0.0.1:{}/mcp", project_server.port);
+        let project_sid = http_initialize(&project_server).await;
+
+        let bad_outline_cases = [
+            json!({ "filename": "../escape.md", "content": "# 穿越" }),
+            json!({ "filename": "dir/sub.md", "content": "# 路径" }),
+            json!({ "filename": r"dir\sub.md", "content": "# 反斜杠" }),
+            json!({ "filename": "CON.md", "content": "# 保留名" }),
+            json!({ "filename": "CON .md", "content": "# 保留名尾空格" }),
+            json!({ "filename": "nul.md", "content": "# 保留名" }),
+            json!({ "filename": "NUL .md", "content": "# 保留名尾空格" }),
+            json!({ "filename": "COM1.md", "content": "# 保留名" }),
+            json!({ "filename": "lpt9.md", "content": "# 保留名" }),
+            json!({ "filename": "outline.txt", "content": "# 非 md" }),
+            json!({ "filename": ".md", "content": "# 空主干" }),
+            json!({ "filename": ".hidden.md", "content": "# 点开头隐藏文件" }),
+            json!({ "filename": "bad:ads.md", "content": "# ADS" }),
+            json!({ "filename": "ok.md", "content": "   " }),
+            json!({ "filename": "ok.md", "content": "字".repeat(200_001) }),
+        ];
+        for bad_args in bad_outline_cases {
+            let body = http_call_tool(
+                &client,
+                &project_url,
+                &project_sid,
+                "outline.write",
+                bad_args.clone(),
+            )
+            .await;
+            assert_eq!(
+                body["error"]["code"],
+                json!(protocol::INVALID_PARAMS),
+                "outline.write 非法参数必须返回 INVALID_PARAMS: args={bad_args}, body={body}"
+            );
+        }
+
+        let valid_outline = http_call_tool(
+            &client,
+            &project_url,
+            &project_sid,
+            "outline.write",
+            json!({ "filename": "第一卷-总纲.md", "content": "# 第一卷\n大纲内容", "syncModel": true }),
+        )
+        .await;
+        assert!(valid_outline["error"].is_null(), "{valid_outline}");
+        let valid_text = valid_outline["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(!valid_text.contains("权限不足"), "{valid_text}");
+        assert!(
+            valid_text.contains("状态桥"),
+            "合法 outline.write 应通过权限与校验到达桥层: {valid_text}"
+        );
+
+        project_server.stop();
     }
 }

@@ -712,7 +712,14 @@ impl super::registry::McpTool for ContextInspectTool {
 const CONTEXT_INSPECT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
 const CONTEXT_INSPECT_MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(180);
 
-async fn run_context_inspect_async<F, Fut>(
+/// 通用异步桥任务轮询执行器（由 `context.inspect` 与 `context.prepare_write` 共享）。
+///
+/// 先发 `start_op`：若前端同步完成则直接返回；若进入后台异步任务，则按
+/// `poll_interval` 轮询 `poll_op` 直至 `done` / `failed` 或超过 `max_wait`。
+async fn run_async_bridge_job<F, Fut>(
+    tool_name: &str,
+    start_op: &str,
+    poll_op: &str,
     params: Value,
     poll_interval: std::time::Duration,
     max_wait: std::time::Duration,
@@ -722,21 +729,21 @@ where
     F: FnMut(StateQuery) -> Fut,
     Fut: Future<Output = Result<Value, ToolError>>,
 {
-    let started =
-        query_bridge(StateQuery::new("context-inspect-start").with_params(params)).await?;
+    let started = query_bridge(StateQuery::new(start_op).with_params(params)).await?;
     match started.get("status").and_then(|v| v.as_str()) {
         Some("done") => return Ok(started.get("value").cloned().unwrap_or(Value::Null)),
         Some("failed") => {
             let msg = started
                 .get("error")
                 .and_then(|v| v.as_str())
-                .unwrap_or("context.inspect 失败");
-            return Err(ToolError::internal(msg.to_string()));
+                .map(ToString::to_string)
+                .unwrap_or_else(|| format!("{tool_name} 失败"));
+            return Err(ToolError::internal(msg));
         }
         Some("running") => {}
         other => {
             return Err(ToolError::internal(format!(
-                "context-inspect-start 返回未知状态：{other:?}"
+                "{start_op} 返回未知状态：{other:?}"
             )))
         }
     }
@@ -744,22 +751,20 @@ where
         .get("jobId")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| ToolError::internal("context-inspect-start 缺少 jobId"))?
+        .ok_or_else(|| ToolError::internal(format!("{start_op} 缺少 jobId")))?
         .to_string();
 
     let deadline = std::time::Instant::now() + max_wait;
     loop {
         if std::time::Instant::now() >= deadline {
             return Err(ToolError::internal(format!(
-                "context.inspect 任务超时（>{}s，jobId={job_id}）",
+                "{tool_name} 任务超时（>{}s，jobId={job_id}）",
                 max_wait.as_secs()
             )));
         }
         tokio::time::sleep(poll_interval).await;
-        let polled = query_bridge(
-            StateQuery::new("context-inspect-poll").with_params(json!({ "jobId": job_id })),
-        )
-        .await?;
+        let polled =
+            query_bridge(StateQuery::new(poll_op).with_params(json!({ "jobId": job_id }))).await?;
         match polled.get("status").and_then(|v| v.as_str()) {
             Some("running") => continue,
             Some("done") => return Ok(polled.get("value").cloned().unwrap_or(Value::Null)),
@@ -767,16 +772,39 @@ where
                 let msg = polled
                     .get("error")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("context.inspect 失败");
-                return Err(ToolError::internal(msg.to_string()));
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| format!("{tool_name} 失败"));
+                return Err(ToolError::internal(msg));
             }
             other => {
                 return Err(ToolError::internal(format!(
-                    "context-inspect-poll 返回未知状态：{other:?}"
+                    "{poll_op} 返回未知状态：{other:?}"
                 )))
             }
         }
     }
+}
+
+async fn run_context_inspect_async<F, Fut>(
+    params: Value,
+    poll_interval: std::time::Duration,
+    max_wait: std::time::Duration,
+    query_bridge: F,
+) -> Result<Value, ToolError>
+where
+    F: FnMut(StateQuery) -> Fut,
+    Fut: Future<Output = Result<Value, ToolError>>,
+{
+    run_async_bridge_job(
+        "context.inspect",
+        "context-inspect-start",
+        "context-inspect-poll",
+        params,
+        poll_interval,
+        max_wait,
+        query_bridge,
+    )
+    .await
 }
 
 /// `canon.query` —— 复用既有 `canon_query_impl` 读 canon 边。
@@ -849,6 +877,604 @@ impl super::registry::McpTool for CanonQueryTool {
                     message: e,
                 })?;
             serde_json::to_value(response).map_err(|e| ToolError::internal(e.to_string()))
+        })
+    }
+}
+
+// ── Zero-LLM 只读创作辅助工具（draft.* / rules.get / gate.check_mechanical）───
+
+const DRAFT_ID_MAX_LEN: usize = 128;
+const DRAFT_READ_DEFAULT_LIMIT: u64 = 200;
+const DRAFT_READ_MAX_LIMIT: u64 = 2000;
+const RULES_GET_MAX_SECTIONS: usize = 16;
+const RULES_GET_ALLOWED_SECTIONS: [&str; 4] = ["writingStyle", "antiAi", "bookRules", "planning"];
+const MECHANICAL_GATE_MAX_CHAPTER_CHARS: usize = 256;
+const MECHANICAL_GATE_MAX_TEXT_CHARS: usize = 100_000;
+
+/// 严格校验工具入参：必须是 JSON object，拒绝未知键与显式 `null`。
+fn validate_strict_object_args<'a>(
+    args: &'a Value,
+    tool: &str,
+    allowed_fields: &[&str],
+) -> Result<&'a serde_json::Map<String, Value>, ToolError> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 参数必须是 object")))?;
+    for (field, value) in object {
+        if !allowed_fields.contains(&field.as_str()) {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: 未知参数 `{field}`"
+            )));
+        }
+        if value.is_null() {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `{field}` 不接受显式 null"
+            )));
+        }
+    }
+    Ok(object)
+}
+
+/// 严格校验 `draftId`：1..=128 个 ASCII `[a-zA-Z0-9_-]` 字符。
+fn validate_draft_id<'a>(raw: &'a str, tool: &str) -> Result<&'a str, ToolError> {
+    if raw.is_empty()
+        || raw.len() > DRAFT_ID_MAX_LEN
+        || !raw
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `draftId` 必须是 1..={DRAFT_ID_MAX_LEN} 个 ASCII [a-zA-Z0-9_-] 字符"
+        )));
+    }
+    Ok(raw)
+}
+
+/// 严格校验机械门控的 `chapter` 选择器：1..=256 字符、非空白、无控制字符、无 `..`、无路径分隔符。
+fn validate_mechanical_chapter<'a>(raw: &'a str, tool: &str) -> Result<&'a str, ToolError> {
+    let char_len = raw.chars().count();
+    if char_len == 0
+        || char_len > MECHANICAL_GATE_MAX_CHAPTER_CHARS
+        || raw.trim().is_empty()
+        || raw.chars().any(char::is_control)
+        || raw.contains("..")
+        || raw.contains('/')
+        || raw.contains('\\')
+    {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `chapter` 必须是 1..={MECHANICAL_GATE_MAX_CHAPTER_CHARS} 字符的非空章节编号或文件名，且不得包含控制字符、`..`、`/` 或 `\\`"
+        )));
+    }
+    Ok(raw)
+}
+
+fn build_draft_list_query(args: &Value) -> Result<StateQuery, ToolError> {
+    validate_strict_object_args(args, "draft.list", &[])?;
+    Ok(StateQuery::new("draft-list"))
+}
+
+fn build_draft_read_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "draft.read";
+    validate_strict_object_args(args, tool, &["draftId", "offset", "limit"])?;
+    let draft_id = args
+        .get("draftId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `draftId`")))?;
+    let draft_id = validate_draft_id(draft_id, tool)?;
+    let offset = optional_int_in_range(args, tool, "offset", 0, u64::MAX)?.unwrap_or(0);
+    let limit = optional_int_in_range(args, tool, "limit", 1, DRAFT_READ_MAX_LIMIT)?
+        .unwrap_or(DRAFT_READ_DEFAULT_LIMIT);
+    Ok(StateQuery::new("draft-read").with_params(json!({
+        "draftId": draft_id,
+        "offset": offset,
+        "limit": limit,
+    })))
+}
+
+fn build_rules_get_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "rules.get";
+    validate_strict_object_args(args, tool, &["sections"])?;
+    let sections: Vec<&'static str> = match args.get("sections") {
+        None => RULES_GET_ALLOWED_SECTIONS.to_vec(),
+        Some(value) => {
+            let arr = value.as_array().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `sections` 必须是非空数组"))
+            })?;
+            if arr.is_empty() {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `sections` 不能为空数组"
+                )));
+            }
+            if arr.len() > RULES_GET_MAX_SECTIONS {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `sections` 长度不能超过 {RULES_GET_MAX_SECTIONS}，收到 {}",
+                    arr.len()
+                )));
+            }
+            let mut deduped = Vec::with_capacity(arr.len());
+            let mut seen = HashSet::with_capacity(arr.len());
+            for (idx, item) in arr.iter().enumerate() {
+                let raw = item.as_str().ok_or_else(|| {
+                    ToolError::invalid_params(format!(
+                        "{tool}: `sections[{idx}]` 必须是字符串，收到 {item}"
+                    ))
+                })?;
+                let matched = RULES_GET_ALLOWED_SECTIONS
+                    .iter()
+                    .copied()
+                    .find(|allowed| *allowed == raw)
+                    .ok_or_else(|| {
+                        ToolError::invalid_params(format!(
+                            "{tool}: `sections[{idx}]` 只接受 writingStyle / antiAi / bookRules / planning，收到 {raw}"
+                        ))
+                    })?;
+                if seen.insert(matched) {
+                    deduped.push(matched);
+                }
+            }
+            deduped
+        }
+    };
+    Ok(StateQuery::new("rules-get").with_params(json!({ "sections": sections })))
+}
+
+fn build_gate_check_mechanical_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "gate.check_mechanical";
+    let object =
+        validate_strict_object_args(args, tool, &["draftId", "chapter", "text", "chapterNumber"])?;
+    let source_count = ["draftId", "chapter", "text"]
+        .iter()
+        .filter(|field| object.contains_key(**field))
+        .count();
+    if source_count != 1 {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: 必须且只能提供 `draftId`、`chapter`、`text` 三者之一"
+        )));
+    }
+
+    let mut params = json!({});
+    if let Some(v) = object.get("draftId") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `draftId` 必须是字符串，收到 {v}"))
+        })?;
+        let draft_id = validate_draft_id(raw, tool)?;
+        params["draftId"] = json!(draft_id);
+    } else if let Some(v) = object.get("chapter") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `chapter` 必须是字符串，收到 {v}"))
+        })?;
+        let chapter = validate_mechanical_chapter(raw, tool)?;
+        params["chapter"] = json!(chapter);
+    } else if let Some(v) = object.get("text") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `text` 必须是字符串，收到 {v}"))
+        })?;
+        let char_len = raw.chars().count();
+        if raw.trim().is_empty() {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `text` 不能为空"
+            )));
+        }
+        if char_len > MECHANICAL_GATE_MAX_TEXT_CHARS {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `text` 长度不能超过 {MECHANICAL_GATE_MAX_TEXT_CHARS} 字符，收到 {char_len}"
+            )));
+        }
+        params["text"] = json!(raw);
+    }
+
+    if let Some(chapter_number) = optional_int_in_range(args, tool, "chapterNumber", 1, u64::MAX)? {
+        params["chapterNumber"] = json!(chapter_number);
+    }
+
+    Ok(StateQuery::new("gate-check-mechanical").with_params(params))
+}
+
+/// `draft.list` —— 列出当前项目的待审/就绪草稿（只读，零 LLM 调用）。
+pub struct DraftListTool;
+
+impl super::registry::McpTool for DraftListTool {
+    fn name(&self) -> &'static str {
+        "draft.list"
+    }
+
+    fn description(&self) -> &'static str {
+        "List chapter drafts in the current project's draft area (.qm-drafts). Read-only, zero LLM calls."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({ "type": "object", "properties": {}, "additionalProperties": false })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_draft_list_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+/// `draft.read` —— 按行窗口只读某个草稿正文（零 LLM 调用）。
+pub struct DraftReadTool;
+
+impl super::registry::McpTool for DraftReadTool {
+    fn name(&self) -> &'static str {
+        "draft.read"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read one draft's text by draftId. Returns at most `limit` lines (default 200, max 2000) starting at 0-based `offset` (default 0). Read-only, zero LLM calls."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "draftId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+                    "description": "Draft ID returned by draft.list or chapter.write"
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "0-based first line (default 0)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": DRAFT_READ_MAX_LIMIT,
+                    "description": "Max lines to return (default 200)"
+                }
+            },
+            "required": ["draftId"],
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_draft_read_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+/// `rules.get` —— 读取当前项目的写作规范/反 AI 规则/书规/规划摘要（只读，零 LLM 调用）。
+pub struct RulesGetTool;
+
+impl super::registry::McpTool for RulesGetTool {
+    fn name(&self) -> &'static str {
+        "rules.get"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read active writing rules and planning guidance for the current project. Optional `sections` filters any subset of [writingStyle, antiAi, bookRules, planning] (default: all four). Read-only, zero LLM calls."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "sections": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": RULES_GET_MAX_SECTIONS,
+                    "items": {
+                        "type": "string",
+                        "enum": RULES_GET_ALLOWED_SECTIONS
+                    },
+                    "description": "Rule sections to fetch (default: all four)"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_rules_get_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+/// `gate.check_mechanical` —— 对草稿/章节/纯文本执行零 LLM 机械门控检查（只读）。
+pub struct GateCheckMechanicalTool;
+
+impl super::registry::McpTool for GateCheckMechanicalTool {
+    fn name(&self) -> &'static str {
+        "gate.check_mechanical"
+    }
+
+    fn description(&self) -> &'static str {
+        "Run deterministic zero-LLM mechanical gate checks (anti-AI patterns, formatting, word/line metrics) on exactly one of `draftId`, `chapter`, or raw `text`. Read-only; never modifies chapters, drafts, or memory."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "draftId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+                    "description": "Draft ID to check (mutually exclusive with chapter and text)"
+                },
+                "chapter": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MECHANICAL_GATE_MAX_CHAPTER_CHARS,
+                    "description": "1-based chapter index or filename to check (mutually exclusive with draftId and text)"
+                },
+                "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MECHANICAL_GATE_MAX_TEXT_CHARS,
+                    "description": "Raw chapter text to check mechanically (mutually exclusive with draftId and chapter)"
+                },
+                "chapterNumber": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Optional 1-based chapter number for mechanical check context"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_gate_check_mechanical_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+const CONTEXT_PREPARE_MAX_TASK_CHARS: usize = 4_000;
+const CONTEXT_PREPARE_MAX_DIMENSION_CHARS: usize = 64;
+const CONTEXT_PREPARE_DEFAULT_LIMIT: u64 = 16_000;
+const CONTEXT_PREPARE_LIMIT_MAX: u64 = 50_000;
+/// JS `Number.MAX_SAFE_INTEGER`（2^53 - 1），避免透传到 WebView JSON 时发生双精度截断。
+const JS_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> {
+    let tool = "context.prepare_write";
+    let object = validate_strict_object_args(
+        args,
+        tool,
+        &[
+            "targetChapter",
+            "draftId",
+            "task",
+            "includePack",
+            "includeDraft",
+            "includePlanningView",
+            "dimension",
+            "allowRetrievalNetwork",
+            "offset",
+            "limit",
+        ],
+    )?;
+
+    let mut params = json!({});
+
+    if let Some(target_chapter) =
+        optional_int_in_range(args, tool, "targetChapter", 1, JS_MAX_SAFE_INTEGER)?
+    {
+        params["targetChapter"] = json!(target_chapter);
+    }
+
+    if let Some(v) = object.get("draftId") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `draftId` 必须是字符串，收到 {v}"))
+        })?;
+        let draft_id = validate_draft_id(raw, tool)?;
+        params["draftId"] = json!(draft_id);
+    }
+
+    if let Some(v) = object.get("task") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `task` 必须是字符串，收到 {v}"))
+        })?;
+        if raw.trim().is_empty() {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `task` 必须是非空字符串"
+            )));
+        }
+        let char_len = raw.chars().count();
+        if char_len > CONTEXT_PREPARE_MAX_TASK_CHARS {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `task` 长度不能超过 {CONTEXT_PREPARE_MAX_TASK_CHARS} 字符，收到 {char_len}"
+            )));
+        }
+        params["task"] = json!(raw);
+    }
+
+    for field in ["includePack", "includeDraft", "includePlanningView"] {
+        if let Some(flag) = optional_bool(args, tool, field)? {
+            params[field] = json!(flag);
+        }
+    }
+
+    if let Some(v) = object.get("dimension") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `dimension` 必须是字符串，收到 {v}"))
+        })?;
+        if raw.trim().is_empty() {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `dimension` 必须是非空字符串"
+            )));
+        }
+        let char_len = raw.chars().count();
+        if char_len > CONTEXT_PREPARE_MAX_DIMENSION_CHARS {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `dimension` 长度不能超过 {CONTEXT_PREPARE_MAX_DIMENSION_CHARS} 字符，收到 {char_len}"
+            )));
+        }
+        params["dimension"] = json!(raw);
+    }
+
+    let allow_retrieval_network =
+        optional_bool(args, tool, "allowRetrievalNetwork")?.unwrap_or(false);
+    let offset = optional_int_in_range(args, tool, "offset", 0, JS_MAX_SAFE_INTEGER)?.unwrap_or(0);
+    let limit = optional_int_in_range(args, tool, "limit", 1, CONTEXT_PREPARE_LIMIT_MAX)?
+        .unwrap_or(CONTEXT_PREPARE_DEFAULT_LIMIT);
+
+    params["allowRetrievalNetwork"] = json!(allow_retrieval_network);
+    params["offset"] = json!(offset);
+    params["limit"] = json!(limit);
+
+    Ok(params)
+}
+
+fn build_director_check_query(args: &Value) -> Result<StateQuery, ToolError> {
+    validate_strict_object_args(args, "director.check", &[])?;
+    Ok(StateQuery::new("director-check"))
+}
+
+/// `context.prepare_write` —— 为下一章写作准备只读上下文包与规划视图（零 LLM 调用）。
+///
+/// 复用共享异步桥轮询机制（`context-prepare-start` / `context-prepare-poll`），
+/// 默认 `allowRetrievalNetwork = false` 避免隐式出网；`dimension` 不在 Rust 侧列举枚举，
+/// 统一由前端真源 `SIX_REVIEW_DIMENSION_ORDER` 校验。
+pub struct ContextPrepareWriteTool;
+
+impl super::registry::McpTool for ContextPrepareWriteTool {
+    fn name(&self) -> &'static str {
+        "context.prepare_write"
+    }
+
+    fn description(&self) -> &'static str {
+        "Assemble read-only writing preparation context (effective config, planning view, optional draft snippet, optional ContextPack/dimension prompt) for the target chapter or draft. Zero LLM calls; allowRetrievalNetwork defaults to false and refuses network retrieval unless explicitly opted in. Never modifies chapters, drafts, memory, or settings."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "targetChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": JS_MAX_SAFE_INTEGER,
+                    "description": "Optional 1-based target chapter number to prepare context for"
+                },
+                "draftId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+                    "description": "Optional draft ID to inspect alongside writing preparation context"
+                },
+                "task": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": CONTEXT_PREPARE_MAX_TASK_CHARS,
+                    "description": "Optional writing goal or scene brief (max 4000 chars)"
+                },
+                "includePack": {
+                    "type": "boolean",
+                    "description": "Whether to build and include a production ContextPack"
+                },
+                "includeDraft": {
+                    "type": "boolean",
+                    "description": "Whether to include the referenced draft content window"
+                },
+                "includePlanningView": {
+                    "type": "boolean",
+                    "description": "Whether to include structured planning/outline/foreshadowing view (default true)"
+                },
+                "dimension": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": CONTEXT_PREPARE_MAX_DIMENSION_CHARS,
+                    "description": "Optional six-dimension review key validated in the WebView against SIX_REVIEW_DIMENSION_ORDER"
+                },
+                "allowRetrievalNetwork": {
+                    "type": "boolean",
+                    "description": "Explicit opt-in for network embedding/rerank retrieval when building a pack (default false)"
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": JS_MAX_SAFE_INTEGER,
+                    "description": "0-based character offset for paged output (default 0)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": CONTEXT_PREPARE_LIMIT_MAX,
+                    "description": "Character limit per page (1..=50000, default 16000)"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let params = build_context_prepare_write_params(args)?;
+            run_async_bridge_job(
+                "context.prepare_write",
+                "context-prepare-start",
+                "context-prepare-poll",
+                params,
+                CONTEXT_INSPECT_POLL_INTERVAL,
+                CONTEXT_INSPECT_MAX_WAIT,
+                |query| ctx.bridge_query(query),
+            )
+            .await
+        })
+    }
+}
+
+/// `director.check` —— 只读检查开书导演管线的当前阶段门与阻塞原因（零 LLM 调用）。
+pub struct DirectorCheckTool;
+
+impl super::registry::McpTool for DirectorCheckTool {
+    fn name(&self) -> &'static str {
+        "director.check"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read-only diagnostic of the book-setup director pipeline gates (idea -> world -> character -> outline -> chapter). Zero LLM calls; never advances phases or writes files."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({ "type": "object", "properties": {}, "additionalProperties": false })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_director_check_query(args)?;
+            ctx.bridge_query(query).await
         })
     }
 }
@@ -1324,6 +1950,144 @@ impl super::registry::McpTool for OutlineGenerateTool {
                 "stage": started.get("stage").cloned().unwrap_or(Value::Null),
                 "note": "任务已起，用 pipeline.status 轮询；完成后 outline 路径在结果的 error/末态里。",
             }))
+        })
+    }
+}
+
+const OUTLINE_WRITE_MAX_FILENAME_CHARS: usize = 128;
+const OUTLINE_WRITE_MAX_CONTENT_CHARS: usize = 200_000;
+
+/// 严格校验 `outline.write` 的文件名：1..=128 字符、单段安全文件名、禁止点开头/路径穿越/ADS/控制字符/Windows 保留设备名、强制 `.md` 后缀（大小写不敏感）。
+fn validate_outline_filename<'a>(raw: &'a str, tool: &str) -> Result<&'a str, ToolError> {
+    let char_len = raw.chars().count();
+    if char_len == 0 || char_len > OUTLINE_WRITE_MAX_FILENAME_CHARS {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `filename` 长度必须在 1..={OUTLINE_WRITE_MAX_FILENAME_CHARS} 字符之间，收到 {char_len}"
+        )));
+    }
+    if raw.starts_with('.') {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `filename` 不允许以 `.` 开头：{raw}"
+        )));
+    }
+    if raw.contains("..") {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `filename` 不允许包含 `..`：{raw}"
+        )));
+    }
+    crate::agent_gate_policy::validate_safe_single_segment(raw, "filename")
+        .map_err(|e| ToolError::invalid_params(format!("{tool}: {e}")))?;
+    // 补充防御：`CON .md` / `NUL .md` 等在首段与 `.md` 间夹尾随空格的 Windows 保留设备名变体。
+    let first_segment = raw
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(' ');
+    if crate::agent_gate_policy::is_windows_reserved_device_name(first_segment) {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `filename` 不允许使用 Windows 保留设备名：{raw}"
+        )));
+    }
+    if !raw.to_ascii_lowercase().ends_with(".md") {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `filename` 必须使用 `.md` 后缀：{raw}"
+        )));
+    }
+    let stem = &raw[..raw.len() - 3];
+    if stem.trim().is_empty() || stem.ends_with('.') {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `filename` 主干不能为空且不能以 `.` 结尾：{raw}"
+        )));
+    }
+    Ok(raw)
+}
+
+fn build_outline_write_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "outline.write";
+    let object = validate_strict_object_args(args, tool, &["filename", "content", "syncModel"])?;
+
+    let filename_raw = object
+        .get("filename")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `filename`")))?;
+    let filename = validate_outline_filename(filename_raw, tool)?;
+
+    let content = object
+        .get("content")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `content`")))?;
+    if content.trim().is_empty() {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `content` 不能为空"
+        )));
+    }
+    let content_chars = content.chars().count();
+    if content_chars > OUTLINE_WRITE_MAX_CONTENT_CHARS {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `content` 长度不能超过 {OUTLINE_WRITE_MAX_CONTENT_CHARS} 字符，收到 {content_chars}"
+        )));
+    }
+
+    let sync_model = optional_bool(args, tool, "syncModel")?.unwrap_or(true);
+    Ok(StateQuery::new("outline-write").with_params(json!({
+        "filename": filename,
+        "content": content,
+        "syncModel": sync_model,
+    })))
+}
+
+/// `outline.write` —— 直接写入一个受控大纲文档（`wiki/outlines/<filename>.md`），零 LLM 调用。
+///
+/// 大纲属于规划产物而非正式章节正文，受 `Project` 权限域保护，不修改正式章节与正式记忆。
+pub struct OutlineWriteTool;
+
+impl super::registry::McpTool for OutlineWriteTool {
+    fn name(&self) -> &'static str {
+        "outline.write"
+    }
+
+    fn description(&self) -> &'static str {
+        "Write a planning outline markdown file under wiki/outlines/<filename>. Requires Project scope. Zero LLM calls; validates safe single-segment .md filename and optionally syncs the structured outline model (default syncModel=true). Never writes formal chapters or formal memory."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": OUTLINE_WRITE_MAX_FILENAME_CHARS,
+                    "description": "Safe single-segment .md filename under wiki/outlines/ (e.g. main-outline.md)"
+                },
+                "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": OUTLINE_WRITE_MAX_CONTENT_CHARS,
+                    "description": "Non-empty markdown outline content (max 200000 chars)"
+                },
+                "syncModel": {
+                    "type": "boolean",
+                    "description": "Whether to sync the structured outline planning model after writing (default true)"
+                }
+            },
+            "required": ["filename", "content"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_outline_write_query(args)?;
+            ctx.bridge_query(query).await
         })
     }
 }
@@ -2718,12 +3482,19 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(ChapterReadTool));
     r.register(Arc::new(ContextInspectTool));
     r.register(Arc::new(CanonQueryTool));
+    r.register(Arc::new(DraftListTool));
+    r.register(Arc::new(DraftReadTool));
+    r.register(Arc::new(RulesGetTool));
+    r.register(Arc::new(GateCheckMechanicalTool));
+    r.register(Arc::new(ContextPrepareWriteTool));
+    r.register(Arc::new(DirectorCheckTool));
     r.register(Arc::new(PipelineRunChapterTool));
     r.register(Arc::new(PipelineStatusTool));
     r.register(Arc::new(GateRunTool));
     r.register(Arc::new(ChapterWriteTool));
     r.register(Arc::new(DirectorAdvanceTool));
     r.register(Arc::new(OutlineGenerateTool));
+    r.register(Arc::new(OutlineWriteTool));
     r.register(Arc::new(CharacterUpsertTool));
     r.register(Arc::new(ChapterBatchTool));
     r.register(Arc::new(ExportRunTool));
@@ -2753,6 +3524,7 @@ pub fn build_registry() -> super::registry::ToolRegistry {
             "chapter.write",
             "director.advance",
             "outline.generate",
+            "outline.write",
             "character.upsert",
             "chapter.batch",
             "export.run",
@@ -2789,12 +3561,19 @@ mod tests {
                 "chapter.read",
                 "context.inspect",
                 "canon.query",
+                "draft.list",
+                "draft.read",
+                "rules.get",
+                "gate.check_mechanical",
+                "context.prepare_write",
+                "director.check",
                 "pipeline.run_chapter",
                 "pipeline.status",
                 "gate.run",
                 "chapter.write",
                 "director.advance",
                 "outline.generate",
+                "outline.write",
                 "character.upsert",
                 "chapter.batch",
                 "export.run",
@@ -3300,6 +4079,7 @@ mod tests {
                 "chapter.write",
                 "director.advance",
                 "outline.generate",
+                "outline.write",
                 "character.upsert",
                 "chapter.batch",
                 "export.run",
@@ -4095,5 +4875,589 @@ mod tests {
             read_direct_writes(&project.0).unwrap().is_empty(),
             "磁盘已到达 undo_intent.after_hash 时必须识别为已撤销"
         );
+    }
+
+    // ── Zero-LLM 只读工具（draft.list / draft.read / rules.get / gate.check_mechanical）──
+
+    #[test]
+    fn four_zero_llm_tools_are_registered_read_only_and_not_privileged() {
+        let r = build_registry();
+        assert_eq!(r.names()[0], "app.ping", "app.ping 必须保持在索引 0");
+        let privileged = r.privileged_tools();
+        let list = r.list();
+        let listed_names: Vec<&str> = list["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+
+        for name in [
+            "draft.list",
+            "draft.read",
+            "rules.get",
+            "gate.check_mechanical",
+        ] {
+            assert_eq!(
+                r.required_scope(name),
+                Some(crate::mcp_server::session::SessionScope::Read),
+                "{name} 必须只需 Read scope"
+            );
+            assert!(
+                !privileged.contains(&name),
+                "{name} 不得进入 privileged 列表"
+            );
+            assert!(listed_names.contains(&name), "{name} 必须出现在 tools/list");
+        }
+    }
+
+    #[tokio::test]
+    async fn draft_list_accepts_only_empty_object_and_uses_no_params_envelope() {
+        let query = build_draft_list_query(&json!({})).expect("empty object ok");
+        assert_eq!(query.op, "draft-list");
+        assert!(query.params.is_none());
+        assert!(query.key.is_none());
+        assert!(query.path.is_none());
+        assert!(query.offset.is_none());
+        assert!(query.limit.is_none());
+
+        let ctx = ToolContext::for_test();
+        let err_missing_app = DraftListTool
+            .call(&ctx, &json!({}))
+            .await
+            .expect_err("无 AppHandle 应报内部错");
+        assert_eq!(
+            err_missing_app.code,
+            crate::mcp_server::protocol::INTERNAL_ERROR
+        );
+
+        for bad in [
+            json!(null),
+            json!([]),
+            json!("x"),
+            json!({ "extra": 1 }),
+            json!({ "extra": null }),
+        ] {
+            let err = DraftListTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("非法参数必须在桥前拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "bad={bad}: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn draft_read_validates_strictly_and_builds_locked_params_envelope() {
+        let q_default =
+            build_draft_read_query(&json!({ "draftId": "draft_01-abc" })).expect("valid default");
+        assert_eq!(q_default.op, "draft-read");
+        assert!(q_default.path.is_none());
+        assert!(q_default.offset.is_none());
+        assert!(q_default.limit.is_none());
+        assert_eq!(
+            q_default.params,
+            Some(json!({ "draftId": "draft_01-abc", "offset": 0, "limit": 200 }))
+        );
+
+        let q_custom = build_draft_read_query(&json!({
+            "draftId": "A".repeat(128),
+            "offset": 15,
+            "limit": 2000
+        }))
+        .expect("valid custom");
+        assert_eq!(
+            q_custom.params,
+            Some(json!({ "draftId": "A".repeat(128), "offset": 15, "limit": 2000 }))
+        );
+
+        let ctx = ToolContext::for_test();
+        for bad in [
+            json!(null),
+            json!([]),
+            json!({}),
+            json!({ "draftId": "" }),
+            json!({ "draftId": " " }),
+            json!({ "draftId": "draft 1" }),
+            json!({ "draftId": "../secret" }),
+            json!({ "draftId": "草稿1" }),
+            json!({ "draftId": "a".repeat(129) }),
+            json!({ "draftId": 123 }),
+            json!({ "draftId": null }),
+            json!({ "draftId": "ok_1", "offset": null }),
+            json!({ "draftId": "ok_1", "limit": null }),
+            json!({ "draftId": "ok_1", "offset": -1 }),
+            json!({ "draftId": "ok_1", "offset": "0" }),
+            json!({ "draftId": "ok_1", "offset": 1.5 }),
+            json!({ "draftId": "ok_1", "limit": 0 }),
+            json!({ "draftId": "ok_1", "limit": 2001 }),
+            json!({ "draftId": "ok_1", "limit": "200" }),
+            json!({ "draftId": "ok_1", "unknown": true }),
+        ] {
+            let err = DraftReadTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("draft.read 非法参数必须拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "bad={bad}: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn rules_get_defaults_dedups_and_enforces_whitelist() {
+        let q_default = build_rules_get_query(&json!({})).expect("default sections");
+        assert_eq!(q_default.op, "rules-get");
+        assert_eq!(
+            q_default.params,
+            Some(json!({ "sections": ["writingStyle", "antiAi", "bookRules", "planning"] }))
+        );
+
+        let q_dedup = build_rules_get_query(&json!({
+            "sections": ["planning", "antiAi", "planning", "writingStyle", "antiAi"]
+        }))
+        .expect("dedup preserving order");
+        assert_eq!(
+            q_dedup.params,
+            Some(json!({ "sections": ["planning", "antiAi", "writingStyle"] }))
+        );
+
+        // 16 项重复项也合法（未超过 max len 16），去重后只留 1 项。
+        let max_valid = vec!["bookRules"; 16];
+        let q_max = build_rules_get_query(&json!({ "sections": max_valid })).expect("len 16 ok");
+        assert_eq!(q_max.params, Some(json!({ "sections": ["bookRules"] })));
+
+        let ctx = ToolContext::for_test();
+        let too_many = vec!["bookRules"; 17];
+        for bad in [
+            json!(null),
+            json!([]),
+            json!({ "sections": null }),
+            json!({ "sections": "antiAi" }),
+            json!({ "sections": [] }),
+            json!({ "sections": ["unknownSection"] }),
+            json!({ "sections": ["antiAi", 42] }),
+            json!({ "sections": ["antiAi", null] }),
+            json!({ "sections": too_many }),
+            json!({ "extra": 1 }),
+        ] {
+            let err = RulesGetTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("rules.get 非法参数必须拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "bad={bad}: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn gate_check_mechanical_enforces_1_of_3_exclusivity_and_bounds() {
+        let q_draft = build_gate_check_mechanical_query(&json!({
+            "draftId": "draft-1",
+            "chapterNumber": 12
+        }))
+        .expect("draftId valid");
+        assert_eq!(q_draft.op, "gate-check-mechanical");
+        assert_eq!(
+            q_draft.params,
+            Some(json!({ "draftId": "draft-1", "chapterNumber": 12 }))
+        );
+
+        let q_chapter = build_gate_check_mechanical_query(&json!({
+            "chapter": "chapter-003.md"
+        }))
+        .expect("chapter valid");
+        assert_eq!(
+            q_chapter.params,
+            Some(json!({ "chapter": "chapter-003.md" }))
+        );
+
+        let q_text = build_gate_check_mechanical_query(&json!({
+            "text": "正文段落，用于零 LLM 机械检查。"
+        }))
+        .expect("text valid");
+        assert_eq!(
+            q_text.params,
+            Some(json!({ "text": "正文段落，用于零 LLM 机械检查。" }))
+        );
+
+        let ctx = ToolContext::for_test();
+        for bad in [
+            json!(null),
+            json!([]),
+            // 0-of-3
+            json!({}),
+            json!({ "chapterNumber": 1 }),
+            // >1-of-3
+            json!({ "draftId": "d1", "chapter": "1" }),
+            json!({ "draftId": "d1", "text": "hello" }),
+            json!({ "chapter": "1", "text": "hello" }),
+            json!({ "draftId": "d1", "chapter": "1", "text": "hello" }),
+            // explicit nulls / unknown keys
+            json!({ "draftId": null, "text": "hello" }),
+            json!({ "text": "hello", "chapterNumber": null }),
+            json!({ "text": "hello", "extra": 1 }),
+            // invalid draftId
+            json!({ "draftId": "" }),
+            json!({ "draftId": "bad/id" }),
+            json!({ "draftId": "a".repeat(129) }),
+            // invalid chapter
+            json!({ "chapter": "" }),
+            json!({ "chapter": "   " }),
+            json!({ "chapter": "a".repeat(257) }),
+            json!({ "chapter": "ch\n1.md" }),
+            json!({ "chapter": "ch\0.md" }),
+            json!({ "chapter": "../secret.md" }),
+            json!({ "chapter": "a/b.md" }),
+            json!({ "chapter": r"a\b.md" }),
+            // invalid text
+            json!({ "text": "" }),
+            json!({ "text": "   " }),
+            json!({ "text": "字".repeat(100_001) }),
+            json!({ "text": 42 }),
+            // invalid chapterNumber
+            json!({ "text": "ok", "chapterNumber": 0 }),
+            json!({ "text": "ok", "chapterNumber": -1 }),
+            json!({ "text": "ok", "chapterNumber": "1" }),
+            json!({ "text": "ok", "chapterNumber": 1.5 }),
+        ] {
+            let err = GateCheckMechanicalTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("gate.check_mechanical 非法参数必须拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "bad={bad}: {err:?}"
+            );
+        }
+    }
+
+    // ── Round 2 新增工具（context.prepare_write / director.check / outline.write）──
+
+    #[test]
+    fn round2_zero_llm_tools_have_expected_scopes_and_listing() {
+        let r = build_registry();
+        let privileged = r.privileged_tools();
+        let write_like = crate::mcp_server::contains_write_like_tool(&r);
+        let list = r.list();
+        let listed_names: Vec<&str> = list["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+
+        for read_tool in ["context.prepare_write", "director.check"] {
+            assert_eq!(
+                r.required_scope(read_tool),
+                Some(crate::mcp_server::session::SessionScope::Read),
+                "{read_tool} 必须只需 Read scope"
+            );
+            assert!(
+                !privileged.contains(&read_tool),
+                "{read_tool} 不得进入 privileged 列表"
+            );
+            assert!(listed_names.contains(&read_tool));
+        }
+
+        assert_eq!(
+            r.required_scope("outline.write"),
+            Some(crate::mcp_server::session::SessionScope::Project),
+            "outline.write 必须要求 Project scope"
+        );
+        assert!(privileged.contains(&"outline.write"));
+        assert!(write_like.contains(&"outline.write"));
+        assert!(listed_names.contains(&"outline.write"));
+        // 硬安全红线：绝不注册 draft.accept
+        assert!(!r.names().contains(&"draft.accept"));
+        assert!(!listed_names.contains(&"draft.accept"));
+
+        // context.prepare_write 的 dimension 不得在 Rust 侧锁死 enum（TS 侧按 SIX_REVIEW_DIMENSION_ORDER 校验）。
+        let schema = ContextPrepareWriteTool.input_schema();
+        assert_eq!(schema["additionalProperties"], json!(false));
+        assert_eq!(schema["properties"]["dimension"]["type"], json!("string"));
+        assert!(schema["properties"]["dimension"].get("enum").is_none());
+        assert_eq!(
+            schema["properties"]["targetChapter"]["maximum"],
+            json!(JS_MAX_SAFE_INTEGER)
+        );
+        assert_eq!(
+            schema["properties"]["offset"]["maximum"],
+            json!(JS_MAX_SAFE_INTEGER)
+        );
+        assert!(schema["properties"]["includePlanningView"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("default true"));
+    }
+
+    #[tokio::test]
+    async fn context_prepare_write_validates_defaults_bounds_and_polls_async_job() {
+        let defaults = build_context_prepare_write_params(&json!({})).expect("empty object ok");
+        assert_eq!(
+            defaults,
+            json!({
+                "allowRetrievalNetwork": false,
+                "offset": 0,
+                "limit": 16_000,
+            })
+        );
+
+        let full = build_context_prepare_write_params(&json!({
+            "targetChapter": 12,
+            "draftId": "draft_12-rev1",
+            "task": "推进主线冲突",
+            "includePack": true,
+            "includeDraft": true,
+            "includePlanningView": true,
+            "dimension": "consistency",
+            "allowRetrievalNetwork": true,
+            "offset": 100,
+            "limit": 50_000,
+        }))
+        .expect("full params ok");
+        assert_eq!(full["targetChapter"], json!(12));
+        assert_eq!(full["draftId"], json!("draft_12-rev1"));
+        assert_eq!(full["task"], json!("推进主线冲突"));
+        assert_eq!(full["includePack"], json!(true));
+        assert_eq!(full["includeDraft"], json!(true));
+        assert_eq!(full["includePlanningView"], json!(true));
+        assert_eq!(full["dimension"], json!("consistency"));
+        assert_eq!(full["allowRetrievalNetwork"], json!(true));
+        assert_eq!(full["offset"], json!(100));
+        assert_eq!(full["limit"], json!(50_000));
+
+        // JS MAX_SAFE_INTEGER 边界放行，+1 必须拒绝。
+        let safe_max = build_context_prepare_write_params(&json!({
+            "targetChapter": JS_MAX_SAFE_INTEGER,
+            "offset": JS_MAX_SAFE_INTEGER,
+        }))
+        .expect("MAX_SAFE_INTEGER ok");
+        assert_eq!(safe_max["targetChapter"], json!(JS_MAX_SAFE_INTEGER));
+        assert_eq!(safe_max["offset"], json!(JS_MAX_SAFE_INTEGER));
+
+        let ctx = ToolContext::for_test();
+        for bad in [
+            json!(null),
+            json!([]),
+            json!({ "extra": 1 }),
+            json!({ "targetChapter": null }),
+            json!({ "targetChapter": 0 }),
+            json!({ "targetChapter": -1 }),
+            json!({ "targetChapter": JS_MAX_SAFE_INTEGER + 1 }),
+            json!({ "targetChapter": "1" }),
+            json!({ "draftId": "" }),
+            json!({ "draftId": "../bad" }),
+            json!({ "draftId": "a".repeat(129) }),
+            json!({ "draftId": 123 }),
+            json!({ "task": "" }),
+            json!({ "task": "   " }),
+            json!({ "task": "字".repeat(4001) }),
+            json!({ "task": 99 }),
+            json!({ "includePack": "true" }),
+            json!({ "includeDraft": 1 }),
+            json!({ "includePlanningView": "yes" }),
+            json!({ "allowRetrievalNetwork": "false" }),
+            json!({ "dimension": "" }),
+            json!({ "dimension": "   " }),
+            json!({ "dimension": "d".repeat(65) }),
+            json!({ "dimension": 7 }),
+            json!({ "offset": -1 }),
+            json!({ "offset": JS_MAX_SAFE_INTEGER + 1 }),
+            json!({ "offset": "0" }),
+            json!({ "limit": 0 }),
+            json!({ "limit": 50_001 }),
+            json!({ "limit": "16000" }),
+        ] {
+            let err = ContextPrepareWriteTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("context.prepare_write 非法参数必须拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "bad={bad}: {err:?}"
+            );
+        }
+
+        // 共享 run_async_bridge_job：context-prepare-start -> running -> context-prepare-poll -> done
+        let polls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let polls_ref = polls.clone();
+        let ok = run_async_bridge_job(
+            "context.prepare_write",
+            "context-prepare-start",
+            "context-prepare-poll",
+            defaults,
+            std::time::Duration::from_millis(1),
+            std::time::Duration::from_secs(2),
+            move |q| {
+                let p = polls_ref.clone();
+                async move {
+                    match q.op.as_str() {
+                        "context-prepare-start" => {
+                            Ok(json!({ "status": "running", "jobId": "prep-1" }))
+                        }
+                        "context-prepare-poll" => {
+                            let n = p.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            if n == 0 {
+                                Ok(json!({ "status": "running", "jobId": "prep-1" }))
+                            } else {
+                                Ok(json!({
+                                    "status": "done",
+                                    "jobId": "prep-1",
+                                    "value": { "ready": true, "packBuilt": false }
+                                }))
+                            }
+                        }
+                        other => Err(ToolError::internal(format!("unexpected op {other}"))),
+                    }
+                }
+            },
+        )
+        .await
+        .expect("prepare job should complete");
+        assert_eq!(ok["ready"], json!(true));
+        assert_eq!(polls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn director_check_accepts_only_empty_object() {
+        let q = build_director_check_query(&json!({})).expect("empty object ok");
+        assert_eq!(q.op, "director-check");
+        assert!(q.params.is_none());
+
+        let ctx = ToolContext::for_test();
+        let missing_app = DirectorCheckTool
+            .call(&ctx, &json!({}))
+            .await
+            .expect_err("无 AppHandle 应报内部错");
+        assert_eq!(
+            missing_app.code,
+            crate::mcp_server::protocol::INTERNAL_ERROR
+        );
+
+        for bad in [
+            json!(null),
+            json!([]),
+            json!("check"),
+            json!({ "phase": "outline" }),
+            json!({ "extra": null }),
+        ] {
+            let err = DirectorCheckTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("director.check 非空参数必须拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "bad={bad}: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn outline_write_validates_filename_content_and_sync_model() {
+        let q_default = build_outline_write_query(&json!({
+            "filename": "第一卷-总纲.md",
+            "content": "# 第一卷\n开篇"
+        }))
+        .expect("default syncModel ok");
+        assert_eq!(q_default.op, "outline-write");
+        assert_eq!(
+            q_default.params,
+            Some(json!({
+                "filename": "第一卷-总纲.md",
+                "content": "# 第一卷\n开篇",
+                "syncModel": true,
+            }))
+        );
+
+        let q_no_sync = build_outline_write_query(&json!({
+            "filename": "MAIN-OUTLINE.MD",
+            "content": "大纲正文",
+            "syncModel": false,
+        }))
+        .expect("case-insensitive .MD and syncModel=false ok");
+        assert_eq!(
+            q_no_sync.params.as_ref().unwrap()["syncModel"],
+            json!(false)
+        );
+
+        // 边界值：128 字符文件名与 200_000 字符正文放行。
+        let max_name = format!("{}.md", "a".repeat(125));
+        assert_eq!(max_name.chars().count(), 128);
+        assert!(build_outline_write_query(&json!({
+            "filename": max_name,
+            "content": "字".repeat(200_000),
+        }))
+        .is_ok());
+
+        let ctx = ToolContext::for_test();
+        for bad in [
+            json!(null),
+            json!([]),
+            json!({}),
+            json!({ "filename": "ok.md" }),
+            json!({ "content": "ok" }),
+            json!({ "filename": "ok.md", "content": "ok", "extra": 1 }),
+            json!({ "filename": "ok.md", "content": "ok", "syncModel": null }),
+            json!({ "filename": "ok.md", "content": "ok", "syncModel": "true" }),
+            // 非法文件名
+            json!({ "filename": "", "content": "ok" }),
+            json!({ "filename": "   ", "content": "ok" }),
+            json!({ "filename": " ok.md", "content": "ok" }),
+            json!({ "filename": "ok.md ", "content": "ok" }),
+            json!({ "filename": format!("{}.md", "a".repeat(126)), "content": "ok" }),
+            json!({ "filename": "../escape.md", "content": "ok" }),
+            json!({ "filename": "sub/outline.md", "content": "ok" }),
+            json!({ "filename": r"sub\outline.md", "content": "ok" }),
+            json!({ "filename": "a..b.md", "content": "ok" }),
+            json!({ "filename": "out:stream.md", "content": "ok" }),
+            json!({ "filename": "bad\nname.md", "content": "ok" }),
+            json!({ "filename": "bad\0name.md", "content": "ok" }),
+            json!({ "filename": ".md", "content": "ok" }),
+            json!({ "filename": ".hidden.md", "content": "ok" }),
+            json!({ "filename": "foo..md", "content": "ok" }),
+            json!({ "filename": "outline.txt", "content": "ok" }),
+            json!({ "filename": "outline", "content": "ok" }),
+            json!({ "filename": "outline.md.txt", "content": "ok" }),
+            // Windows 保留设备名（含首段与 `.md` 间夹尾随空格的变体）
+            json!({ "filename": "CON.md", "content": "ok" }),
+            json!({ "filename": "CON .md", "content": "ok" }),
+            json!({ "filename": "prn.md", "content": "ok" }),
+            json!({ "filename": "AUX.md", "content": "ok" }),
+            json!({ "filename": "nul.md", "content": "ok" }),
+            json!({ "filename": "NUL .md", "content": "ok" }),
+            json!({ "filename": "COM1.md", "content": "ok" }),
+            json!({ "filename": "com1 .sub.md", "content": "ok" }),
+            json!({ "filename": "com9.md", "content": "ok" }),
+            json!({ "filename": "LPT1.md", "content": "ok" }),
+            json!({ "filename": "lpt9.md", "content": "ok" }),
+            json!({ "filename": "CON.sub.md", "content": "ok" }),
+            // 非法 content
+            json!({ "filename": "ok.md", "content": "" }),
+            json!({ "filename": "ok.md", "content": "   \n\t  " }),
+            json!({ "filename": "ok.md", "content": "字".repeat(200_001) }),
+            json!({ "filename": "ok.md", "content": 42 }),
+        ] {
+            let err = OutlineWriteTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("outline.write 非法参数必须拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "bad={bad}: {err:?}"
+            );
+        }
     }
 }
