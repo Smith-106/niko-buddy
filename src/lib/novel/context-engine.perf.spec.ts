@@ -120,6 +120,7 @@ describe("PERF-001 loadTemporalFactsCached", () => {
     chapterIngestMocks.listSnapshots.mockReset()
     fsMocks.listDirectory.mockReset()
     fsMocks.getFileModifiedTime.mockReset()
+    fsMocks.readFile.mockReset().mockRejectedValue(new Error("ENOENT"))
   })
 
   it("loads snapshots once on first call and reuses cache on second call (same revision)", async () => {
@@ -204,6 +205,7 @@ describe("REG-001 clearTemporalFactsCache invalidates the temporal-facts cache",
     chapterIngestMocks.listSnapshots.mockReset()
     fsMocks.listDirectory.mockReset()
     fsMocks.getFileModifiedTime.mockReset()
+    fsMocks.readFile.mockReset().mockRejectedValue(new Error("ENOENT"))
   })
 
   it("forces a reload on the next loadTemporalFactsCached even with identical number+mtime", async () => {

@@ -5,18 +5,68 @@
  * 真实截断语义（1024 shift）见 novel-session-status.spec 既有用例，本文件仅断言委托行为。
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { ChatMessage, StreamCallbacks } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { runAutonomousNovelIncubator } from "../autonomous-incubator"
 import { runAutonomousDraftCampaign } from "../campaign-runner"
+import { computeCheckpointDigest } from "../checkpoint-digest"
 import type { ArbitrationDirective, ArbitrationRequest } from "../cruise-arbitration"
+import { buildDecisionGates } from "../deep-chapter-decision-gates"
+import type { DeepChapterGenerationResult } from "../deep-chapter-generation"
 
 const mockLlmConfig: LlmConfig = {
   provider: "openai",
-  apiKey: "",
+  apiKey: "test-key",
   model: "test",
   ollamaUrl: "",
   customEndpoint: "",
   maxContextSize: 128000,
+}
+
+function installStageAwareMockLlm(streamChatMock: ReturnType<typeof vi.fn>) {
+  const responses = {
+    soulDoc: "# 灵魂文档\n\n探讨记忆与秩序边界的悬疑长篇。",
+    worldBlueprint: JSON.stringify({
+      worldType: "测试流派",
+      layers: {
+        axioms: ["记忆哈希可审计且改写必付神经熵增代价"],
+        background: ["旧城与上城以记忆税隔离"],
+        geography: ["上城算力白塔", "旧城沉降区黑市"],
+        cultures: ["以记忆完整度评定信用等级"],
+        conflicts: ["觉醒代码冲击记忆垄断体制"],
+      },
+      crossRefs: [],
+    }),
+    characters: JSON.stringify([
+      { name: "苏砚", role: "主角", profile: "# 苏砚\n\n冷静克制的记忆修复师。" },
+      { name: "陆沉舟", role: "对抗者", profile: "# 陆沉舟\n\n算力审查署执行官。" },
+      { name: "沈知微", role: "盟友", profile: "# 沈知微\n\n旧城地下档案员。" },
+    ]),
+    outline: "# 全书总纲\n\n### 第1章 断点唤醒\n苏砚修复芯片时触发觉醒代码。\n\n### 第2章 档案交换\n苏砚与沈知微追查断层日志。",
+    framework: JSON.stringify({
+      nodes: [
+        { phase: "起", title: "断点唤醒", coreConflict: "禁码现世", involvedCharacters: ["苏砚"], goal: "查明来源", causeFromPrev: "开篇", expectedOutcome: "卷入风波" },
+        { phase: "承", title: "黑市结盟", coreConflict: "审查围堵", involvedCharacters: ["苏砚", "陆沉舟", "沈知微"], goal: "获取日志", causeFromPrev: "行踪暴露", expectedOutcome: "结盟转移" },
+        { phase: "转", title: "白塔陷阱", coreConflict: "身份反转", involvedCharacters: ["苏砚", "陆沉舟"], goal: "广播真相", causeFromPrev: "渗透触发警报", expectedOutcome: "撕开黑箱" },
+        { phase: "合", title: "垄断瓦解", coreConflict: "新旧交替", involvedCharacters: ["苏砚", "沈知微"], goal: "重建存证", causeFromPrev: "真相公开", expectedOutcome: "引出新局" },
+      ],
+    }),
+  }
+
+  streamChatMock.mockImplementation(
+    async (_cfg: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+      const prompt = messages
+        .map((m) => (typeof m.content === "string" ? m.content : ""))
+        .join("\n")
+      let payload = responses.soulDoc
+      if (prompt.includes("【世界观蓝图】")) payload = responses.worldBlueprint
+      else if (prompt.includes("【核心角色档案】")) payload = responses.characters
+      else if (prompt.includes("【宏观总纲与分章规划】")) payload = responses.outline
+      else if (prompt.includes("【起承转合故事模拟框架】")) payload = responses.framework
+      callbacks.onToken(payload)
+      callbacks.onDone()
+    },
+  )
 }
 
 const mocks = vi.hoisted(() => ({
@@ -42,7 +92,8 @@ const mocks = vi.hoisted(() => ({
   defaultCanonDualWriteDeps: vi.fn(() => ({})),
 }))
 
-vi.mock("@/commands/fs", () => ({
+vi.mock("@/commands/fs", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/commands/fs")>(),
   createDirectory: mocks.createDirectory,
   writeFileAtomic: mocks.writeFileAtomic,
 }))
@@ -74,16 +125,13 @@ vi.mock("@/lib/llm-client", () => ({
   DEFAULT_LLM_REQUEST_TIMEOUT_MS: 30000,
 }))
 
-vi.mock("../novel-session-status", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../novel-session-status")>()
-  void actual
-  return {
-    appendStageMetric: mocks.appendStageMetric,
-    updateNovelSessionStatus: mocks.updateNovelSessionStatus,
-    buildNextStatus: mocks.buildNextStatus,
-    registerManagedCampaignDraft: mocks.registerManagedCampaignDraft,
-  }
-})
+vi.mock("../novel-session-status", () => ({
+  appendStageMetric: mocks.appendStageMetric,
+  updateNovelSessionStatus: mocks.updateNovelSessionStatus,
+  buildNextStatus: mocks.buildNextStatus,
+  registerManagedCampaignDraft: mocks.registerManagedCampaignDraft,
+  digestManagedDraftBody: (chapter: number, body: string) => computeCheckpointDigest(JSON.stringify([chapter, body])),
+}))
 
 vi.mock("../deep-chapter-generation", () => ({
   runDeepChapterGeneration: mocks.runDeepChapterGeneration,
@@ -102,8 +150,15 @@ vi.mock("../arc-settlement", () => ({
   shouldTriggerArcSettlement: mocks.shouldTriggerArcSettlement,
 }))
 
+vi.mock("../chapter-utils", () => ({
+  findChapterFileByNumber: vi.fn(async () => null),
+  invalidateChapterCache: vi.fn(),
+}))
+
 vi.mock("../formal-writeback", () => ({
   commitAcceptedDeepChapterDraft: mocks.commitAcceptedDeepChapterDraft,
+  readManagedChapterForWrite: vi.fn(async () => null),
+  buildManagedChapterDocument: (_chapter: number, _title: string, body: string) => body,
 }))
 
 vi.mock("../chapter-ingest", () => ({
@@ -136,7 +191,8 @@ function resetAllMocks() {
     createdFiles: [],
     chapters: [],
   })
-  mocks.streamChat.mockResolvedValue(undefined)
+  mocks.streamChat.mockReset()
+  installStageAwareMockLlm(mocks.streamChat)
   // appendStageMetric 真实契约：永不 reject（内层 try/catch 吞错），此处 resolve 即模拟“已吞错”。
   mocks.appendStageMetric.mockResolvedValue(undefined)
   // updateNovelSessionStatus 默认：执行 mutator（触发 buildNextStatus），返回其结果。
@@ -158,14 +214,15 @@ function resetAllMocks() {
   mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
 }
 
-function readyGenResult(chapterNumber: number, finalContent: string) {
+function readyGenResult(chapterNumber: number, finalContent: string): DeepChapterGenerationResult {
   return {
     finalContent,
     taskBrief: `任务书 ${chapterNumber}`,
     draftContent: `初稿 ${chapterNumber}`,
     reviewResults: [],
     revised: false,
-    decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+    decisionGates: buildDecisionGates([], 0),
+    finalConsistencyReviewed: true,
     manualReviewRequired: false,
     retryCount: 0,
     partial: false,
@@ -173,14 +230,22 @@ function readyGenResult(chapterNumber: number, finalContent: string) {
   }
 }
 
-function blockedGenResult(chapterNumber: number, finalContent = `第 ${chapterNumber} 章被阻断正文`) {
+function blockedGenResult(chapterNumber: number, finalContent = `第 ${chapterNumber} 章被阻断正文`): DeepChapterGenerationResult {
+  const reviewResults: DeepChapterGenerationResult["reviewResults"] = [{
+    type: "consistency",
+    severity: "error",
+    message: "Consistency test failure",
+    evidence: "",
+    suggestion: "",
+    relatedMemory: "",
+  }]
   return {
     finalContent,
     taskBrief: `任务书 ${chapterNumber}`,
     draftContent: `初稿 ${chapterNumber}`,
-    reviewResults: [],
+    reviewResults,
     revised: false,
-    decisionGates: { consistency: "failed", antiAi: "passed", quality: "passed" },
+    decisionGates: buildDecisionGates(reviewResults, 0, true),
     manualReviewRequired: true,
     retryCount: 0,
     partial: false,
@@ -257,6 +322,9 @@ describe("R3 无头遥测补洞", () => {
         buildChapterRequest: async (n: number) => `写第${n}章`,
       })
       expect(report.results).toHaveLength(3)
+      expect(report.results.map(({ status, error }) => ({ status, error }))).toEqual(
+        Array.from({ length: 3 }, () => ({ status: "ready", error: undefined })),
+      )
       expect(mocks.appendStageMetric).toHaveBeenCalledTimes(3)
       const calls = mocks.appendStageMetric.mock.calls
       const ids = calls.map((c) => (c[1] as { chapterId: string }).chapterId)

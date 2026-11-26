@@ -20,7 +20,13 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
-import { createAtomicJsonStore } from "./projection-store"
+import {
+  applyArrayFieldCaps,
+  applyStoreArrayFieldCaps,
+  createAtomicJsonStore,
+  getStoreArrayFieldCaps,
+  isDefaultMissingFileError,
+} from "./projection-store"
 
 interface TestStore {
   items: string[]
@@ -406,5 +412,97 @@ describe("migrateTruthFileBackward 边界（回滚脚本入口）", () => {
       }),
     ).rejects.toThrow(/Inverse migration 1→2 for m\.json is lossy \(R2\) and not opted in/)
     expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+})
+
+describe("M2-07 applyArrayFieldCaps / getStoreArrayFieldCaps / applyStoreArrayFieldCaps", () => {
+  it("超限时返回浅拷贝新对象并截尾保最近 N 条，不原地修改入参", () => {
+    const input = { entries: [1, 2, 3, 4, 5], label: "keep" }
+    const capped = applyArrayFieldCaps(input, { entries: 3 })
+    expect(capped).not.toBe(input)
+    expect(capped).toEqual({ entries: [3, 4, 5], label: "keep" })
+    // 原对象与原数组完全未被修改
+    expect(input.entries).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it("未超限或无 caps 时原样返回入参引用（不额外克隆）", () => {
+    const input = { entries: [1, 2] }
+    expect(applyArrayFieldCaps(input, { entries: 5 })).toBe(input)
+    expect(applyArrayFieldCaps(input, undefined)).toBe(input)
+  })
+
+  it("cap=0 边界截为空数组", () => {
+    const input = { entries: [1, 2, 3] }
+    const capped = applyArrayFieldCaps(input, { entries: 0 })
+    expect(capped.entries).toEqual([])
+    expect(input.entries).toEqual([1, 2, 3])
+  })
+
+  it("createAtomicJsonStore 自动登记 caps，getStoreArrayFieldCaps 与 applyStoreArrayFieldCaps 同源复用", () => {
+    createAtomicJsonStore<{ entries: number[] }>(
+      "m207-registered-cap.json",
+      () => ({ entries: [] }),
+      { arrayFieldCaps: { entries: 2 } },
+    )
+    expect(getStoreArrayFieldCaps("m207-registered-cap.json")).toEqual({ entries: 2 })
+    expect(applyStoreArrayFieldCaps("m207-registered-cap.json", { entries: [10, 20, 30] })).toEqual({
+      entries: [20, 30],
+    })
+    // 未登记文件原样透传
+    const unregistered = { entries: [10, 20, 30] }
+    expect(getStoreArrayFieldCaps("m207-unregistered.json")).toBeUndefined()
+    expect(applyStoreArrayFieldCaps("m207-unregistered.json", unregistered)).toBe(unregistered)
+  })
+})
+
+describe("R2-M04 / R2-M11 isVolatileKey 遥测桶豁免与严格默认 isDefaultMissingFileError", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+    fsMocks.writeFileAtomic.mockClear()
+    fsMocks.createDirectory.mockClear()
+  })
+
+  it("canonicalizeForHash 剔除 3 个遥测桶，避免 cognition 遥测写入引发永久 drift", async () => {
+    const { canonicalizeForHash, truthStoreHash } = await import("./projection-store")
+    const clean = { characters: [{ character: "甲", knows: ["密道"], doesNotKnow: [] }], readerKnows: [], lastUpdatedChapter: 1 }
+    const withTelemetry = {
+      ...clean,
+      routingROIBuckets: [{ variant: "enabled", irrelevantRatio: 0.1, chapterId: "1", timestamp: "t1" }],
+      exemplarABuckets: [{ variant: "enabled", score: 5, chapterId: "1", timestamp: "t2" }],
+      rewriteRateABuckets: [{ variant: "disabled", rewriteRate: 0.2, chapterId: "1", timestamp: "t3" }],
+    }
+    const stripped = canonicalizeForHash(withTelemetry) as Record<string, unknown>
+    expect(stripped.routingROIBuckets).toBeUndefined()
+    expect(stripped.exemplarABuckets).toBeUndefined()
+    expect(stripped.rewriteRateABuckets).toBeUndefined()
+    expect(await truthStoreHash(withTelemetry)).toBe(await truthStoreHash(clean))
+  })
+
+  it("isDefaultMissingFileError 显式拒 SyntaxError / EACCES / EPERM / EBUSY / EMFILE / EIO / JSON / corrupt", () => {
+    expect(isDefaultMissingFileError(new SyntaxError("Unexpected token"))).toBe(false)
+    expect(isDefaultMissingFileError(Object.assign(new Error("denied"), { code: "EACCES" }))).toBe(false)
+    expect(isDefaultMissingFileError(new Error("EPERM: operation not permitted"))).toBe(false)
+    expect(isDefaultMissingFileError(new Error("EBUSY: resource busy"))).toBe(false)
+    expect(isDefaultMissingFileError(new Error("EMFILE: too many open files"))).toBe(false)
+    expect(isDefaultMissingFileError(new Error("EIO: i/o error"))).toBe(false)
+    expect(isDefaultMissingFileError(new Error("corrupt store payload"))).toBe(false)
+    expect(isDefaultMissingFileError(new Error("invalid JSON format"))).toBe(false)
+    expect(isDefaultMissingFileError(new Error("unknown failure"))).toBe(false)
+  })
+
+  it("isDefaultMissingFileError 显式认 ENOENT / not found / no such file / 找不到 / missing（含 .json 路径后缀）", () => {
+    expect(isDefaultMissingFileError(new Error("ENOENT: /proj/.novel/cognition-state.json"))).toBe(true)
+    expect(isDefaultMissingFileError(new Error("ENOENT: no such file"))).toBe(true)
+    expect(isDefaultMissingFileError(Object.assign(new Error("err"), { code: "ENOENT" }))).toBe(true)
+    expect(isDefaultMissingFileError(new Error("file not found"))).toBe(true)
+    expect(isDefaultMissingFileError(new Error("no such file or directory"))).toBe(true)
+    expect(isDefaultMissingFileError(new Error("系统找不到指定的文件"))).toBe(true)
+    expect(isDefaultMissingFileError(new Error("missing file"))).toBe(true)
+  })
+
+  it("默认 createAtomicJsonStore 遇 EACCES 严格 fail-closed 上抛（不再静默降级 empty）", async () => {
+    const store = createAtomicJsonStore<TestStore>("strict-default.json", emptyStore)
+    fsMocks.readFile.mockRejectedValue(Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" }))
+    await expect(store.load("/P")).rejects.toThrow(/EACCES/)
   })
 })

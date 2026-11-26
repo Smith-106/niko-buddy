@@ -16,8 +16,10 @@ import type {
 import {
 } from "./chapter-utils"
 import {
+  createEmptyContextPackWithGap,
 } from "./context-engine"
 import type {
+  BuildContextOptions,
   ContextPack,
 } from "./context-engine"
 import {
@@ -236,13 +238,20 @@ export function hasCheckpointDraft(
 export function hasCheckpointReview(
   checkpoint?: DeepChapterGenerationResumeCheckpoint | null,
 ): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[] } {
-  return hasCheckpointDraft(checkpoint) && Array.isArray(checkpoint.reviewResults) && checkpointStageAtLeast(checkpoint, "after_review")
+  return hasCheckpointDraft(checkpoint)
+    && Array.isArray(checkpoint.reviewResults)
+    && checkpointStageAtLeast(checkpoint, "after_review")
+    && !(checkpoint.stage === "after_revision" && checkpoint.revisionReviewPending === true)
 }
 
 export function hasCheckpointRevision(
   checkpoint?: DeepChapterGenerationResumeCheckpoint | null,
 ): checkpoint is DeepChapterGenerationResumeCheckpoint & { taskBrief: string, draftContent: string, reviewResults: NovelReviewResult[], currentContent: string } {
-  return hasCheckpointReview(checkpoint) && Boolean(checkpoint.currentContent?.trim()) && checkpointStageAtLeast(checkpoint, "after_revision")
+  return hasCheckpointDraft(checkpoint)
+    && Array.isArray(checkpoint.reviewResults)
+    && typeof checkpoint.currentContent === "string"
+    && Boolean(checkpoint.currentContent.trim())
+    && (checkpoint.stage === "after_revision" || checkpoint.currentContent !== checkpoint.draftContent)
 }
 
 // ── §GAP-88-01 章节契约写后核对（ainovel chapter_contract 模式）──────────
@@ -493,40 +502,19 @@ export async function safeBuildChapterContextPack(
   projectPath: string,
   userRequest: string,
   chapterNumber?: number,
+  options?: {
+    buildOptions?: BuildContextOptions
+    onThinking?: (msg: string) => void
+  },
 ): Promise<ContextPack> {
   try {
-    return await deps.buildContextPack(projectPath, userRequest, chapterNumber)
+    return await deps.buildContextPack(projectPath, userRequest, chapterNumber, {
+      novelMode: true,
+      ...options?.buildOptions,
+    })
   } catch (err) {
-    // F-10: log the failure (matches the :844 previous-chapters-analysis catch
-    // observability) so context-assembly failure is not silent. Without this the
-    // whole main chain runs 7 stages on an all-empty ContextPack, producing a
-    // superficially-successful but semantically-empty chapter with no partial/
-    // fail signal. Surfacing this as a partial flag would require either passing
-    // notePartial here or returning a {contextPack, error} tuple — both are part
-    // of the broader partial-state-object refactor (F-8) and tracked as an issue;
-    // the log at least makes the failure observable in the app's stderr.
     logger.error("Deep Chapter", "Context pack assembly failed (continuing with empty context)", { error: toErrorMessage(err) })
-    return {
-      task: userRequest,
-      chapterGoal: "",
-      outline: "",
-      recentSummaries: [],
-      previousChapterEnding: "",
-      characterStates: "",
-      soulDoc: "",
-      characterAuras: "",
-      cognitionStates: "",
-      foreshadowingStates: "",
-      timeline: "",
-      relatedSettings: "",
-      canonRules: "",
-      writingStyle: "",
-      searchResults: "",
-      graphSearchResults: "",
-      mustDo: "",
-      mustAvoid: "",
-      nextChapterAdvice: "",
-      revisionDirectives: "",
-    }
+    options?.onThinking?.("上下文包构建失败，已降级为空包并强制转人工复核（禁止静默自动采纳）")
+    return createEmptyContextPackWithGap(userRequest, "context_pack_build", "datasource_error")
   }
 }

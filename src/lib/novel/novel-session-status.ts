@@ -7,6 +7,10 @@ import { z } from "zod"
 import { withProjectLock } from "./novel-locks"
 import { DRAFT_AUTO_ARM_SCHEMA, type DraftAutoArmStatus } from "./auto-arm-status"
 import { checkCommitDiscipline } from "@/lib/quality/commit-discipline"
+import { computeCheckpointDigest } from "./checkpoint-digest"
+import { decideDraftAdoptionGate } from "./deep-chapter-decision-gates"
+import { readManagedChapterHeader } from "./chapter-save-strategy"
+import type { DraftAdoptionGate, DraftGateStatus } from "./lifecycle-types"
 import type {
   DeepChapterDecisionGates,
   DeepChapterGenerationResumeCheckpoint,
@@ -95,6 +99,8 @@ export interface NovelDraftArtifact {
    * additive — 旧草稿/非 build 路径无此字段，读取方缺省降级不渲染。
    */
   context_usage?: import("@/lib/context-usage").ContextUsage
+  /** 采纳门 receipt：status + bodySha256（additive；旧草稿无此字段按未评估）。 */
+  adoption_gate?: DraftAdoptionGate
 }
 
 export interface NovelSessionStatus {
@@ -304,6 +310,8 @@ interface CompleteDeepChapterSessionInput extends DeepChapterSessionInput {
   reviewResults?: NovelReviewResult[]
   /** Wave 5 (v2.5.0): 上下文用量快照透传（additive，缺省不落盘）。 */
   contextUsage?: import("@/lib/context-usage").ContextUsage
+  decisionGates?: DeepChapterDecisionGates
+  finalConsistencyReviewed?: boolean
 }
 
 interface PauseDeepChapterSessionInput extends DeepChapterSessionInput {
@@ -317,12 +325,20 @@ interface DraftDecisionInput extends DeepChapterSessionInput {
   formalChapterPath?: string
 }
 
+export type AcceptDeepChapterDraftInput = DraftDecisionInput & {
+  formalChapterPath: string
+  finalChapterContent: string
+  writeVerifiedChapter: () => Promise<() => Promise<void>>
+}
+
 interface WriteDraftArtifactOptions {
   finalContent?: string
   acceptedAt?: string
   rejectedAt?: string
   formalChapterPath?: string
   decisionGates?: DeepChapterDecisionGates
+  /** 采纳门 receipt（additive，缺省不升级旧 gate）。 */
+  adoptionGate?: DraftAdoptionGate
   /** Wave 5 (v2.5.0): 上下文用量快照（additive，缺省不落盘）。 */
   contextUsage?: import("@/lib/context-usage").ContextUsage
 }
@@ -437,6 +453,7 @@ interface PendingDraftFile {
   content: string
   label: string
   verify: (parsed: unknown) => boolean
+  expectedContent?: string | null
 }
 
 function buildDraftArtifacts(
@@ -475,7 +492,7 @@ function buildDraftArtifacts(
       superseded_by: filePath,
     }
   }
-  const content = extractDraftContent(checkpoint, options.finalContent)
+  const content = options.finalContent?.trim() ? options.finalContent : extractDraftContent(checkpoint)
   // CORR-001 语义与 writeDraftArtifact 一致：same-session 复写保留 created_at。
   const createdAt = isSameSessionBase(existing, sessionId) && existing.draft_status !== "superseded"
     ? existing.created_at
@@ -500,6 +517,7 @@ function buildDraftArtifacts(
     formal_chapter_path: options.formalChapterPath,
     superseded_by: undefined,
     context_usage: options.contextUsage,
+    ...(options.adoptionGate ? { adoption_gate: options.adoptionGate } : {}),
   }
   return { filePath, artifact, supersededPath, supersededArtifact }
 }
@@ -521,12 +539,20 @@ function verifyDraftArtifact(
   conversationId: string,
   sessionId: string,
   draftStatus: NovelDraftStatus,
+  expectedContent: string,
+  expectedGate: DraftAdoptionGate | undefined,
 ): boolean {
   const candidate = parsed as Partial<NovelDraftArtifact> | null
+  const gateMatches = expectedGate === undefined
+    ? candidate?.adoption_gate === undefined
+    : candidate?.adoption_gate?.status === expectedGate.status
+      && candidate?.adoption_gate?.bodySha256 === expectedGate.bodySha256
   return candidate?.draft_id === draftId
     && candidate?.conversation_id === conversationId
     && candidate?.session_id === sessionId
     && candidate?.draft_status === draftStatus
+    && candidate?.content === expectedContent
+    && gateMatches
 }
 
 function verifySessionStatus(parsed: unknown, status: NovelSessionStatus): boolean {
@@ -550,9 +576,12 @@ async function prepareDraftWrites(
   checkpoint: DeepChapterGenerationResumeCheckpoint | undefined,
   reviewResults: NovelReviewResult[],
   options: WriteDraftArtifactOptions = {},
+  baseline?: DraftWriteBaseline,
 ): Promise<{ filePath: string; files: PendingDraftFile[] }> {
   const now = new Date().toISOString()
-  const existing = await loadNovelDraftArtifact(input.projectPath, input.conversationId)
+  const existing = baseline
+    ? baseline.draft
+    : await loadNovelDraftArtifact(input.projectPath, input.conversationId)
   const { filePath, artifact, supersededPath, supersededArtifact } = buildDraftArtifacts(
     input,
     sessionId,
@@ -573,6 +602,7 @@ async function prepareDraftWrites(
       content: JSON.stringify(capturedArtifact, null, 2),
       label: "superseded 草稿文件",
       verify: (parsed) => verifySupersededDraft(parsed, draftId, filePath),
+      expectedContent: null,
     })
   }
   const draftId = input.conversationId
@@ -581,20 +611,27 @@ async function prepareDraftWrites(
     path: filePath,
     content: JSON.stringify(artifact, null, 2),
     label: "草稿文件",
-    verify: (parsed) => verifyDraftArtifact(parsed, draftId, conversationId, sessionId, draftStatus),
+    verify: (parsed) => verifyDraftArtifact(parsed, draftId, conversationId, sessionId, draftStatus, artifact.content, artifact.adoption_gate),
+    expectedContent: baseline?.raw,
   })
   return { filePath, files }
 }
 
 /**
- * 单次 writeFilesAtomic 批量提交（draft 工件 + status.json 同事务）。
- * 成功后逐文件回读校验（fail-loud，与 writeVerifiedJson 同语义）；
- * 批量本身抛错直接上抛，零落盘，禁止吞错降级。
+ * 单次 writeFilesAtomic 批量提交（draft 工件 + status.json 同批守卫写）。
+ * verifyAfterCommit=true（默认）：提交后逐文件回读校验（fail-loud，与
+ * writeVerifiedJson 同语义），批量抛错直接上抛，禁止吞错降级。
+ * verifyAfterCommit=false：以 native 批量字节校验（expectedContents + 终验）
+ * 为权威；写入前对全部负载预校验，native 成功后不再做 TS 回读——已落盘的成功
+ * 批次不会被二次 TS IO 失败误报。accept 路径用 false（native 终验权威 + 正式
+ * 写 rollback 分离）；其他生命周期仍保留 TS 回读。
  */
 async function commitDraftAndStatusBatch(
   projectPath: string,
   draftFiles: PendingDraftFile[],
   status: NovelSessionStatus,
+  verifyAfterCommit = true,
+  expectedStatus?: string | null,
 ): Promise<void> {
   await ensureNovelSessionDirs(projectPath)
   const statusPath = novelSessionStatusPath(projectPath)
@@ -606,11 +643,32 @@ async function commitDraftAndStatusBatch(
       content: JSON.stringify(capturedStatus, null, 2),
       label: "小说会话状态文件",
       verify: (parsed) => verifySessionStatus(parsed, capturedStatus),
+      expectedContent: expectedStatus,
     },
   ]
-  // S4-R4：draft + status 改走 writeFilesAtomic 单次批量事务。两文件同属一次
-  // 快照，prepare 阶段任一 temp 失败即零落盘；提交阶段为顺序 rename（微秒窗口）。
-  await writeFilesAtomic(allFiles.map((f) => [f.path, f.content] as [string, string]))
+  // S4-R4：draft + status 改走 writeFilesAtomic 单次守卫批量。两文件同属一次
+  // 快照；verifyAfterCommit=false 时写入前预校验全部负载，native 字节校验即终验。
+  if (!verifyAfterCommit) {
+    for (const f of allFiles) {
+      if (!f.verify(JSON.parse(f.content))) {
+        throw new Error(`${f.label} 写入前校验失败（${f.path}）`)
+      }
+    }
+  }
+  if (expectedStatus === undefined) {
+    await writeFilesAtomic(allFiles.map((f) => [f.path, f.content] as [string, string]))
+  } else {
+    await writeFilesAtomic(
+      allFiles.map((f) => [f.path, f.content] as [string, string]),
+      allFiles.map((f) => {
+        if (f.expectedContent === undefined) {
+          throw new Error("Missing expected bytes for session batch")
+        }
+        return f.expectedContent
+      }),
+    )
+  }
+  if (!verifyAfterCommit) return
   for (const f of allFiles) {
     let raw: string
     try {
@@ -828,9 +886,11 @@ async function persistCheckpointBaseWithinLock(
   next: NovelSessionStatus,
   evidenceEntries?: string[],
   draftFiles: PendingDraftFile[] = [],
+  verifyAfterCommit = true,
+  expectedStatus?: string | null,
 ): Promise<void> {
   preparePersistPayload(sessionId, next, evidenceEntries)
-  await commitDraftAndStatusBatch(projectPath, draftFiles, next)
+  await commitDraftAndStatusBatch(projectPath, draftFiles, next, verifyAfterCommit, expectedStatus)
 }
 
 /**
@@ -918,19 +978,15 @@ async function writeDraftArtifact(
     filePath,
     artifact,
     "草稿文件",
-    (parsed) => verifyDraftArtifact(parsed, draftId, input.conversationId, sessionId, draftStatus),
+    (parsed) => verifyDraftArtifact(parsed, draftId, input.conversationId, sessionId, draftStatus, artifact.content, artifact.adoption_gate),
   )
   void sessionId
   return filePath
 }
 
-export async function loadNovelDraftArtifact(
-  projectPath: string,
-  draftId: string,
-): Promise<NovelDraftArtifact | null> {
+function parseNovelDraftArtifact(raw: string): NovelDraftArtifact | null {
   try {
-    const raw = await readFile(novelDraftArtifactPath(projectPath, draftId))
-    const parsed = JSON.parse(raw) as Partial<NovelDraftArtifact>
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as Partial<NovelDraftArtifact>
     if (
       typeof parsed?.draft_id !== "string"
       || typeof parsed?.conversation_id !== "string"
@@ -955,19 +1011,119 @@ export async function loadNovelDraftArtifact(
       decision_gates: cloneDecisionGates(parsed.decision_gates),
     }
   } catch (err) {
+    // ISS-20260709-025 PAT-IM2: 草稿 JSON 解析失败记诊断，控制流不变（仍返回 null 保持 loadDraftForWrite 契约）。
+    logger.warn("Novel Session", "parse draft artifact JSON failed, degrade to null (non-fatal)", {
+      error: toErrorMessage(err),
+    })
+    return null
+  }
+}
+
+type DraftWriteBaseline = { draft: NovelDraftArtifact | null; raw: string | null }
+
+async function loadDraftForWrite(projectPath: string, draftId: string): Promise<DraftWriteBaseline> {
+  let raw: string
+  try {
+    raw = await readFile(novelDraftArtifactPath(projectPath, draftId), { exactUtf8: true })
+  } catch (err) {
+    if (isStatusFileMissingError(err)) return { draft: null, raw: null }
+    throw err
+  }
+  const draft = parseNovelDraftArtifact(raw)
+  if (!draft) throw new Error("Cannot overwrite an invalid draft artifact")
+  return { draft, raw }
+}
+
+export async function loadNovelDraftArtifact(
+  projectPath: string,
+  draftId: string,
+): Promise<NovelDraftArtifact | null> {
+  try {
+    return parseNovelDraftArtifact(await readFile(novelDraftArtifactPath(projectPath, draftId)))
+  } catch (err) {
     // ISS-20260709-025 PAT-IM2: 草稿解析降级记诊断（控制流不变，仍返回 null）。
     logger.warn("Novel Session", "parse draft artifact failed, degrade to null (non-fatal)", { error: toErrorMessage(err) })
     return null
   }
 }
 
-export async function requireManagedDeepChapterDraft(
-  projectPath: string,
+export function digestManagedDraftBody(chapterNumber: number, content: string): Promise<string> {
+  return computeCheckpointDigest(JSON.stringify([chapterNumber, content]))
+}
+
+async function createManagedAdoptionGate(
+  chapterNumber: number | undefined,
+  content: string,
+  gates: DeepChapterDecisionGates | undefined,
+  reviewed: boolean,
+): Promise<DraftAdoptionGate> {
+  const status = gates ? decideDraftAdoptionGate(gates, { reviewed }) : "unassessed"
+  if (status !== "passed") return { status }
+  if (chapterNumber === undefined || !Number.isSafeInteger(chapterNumber) || chapterNumber < 1 || !content.trim()) {
+    return { status: "unassessed" }
+  }
+  return { status, bodySha256: await digestManagedDraftBody(chapterNumber, content) }
+}
+
+export async function getManagedDraftAdoptionGate(draft: NovelDraftArtifact): Promise<DraftGateStatus> {
+  if (draft.draft_status === "pending") return "partial"
+  const gate = draft.adoption_gate
+  if (!gate) return "unassessed"
+  if (gate.status !== "passed") {
+    return ["partial", "manual_review", "blocked"].includes(gate.status) ? gate.status : "unassessed"
+  }
+  const checked = await createManagedAdoptionGate(draft.chapter_number, draft.content, draft.decision_gates, true)
+  return checked.status === "passed" && gate.bodySha256 === checked.bodySha256 ? "passed" : "unassessed"
+}
+
+/**
+ * 显式可信复核持久化 seam（chat re-review 上游）：不读模型、不做 IO 之外假设；
+ * 会话锁内校验草稿和已有凭证未变，重算 adoption
+ * gate 并以 review_results + decision_gates + adoption_gate 原样落盘。
+ */
+export async function recordManagedDraftAdoptionGate(input: {
+  projectPath: string
+  reviewed: NovelDraftArtifact
+  chapterNumber: number
+  decisionGates: DeepChapterDecisionGates
+  reviewResults: NovelReviewResult[]
+  finalConsistencyReviewed: boolean
+}): Promise<DraftGateStatus> {
+  return withSessionStatusLock(input.projectPath, async () => {
+    const baseline = await loadDraftForWrite(input.projectPath, input.reviewed.conversation_id)
+    const current = assertManagedDeepChapterDraft(baseline.draft, input.reviewed.conversation_id, "accept")
+    if (current.session_id !== input.reviewed.session_id || current.content !== input.reviewed.content
+      || current.updated_at !== input.reviewed.updated_at || current.chapter_number !== input.reviewed.chapter_number
+      || current.checkpoint?.chapterNumber !== input.reviewed.checkpoint?.chapterNumber
+      || current.adoption_gate?.status !== input.reviewed.adoption_gate?.status
+      || current.adoption_gate?.bodySha256 !== input.reviewed.adoption_gate?.bodySha256
+      || (current.chapter_number !== undefined && current.chapter_number !== input.chapterNumber)
+      || (current.checkpoint?.chapterNumber !== undefined && current.checkpoint.chapterNumber !== input.chapterNumber)) {
+      throw new Error("Draft changed during review; run the checks again")
+    }
+    const adoptionGate = await createManagedAdoptionGate(input.chapterNumber, current.content, input.decisionGates, input.finalConsistencyReviewed)
+    const next = {
+      ...current,
+      chapter_number: input.chapterNumber,
+      review_results: input.reviewResults,
+      decision_gates: input.decisionGates,
+      adoption_gate: adoptionGate,
+      updated_at: new Date().toISOString(),
+    }
+    const path = novelDraftArtifactPath(input.projectPath, current.draft_id)
+    const raw = JSON.stringify(next, null, 2)
+    await writeFilesAtomic([[path, raw]], [baseline.raw])
+    if (await readFile(path, { exactUtf8: true }) !== raw) throw new Error("Could not verify the saved draft review")
+    return adoptionGate.status
+  })
+}
+
+function assertManagedDeepChapterDraft(
+  draft: NovelDraftArtifact | null,
   conversationId: string,
   mode: DraftDecisionMode,
-): Promise<NovelDraftArtifact> {
-  const draft = await loadNovelDraftArtifact(projectPath, conversationId)
-  if (!draft || draft.conversation_id !== conversationId || !draft.session_id) {
+): NovelDraftArtifact {
+  if (!draft || draft.draft_id !== conversationId || draft.conversation_id !== conversationId || !draft.session_id) {
     throw new Error("No managed deep chapter draft found for this conversation.")
   }
 
@@ -985,6 +1141,18 @@ export async function requireManagedDeepChapterDraft(
   }
 
   return draft
+}
+
+export async function requireManagedDeepChapterDraft(
+  projectPath: string,
+  conversationId: string,
+  mode: DraftDecisionMode,
+): Promise<NovelDraftArtifact> {
+  return assertManagedDeepChapterDraft(
+    await loadNovelDraftArtifact(projectPath, conversationId),
+    conversationId,
+    mode,
+  )
 }
 
 /**
@@ -1009,22 +1177,31 @@ export async function registerManagedCampaignDraft(input: {
   finalContent: string
   reviewResults?: NovelReviewResult[]
   decisionGates?: DeepChapterDecisionGates
+  finalConsistencyReviewed?: boolean
 }): Promise<string> {
-  const existing = await loadNovelSessionStatus(input.projectPath)
-  const sessionId = existing?.session_id ?? createNovelSessionId(new Date())
-  return writeDraftArtifact(
-    {
-      projectPath: input.projectPath,
-      conversationId: input.conversationId,
-      userRequest: input.userRequest,
-      chapterNumber: input.chapterNumber,
-    },
-    sessionId,
-    "ready",
-    undefined,
-    input.reviewResults ?? [],
-    { finalContent: input.finalContent, decisionGates: input.decisionGates },
-  )
+  return withSessionStatusLock(input.projectPath, async () => {
+    const existing = await loadNovelSessionStatus(input.projectPath)
+    const sessionId = existing?.session_id ?? createNovelSessionId(new Date())
+    const adoptionGate = await createManagedAdoptionGate(
+      input.chapterNumber,
+      input.finalContent,
+      input.decisionGates,
+      input.finalConsistencyReviewed ?? false,
+    )
+    return writeDraftArtifact(
+      {
+        projectPath: input.projectPath,
+        conversationId: input.conversationId,
+        userRequest: input.userRequest,
+        chapterNumber: input.chapterNumber,
+      },
+      sessionId,
+      "ready",
+      undefined,
+      input.reviewResults ?? [],
+      { finalContent: input.finalContent, decisionGates: input.decisionGates, adoptionGate },
+    )
+  })
 }
 
 /**
@@ -1126,6 +1303,7 @@ export function validateAndBackfillNovelSessionStatus(raw: unknown): NovelSessio
 interface NovelSessionStatusLoadResult {
   status: NovelSessionStatus | null
   corrupt?: { preservedTo: string | null }
+  raw?: string | null
 }
 
 /**
@@ -1168,13 +1346,19 @@ async function preserveCorruptStatusFile(projectPath: string, raw: string): Prom
  * CORR-A: 带损坏诊断的 load 内部实现（公共 loadNovelSessionStatus 委托本函数
  * 并只取 status）。startDeepChapterSession 消费 `corrupt` 标记做覆盖前安全联锁。
  */
-async function loadNovelSessionStatusDetailed(projectPath: string): Promise<NovelSessionStatusLoadResult> {
+async function loadNovelSessionStatusDetailed(
+  projectPath: string,
+  exactForWrite = false,
+): Promise<NovelSessionStatusLoadResult> {
   // 跨读/解析边界保留原始字节：损坏时先保全 `.corrupt-*` 兄弟文件，再
-  // fail-loud 降级返回 null（绝不静默）。
+  // fail-loud 降级返回 null（绝不静默）。exactForWrite 时以 exactUtf8 读
+  // 取原文字节作为 native CAS 基线；缺失返回 raw:null，非缺失读失败上抛。
   let raw: string | undefined
   try {
-    raw = await readFile(novelSessionStatusPath(projectPath))
-    const parsed = JSON.parse(raw) as Partial<NovelSessionStatus>
+    raw = exactForWrite
+      ? await readFile(novelSessionStatusPath(projectPath), { exactUtf8: true })
+      : await readFile(novelSessionStatusPath(projectPath))
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as Partial<NovelSessionStatus>
     if (
       parsed?.schema_version !== "1"
       || typeof parsed.session_id !== "string"
@@ -1199,7 +1383,7 @@ async function loadNovelSessionStatusDetailed(projectPath: string): Promise<Nove
       || !SESSION_LIFECYCLE_STATUSES.includes(parsed.current_task?.status as NovelSessionLifecycleStatus)
       || (parsed.active_step_index !== null && typeof parsed.active_step_index !== "number")
     ) {
-      return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) } }
+      return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) }, raw }
     }
     // T09: zod passthrough 加载边界护栏（校验+默认值回填+保留未知键）。
     // 上方 CORR-008 / PAT-G2 手动枚举/必填校验已通过; 此处再经 zod 护栏回填
@@ -1207,9 +1391,9 @@ async function loadNovelSessionStatusDetailed(projectPath: string): Promise<Nove
     const backfilled = validateAndBackfillNovelSessionStatus(parsed)
     if (!backfilled) {
       // zod 护栏独立拒绝（manual 校验之外）同样是损坏信号：先保全再降级。
-      return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) } }
+      return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) }, raw }
     }
-    return { status: backfilled }
+    return { status: backfilled, raw }
   } catch (err) {
     // CORR-A: 读取失败（ENOENT 等）或空文件无原始字节可保全，保持既有 null
     // 降级；解析失败（raw 已取得）先把原始内容写为 `.corrupt-<时间戳>` 兄弟
@@ -1218,11 +1402,13 @@ async function loadNovelSessionStatusDetailed(projectPath: string): Promise<Nove
     if (raw === undefined && isStatusFileMissingError(err)) {
       // #7：文件缺失是预期降级路径（新项目 / 尚未开写），降为 info，不再污染 warn 日志。
       logger.info("Novel Session", "status.json not present yet, degrade to null", { status: novelSessionStatusPath(projectPath) })
-      return { status: null }
+      return { status: null, raw: null }
     }
+    // exactForWrite 下非缺失读失败不得降级：native CAS 基线缺失必须 fail-loud。
+    if (exactForWrite && raw === undefined) throw err
     logger.warn("Novel Session", "load session detailed failed, degrade to null (non-fatal)", { error: toErrorMessage(err) })
-    if (raw === undefined || raw.length === 0) return { status: null }
-    return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) } }
+    if (raw === undefined || raw.length === 0) return { status: null, raw: raw ?? null }
+    return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) }, raw }
   }
 }
 
@@ -1322,7 +1508,7 @@ async function startDeepChapterSessionWithinLock(
   // `.corrupt-*` 兄弟文件；若保全失败（preservedTo === null），重建覆盖会
   // 丢失唯一副本 → 不得覆盖已有文件，fail-loud 拒绝写盘。既有测试语义不变：
   // 文件缺失/读取失败/空文件不触发；保全成功时照常重建（损坏字节已留存）。
-  const loaded = await loadNovelSessionStatusDetailed(input.projectPath)
+  const loaded = await loadNovelSessionStatusDetailed(input.projectPath, Boolean(input.resumeCheckpoint))
   if (loaded.corrupt && loaded.corrupt.preservedTo === null) {
     throw new Error(
       `[novel-session-status] 拒绝覆盖未保全的损坏 status.json（${novelSessionStatusPath(input.projectPath)}）：preservation failed`,
@@ -1341,17 +1527,25 @@ async function startDeepChapterSessionWithinLock(
   next.draft.checkpoint_stage = input.resumeCheckpoint?.stage
   next.resume_checkpoint = input.resumeCheckpoint
   if (input.resumeCheckpoint) {
-    const savedDraftPath = await writeDraftArtifact(
+    // resume 走同批原子写：draft + status 经 prepareDraftWrites +
+    // persistCheckpointBaseWithinLock 一次性落盘（与 accept 同一批守卫路径），
+    // 避免重启续写的 draft/status 分步提交分叉。
+    if (loaded.raw === undefined) throw new Error("Missing expected bytes for resumed session")
+    const baseline = await loadDraftForWrite(input.projectPath, input.conversationId)
+    const prepared = await prepareDraftWrites(
       input,
       sessionId,
       "pending",
       input.resumeCheckpoint,
       input.resumeCheckpoint.reviewResults ?? [],
       { decisionGates: input.resumeCheckpoint.decisionGates },
+      baseline,
     )
-    next.draft.file_path = savedDraftPath
+    next.draft.file_path = prepared.filePath
     next.decision_gates = cloneDecisionGates(input.resumeCheckpoint.decisionGates)
-    next.evidence_refs = mergeEvidenceRefs(savedDraftPath)
+    next.evidence_refs = mergeEvidenceRefs(prepared.filePath)
+    await persistCheckpointBaseWithinLock(input.projectPath, sessionId, next, undefined, prepared.files, false, loaded.raw)
+    return next
   }
   await writeNovelSessionStatusUnlocked(input.projectPath, next)
   return next
@@ -1440,6 +1634,14 @@ async function completeDeepChapterSessionWithinLock(
     )
   // P0 原子提交：先 prepare 草稿待提交文件（不落盘），再构造 status，最后
   // 单次 writeFilesAtomic 批量提交 draft + status 同事务。
+  // Receipt 只用显式输入（gates/final body/复核钉死的 chapter number），
+  // 不把 stale checkpoint/base gates 升格为 passed receipt。
+  const adoptionGate = await createManagedAdoptionGate(
+    input.checkpoint?.chapterNumber ?? input.chapterNumber,
+    input.finalContent,
+    input.decisionGates,
+    input.finalConsistencyReviewed ?? false,
+  )
   const prepared = await prepareDraftWrites(
     input,
     input.sessionId,
@@ -1448,7 +1650,8 @@ async function completeDeepChapterSessionWithinLock(
     input.reviewResults ?? [],
     {
       finalContent: input.finalContent,
-      decisionGates: input.checkpoint?.decisionGates ?? base.decision_gates,
+      decisionGates: input.decisionGates ?? input.checkpoint?.decisionGates ?? base.decision_gates,
+      adoptionGate,
       contextUsage: input.contextUsage,
     },
   )
@@ -1471,7 +1674,7 @@ async function completeDeepChapterSessionWithinLock(
       checkpoint_stage: input.checkpoint?.stage,
       updated_at: now,
     },
-    decision_gates: input.checkpoint?.decisionGates ?? base.decision_gates,
+    decision_gates: input.decisionGates ?? input.checkpoint?.decisionGates ?? base.decision_gates,
     resume_checkpoint: input.checkpoint,
     evidence_refs: mergeEvidenceRefs(...base.evidence_refs, draftPath),
     // DC-2: 6-dim review map via centralized resolveDimensionResults helper
@@ -1675,26 +1878,35 @@ function resolveDecisionBaseStatus(
 }
 
 export async function acceptDeepChapterDraft(
-  input: DraftDecisionInput,
+  input: AcceptDeepChapterDraftInput,
 ): Promise<NovelSessionStatus> {
   // ST-1: load→requireManaged→write 收进同一把锁（报告 :1475 accept 锁外读）。
   return withSessionStatusLock(input.projectPath, () => acceptDeepChapterDraftWithinLock(input))
 }
 
 async function acceptDeepChapterDraftWithinLock(
-  input: DraftDecisionInput,
+  input: AcceptDeepChapterDraftInput,
 ): Promise<NovelSessionStatus> {
-  const existing = await loadNovelSessionStatus(input.projectPath)
-  const draft = await requireManagedDeepChapterDraft(input.projectPath, input.conversationId, "accept")
-  const now = new Date().toISOString()
-  // B2（守门四件套接线）：commit-discipline 接 accept 前单章闭环断言（v2.6.7 D4）。
-  // 断言位置：回填发生前（writeDraftArtifact 之前），违规 → 拒绝 accept（fail-loud）。
-  // checkCommitDiscipline 为纯函数（ADR-19 零 IO），此处只读断言、无额外副作用。
+  // 写级精确基线：status 以 exactUtf8 读（corrupt/读失败 fail-loud，缺失除外），
+  // draft 以 loadDraftForWrite 同粒度读取；native CAS 用 reviewed 字节而非重读。
+  const loaded = await loadNovelSessionStatusDetailed(input.projectPath, true)
+  if (loaded.corrupt || loaded.raw === undefined) {
+    throw new Error("Cannot accept with an unreadable session status")
+  }
+  const existing = loaded.status
+  const baseline = await loadDraftForWrite(input.projectPath, input.conversationId)
+  const draft = assertManagedDeepChapterDraft(baseline.draft, input.conversationId, "accept")
+  // 请求 session/chapter 必须与本次草稿一致。
+  const chapterNumber = draft.chapter_number
+  if ((input.sessionId !== undefined && input.sessionId !== draft.session_id)
+    || (input.chapterNumber !== undefined && input.chapterNumber !== chapterNumber)
+    || (draft.checkpoint?.chapterNumber !== undefined && draft.checkpoint.chapterNumber !== chapterNumber)
+    || (input.resumeCheckpoint?.chapterNumber !== undefined && input.resumeCheckpoint.chapterNumber !== chapterNumber)) {
+    throw new Error("The draft no longer matches the requested session or chapter")
+  }
+  // B2：先检查单章提交范围，无章声明须在写回前 fail-loud 拒绝。
   const discipline = checkCommitDiscipline({
-    chapterIds:
-      draft?.chapter_number != null || input.chapterNumber != null
-        ? [String(draft?.chapter_number ?? input.chapterNumber)]
-        : [],
+    chapterIds: chapterNumber == null ? [] : [String(chapterNumber)],
     touchesStatusJson: true,
     touchesCanonicalContent: input.formalChapterPath != null,
     touchesCanonicalMemory: input.formalChapterPath != null,
@@ -1704,21 +1916,55 @@ async function acceptDeepChapterDraftWithinLock(
       `[commit-discipline] accept 被拒绝（单章 Draft-first 闭环违规）：${discipline.reasons.join("；")}`,
     )
   }
+  // 未经复核（或正文被改）的草稿一律拒绝，先于正式写。
+  if (await getManagedDraftAdoptionGate(draft) !== "passed") {
+    throw new Error("Review the exact draft body before accepting it")
+  }
+  // 正式路径必须三要素齐全（path + content + callback），缺任一 fail closed——
+  // 反序列化/程序化非法调用方仍会触发运行时拒绝。
+  if (!input.formalChapterPath || input.finalChapterContent === undefined || !input.writeVerifiedChapter) {
+    throw new Error("Formal chapter acceptance requires the target path, the exact document and the verified writer")
+  }
+  const normalizedRoot = normalizePath(input.projectPath).replace(/\/+$/, "")
+  const normalizedTarget = normalizePath(input.formalChapterPath)
+  const allowed = ["/wiki/chapters/", "/QM/chapters/"]
+    .map((prefix) => normalizedRoot + prefix)
+    .some((prefix) => {
+      if (!normalizedTarget.startsWith(prefix)) return false
+      const rest = normalizedTarget.slice(prefix.length)
+      return rest.length > 0 && !rest.includes("/") && rest.endsWith(".md")
+    })
+  const relative = normalizedTarget.slice(normalizedRoot.length + 1)
+  if (!allowed || relative.includes("..") || relative.includes(":")) {
+    throw new Error("Formal chapter path is outside the managed chapters root")
+  }
+  const header = readManagedChapterHeader(input.finalChapterContent)
+  if (!header || header.frontmatter?.type !== "chapter"
+    || header.chapterNumber !== chapterNumber || header.frontmatter.chapter_status !== "final") {
+    throw new Error("Formal chapter frontmatter does not match the reviewed draft")
+  }
+  if (!header.prefix.endsWith("\n") || input.finalChapterContent.slice(header.prefix.length) !== draft.content) {
+    throw new Error("Formal chapter body differs from the reviewed draft")
+  }
+  const now = new Date().toISOString()
   const decisionInput = {
     ...input,
     sessionId: input.sessionId ?? draft.session_id,
   }
   const base = resolveDecisionBaseStatus(existing, decisionInput, now)
-  const checkpoint = draft?.checkpoint ?? base.resume_checkpoint ?? input.resumeCheckpoint
-  const chapterNumber = draft?.chapter_number ?? checkpoint?.chapterNumber ?? base.current_task.chapter_number ?? input.chapterNumber /* v8 ignore start */ /* v8 ignore stop */
+  // 战役可复用 session_id，但不能让其他会话或章节的 checkpoint 改写实际采纳的章号。
+  const baseCheckpoint = base.current_task.conversation_id === draft.conversation_id ? base.resume_checkpoint : undefined
+  const checkpoint = draft.checkpoint
+    ?? (baseCheckpoint?.chapterNumber === undefined || baseCheckpoint.chapterNumber === chapterNumber ? baseCheckpoint : undefined)
+    ?? input.resumeCheckpoint
   const reviewResults = draft?.review_results ?? checkpoint?.reviewResults ?? [] /* v8 ignore start */ /* v8 ignore stop */
   const decisionGates = draft?.decision_gates ?? checkpoint?.decisionGates ?? base.decision_gates /* v8 ignore start */ /* v8 ignore stop */
   // P0 原子提交：prepare 不落盘，后续与 status 同一批次提交。
-  // 断言位置保持回填发生前（prepare 之前已做 commit-discipline 校验）。
   const prepared = await prepareDraftWrites(
     {
       ...input,
       chapterNumber,
+      resumeCheckpoint: checkpoint,
     },
     base.session_id,
     "accepted",
@@ -1729,7 +1975,9 @@ async function acceptDeepChapterDraftWithinLock(
       acceptedAt: now,
       formalChapterPath: input.formalChapterPath,
       decisionGates,
+      adoptionGate: draft.adoption_gate,
     },
+    baseline,
   )
   const draftPath = prepared.filePath
   const next = buildLifecycleStatus(base, {
@@ -1737,6 +1985,8 @@ async function acceptDeepChapterDraftWithinLock(
     status: "completed",
     active_step_index: stageToActiveStepIndex("completed"),
     current_task: {
+      task_id: taskIdForConversation(draft.conversation_id),
+      conversation_id: draft.conversation_id,
       user_request: normalizeUserRequest(input.userRequest),
       chapter_number: chapterNumber,
       checkpoint_stage: "completed",
@@ -1762,8 +2012,24 @@ async function acceptDeepChapterDraftWithinLock(
     // Mirror the other 4 lifecycle functions via the centralized helper.
     dimension_results: resolveDimensionResults(checkpoint, base),
   })
-  await persistCheckpointBaseWithinLock(input.projectPath, base.session_id, next, undefined, prepared.files)
-  return next
+  const withChaseDebt = accrueAllChaseDebtInterest(
+    createChaseDebtFromHook(next, chapterNumber, draft.content.slice(-200)),
+    chapterNumber,
+  )
+  const rollback = await input.writeVerifiedChapter()
+  try {
+    // accept 路径以 native 批量字节终验为权威（false）：已成功的批次不被后续
+    // TS 回读 IO 失败否定；native 失败仍走正式写 rollback 闭包。
+    await persistCheckpointBaseWithinLock(input.projectPath, base.session_id, withChaseDebt, undefined, prepared.files, false, loaded.raw)
+  } catch (error) {
+    try {
+      await rollback()
+    } catch (rollbackError) {
+      throw new Error(`Failed to roll back formal chapter write: ${toErrorMessage(rollbackError)}; original error: ${toErrorMessage(error)}`)
+    }
+    throw error
+  }
+  return withChaseDebt
 }
 
 export async function rejectDeepChapterDraft(
@@ -2085,8 +2351,11 @@ export async function subscribeStatusJson(
       .then(async (status) => {
         await onStatus(status)
       })
-      .catch(() => {
-        // 重读失败：消费方按既有空态（null）语义处理，不向上抛出
+      .catch((err) => {
+        // ISS-20260709-025 PAT-IM2: 重读失败记诊断；消费方按既有空态语义处理，不向上抛出。
+        logger.warn("Novel Session", "status.json watcher reload failed (non-fatal)", {
+          error: toErrorMessage(err),
+        })
       })
   })
 }

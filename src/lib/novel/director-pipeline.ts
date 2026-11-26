@@ -110,18 +110,27 @@ export function advanceDirectorPhase(
   if (blockedReason !== null) {
     statuses[phase] = "failed"
     retryCount[phase] = (retryCount[phase] ?? 0) + 1
-    return { state: { ...state, statuses, retryCount, lastUpdated: new Date().toISOString() }, advanced: false, blockedReason, completed: false }
+    return {
+      state: { ...state, statuses, retryCount, lastError: blockedReason, lastUpdated: new Date().toISOString() },
+      advanced: false,
+      blockedReason,
+      completed: false,
+    }
   }
 
   statuses[phase] = "done"
   const idx = DIRECTOR_PHASES.indexOf(phase)
   if (idx === DIRECTOR_PHASES.length - 1) {
-    return { state: { ...state, statuses, retryCount, lastUpdated: new Date().toISOString() }, advanced: true, completed: true }
+    return {
+      state: { ...state, statuses, retryCount, lastError: undefined, lastUpdated: new Date().toISOString() },
+      advanced: true,
+      completed: true,
+    }
   }
   const next = DIRECTOR_PHASES[idx + 1]
   statuses[next] = "running"
   return {
-    state: { ...state, currentPhase: next, statuses, retryCount, lastUpdated: new Date().toISOString() },
+    state: { ...state, currentPhase: next, statuses, retryCount, lastError: undefined, lastUpdated: new Date().toISOString() },
     advanced: true,
     completed: false,
   }

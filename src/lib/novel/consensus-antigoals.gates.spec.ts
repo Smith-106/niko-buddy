@@ -6,6 +6,8 @@
  *
  * @license MIT © Niko Buddy
  */
+import { spawnSync } from "node:child_process"
+import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   AG1_MAX_CORPUS_ENTRIES,
@@ -179,5 +181,17 @@ describe("R-1 反目标判定核", () => {
     snapshot.externalRetrievalDefs = ["src/lib/x.ts:rankByBm25"]
     snapshot.ruleStackQualityGuardPresent = false
     expect(ids(snapshot)).toEqual(["AG1", "AG2", "AG4", "AG5", "AG6"])
+  })
+
+  it("IO 门禁脚本 smoke：guard-consensus-antigoals.mjs 真实子进程执行通过（6/6）", () => {
+    const repoRoot = resolve(__dirname, "..", "..", "..")
+    const scriptPath = resolve(repoRoot, "scripts", "guard-consensus-antigoals.mjs")
+    const result = spawnSync(process.execPath, [scriptPath], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.status, `stderr: ${result.stderr}\nstdout: ${result.stdout}`).toBe(0)
+    expect(result.stdout).toContain("[antigoals] ALL PASS (6/6)")
   })
 })

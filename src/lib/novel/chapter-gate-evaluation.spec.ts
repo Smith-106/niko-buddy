@@ -58,7 +58,7 @@ const fakePack = { marker: "pack" } as unknown as ContextPack
 beforeEach(() => {
   runFullReviewWithSixDim.mockReset()
   buildContextPack.mockReset()
-  runFullReviewWithSixDim.mockResolvedValue({ reviewResults: FIXTURE, dimensionResults: {} })
+  runFullReviewWithSixDim.mockResolvedValue({ reviewResults: FIXTURE, dimensionResults: {}, semanticReviewCompleted: true })
   // updated_at 用真实时钟 → 固定系统时间，保证两次构建逐字段可比
   vi.useFakeTimers()
   vi.setSystemTime(new Date("2026-11-04T00:00:00.000Z"))
@@ -119,7 +119,7 @@ describe("evaluateChapterGates", () => {
   })
 
   it("空 findings 时三门 passed、overall pass（pending 只属未评估路径）", async () => {
-    runFullReviewWithSixDim.mockResolvedValue({ reviewResults: [], dimensionResults: {} })
+    runFullReviewWithSixDim.mockResolvedValue({ reviewResults: [], dimensionResults: {}, semanticReviewCompleted: true })
     const evaluation = await evaluateChapterGates({
       projectPath: "/proj",
       chapterContent: "正文",
@@ -129,6 +129,35 @@ describe("evaluateChapterGates", () => {
     expect(evaluation.decisionGates.anti_ai.status).toBe("passed")
     expect(evaluation.decisionGates.quality.status).toBe("passed")
     expect(evaluation.decisionGates.overall).toBe("pass")
+  })
+
+  it("semanticReviewCompleted=false 时空 findings 三门 pending、overall pending（不误报通过）", async () => {
+    runFullReviewWithSixDim.mockResolvedValue({ reviewResults: [], dimensionResults: {}, semanticReviewCompleted: false })
+    const evaluation = await evaluateChapterGates({
+      projectPath: "/proj",
+      chapterContent: "正文",
+      contextPack: fakePack,
+    })
+    expect(evaluation.decisionGates.consistency.status).toBe("pending")
+    expect(evaluation.decisionGates.anti_ai.status).toBe("pending")
+    expect(evaluation.decisionGates.quality.status).toBe("pending")
+    expect(evaluation.decisionGates.overall).toBe("pending")
+    expect(evaluation.unassessedGates).toEqual(["consistency", "anti_ai", "quality"])
+    expect(evaluation.unassessedDimensions).toContain("ai_review")
+  })
+
+  it("semanticReviewCompleted=false 但含 error finding 时对应门仍 fail，其余 pending", async () => {
+    const errorFinding = { severity: "error" as const, type: "character_consistency" as const, message: "硬伤", evidence: "e", relatedMemory: "", suggestion: "s" }
+    runFullReviewWithSixDim.mockResolvedValue({ reviewResults: [errorFinding], dimensionResults: {}, semanticReviewCompleted: false })
+    const evaluation = await evaluateChapterGates({
+      projectPath: "/proj",
+      chapterContent: "正文",
+      contextPack: fakePack,
+    })
+    expect(evaluation.decisionGates.consistency.status).toBe("failed")
+    expect(evaluation.decisionGates.anti_ai.status).toBe("pending")
+    expect(evaluation.decisionGates.quality.status).toBe("pending")
+    expect(evaluation.decisionGates.overall).not.toBe("pass")
   })
 })
 
@@ -146,7 +175,7 @@ describe("evaluateChapterGates 契约维度与轮次可覆盖（F1c）", () => {
   ].join("\n")
 
   it("传带契约段的 taskBrief：契约维度参与判定（contractEvaluated=true，契约 findings 并入）", async () => {
-    runFullReviewWithSixDim.mockResolvedValue({ reviewResults: [], dimensionResults: {} })
+    runFullReviewWithSixDim.mockResolvedValue({ reviewResults: [], dimensionResults: {}, semanticReviewCompleted: true })
     const evaluation = await evaluateChapterGates({
       projectPath: "/proj",
       chapterContent: "晴天里角色坐在窗前喝茶。",
@@ -221,5 +250,56 @@ describe("evaluateChapterGates 契约维度与轮次可覆盖（F1c）", () => {
     expect(evaluation.reviewParseFailed).toBe(true)
     expect(evaluation.unassessedGates).toEqual(["consistency", "anti_ai", "quality"])
     expect(evaluation.decisionGates.overall).toBe("pending")
+  })
+
+  it("R2-W03：透传 genre（或回退 novelConfig.genre）到 runFullReviewWithSixDim 并作用于门控", async () => {
+    const threeQualityWarnings: NovelReviewResult[] = [1, 2, 3].map((i) =>
+      finding({ severity: "warning", type: "quality", message: `质量告警-${i}` }),
+    )
+    runFullReviewWithSixDim.mockResolvedValue({
+      reviewResults: threeQualityWarnings,
+      dimensionResults: {},
+      semanticReviewCompleted: true,
+    })
+
+    const evaluation = await evaluateChapterGates({
+      projectPath: "/proj",
+      chapterContent: "正文",
+      chapterNumber: 3,
+      novelConfig: { deepChapterReview: true, genre: "tuili" } as never,
+      contextPack: fakePack,
+    })
+
+    expect(runFullReviewWithSixDim.mock.calls[0][7]).toBe("tuili")
+    expect(evaluation.decisionGates.quality.status).toBe("failed")
+    expect(evaluation.decisionGates.overall).toBe("fail")
+  })
+
+  it("R2-W09：向 buildContextPack 与 runFullReviewWithSixDim 透传注入的 novelConfig / llmConfig / novelMode", async () => {
+    buildContextPack.mockResolvedValueOnce(fakePack)
+    const injectedNovel = { deepChapterReview: true, genre: "xuanhuan", searchTopK: 12 } as never
+    const injectedLlm = { provider: "openai", apiKey: "sk-test", model: "gpt-4o", ollamaUrl: "", customEndpoint: "", maxContextSize: 128000 } as never
+    await evaluateChapterGates({
+      projectPath: "/proj",
+      chapterContent: "正文",
+      chapterNumber: 6,
+      novelConfig: injectedNovel,
+      llmConfig: injectedLlm,
+    })
+
+    expect(buildContextPack).toHaveBeenCalledWith(
+      "/proj",
+      expect.any(String),
+      6,
+      {
+        novelConfig: injectedNovel,
+        llmConfig: injectedLlm,
+        novelMode: true,
+      },
+    )
+    expect(runFullReviewWithSixDim.mock.calls[0][8]).toEqual({
+      novelConfig: injectedNovel,
+      llmConfig: injectedLlm,
+    })
   })
 })

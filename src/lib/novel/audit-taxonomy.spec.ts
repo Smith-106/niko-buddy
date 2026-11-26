@@ -28,6 +28,7 @@ import {
   getGateForDimension,
   // 48/49 号 §六-④ 题材条件化新增符号 (50 号报告 S0 spec 补测)
   GENRE_AUDIT_ACTIVATION,
+  normalizeAuditGenre,
   selectAuditDimensions,
   getUpgradeThreshold,
   getRepairScope,
@@ -431,5 +432,40 @@ describe("getRepairScope（§六-④ repair_scope 路由）", () => {
 
   it("未注册 genre → 默认路由（无表项不抛）", () => {
     expect(getRepairScope("wuxia", "timeline_consistency")).toBe("rewrite_body")
+  })
+})
+
+describe("R2-W03 normalizeAuditGenre — 英/中/拼音统一接入三函数", () => {
+  it("英文码、中文名、拼音键统一归一到规范键，空白/undefined 返回 undefined", () => {
+    expect(normalizeAuditGenre(undefined)).toBeUndefined()
+    expect(normalizeAuditGenre("   ")).toBeUndefined()
+    for (const alias of ["mystery", "MYSTERY", "悬疑", "推理", "悬疑推理", "tuili"]) {
+      expect(normalizeAuditGenre(alias)).toBe("tuili")
+    }
+    for (const alias of ["lingyi", "灵异", "悬疑灵异", "horror"]) {
+      expect(normalizeAuditGenre(alias)).toBe("lingyi")
+    }
+    for (const alias of ["duanpian", "短篇", "short"]) {
+      expect(normalizeAuditGenre(alias)).toBe("duanpian")
+    }
+    for (const alias of ["tiyu", "体育", "sports"]) {
+      expect(normalizeAuditGenre(alias)).toBe("tiyu")
+    }
+    for (const alias of ["qita", "general", "其他"]) {
+      expect(normalizeAuditGenre(alias)).toBe("qita")
+    }
+    expect(normalizeAuditGenre("  XuanHuan ")).toBe("xuanhuan")
+  })
+
+  it("selectAuditDimensions / getUpgradeThreshold / getRepairScope 对英/中/拼音口径一致", () => {
+    expect(selectAuditDimensions("mystery")).toEqual(selectAuditDimensions("tuili"))
+    expect(selectAuditDimensions("悬疑")).toEqual(selectAuditDimensions("tuili"))
+    expect(selectAuditDimensions("mystery")).toHaveLength(34)
+
+    expect(getUpgradeThreshold("mystery", "timeline_consistency")).toBe(1)
+    expect(getUpgradeThreshold("悬疑", "causal_chain")).toBe(1)
+
+    expect(getRepairScope("mystery", "timeline_consistency")).toBe("resettle_only")
+    expect(getRepairScope("悬疑", "timeline_consistency")).toBe("resettle_only")
   })
 })

@@ -2,7 +2,7 @@
 // memoryJournal：测试专用内存 journal 依赖，写计数必须可观察。
 import { describe, expect, it } from "vitest"
 
-import { memoryJournal } from "./stage-output-journal-test-helpers"
+import { memoryJournal } from "@/test-helpers/stage-output-journal-test-helpers"
 
 describe("memoryJournal", () => {
   it("初始写计数为 0；写一次后写入计数与文件表同步", async () => {

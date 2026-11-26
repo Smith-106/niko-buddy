@@ -97,13 +97,15 @@ export async function resolveEntityPath(
  */
 export async function listEntityFiles(
   projectPath: string,
+  options: { failLoud?: boolean } = {},
 ): Promise<Array<{ name: string; path: string }>> {
   const pp = normalizePath(projectPath).replace(/\/+$/, "")
   const base = `${pp}/wiki/entities`
   let tree: FileNode[] = []
   try {
     tree = await listDirectory(base)
-  } catch {
+  } catch (err) {
+    if (options.failLoud) throw err
     return []
   }
   // flattenMdFilesBase 已递归处理 is_dir/children——天然聚合子目录+顶层散装。

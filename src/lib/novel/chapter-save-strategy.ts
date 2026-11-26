@@ -1,4 +1,5 @@
 import { parseFrontmatter } from "@/lib/frontmatter"
+import { parseChapterNumber } from "./chapter-meta"
 
 // C4 门控覆盖守卫（方案 a 落地说明 · B2 审计溯源 run-65559216952f）：
 // - decideChapterSaveStrategy 只决定「目标章节编号」；是否覆盖已有正文的判定
@@ -67,4 +68,11 @@ export function detectGeneratedTargetChapterNumber(content: string): number | nu
 export function chapterMarkdownHasBody(markdown: string): boolean {
   if (!markdown.trim()) return false
   return parseFrontmatter(markdown).body.trim().length > 0
+}
+
+export function readManagedChapterHeader(document: string) {
+  const prefix = /^\uFEFF?---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/.exec(document)?.[0]
+  if (!prefix) return null
+  const { frontmatter } = parseFrontmatter(prefix.replace(/^\uFEFF/, ""))
+  return { prefix, frontmatter, chapterNumber: parseChapterNumber(frontmatter?.chapter_number) }
 }

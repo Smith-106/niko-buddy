@@ -65,6 +65,8 @@ export function deduplicateResults(
   const fused = new Map<string, {
     result: NovelSearchResult
     fusionScore: number
+    /** 单源同路径取最高 RRF 贡献（不叠加），跨源正常叠加（R2-M08）。 */
+    perSourceBest: Map<NovelSearchResult["type"], number>
     bestContribution: number
     bestRelevance: number
     bestRank: number
@@ -81,9 +83,11 @@ export function deduplicateResults(
     const existing = fused.get(key)
 
     if (!existing) {
+      const perSourceBest = new Map<NovelSearchResult["type"], number>([[r.type, contribution]])
       fused.set(key, {
         result: cleanResult,
         fusionScore: contribution,
+        perSourceBest,
         bestContribution: contribution,
         bestRelevance: r.relevance,
         bestRank: sourceRank,
@@ -92,7 +96,14 @@ export function deduplicateResults(
       continue
     }
 
-    existing.fusionScore += contribution
+    const prevSourceContribution = existing.perSourceBest.get(r.type)
+    if (prevSourceContribution === undefined) {
+      existing.perSourceBest.set(r.type, contribution)
+      existing.fusionScore += contribution
+    } else if (contribution > prevSourceContribution) {
+      existing.perSourceBest.set(r.type, contribution)
+      existing.fusionScore += contribution - prevSourceContribution
+    }
     if (shouldReplaceRepresentative(existing, r, contribution)) {
       existing.result = cleanResult
       existing.bestContribution = contribution

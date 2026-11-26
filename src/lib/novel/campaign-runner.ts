@@ -61,12 +61,15 @@ import {
   type ArbitrationRequest,
 } from "./cruise-arbitration"
 import { decidePausedChapter, type PausedChapterDecision } from "./cruise-wiring"
-import { updateChapterStatus } from "./chapter-meta"
-import { normalizeChapterDocument, resolveChapterTitle, stripCodeFence } from "./chapter-typography"
-import { commitAcceptedDeepChapterDraft } from "./formal-writeback"
+import { chapterMarkdownHasBody, readManagedChapterHeader } from "./chapter-save-strategy"
+import { findChapterFileByNumber, invalidateChapterCache } from "./chapter-utils"
+import { resolveChapterTitle } from "./chapter-typography"
+import { decideDraftAdoptionGate } from "./deep-chapter-decision-gates"
+import { buildManagedChapterDocument, commitAcceptedDeepChapterDraft, readManagedChapterForWrite } from "./formal-writeback"
 import {
   appendStageMetric,
   buildNextStatus,
+  digestManagedDraftBody,
   registerManagedCampaignDraft,
   updateNovelSessionStatus,
 } from "./novel-session-status"
@@ -88,6 +91,7 @@ export interface CampaignChapterResult {
   taskBrief: string
   draftContent: string
   decisionGates?: DeepChapterDecisionGates
+  reviewedBodySha256?: string
   reviewResults: NovelReviewResult[]
   revised: boolean
   wordCount: number
@@ -100,6 +104,8 @@ export interface CampaignChapterResult {
   skipped?: boolean
   /** 全自动巡航模式下是否已自动提交晋升正式章节 */
   autoAccepted?: boolean
+  /** 全自动巡航模式下是否已有可验证的事实库摄取回执 */
+  autoIngested?: boolean
 }
 
 export interface CampaignRunOptions {
@@ -110,12 +116,15 @@ export interface CampaignRunOptions {
   chapterCount: number
   llmConfig: LlmConfig
   novelConfig?: NovelConfig
+  /** 可选题材覆盖；缺省回退 novelConfig.genre 透传至深章生成与审查门控。 */
+  genre?: string
+  incubationSkeletons?: ReadonlyMap<string, string>
   /**
    * 全自动巡航推进模式 (Autonomous Cruise Mode)
    * 当为 true 时，单章经过三级门控自愈全绿通过（status === "ready" 且无阻断缺陷）后，
    * 系统将自动原地正式提交该章并执行事实库摄取与双写，
    * 随后无缝读取最新事实库继续推进下一章；
-   * 若某章发生阻断（blocked 或 failed），巡航自动安全挂起待人工介入。
+   * 若某章未正式接受，巡航自动安全挂起待人工介入。
    */
   cruiseMode?: boolean
   /**
@@ -165,12 +174,12 @@ export interface BatchAcceptResult {
 
 /**
  * H1 晋升收拢：可验收过滤纯函数。
- * 仅保留门控全绿（status === "ready"）且正文非空的章节草稿，其余（failed/blocked/partial/空白）一律跳过。
+ * 仅保留就绪、未自动落盘、带复核凭证且正文非空的草稿；正式接受时重新验证门控与正文摘要。
  */
 export function filterAcceptableChapters(
   chapterResults: CampaignChapterResult[],
 ): CampaignChapterResult[] {
-  return chapterResults.filter((c) => c.status === "ready" && c.content.trim().length > 0)
+  return chapterResults.filter((c) => c.status === "ready" && !c.autoAccepted && !!c.reviewedBodySha256 && c.content.trim().length > 0)
 }
 
 /**
@@ -209,6 +218,11 @@ function campaignPartial(status: CampaignChapterResult["status"], skipped?: bool
   return !(status === "ready" && !skipped)
 }
 
+function describeCruisePause(chapter: CampaignChapterResult): string {
+  if (chapter.status !== "ready") return `门控未通过(${chapter.status})`
+  return chapter.reviewedBodySha256 ? "正式正文未验收落盘" : "缺少与正文绑定的复核凭证"
+}
+
 /**
  * 启动预演式批量战役调度
  */
@@ -222,6 +236,7 @@ export async function runAutonomousDraftCampaign(
     llmConfig,
     novelConfig = CRUISE_FULL_CONFIG,
     cruiseMode = false,
+    incubationSkeletons,
     arbitrationProvider,
     buildChapterRequest,
     enableEventPool = false,
@@ -319,11 +334,13 @@ export async function runAutonomousDraftCampaign(
 
     // F3：单章生成尝试（含门控映射与巡航自动晋升），首跑与仲裁 retry 重跑共用。
     const attemptChapter = async (requestText: string): Promise<CampaignChapterResult> => {
+      const effectiveGenre = options.genre ?? novelConfig.genre
       const genResult = await runDeepChapterGeneration(
         {
           projectPath: pp,
           userRequest: requestText,
           chapterNumber: currentChapterNum,
+          ...(effectiveGenre ? { genre: effectiveGenre } : {}),
           llmConfig,
           novelConfig,
           dismantlingReferenceDirective: dismantlingDirective,
@@ -342,7 +359,7 @@ export async function runAutonomousDraftCampaign(
         signal,
       )
 
-      const finalTxt = genResult.finalContent.trim()
+      const finalTxt = genResult.finalContent
       const words = countWords(finalTxt)
       totalWords += words
 
@@ -351,10 +368,16 @@ export async function runAutonomousDraftCampaign(
         : genResult.partial
           ? "partial"
           : "ready"
+      const reviewedBodySha256 = attemptStatus === "ready"
+        && finalTxt.trim().length > 0
+        && decideDraftAdoptionGate(genResult.decisionGates, { reviewed: genResult.finalConsistencyReviewed === true }) === "passed"
+        ? await digestManagedDraftBody(currentChapterNum, finalTxt)
+        : undefined
 
       let isAutoAccepted = false
+      let isAutoIngested = false
       // 全自动巡航推进：门控全绿时自动原地提交晋升正式章节，并自动摄取事实库
-      if (cruiseMode && attemptStatus === "ready" && finalTxt.length > 0) {
+      if (cruiseMode && reviewedBodySha256) {
         onProgress?.({
           stage: "auto-accepting",
           current: idx + 1,
@@ -372,6 +395,7 @@ export async function runAutonomousDraftCampaign(
                 draftContent: genResult.draftContent,
                 reviewResults: genResult.reviewResults,
                 decisionGates: genResult.decisionGates,
+                reviewedBodySha256,
                 revised: genResult.revised,
                 wordCount: words,
                 status: "ready",
@@ -381,9 +405,11 @@ export async function runAutonomousDraftCampaign(
               autoIngest: true,
               llmConfig,
               novelConfig,
+              incubationSkeletons,
             },
           )
           isAutoAccepted = acceptRes.acceptedCount > 0
+          isAutoIngested = acceptRes.ingestedCount > 0
         } catch (acceptErr) {
           console.warn(`[campaign-runner] 第 ${currentChapterNum} 章全自动巡航晋升失败:`, acceptErr)
         }
@@ -395,11 +421,13 @@ export async function runAutonomousDraftCampaign(
         taskBrief: genResult.taskBrief,
         draftContent: genResult.draftContent,
         decisionGates: genResult.decisionGates,
+        reviewedBodySha256,
         reviewResults: genResult.reviewResults,
         revised: genResult.revised,
         wordCount: words,
         status: attemptStatus,
         autoAccepted: isAutoAccepted,
+        autoIngested: isAutoIngested,
       }
     }
 
@@ -415,14 +443,14 @@ export async function runAutonomousDraftCampaign(
       results.push(chapterResult)
       onChapterComplete?.(currentChapterNum, chapterResult)
 
-      // 巡航安全守护：若在全自动巡航模式下遇到未通过（blocked / partial），走 F3 仲裁闭环；
-      // 无 provider 或无有效指令时保持现有 paused 行为（安全挂起待人工介入）。
-      if (cruiseMode && chapterResult.status !== "ready") {
-        const arbitrationRequest = buildArbitrationRequest(chapterResult)
-        const arbitrationJson = JSON.stringify(arbitrationRequest)
-        onProgress?.({ stage: "arbitration-pending", current: idx + 1, total, message: arbitrationJson })
+      // 草稿生成就绪不等于正式落盘。未通过门控可仲裁；就绪但未正式采纳则直接暂停。
+      if (cruiseMode && (chapterResult.status !== "ready" || chapterResult.autoAccepted !== true)) {
+        const arbitrationRequest = chapterResult.status === "ready" ? null : buildArbitrationRequest(chapterResult)
+        if (arbitrationRequest) {
+          onProgress?.({ stage: "arbitration-pending", current: idx + 1, total, message: JSON.stringify(arbitrationRequest) })
+        }
 
-        if (arbitrationProvider) {
+        if (arbitrationRequest && arbitrationProvider) {
           let directive: ArbitrationDirective | null = null
           try {
             directive = await arbitrationProvider(arbitrationRequest)
@@ -474,7 +502,7 @@ export async function runAutonomousDraftCampaign(
             } catch {
               /* non-fatal: telemetry never blocks cruise */
             }
-            if (retryResult.status === "ready") {
+            if (retryResult.status === "ready" && retryResult.autoAccepted === true) {
               previousDraftSummary = buildCarryoverContext({
                 chapterNumber: currentChapterNum,
                 content: retryResult.content,
@@ -485,7 +513,7 @@ export async function runAutonomousDraftCampaign(
               stage: "cruise-paused",
               current: idx + 1,
               total,
-              message: `[第 ${currentChapterNum} 章] 重跑后仍未通过(${retryResult.status})，全自动巡航已安全挂起并等待人工审阅。`,
+              message: `[第 ${currentChapterNum} 章] 重跑后：${describeCruisePause(retryResult)}，全自动巡航已安全挂起并等待人工审阅。`,
             })
             break
           }
@@ -522,7 +550,7 @@ export async function runAutonomousDraftCampaign(
             })
             continue
           }
-        } else {
+        } else if (arbitrationRequest) {
           // B1 可观测性（零风险 additive）：arbitrationProvider 缺省 → warn + arbitration-no-provider 事件。
           // 默认行为不变：仍落到下方 cruise-paused 安全挂起（人工介入），不自动重试/跳章，不碰晋升通道。
           console.warn(
@@ -540,7 +568,7 @@ export async function runAutonomousDraftCampaign(
           stage: "cruise-paused",
           current: idx + 1,
           total,
-          message: `[第 ${currentChapterNum} 章] 门控未通过(${chapterResult.status})，全自动巡航已安全挂起并等待人工审阅。`,
+          message: `[第 ${currentChapterNum} 章] ${describeCruisePause(chapterResult)}，全自动巡航已安全挂起并等待人工审阅。`,
         })
         // R3：暂停挂起章终局 1 条（原始 chapterResult 为终局；retry/skip 已写过的不重复；吞错永不阻断主链）
         try {
@@ -641,6 +669,7 @@ export async function runAutonomousDraftCampaign(
   const readyCount = results.filter((r) => r.status === "ready").length
   const failedCount = results.filter((r) => r.status === "failed" || r.status === "blocked").length
   const allPassed = failedCount === 0 && readyCount === total
+    && (!cruiseMode || results.every((result) => result.autoAccepted === true))
 
   // R3：战役收笔顶层指针（completed/blocked + active_step_index=endChapter；paused 仍由人工挂起路径写入，本轮只用二值）
   try {
@@ -686,6 +715,7 @@ export async function batchAcceptCampaignDrafts(
     autoIngest?: boolean
     llmConfig?: LlmConfig
     novelConfig?: NovelConfig
+    incubationSkeletons?: ReadonlyMap<string, string>
     onProgress?: (current: number, total: number, path: string) => void
   },
 ): Promise<BatchAcceptResult> {
@@ -697,7 +727,7 @@ export async function batchAcceptCampaignDrafts(
   let acceptedCount = 0
   let ingestedCount = 0
 
-  // 仅提交非空且未失败的章节草稿（纯过滤逻辑见 filterAcceptableChapters，便于单测）
+  // 纯过滤只判断可尝试验收的草稿；正式提交前仍须重算。
   const validChapters = filterAcceptableChapters(chapterResults)
   const total = validChapters.length
 
@@ -705,60 +735,51 @@ export async function batchAcceptCampaignDrafts(
     const ch = validChapters[i]
     const chapterNum = ch.chapterNumber
     const fileName = `chapter-${String(chapterNum).padStart(3, "0")}.md`
-    const filePath = `${chapterDir}/${fileName}`
-
-    options?.onProgress?.(i + 1, total, filePath)
-
-    const dateStr = new Date().toISOString().split("T")[0]
-    // R6 格式回声：模型偶尔把正文包进 ``` 围栏（提示词已禁但非强制）。
-    // 晋升是正文进入正式章的唯一收口，此处剥围栏，避免围栏字面量落进正式正文。
-    const bodyContent = stripCodeFence(ch.content ?? "")
-    const title = resolveChapterTitle(bodyContent, (ch.title ?? "").trim() || `第${chapterNum}章`)
-
-    const rawChapterContent = [
-      "---",
-      "type: chapter",
-      `chapter_number: ${chapterNum}`,
-      "chapter_status: draft",
-      `title: "${title.replace(/"/g, '\\"')}"`,
-      "source: autonomous-campaign",
-      `created: ${dateStr}`,
-      "---",
-      "",
-      `# ${title}`,
-      "",
-      bodyContent,
-      "",
-    ].join("\n")
-
-    // 晋升为 final 正式章节态
-    const finalContent = normalizeChapterDocument(updateChapterStatus(rawChapterContent, "final"), {
-      preferredTitle: title,
-    }).content
-    const userRequest =
-      (ch.taskBrief || "").trim().length > 0
-        ? ch.taskBrief
-        : `请撰写第 ${chapterNum} 章正文。`
+    let filePath = `${chapterDir}/${fileName}`
     try {
+      const body = ch.content
+      const gates = ch.decisionGates
+      if (!Number.isSafeInteger(chapterNum) || chapterNum < 1 || !gates
+        || decideDraftAdoptionGate(gates, { reviewed: true }) !== "passed"
+        || ch.reviewedBodySha256 !== await digestManagedDraftBody(chapterNum, body)) continue
+
+      filePath = await findChapterFileByNumber(pp, chapterNum) ?? filePath
+      options?.onProgress?.(i + 1, total, filePath)
+      const existingContent = await readManagedChapterForWrite(filePath)
+      const expectedSkeleton = options?.incubationSkeletons?.get(filePath)
+      const skeletonHeader = expectedSkeleton === undefined ? null : readManagedChapterHeader(expectedSkeleton)
+      const replacingSkeleton = expectedSkeleton !== undefined && existingContent === expectedSkeleton
+        && skeletonHeader?.frontmatter?.type === "chapter" && skeletonHeader.chapterNumber === chapterNum
+        && skeletonHeader.frontmatter.chapter_status === "planned"
+      if (expectedSkeleton !== undefined && !replacingSkeleton) continue
+      if (!replacingSkeleton && existingContent !== null && chapterMarkdownHasBody(existingContent.replace(/^\uFEFF/, ""))) continue
+
+      const title = resolveChapterTitle(body, (ch.title ?? "").trim() || `第${chapterNum}章`)
+      const finalContent = buildManagedChapterDocument(chapterNum, title, body, "autonomous-campaign")
+      const userRequest = ch.taskBrief?.trim() ? ch.taskBrief : `请撰写第 ${chapterNum} 章正文。`
+      const conversationId = `autonomous-campaign-${chapterNum}-${crypto.randomUUID()}`
       // DF-1：先注册 ready 受管草稿，再走正式晋升。任一步失败都不直写正文、不计入成功。
       await registerManagedCampaignDraft({
         projectPath: pp,
-        conversationId: "autonomous-campaign",
+        conversationId,
         userRequest,
         chapterNumber: chapterNum,
-        finalContent,
+        finalContent: body,
         reviewResults: ch.reviewResults,
-        decisionGates: ch.decisionGates,
+        decisionGates: gates,
+        finalConsistencyReviewed: true,
       })
       await commitAcceptedDeepChapterDraft({
         projectPath: pp,
-        conversationId: "autonomous-campaign",
+        conversationId,
         userRequest,
         chapterNumber: chapterNum,
         chapterPath: filePath,
         finalChapterContent: finalContent,
-        overwriteExisting: true,
+        expectedExistingContent: existingContent,
+        ...(replacingSkeleton ? { overwriteExisting: true } : {}),
       })
+      invalidateChapterCache(pp)
       chapterPaths.push(filePath)
       acceptedCount += 1
     } catch (commitErr) {
@@ -769,18 +790,20 @@ export async function batchAcceptCampaignDrafts(
   // 顺序执行事实摄取与双写
   if (options?.autoIngest && options?.llmConfig && chapterPaths.length > 0) {
     try {
-      const [{ ingestChapter }, { defaultCanonDualWriteDeps }] = await Promise.all([
+      const [{ ingestChapter }, { defaultCanonDualWriteDeps }, { readBackMemoryIngest }] = await Promise.all([
         import("./chapter-ingest"),
         import("./canon-dual-write"),
+        import("./accept-draft-with-ingest"),
       ])
       for (const chPath of chapterPaths) {
         try {
-          await ingestChapter(pp, chPath, options.llmConfig?.model ?? "default", undefined, {
+          const result = await ingestChapter(pp, chPath, options.llmConfig?.model ?? "default", undefined, {
             canonDualWriteDeps: defaultCanonDualWriteDeps(),
             llmConfig: options.llmConfig,
             novelConfig: options.novelConfig,
+            awaitCommunitySummary: true,
           })
-          ingestedCount++
+          if ((await readBackMemoryIngest(pp, chPath, result)).ingest === "ok") ingestedCount++
         } catch (e) {
           console.warn(`[campaign-batch-accept] 摄取 ${chPath} 异常:`, e)
         }
@@ -793,8 +816,8 @@ export async function batchAcceptCampaignDrafts(
   recordModuleHit({
     path: "src/lib/novel/campaign-runner.ts",
     at: Date.now(),
-    ok: validChapters.length > 0,
-    detail: `批量晋升 ${validChapters.length} 章 / 摄取 ${ingestedCount}`,
+    ok: acceptedCount > 0,
+    detail: `批量晋升 ${acceptedCount} 章 / 摄取 ${ingestedCount}`,
   })
 
   return {

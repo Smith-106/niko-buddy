@@ -27,7 +27,8 @@ import {
 import {
   normalizePath,
 } from "@/lib/path-utils"
-import {
+import type {
+  FileNode,
 } from "@/types/wiki"
 
 /**
@@ -90,6 +91,58 @@ export function __getTemporalFactsInFlightSizeForTests(): number {
 }
 
 /**
+ * 从已列举的快照目录 FileNode 列表提取 `{ number, snapshotMtime }[]`。
+ * 复用 `listDirectory` 返回的 `mtime_ms`；仅节点缺 `mtime_ms` 时按去重后的 path 回退
+ * `getFileModifiedTime`，并按输入序回填。
+ */
+async function extractSnapshotEntriesWithMtime(
+  tree: readonly FileNode[],
+): Promise<{ number: number; snapshotMtime: number }[]> {
+  const entries = tree
+    .filter((f) => !f.is_dir && f.name.endsWith(".snapshot.json"))
+    .map((f) => {
+      const stem = f.name.split(".")[0]
+      const outlineMatch = stem.match(/^outline-(\d+)$/)
+      const num = outlineMatch ? -parseInt(outlineMatch[1], 10) : parseInt(stem, 10)
+      return { file: f, num }
+    })
+    // 仅计正文章快照（排除负数大纲快照与 0）
+    .filter((e) => !isNaN(e.num) && e.num > 0)
+  // ISS-20260709-026: merge duplicate key computation. Multiple entries
+  // can reference the same absolute file path (duplicate readdir rows /
+  // case-alias twins); fetching mtime per entry would issue N getters for
+  // the same key. Dedupe by file.path → one fetch per unique key, then
+  // backfill by index so result order matches input order.
+  const mtimeByPath = new Map<string, number>()
+  const fallbackPaths: string[] = []
+  for (const e of entries) {
+    if (mtimeByPath.has(e.file.path)) continue
+    if (typeof e.file.mtime_ms === "number") {
+      mtimeByPath.set(e.file.path, e.file.mtime_ms)
+    } else if (!fallbackPaths.includes(e.file.path)) {
+      fallbackPaths.push(e.file.path)
+    }
+  }
+  // 仅未携带 mtime 的节点走回退路径（正常项目上为空）。
+  await Promise.all(
+    fallbackPaths.map(async (filePath) => {
+      const mtime = await getFileModifiedTime(filePath).catch(() => 0)
+      mtimeByPath.set(filePath, mtime)
+    }),
+  )
+  return entries.map((e) => ({
+    number: e.num,
+    snapshotMtime: mtimeByPath.get(e.file.path) ?? 0,
+  }))
+}
+
+async function resolveFileNodeMtime(node: FileNode | undefined): Promise<number> {
+  if (!node || node.is_dir) return 0
+  if (typeof node.mtime_ms === "number") return node.mtime_ms
+  return getFileModifiedTime(node.path).catch(() => 0)
+}
+
+/**
  * List snapshot files directly (mirrors chapter-ingest.listSnapshots naming)
  * while also collecting each file's mtime(ms) in the same readdir pass.
  *
@@ -104,41 +157,7 @@ export async function listSnapshotEntriesWithMtime(
   const snapshotDir = `${pp}/.novel/snapshots`
   try {
     const tree = await listDirectory(snapshotDir)
-    const entries = tree
-      .filter((f) => f.name.endsWith(".snapshot.json"))
-      .map((f) => {
-        const stem = f.name.split(".")[0]
-        const outlineMatch = stem.match(/^outline-(\d+)$/)
-        const num = outlineMatch ? -parseInt(outlineMatch[1], 10) : parseInt(stem, 10)
-        return { file: f, num }
-      })
-      .filter((e) => !isNaN(e.num))
-    // ISS-20260709-026: merge duplicate key computation. Multiple entries
-    // can reference the same absolute file path (duplicate readdir rows /
-    // case-alias twins); fetching mtime per entry would issue N getters for
-    // the same key. Dedupe by file.path → one fetch per unique key, then
-    // backfill by index so result order matches input order.
-    const mtimeByPath = new Map<string, number>()
-    const fallbackPaths: string[] = []
-    for (const e of entries) {
-      if (mtimeByPath.has(e.file.path)) continue
-      if (typeof e.file.mtime_ms === "number") {
-        mtimeByPath.set(e.file.path, e.file.mtime_ms)
-      } else if (!fallbackPaths.includes(e.file.path)) {
-        fallbackPaths.push(e.file.path)
-      }
-    }
-    // 仅未携带 mtime 的节点走回退路径（正常项目上为空）。
-    await Promise.all(
-      fallbackPaths.map(async (filePath) => {
-        const mtime = await getFileModifiedTime(filePath).catch(() => 0)
-        mtimeByPath.set(filePath, mtime)
-      }),
-    )
-    return entries.map((e) => ({
-      number: e.num,
-      snapshotMtime: mtimeByPath.get(e.file.path) ?? 0,
-    }))
+    return await extractSnapshotEntriesWithMtime(tree)
   } catch {
     return []
   }
@@ -172,14 +191,44 @@ export function loadTemporalFactsCached(projectPath: string): Promise<TemporalFa
 }
 
 async function loadTemporalFactsCachedInner(pp: string): Promise<TemporalFact[]> {
-  const entries = await listSnapshotEntriesWithMtime(pp)
+  // K-6 / R2-P1-2：并行浅层列举 .novel（maxDepth: 1，仅读顶层 facts.json / projection-status.json 的 mtime_ms，
+  // 免疫 snapshots/ 或其它深层子目录触碰 Rust MAX_TREE_NODES=20_000 截断）+ 直接列举 .novel/snapshots
+  // （独享 20,000 节点配额）。若 snapshots 直读为空但 .novel 树含 snapshots.children（兼容旧 mock），
+  // 仍回退提取 snapshotsDir.children；仅节点存在但缺 mtime_ms 时回退 getFileModifiedTime。
+  const [novelTree, directEntries] = await Promise.all([
+    listDirectory(`${pp}/.novel`, { maxDepth: 1 }).catch(() => null),
+    listSnapshotEntriesWithMtime(pp),
+  ])
+
+  let factsMtime = 0
+  let ledgerMtime = 0
+  let entries = directEntries
+
+  if (Array.isArray(novelTree)) {
+    const factsNode = novelTree.find((n) => !n.is_dir && n.name === "facts.json")
+    const ledgerNode = novelTree.find((n) => !n.is_dir && n.name === "projection-status.json")
+    const snapshotsDir = novelTree.find((n) => n.is_dir && n.name === "snapshots")
+
+    const [resolvedFactsMtime, resolvedLedgerMtime, fallbackEntries] = await Promise.all([
+      resolveFileNodeMtime(factsNode),
+      resolveFileNodeMtime(ledgerNode),
+      entries.length === 0 && Array.isArray(snapshotsDir?.children)
+        ? extractSnapshotEntriesWithMtime(snapshotsDir.children)
+        : Promise.resolve(null),
+    ])
+    factsMtime = resolvedFactsMtime
+    ledgerMtime = resolvedLedgerMtime
+    if (fallbackEntries !== null) {
+      entries = fallbackEntries
+    }
+  }
+
   if (entries.length === 0) {
     // No snapshots → nothing to fold. Still cache the empty result so
-    // repeated builds don't re-readdir, but use a stable revision token.
-    // COR (odyssey-review): match the 4-segment shape of latestRevision
-    // (`max:max:count:sum`) so a future field addition caught by the PAT-G2
-    // twin-scan doesn't miss the empty path. Empty = all zeros.
-    const emptyRevision = "0:0:0:0"
+    // repeated builds don't re-readdir, but include facts.json & ledger mtime
+    // in the 6-segment revision token (`0:0:0:0:factsMtime:ledgerMtime`) so
+    // writing facts.json / projection-status.json invalidates the empty cache.
+    const emptyRevision = `0:0:0:0:${factsMtime}:${ledgerMtime}`
     const cached = temporalFactsCache.get(pp)
     if (cached && cached.latestRevision === emptyRevision) return cached.facts
     // 54 ③ 读侧：无 snapshots 但 facts.json 存在（如快照被清理）→ 仍投影事实表
@@ -200,21 +249,11 @@ async function loadTemporalFactsCachedInner(pp: string): Promise<TemporalFact[]>
   }
   const maxSnapshotNumber = entries.reduce((m, e) => Math.max(m, e.number), -Infinity)
   const maxSnapshotMtime = entries.reduce((m, e) => Math.max(m, e.snapshotMtime), 0)
-  // DC-6 (odyssey-improve, REG-001 同形): the previous max-only key
-  // (`maxSnapshotNumber:maxSnapshotMtime`) failed to invalidate when a NON-max
-  // snapshot was rewritten — rewriting chapter 5 in a 100-chapter project left
-  // both max fields unchanged, so the cache returned stale temporal facts that
-  // missed chapter 5's new content. Augment the key with snapshot COUNT and the
-  // SUM of all snapshot mtimes: any single-file rewrite bumps its mtime → sum
-  // changes → key changes → cache invalidates, regardless of which chapter was
-  // rewritten. The explicit clearTemporalFactsCache calls on saveEditedSnapshot
-  // / restoreSnapshotHistory / syncSnapshotToMemory remain as belt-and-suspenders;
-  // this hardens the key itself so any FUTURE rewrite path that forgets to call
-  // clear no longer silently serves stale facts. O(n) over entries (mtimes
-  // already fetched above), no crypto needed.
+  // DC-6 (odyssey-improve, REG-001 同形) + K-6：6 段 revision 覆盖任意快照增删改
+  // 以及 facts.json / projection-status.json 变更，避免真源或台账变动后返回陈旧缓存。
   const snapshotCount = entries.length
   const sumSnapshotMtime = entries.reduce((s, e) => s + e.snapshotMtime, 0)
-  const latestRevision = `${maxSnapshotNumber}:${maxSnapshotMtime}:${snapshotCount}:${sumSnapshotMtime}`
+  const latestRevision = `${maxSnapshotNumber}:${maxSnapshotMtime}:${snapshotCount}:${sumSnapshotMtime}:${factsMtime}:${ledgerMtime}`
   const cached = temporalFactsCache.get(pp)
   if (cached && cached.latestRevision === latestRevision) {
     return cached.facts
@@ -289,9 +328,9 @@ export async function loadAllSnapshots(projectPath: string): Promise<ChapterSnap
   const inFlight = snapshotsInFlight.get(pp)
   if (inFlight) return inFlight
   const load = (async (): Promise<ChapterSnapshot[]> => {
-    const numbers = await listSnapshots(pp)
+    const numbers = (await listSnapshots(pp)).filter((n) => n > 0)
     const loaded = await Promise.all(numbers.map((n) => loadSnapshot(pp, n)))
-    return loaded.filter((s): s is ChapterSnapshot => Boolean(s))
+    return loaded.filter((s): s is ChapterSnapshot => s !== null && s.chapterNumber > 0)
   })()
   snapshotsInFlight.set(pp, load)
   try {

@@ -88,7 +88,11 @@ export function listNovelSkillHooksForStage(stage: NovelSkillStage): NovelSkillH
  */
 export async function runNovelSkillHooks(
   stage: NovelSkillStage,
-  input: Omit<NovelSkillContext, "stage" | "bag"> & { bag?: NovelSkillContext["bag"] },
+  input: Omit<NovelSkillContext, "stage" | "bag"> & {
+    bag?: NovelSkillContext["bag"]
+    /** R2-W04：调用方作用域内的局部 Track B hooks（不写入全局 activeRegistry，消除并发竞态）。 */
+    extraHooks?: readonly NovelSkillHook[]
+  },
 ): Promise<NovelSkillContext> {
   const ctx: NovelSkillContext = {
     projectPath: input.projectPath,
@@ -96,7 +100,26 @@ export async function runNovelSkillHooks(
     stage,
     bag: input.bag ?? { promptFragments: [], notes: [] },
   }
-  for (const hook of listNovelSkillHooksForStage(stage)) {
+  const localHooks: NovelSkillHook[] = []
+  const localIds = new Set<string>()
+  for (const hook of input.extraHooks ?? []) {
+    if (hook.track !== "B") {
+      ctx.bag.notes.push(`skill-hook ${hook.id} skipped: must be Track B only`)
+      continue
+    }
+    if (hook.enabled === false || !hook.stages.includes(stage)) continue
+    if (localIds.has(hook.id)) {
+      const prevIdx = localHooks.findIndex((h) => h.id === hook.id)
+      if (prevIdx >= 0) localHooks.splice(prevIdx, 1)
+    }
+    localIds.add(hook.id)
+    localHooks.push(hook)
+  }
+  const effectiveHooks = [
+    ...listNovelSkillHooksForStage(stage).filter((h) => !localIds.has(h.id)),
+    ...localHooks,
+  ]
+  for (const hook of effectiveHooks) {
     try {
       await hook.run(ctx)
     } catch (error) {

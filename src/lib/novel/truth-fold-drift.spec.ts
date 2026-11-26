@@ -395,3 +395,116 @@ describe("P2-IMP-15 autoRepairTruthFoldDrift 覆盖增补：自愈落盘失败 /
     expect([...files.keys()].some((p) => p.includes("/.novel/telemetry/drift-"))).toBe(true)
   })
 })
+
+describe("M2-07 computeTruthFoldDrift 同源 arrayFieldCaps（防长篇超 cap 假漂移）", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+    fsMocks.writeFileAtomic.mockReset()
+    fsMocks.listDirectory.mockReset()
+  })
+
+  it("emotional-arcs 超过 400 条 cap（405 章）→ live 经 save 截尾与 drift replay 同源截尾一致（drifted=false）；篡改后仍检出", async () => {
+    const totalChapters = 405
+    const snapshots: ChapterSnapshot[] = []
+    for (let ch = 1; ch <= totalChapters; ch += 1) {
+      snapshots.push({
+        chapterId: `ch-${ch}`,
+        chapterNumber: ch,
+        summary: `第${ch}章摘要`,
+        characters: [],
+        locations: [],
+        organizations: [],
+        items: [],
+        events: [],
+        characterStateChanges: [],
+        relationshipChanges: [],
+        knowledgeChanges: [],
+        foreshadowingChanges: [],
+        newCanonFacts: [],
+        timelineEvents: [],
+        conflicts: [],
+        endingHook: "",
+        graphNodes: [],
+        graphEdges: [],
+        characterDetails: {
+          林默: { identity: "", faction: "", goals: "", arcChange: `第${ch}章情绪` },
+        },
+      })
+    }
+
+    const foldCtx = { now: NOW }
+    const emotionalArcs = createEmptyEmotionalArcStore()
+    let summaries = createEmptyChapterSummariesStore()
+    for (const s of snapshots) {
+      applyEmotionalArcsToStore(emotionalArcs, s, undefined, foldCtx)
+      summaries = upsertChapterSummary(summaries, foldChapterSummary(s), foldCtx)
+    }
+    expect(emotionalArcs.beats).toHaveLength(totalChapters)
+
+    // 模拟 saveEmotionalArcs 落盘时按 arrayFieldCaps: { beats: 400 } 截尾保最近 400 条
+    const cappedEmotionalArcs = {
+      ...emotionalArcs,
+      beats: emotionalArcs.beats.slice(-400),
+    }
+
+    const files = new Map<string, string>()
+    for (const s of snapshots) {
+      files.set(`P/.novel/snapshots/${String(s.chapterNumber).padStart(3, "0")}.snapshot.json`, JSON.stringify(s))
+    }
+    files.set("P/.novel/character-states.json", JSON.stringify(createEmptyCharacterStateStore()))
+    files.set("P/.novel/cognition-state.json", JSON.stringify(emptyCognitionState()))
+    files.set("P/.novel/encounter-matrix.json", JSON.stringify(createEmptyEncounterMatrixStore()))
+    files.set("P/.novel/foreshadowing-tracker.json", JSON.stringify(createEmptyForeshadowingStore()))
+    files.set("P/.novel/chapter-summaries.json", JSON.stringify(summaries))
+    files.set("P/.novel/subplot-board.json", JSON.stringify(createEmptySubplotBoardStore()))
+    files.set("P/.novel/emotional-arcs.json", JSON.stringify(cappedEmotionalArcs))
+    files.set("P/.novel/particle-ledger.json", JSON.stringify(createEmptyParticleLedgerStore()))
+    files.set("P/.novel/resource-ledger.json", JSON.stringify(createEmptyResourceLedgerStore()))
+    installFs(files)
+
+    const clean = await computeTruthFoldDrift("P", NOW)
+    const arcClean = clean.find((r) => r.file === "emotional-arcs.json")
+    expect(arcClean).toBeDefined()
+    expect(arcClean!.drifted).toBe(false)
+    expect(arcClean!.liveHash).toBe(arcClean!.replayHash)
+
+    // 真实篡改这 400 条中的一条 → 仍能准确检出 drifted=true
+    const tampered = {
+      ...cappedEmotionalArcs,
+      beats: cappedEmotionalArcs.beats.map((b, idx) => (idx === 0 ? { ...b, emotion: "被篡改情绪" } : b)),
+    }
+    files.set("P/.novel/emotional-arcs.json", JSON.stringify(tampered))
+    const afterTamper = await computeTruthFoldDrift("P", NOW)
+    const arcTampered = afterTamper.find((r) => r.file === "emotional-arcs.json")
+    expect(arcTampered!.drifted).toBe(true)
+  })
+
+  it("R2-M04: cognition-state.json 携带 3 个遥测桶时 computeTruthFoldDrift 不再假漂移", async () => {
+    const stores = buildReplayStores()
+    stores["cognition-state.json"] = {
+      ...(stores["cognition-state.json"] as Record<string, unknown>),
+      routingROIBuckets: [{ variant: "enabled", irrelevantRatio: 0.15, chapterId: "1", timestamp: NOW }],
+      exemplarABuckets: [{ variant: "enabled", score: 5, chapterId: "1", timestamp: NOW }],
+      rewriteRateABuckets: [{ variant: "disabled", rewriteRate: 0.2, chapterId: "1", timestamp: NOW }],
+    }
+    const files = makeFileMap(stores)
+    installFs(files)
+    const results = await computeTruthFoldDrift("P", NOW)
+    const cog = results.find((r) => r.file === "cognition-state.json")
+    expect(cog).toBeDefined()
+    expect(cog!.drifted).toBe(false)
+  })
+
+  it("R2-M11: readCurrentSnapshot 仅真缺失返回 null，非缺失 IO 错与坏 JSON 上抛", async () => {
+    const { readCurrentSnapshot } = await import("./chapter-ingest-history")
+
+    fsMocks.readFile.mockRejectedValueOnce(new Error("ENOENT: no such file"))
+    await expect(readCurrentSnapshot("P", 1)).resolves.toBeNull()
+
+    fsMocks.readFile.mockRejectedValueOnce(new Error("EACCES: permission denied"))
+    await expect(readCurrentSnapshot("P", 1)).rejects.toThrow(/EACCES/)
+
+    fsMocks.readFile.mockResolvedValueOnce("{broken-json")
+    await expect(readCurrentSnapshot("P", 1)).rejects.toThrow(SyntaxError)
+  })
+})

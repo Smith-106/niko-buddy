@@ -49,6 +49,20 @@ describe("createBatchChapterPipeline（R3 批量层）", () => {
     expect(s.results[1].result.failReason).toBe("extract_failed")
     expect(ingestChapter).toHaveBeenCalledTimes(3)
   })
+  it("R2-M05 同号正式章冲突：透传 duplicate_chapter_number 且捕获异常归类为 duplicate_chapter_number", async () => {
+    const ingestChapter = vi.fn(async (_pp: string, cp: string, _m: string): Promise<IngestResult> => {
+      if (cp.includes("dup-ret")) return { snapshot: null, failReason: "duplicate_chapter_number" }
+      if (cp.includes("dup-throw")) throw new Error("Multiple final chapter files share chapter number 3.")
+      return ok(1)
+    })
+    const run = createBatchChapterPipeline({ ingestChapter })
+    const s = await run("/p", ["/p/ok.md", "/p/dup-ret.md", "/p/dup-throw.md"])
+    expect(s.total).toBe(3)
+    expect(s.succeeded).toBe(1)
+    expect(s.failed).toBe(2)
+    expect(s.results[1].result).toEqual({ snapshot: null, failReason: "duplicate_chapter_number" })
+    expect(s.results[2].result).toEqual({ snapshot: null, failReason: "duplicate_chapter_number" })
+  })
   it("注入 runBatch 时走调用方实现", async () => {
     const ingestChapter = vi.fn()
     const runBatch = vi.fn(async (_pp: string, paths: readonly string[], _m: string) => paths.map((p) => ({ chapterPath: p, result: ok(7) })))

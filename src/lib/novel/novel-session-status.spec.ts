@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { logger } from "@/lib/utils"
+import { buildDecisionGates } from "./deep-chapter-decision-gates"
 import type { DeepChapterDecisionGates, DeepChapterGenerationResumeCheckpoint } from "./deep-chapter-generation"
 import type { DimensionReviewResult, SixReviewDimensionKey } from "./dimension-review-adapter"
 import type { NovelReviewResult } from "./review-adapter"
@@ -48,6 +50,7 @@ import {
   buildNextStatus,
   completeDeepChapterSession,
   createNovelSessionId,
+  getManagedDraftAdoptionGate,
   loadNovelDraftArtifact,
   loadNovelSessionStatus,
   markSessionInterrupted,
@@ -56,8 +59,10 @@ import {
   pauseDeepChapterSession,
   persistCheckpointBase,
   persistDeepChapterCheckpoint,
+  recordManagedDraftAdoptionGate,
   registerManagedCampaignDraft,
   rejectDeepChapterDraft,
+  requireManagedDeepChapterDraft,
   resolveInterruptedSessionResumeCheckpoint,
   resolveStatusResumeCheckpoint,
   saveNovelSessionStatus,
@@ -74,6 +79,20 @@ import {
   type StageMetricEntry,
 } from "./novel-session-status"
 import { acceptFindingRewriteDraft, rejectFindingRewriteDraft, writeFindingRewriteDraft } from "./novel-session-status"
+import { computeCheckpointDigest } from "./checkpoint-digest"
+
+const formalDoc = (chapterNumber: number, content: string) =>
+  `---
+type: chapter
+chapter_number: ${chapterNumber}
+chapter_status: final
+---
+${content}`
+const noopVerifiedWriter = () => vi.fn(async () => async () => {})
+const passedAdoptionGate = async (chapterNumber: number, content: string) => ({
+  status: "passed" as const,
+  bodySha256: await computeCheckpointDigest(JSON.stringify([chapterNumber, content])),
+})
 
 function readJson(path: string): Record<string, unknown> {
   const raw = fsState.fileMap.get(path)
@@ -421,6 +440,8 @@ describe("novel-session-status", () => {
       checkpoint,
       finalContent: "final chapter body",
       reviewResults,
+      decisionGates: buildDecisionGates([], 0),
+      finalConsistencyReviewed: true,
     })
 
     const status = await acceptDeepChapterDraft({
@@ -430,6 +451,8 @@ describe("novel-session-status", () => {
       chapterNumber: 3,
       sessionId: session.session_id,
       formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+      finalChapterContent: formalDoc(3, "final chapter body"),
+      writeVerifiedChapter: noopVerifiedWriter(),
     })
 
     expect(status.draft.draft_status).toBe("accepted")
@@ -470,6 +493,8 @@ describe("novel-session-status", () => {
       checkpoint,
       finalContent: "final chapter body",
       reviewResults,
+      decisionGates: buildDecisionGates([], 0),
+      finalConsistencyReviewed: true,
     })
     const status = await acceptDeepChapterDraft({
       projectPath,
@@ -478,6 +503,8 @@ describe("novel-session-status", () => {
       chapterNumber: 3,
       sessionId: session.session_id,
       formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+      finalChapterContent: formalDoc(3, "final chapter body"),
+      writeVerifiedChapter: noopVerifiedWriter(),
     })
     expect(status.draft.draft_status).toBe("accepted")
   })
@@ -497,6 +524,7 @@ describe("novel-session-status", () => {
       taskBrief: "task brief",
       draftContent: "draft body",
       reviewResults,
+      decisionGates: buildDecisionGates([], 0),
     }
 
     await completeDeepChapterSession({
@@ -508,6 +536,8 @@ describe("novel-session-status", () => {
       checkpoint,
       finalContent: "final chapter body",
       reviewResults,
+      decisionGates: buildDecisionGates([], 0),
+      finalConsistencyReviewed: true,
     })
 
     const status = await acceptDeepChapterDraft({
@@ -516,6 +546,8 @@ describe("novel-session-status", () => {
       userRequest: "generate chapter 3",
       chapterNumber: 3,
       formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+      finalChapterContent: formalDoc(3, "final chapter body"),
+      writeVerifiedChapter: noopVerifiedWriter(),
     })
 
     expect(status.session_id).toBe(session.session_id)
@@ -621,6 +653,8 @@ describe("novel-session-status", () => {
       checkpoint,
       finalContent: "final chapter body",
       reviewResults,
+      decisionGates: buildDecisionGates([], 0),
+      finalConsistencyReviewed: true,
     })
 
     // complete: dimension_results persisted to status.json
@@ -636,6 +670,8 @@ describe("novel-session-status", () => {
       chapterNumber: 4,
       sessionId: session.session_id,
       formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-004.md`,
+      finalChapterContent: formalDoc(4, "final chapter body"),
+      writeVerifiedChapter: noopVerifiedWriter(),
     })
     const statusAfterAccept = readJson(statusPath)
     expect(statusAfterAccept.dimension_results).toEqual(dimensionResults)
@@ -702,6 +738,8 @@ describe("novel-session-status", () => {
       userRequest: "generate chapter 9",
       chapterNumber: 9,
       formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-009.md`,
+      finalChapterContent: formalDoc(9, "final chapter body"),
+      writeVerifiedChapter: noopVerifiedWriter(),
     })).rejects.toThrow("No managed deep chapter draft found for this conversation.")
 
     await expect(rejectDeepChapterDraft({
@@ -776,15 +814,18 @@ describe("novel-session-status", () => {
       conversationId: "chat-conv",
       userRequest: "generate chapter 1",
       chapterNumber: 1,
+      resumeCheckpoint: { version: 1, originalRequest: "generate chapter 1", chapterNumber: 1, stage: "after_draft", draftContent: "another chapter" },
     })
 
+    const body = "第七章正文内容"
     const path = await registerManagedCampaignDraft({
       projectPath,
       conversationId: "autonomous-campaign",
       userRequest: "请撰写第 7 章正文。",
       chapterNumber: 7,
-      finalContent: "第七章正文内容",
-      reviewResults,
+      finalContent: body,
+      decisionGates: buildDecisionGates([], 0),
+      finalConsistencyReviewed: true,
     })
 
     expect(path).toBe(novelDraftArtifactPath(projectPath, "autonomous-campaign"))
@@ -792,7 +833,7 @@ describe("novel-session-status", () => {
     expect(draft?.draft_status).toBe("ready")
     expect(draft?.session_id).toBe(session.session_id)
     expect(draft?.chapter_number).toBe(7)
-    expect(draft?.content).toBe("第七章正文内容")
+    expect(draft?.content).toBe(body)
 
     // accept 通道成立：注册后即可走受管草稿 accept（真源落接受态）
     const accepted = await acceptDeepChapterDraft({
@@ -801,10 +842,19 @@ describe("novel-session-status", () => {
       userRequest: "请撰写第 7 章正文。",
       chapterNumber: 7,
       formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-007.md`,
+      finalChapterContent: formalDoc(7, body),
+      writeVerifiedChapter: noopVerifiedWriter(),
     })
     expect(accepted.session_id).toBe(session.session_id)
+    expect(accepted.current_task).toMatchObject({ conversation_id: "autonomous-campaign", chapter_number: 7 })
     expect(accepted.draft.draft_status).toBe("accepted")
-    expect((await loadNovelDraftArtifact(projectPath, "autonomous-campaign"))?.draft_status).toBe("accepted")
+    expect(accepted.resume_checkpoint).toBeUndefined()
+    expect(await loadNovelDraftArtifact(projectPath, "autonomous-campaign")).toMatchObject({
+      chapter_number: 7,
+      content: body,
+      draft_status: "accepted",
+      adoption_gate: await passedAdoptionGate(7, body),
+    })
   })
 
   it("DF-1: registerManagedCampaignDraft 在无 status.json 时新建 session id", async () => {
@@ -817,6 +867,133 @@ describe("novel-session-status", () => {
     })
     const draft = await loadNovelDraftArtifact(projectPath, "autonomous-campaign")
     expect(draft?.session_id).toMatch(/^novel-\d{8}-\d{6}$/)
+  })
+
+  describe("managed exact-body acceptance", () => {
+    const chapter = { projectPath, conversationId: "conv-1", chapterNumber: 3, userRequest: "generate chapter 3" }
+    const body = "\r\n  第三章正文。\r\n"
+    const finalChapterContent = formalDoc(3, body)
+    const formalInput = {
+      ...chapter,
+      finalChapterContent,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+    }
+
+    async function registerReviewedDraft() {
+      await startDeepChapterSession(chapter)
+      await registerManagedCampaignDraft({
+        ...chapter,
+        finalContent: body,
+        decisionGates: buildDecisionGates([], 0),
+        finalConsistencyReviewed: true,
+      })
+      return requireManagedDeepChapterDraft(projectPath, chapter.conversationId, "accept")
+    }
+
+    it.each([
+      ["a non-chapter type", finalChapterContent.replace("type: chapter", "type: outline"), "frontmatter does not match"],
+      ["the wrong chapter header", finalChapterContent.replace("chapter_number: 3", "chapter_number: 4"), "frontmatter does not match"],
+      ["a non-final status", finalChapterContent.replace("chapter_status: final", "chapter_status: draft"), "frontmatter does not match"],
+      ["different prose", formalDoc(3, "另外一份正文。"), "body differs"],
+      ["only changed whitespace", formalDoc(3, body.trim()), "body differs"],
+    ])("rejects %s before the formal writer", async (_label, document, error) => {
+      const draft = await registerReviewedDraft()
+      const writeVerifiedChapter = noopVerifiedWriter()
+      const draftBefore = fsState.fileMap.get(draftPath)
+      const statusBefore = fsState.fileMap.get(statusPath)
+
+      await expect(acceptDeepChapterDraft({
+        ...formalInput, sessionId: draft.session_id, finalChapterContent: document, writeVerifiedChapter,
+      })).rejects.toThrow(error)
+
+      expect(writeVerifiedChapter).not.toHaveBeenCalled()
+      expect(fsState.fileMap.get(draftPath)).toBe(draftBefore)
+      expect(fsState.fileMap.get(statusPath)).toBe(statusBefore)
+    })
+
+    it.each([
+      { sessionId: "wrong-session" },
+      { chapterNumber: 4 },
+    ])("rejects a mismatched identity even for a reviewed draft: %o", async (identity) => {
+      const draft = await registerReviewedDraft()
+      const writeVerifiedChapter = noopVerifiedWriter()
+
+      await expect(acceptDeepChapterDraft({
+        ...formalInput, sessionId: draft.session_id, ...identity, writeVerifiedChapter,
+      })).rejects.toThrow("The draft no longer matches the requested session or chapter")
+
+      expect(writeVerifiedChapter).not.toHaveBeenCalled()
+      expect((await requireManagedDeepChapterDraft(projectPath, chapter.conversationId, "accept")).draft_status).toBe("ready")
+    })
+
+    it("keeps a legacy ready draft unassessed despite passing gates on its checkpoint", async () => {
+      const session = await startDeepChapterSession(chapter)
+      const decisionGates = buildDecisionGates([], 0)
+      await completeDeepChapterSession({
+        ...chapter,
+        sessionId: session.session_id,
+        finalContent: body,
+        checkpoint: {
+          version: 1, originalRequest: chapter.userRequest, chapterNumber: 3, stage: "after_review", decisionGates,
+        },
+      })
+      const ready = await requireManagedDeepChapterDraft(projectPath, chapter.conversationId, "accept")
+      expect(ready.adoption_gate).toEqual({ status: "unassessed" })
+      delete ready.adoption_gate
+      fsState.fileMap.set(draftPath, JSON.stringify(ready))
+      expect(ready.decision_gates?.overall).toBe("pass")
+      await expect(getManagedDraftAdoptionGate(ready)).resolves.toBe("unassessed")
+
+      const writeVerifiedChapter = noopVerifiedWriter()
+      await expect(acceptDeepChapterDraft({ ...formalInput, writeVerifiedChapter })).rejects.toThrow("Review the exact draft body")
+      expect(writeVerifiedChapter).not.toHaveBeenCalled()
+      expect(readJson(draftPath)).not.toHaveProperty("adoption_gate")
+    })
+
+    it.each([
+      { content: `${body} ` },
+      { adoption_gate: { status: "blocked" as const } },
+      { adoption_gate: { status: "passed" as const, bodySha256: "mismatched-digest" } },
+    ])("rejects stale review without rewriting the draft or session: %o", async (change) => {
+      const reviewed = await registerReviewedDraft()
+      const statusBefore = fsState.fileMap.get(statusPath)
+      const newerDraft = JSON.stringify({ ...reviewed, ...change })
+      fsState.fileMap.set(draftPath, newerDraft)
+      fsState.writeFileAtomic.mockClear()
+
+      await expect(recordManagedDraftAdoptionGate({
+        projectPath, chapterNumber: 3, reviewed, decisionGates: buildDecisionGates([], 0), reviewResults: [], finalConsistencyReviewed: true,
+      })).rejects.toThrow("Draft changed during review")
+
+      expect(fsState.writeFileAtomic).not.toHaveBeenCalled()
+      expect(fsState.fileMap.get(draftPath)).toBe(newerDraft)
+      expect(fsState.fileMap.get(statusPath)).toBe(statusBefore)
+    })
+
+    it("writes only the draft review with a refreshed timestamp and an exact-body receipt", async () => {
+      const draft = await registerReviewedDraft()
+      const reviewed = { ...draft, updated_at: "2026-01-01T00:00:00.000Z" }
+      delete reviewed.adoption_gate
+      fsState.fileMap.set(draftPath, JSON.stringify(reviewed))
+      const statusBefore = fsState.fileMap.get(statusPath)
+      fsState.writeFileAtomic.mockClear()
+      fsState.writeFilesAtomic.mockClear()
+
+      await expect(recordManagedDraftAdoptionGate({
+        projectPath, chapterNumber: 3, reviewed, decisionGates: buildDecisionGates([], 0), reviewResults: [], finalConsistencyReviewed: true,
+      })).resolves.toBe("passed")
+
+      const saved = await requireManagedDeepChapterDraft(projectPath, chapter.conversationId, "accept")
+      expect(saved.content).toBe(body)
+      expect(saved.adoption_gate).toEqual(await passedAdoptionGate(3, body))
+      expect(Date.parse(saved.updated_at)).toBeGreaterThan(Date.parse(reviewed.updated_at))
+      expect(fsState.writeFileAtomic).not.toHaveBeenCalled()
+      expect(fsState.writeFilesAtomic).toHaveBeenCalledExactlyOnceWith(
+        [[draftPath, expect.any(String)]],
+        [expect.any(String)],
+      )
+      expect(fsState.fileMap.get(statusPath)).toBe(statusBefore)
+    })
   })
 
   it("pauses failed sessions and preserves the latest checkpoint plus error", async () => {
@@ -1628,10 +1805,12 @@ describe("novel-session-status 分支补足", () => {
       chapterNumber: 3,
       sessionId: session.session_id,
       formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+      finalChapterContent: formalDoc(3, "final chapter body"),
+      writeVerifiedChapter: noopVerifiedWriter(),
     })).rejects.toThrow("Deep chapter draft is not eligible for accept in status pending.")
   })
 
-  it("accept 无 formalChapterPath; 无既有 status → createBaseStatus; session 不匹配 → createBaseStatus", async () => {
+  it("accept 无 formalChapterPath；请求的 session 不匹配时拒绝采纳", async () => {
     const session = await startDeepChapterSession({
       projectPath,
       conversationId: "conv-1",
@@ -1646,18 +1825,22 @@ describe("novel-session-status 分支补足", () => {
       sessionId: session.session_id,
       finalContent: "final chapter body",
       reviewResults,
+      decisionGates: buildDecisionGates([], 0),
+      finalConsistencyReviewed: true,
     })
 
-    // 无 formalChapterPath
-    const status = await acceptDeepChapterDraft({
+    // 无 formalChapterPath（state-only 旧通道已收口）：缺正式三要素直接拒，
+    // 草稿保持 ready、status 不被推进。
+    await expect(acceptDeepChapterDraft({
       projectPath,
       conversationId: "conv-1",
       userRequest: "generate chapter 3",
       chapterNumber: 3,
       sessionId: session.session_id,
-    })
-    expect(status.draft.formal_chapter_path).toBeUndefined()
-    expect(status.evidence_refs).toEqual([draftPath])
+    } as unknown as Parameters<typeof acceptDeepChapterDraft>[0]))
+      .rejects.toThrow("Formal chapter acceptance requires")
+    const draftAfterRefusal = JSON.parse(fsState.fileMap.get(draftPath)!) as Record<string, unknown>
+    expect(draftAfterRefusal.draft_status).toBe("ready")
 
     // 重置草稿为 ready（accept 后草稿已是 accepted，先恢复才能再走决策）
     fsState.fileMap.set(draftPath, JSON.stringify({
@@ -1673,17 +1856,16 @@ describe("novel-session-status 分支补足", () => {
       updated_at: "2026-01-01T00:00:00.000Z",
     }))
 
-    // session 不匹配 → createBaseStatus 兜底 (新 session_id)
-    const mismatch = await acceptDeepChapterDraft({
+    await expect(acceptDeepChapterDraft({
       projectPath,
       conversationId: "conv-1",
       userRequest: "generate chapter 3",
       chapterNumber: 3,
       sessionId: "totally-different-session",
       formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
-    })
-    expect(mismatch.session_id).toBe("totally-different-session")
-    expect(mismatch.draft.draft_status).toBe("accepted")
+      finalChapterContent: formalDoc(3, "final chapter body"),
+      writeVerifiedChapter: noopVerifiedWriter(),
+    })).rejects.toThrow("no longer matches")
   })
 
   it("accept/reject 时 draft 无 checkpoint → 回退 base.resume_checkpoint / input.resumeCheckpoint", async () => {
@@ -1702,6 +1884,8 @@ describe("novel-session-status 分支补足", () => {
       chapterNumber: 3,
       sessionId: session.session_id,
       finalContent: "final",
+      decisionGates: buildDecisionGates([], 0),
+      finalConsistencyReviewed: true,
     })
     const artifact = JSON.parse(fsState.fileMap.get(draftPath)!) as Record<string, unknown>
     expect(artifact.checkpoint).toBeUndefined()
@@ -1719,6 +1903,8 @@ describe("novel-session-status 分支补足", () => {
       chapterNumber: 3,
       sessionId: session.session_id,
       formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+      finalChapterContent: formalDoc(3, "final"),
+      writeVerifiedChapter: noopVerifiedWriter(),
       resumeCheckpoint: {
         version: 1, originalRequest: "r", chapterNumber: 3, stage: "after_review", reviewResults,
       },
@@ -2296,32 +2482,40 @@ describe("novel-session-status 全口径补齐：decision/fallback 分支", () =
     expect(resolveStatusResumeCheckpoint(status0, "conv-1")).toBeUndefined()
   })
 
-  it("accept: 无既有 status → createBaseStatus; draft 无 chapter_number/checkpoint → 全链回退", async () => {
-    fsState.fileMap.set(draftPath, JSON.stringify(readyDraftWithoutOptional))
+  it("accept: 无既有 status 时从绑定的草稿重建会话", async () => {
+    fsState.fileMap.set(draftPath, JSON.stringify({
+      ...readyDraftWithoutOptional,
+      chapter_number: 9,
+      decision_gates: buildDecisionGates([], 0),
+      adoption_gate: await passedAdoptionGate(9, "final chapter body"),
+    }))
     const status = await acceptDeepChapterDraft({
       projectPath,
       conversationId: "conv-1",
       userRequest: "generate chapter 3",
       chapterNumber: 9,
       formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-009.md`,
+      finalChapterContent: formalDoc(9, "final chapter body"),
+      writeVerifiedChapter: noopVerifiedWriter(),
     })
     expect(status.session_id).toBe("draft-session")
     expect(status.current_task.chapter_number).toBe(9)
     expect(status.draft.draft_status).toBe("accepted")
   })
 
-  it("accept: 复用最小既有 status → base.current_task.chapter_number 缺失 → input 兜底", async () => {
+  it("accept: 章号未绑定的旧草稿不能由请求补写章号并采纳", async () => {
     fsState.fileMap.set(statusPath, JSON.stringify(minimalStatusJson))
     fsState.fileMap.set(draftPath, JSON.stringify(readyDraftWithoutOptional))
-    const status = await acceptDeepChapterDraft({
+    await expect(acceptDeepChapterDraft({
       projectPath,
       conversationId: "conv-1",
       userRequest: "generate chapter 3",
       chapterNumber: 9,
       sessionId: "draft-session",
-    })
-    expect(status.session_id).toBe("draft-session")
-    expect(status.current_task.chapter_number).toBe(9)
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-009.md`,
+      finalChapterContent: formalDoc(9, "final chapter body"),
+      writeVerifiedChapter: noopVerifiedWriter(),
+    })).rejects.toThrow("no longer matches")
   })
 
   it("reject: 无既有 status → createBaseStatus; draft 无 checkpoint/字段 → 全链回退", async () => {
@@ -2720,9 +2914,18 @@ describe("accept commit-discipline 缺章拒绝", () => {
       chapterNumber: undefined as unknown as number,
       finalContent: "body",
     })
+    const writeVerifiedChapter = noopVerifiedWriter()
     await expect(
-      acceptDeepChapterDraft({ projectPath, conversationId: "camp-1", userRequest: "campaign work" }),
+      acceptDeepChapterDraft({
+        projectPath,
+        conversationId: "camp-1",
+        userRequest: "campaign work",
+        formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-001.md`,
+        finalChapterContent: formalDoc(1, "body"),
+        writeVerifiedChapter,
+      }),
     ).rejects.toThrow(/commit-discipline/)
+    expect(writeVerifiedChapter).not.toHaveBeenCalled()
   })
 })
 
@@ -2748,5 +2951,192 @@ describe("appendStageMetric 非致命降级", () => {
     await expect(appendStageMetric(projectPath, entry)).resolves.toBeUndefined()
     const reloaded = await loadNovelSessionStatus(projectPath)
     expect(reloaded?.stage_metrics ?? []).toEqual([])
+  })
+})
+
+describe("N-5b: acceptDeepChapterDraft chase_debt 正式结算与 parseNovelDraftArtifact 双端契约", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
+    fsState.readFile.mockImplementation(async (path) => {
+      const content = fsState.fileMap.get(path)
+      if (content === undefined) throw new Error(`ENOENT: ${path}`)
+      return content
+    })
+    fsState.writeFileAtomic.mockImplementation(async (path, content) => {
+      fsState.fileMap.set(path, content)
+    })
+    fsState.writeFilesAtomic.mockImplementation(async (files: Array<[string, string]>) => {
+      for (const [path, content] of files) {
+        fsState.fileMap.set(path, content)
+      }
+    })
+  })
+
+  async function seedAcceptedReadyDraftWithChaseDebt(body: string) {
+    const started = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const initialChaseDebt: NonNullable<NovelSessionStatus["chase_debt"]> = {
+      debts: [
+        {
+          id: "d-old-1",
+          debt_type: "hook_strength",
+          original_amount: 1,
+          current_amount: 1,
+          interest_rate: 0.1,
+          source_chapter: 1,
+          due_chapter: 5,
+          status: "active",
+        },
+      ],
+      debt_events: [
+        { debt_id: "d-old-1", event_type: "created", amount: 1, chapter: 1 },
+      ],
+      updated_at: "2026-01-01T00:00:00.000Z",
+    }
+    await saveNovelSessionStatus(
+      projectPath,
+      buildNextStatus(started, {
+        updated_at: "2026-01-01T00:00:00.000Z",
+        status: started.status,
+        chase_debt: initialChaseDebt,
+      }),
+    )
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: started.session_id,
+      finalContent: body,
+      decisionGates: buildDecisionGates([], 0),
+      finalConsistencyReviewed: true,
+    })
+    return { sessionId: started.session_id, initialChaseDebt }
+  }
+
+  it("acceptDeepChapterDraft 存在 chase_debt 且含承诺型钩子时原子创建新债并对旧债计息", async () => {
+    const body = "前半段平静推进。临别前他低声起誓：他必须在天亮前找到真相，绝不会让秘密沉入海底。"
+    const { sessionId } = await seedAcceptedReadyDraftWithChaseDebt(body)
+
+    const accepted = await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+      finalChapterContent: formalDoc(3, body),
+      writeVerifiedChapter: noopVerifiedWriter(),
+    })
+
+    const ledger = accepted.chase_debt
+    expect(ledger).toBeDefined()
+    expect(ledger!.debts).toHaveLength(2)
+    expect(ledger!.debts[0]!.id).toBe("d-old-1")
+    expect(ledger!.debts[1]).toMatchObject({
+      id: "chase-3-2",
+      debt_type: "hook_strength",
+      source_chapter: 3,
+      due_chapter: 6,
+      status: "active",
+      ref: "ending-hook",
+    })
+    expect(ledger!.debt_events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ debt_id: "chase-3-2", event_type: "created", chapter: 3 }),
+      expect.objectContaining({ debt_id: "d-old-1", event_type: "interest_accrued", amount: 0.1, chapter: 3 }),
+    ]))
+    // 同步核对落盘的 status.json 与返回值同批次一致。
+    const persisted = await loadNovelSessionStatus(projectPath)
+    expect(persisted?.chase_debt).toEqual(ledger)
+  })
+
+  it("正式写回或持久化失败回滚时 chase_debt 原样保留不被污染", async () => {
+    const body = "危局骤至，三天后他必须回来救出同伴。"
+    const { sessionId, initialChaseDebt } = await seedAcceptedReadyDraftWithChaseDebt(body)
+
+    // 场景 1：正式写回阶段抛错
+    await expect(acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+      finalChapterContent: formalDoc(3, body),
+      writeVerifiedChapter: vi.fn(async () => {
+        throw new Error("formal write failed")
+      }),
+    })).rejects.toThrow("formal write failed")
+
+    const afterWriteFailure = await loadNovelSessionStatus(projectPath)
+    expect(afterWriteFailure?.chase_debt).toEqual(initialChaseDebt)
+
+    // 场景 2：批量持久化阶段失败并触发正式写回滚
+    const rollback = vi.fn(async () => {})
+    fsState.writeFilesAtomic.mockRejectedValueOnce(new Error("batch persist failed"))
+    await expect(acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+      finalChapterContent: formalDoc(3, body),
+      writeVerifiedChapter: vi.fn(async () => rollback),
+    })).rejects.toThrow("batch persist failed")
+
+    expect(rollback).toHaveBeenCalledOnce()
+    const afterPersistFailure = await loadNovelSessionStatus(projectPath)
+    expect(afterPersistFailure?.chase_debt).toEqual(initialChaseDebt)
+  })
+
+  it("损坏草稿 JSON 下 loadNovelDraftArtifact 记 warn 降级 null，写入口经 loadDraftForWrite fail-loud 拒绝覆盖", async () => {
+    const brokenRaw = "{ broken"
+    fsState.fileMap.set(draftPath, brokenRaw)
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    try {
+      await expect(loadNovelDraftArtifact(projectPath, "conv-1")).resolves.toBeNull()
+      expect(warnSpy).toHaveBeenCalledWith(
+        "Novel Session",
+        expect.stringContaining("parse draft artifact JSON failed"),
+        expect.objectContaining({ error: expect.any(String) }),
+      )
+
+      // 写入口 1：acceptDeepChapterDraft -> loadDraftForWrite 拒绝覆盖损坏草稿
+      await expect(acceptDeepChapterDraft({
+        projectPath,
+        conversationId: "conv-1",
+        userRequest: "generate chapter 3",
+        chapterNumber: 3,
+        formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+        finalChapterContent: formalDoc(3, "正文"),
+        writeVerifiedChapter: noopVerifiedWriter(),
+      })).rejects.toThrow("Cannot overwrite an invalid draft artifact")
+
+      // 写入口 2：startDeepChapterSession(resumeCheckpoint) -> loadDraftForWrite 同样拒绝覆盖
+      await expect(startDeepChapterSession({
+        projectPath,
+        conversationId: "conv-1",
+        userRequest: "generate chapter 3",
+        chapterNumber: 3,
+        resumeCheckpoint: {
+          version: 1,
+          originalRequest: "generate chapter 3",
+          chapterNumber: 3,
+          stage: "after_draft",
+          draftContent: "正文",
+        },
+      })).rejects.toThrow("Cannot overwrite an invalid draft artifact")
+
+      expect(fsState.fileMap.get(draftPath)).toBe(brokenRaw)
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })

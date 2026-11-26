@@ -42,7 +42,7 @@ export const CORPUS_BASELINE_COUNT = 6
 
 /**
  * AG2：重机制 flag 期望默认值（hardInject=true 为 2026-09-07 三模型共识等效证据替代已翻转值，
- * 其余 false；真源 = src/stores/wiki-store.ts 默认配置）。
+ * 其余 false；真源 = src/stores/wiki-store-config.ts 默认配置）。
  */
 export const EXPECTED_RETRIEVAL_FLAGS = {
   dualKbRoutingEnabled: false,

@@ -192,7 +192,7 @@ function rawEdge(id: string, chapter: number, digest: string): RawCanonEdge {
 }
 
 function makeHarness(opts: {
-  canonFail?: { count: number; msg: string }
+  canonFail?: { count: number; msg: string; perDigestAttempts?: number }
   queueFail?: { count: number; msg: string }
 } = {}): Harness {
   const h: Harness = {
@@ -205,6 +205,8 @@ function makeHarness(opts: {
     queueFailCount: opts.queueFail?.count ?? 0,
     queueFailMsg: opts.queueFail?.msg ?? "queue crash",
   }
+  const canonFailPerDigest = opts.canonFail?.perDigestAttempts ?? 1
+  const canonFailsByDigest = new Map<string, number>()
 
   const writeCanon: CanonDualWriteDeps["writeCanon"] = async (_projectPath, payload) => {
     const ep = (payload as Extract<CanonCanonPayload, { kind: "episode" }>).episode as {
@@ -212,8 +214,14 @@ function makeHarness(opts: {
       source_chapter?: number
     } & Record<string, unknown>
     const digest = String(ep.digest ?? "")
-    if (h.canonFailCount > 0) {
+    let remainingFails = canonFailsByDigest.get(digest)
+    if (remainingFails === undefined && h.canonFailCount > 0) {
       h.canonFailCount -= 1
+      remainingFails = canonFailPerDigest
+      canonFailsByDigest.set(digest, remainingFails)
+    }
+    if (remainingFails !== undefined && remainingFails > 0) {
+      canonFailsByDigest.set(digest, remainingFails - 1)
       return { ok: false, error: h.canonFailMsg } satisfies WriteOutcome
     }
     const chapter = typeof ep.source_chapter === "number" ? ep.source_chapter : 1
@@ -330,7 +338,9 @@ describe("场景① 真实章（canon→审计→门控→accept→双写→reco
 
 describe("场景② ×5 崩溃注入 —— 每例最终 reconcile 零差异不告警", () => {
   it("崩溃-1 SIGKILL（canon 写中断一次）→ 落待写队列 → 重放补齐 → zero", async () => {
-    const h = makeHarness({ canonFail: { count: 1, msg: "SIGKILL" } })
+    // M2-03 写后立即自愈会消费 1 次重试；perDigestAttempts: 2 使首写 + 立即重试均失败，
+    // 保留 1 条待写记录（attempts=2）留待后续 T0+T_ADVANCE 重放补齐验证。
+    const h = makeHarness({ canonFail: { count: 1, perDigestAttempts: 2, msg: "SIGKILL" } })
     const out = await runChapterE2E(REAL_CHAPTER, h, T0, T0 + T_ADVANCE)
     expect(out.queued).toBe(1)
     expect(out.written).toBe(REAL_CHAPTER.newCanonFacts.length - 1)
@@ -373,7 +383,9 @@ describe("场景② ×5 崩溃注入 —— 每例最终 reconcile 零差异不�
   })
 
   it("崩溃-4 时钟偏移：重放在退避窗口内被跳过 → 推进时钟后重放补齐 zero", async () => {
-    const h = makeHarness({ canonFail: { count: 1, msg: "clock skew op" } })
+    // M2-03 写后立即自愈会消费 1 次重试；perDigestAttempts: 2 使该条在 shadowWriteCanon 后
+    // 以 attempts=2 留在待写队列，从而验证 T0 窗口内跳过、T0+T_ADVANCE 推进后补齐。
+    const h = makeHarness({ canonFail: { count: 1, perDigestAttempts: 2, msg: "clock skew op" } })
     const ops = await buildChapterOps(REAL_CHAPTER)
     h.digestToFact.clear()
     ops.forEach((op, i) => h.digestToFact.set(op.digest!, REAL_CHAPTER.newCanonFacts[i]!))
@@ -428,7 +440,8 @@ describe("场景② ×5 崩溃注入 —— 每例最终 reconcile 零差异不�
 
 describe("场景③ ×2 重放（缺口补齐 → zero）", () => {
   it("单缺口：1 条事实入队 → 重放补齐 1 → zero", async () => {
-    const h = makeHarness({ canonFail: { count: 1, msg: "boom" } })
+    // perDigestAttempts: 2 使缺口跨过 M2-03 立即自愈，验证延迟队列重放补齐 1 条
+    const h = makeHarness({ canonFail: { count: 1, perDigestAttempts: 2, msg: "boom" } })
     const out = await runChapterE2E(REAL_CHAPTER, h, T0, T0 + T_ADVANCE)
     expect(out.queued).toBe(1)
     expect(out.report.replayedDigests).toHaveLength(1)
@@ -437,7 +450,8 @@ describe("场景③ ×2 重放（缺口补齐 → zero）", () => {
   })
 
   it("双缺口：2 条事实入队 → 重放补齐 2 → zero", async () => {
-    const h = makeHarness({ canonFail: { count: 2, msg: "boom" } })
+    // perDigestAttempts: 2 使 2 条缺口各自跨过 M2-03 立即自愈，验证延迟队列重放补齐 2 条
+    const h = makeHarness({ canonFail: { count: 2, perDigestAttempts: 2, msg: "boom" } })
     const out = await runChapterE2E(REAL_CHAPTER, h, T0, T0 + T_ADVANCE)
     expect(out.queued).toBe(2)
     expect(out.report.replayedDigests).toHaveLength(2)

@@ -31,9 +31,10 @@
  * 经 `isAuthoritativeGateRun` 排除该意图（见 gate-run-authority.ts）。
  */
 
+import i18n from "@/i18n"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { buildContextPack, type ContextPack } from "./context-engine"
-import { extractChapterNumber } from "./chapter-utils"
+
 import { resolveChapterLengthSpec } from "./deep-chapter-prompts"
 import { buildFallbackTaskBrief } from "./deep-chapter-task-brief"
 import {
@@ -43,7 +44,10 @@ import {
 } from "./deep-chapter-gate-evidence"
 import type { DeepChapterDecisionGateKey, DeepChapterGateVerdict } from "./deep-chapter-decision-gates"
 import type { GateRunStatus } from "./rule-stack"
-import { listChapterDrafts } from "./draft-manager"
+import { listChapterDrafts, readDraftChapterNumber, recordDraftAdoptionGate } from "./draft-manager"
+import { decideDraftAdoptionGate } from "./deep-chapter-decision-gates"
+import type { DraftGateStatus } from "./lifecycle-types"
+import { recordManagedDraftAdoptionGate, type NovelDraftArtifact } from "./novel-session-status"
 import {
   evaluateChapterGates,
   type EvaluateChapterGatesInput,
@@ -59,11 +63,21 @@ export interface MainControlGateRow {
   status: GateRunStatus
   verdict: DeepChapterGateVerdict
   findings: number
+  /** 逐条门控问题明细（可选，BLOCKING-8：仅追加字段，不新增具名导出）。 */
+  findingDetails?: Array<{
+    severity: string
+    type: string
+    message: string
+    evidence?: string
+    suggestion?: string
+  }>
+  /** 该门汇总修复建议（可选）。 */
+  repairSuggestions?: string[]
 }
 
 export interface RerunMainControlGatesInput {
   projectPath: string
-  /** 待复核的草稿 ID（草稿真源 = `<project>/.drafts/<id>.md`）。 */
+  /** 待复核的草稿 ID（草稿真源 = `<project>/.qm-drafts/<id>.md`）。 */
   draftId: string
   /** 用户目标（只用于 fallback 任务书的「原始请求对齐」行，不参与判定）。 */
   goal?: string
@@ -71,6 +85,8 @@ export interface RerunMainControlGatesInput {
   novelConfig: NovelConfig
   llmConfig?: LlmConfig
   signal?: AbortSignal
+  /** 聊天中的深章草稿来自会话存档，而不是普通 Markdown 草稿收件箱。 */
+  managedDraft?: { artifact: NovelDraftArtifact; chapterNumber: number }
 }
 
 export interface RerunMainControlGatesResult {
@@ -89,11 +105,15 @@ export interface RerunMainControlGatesResult {
   evidenceError?: string
   /** 落账批次的 ts（与账本回读的 history.ts 对账即可判定「本次 vs 历史」）。 */
   evidenceTs?: string
+  /** 复核定稿门禁：仅当草稿本身带门禁绑定时才有值（旧草稿/普通草稿无）。 */
+  adoptionGate?: DraftGateStatus
 }
 
 export interface RerunMainControlGatesDeps {
   /** 测试注入点；生产恒为 `listChapterDrafts`。 */
   listDrafts?: typeof listChapterDrafts
+  /** 复核结果落草稿回执；测试注入点。 */
+  recordAdoptionGate?: typeof recordDraftAdoptionGate
   /** 测试注入点；生产恒为 `evaluateChapterGates`。 */
   evaluateGates?: typeof evaluateChapterGates
   /** 测试注入点；生产恒为 `buildContextPack`。 */
@@ -110,11 +130,23 @@ export function buildMainControlGateRows(
 ): MainControlGateRow[] {
   return GATE_KEYS.map((key) => {
     const gate = evaluation.decisionGates[key]
+    const findingDetails = gate.findings.map((finding) => ({
+      severity: finding.severity,
+      type: finding.type,
+      message: finding.message,
+      ...(finding.evidence ? { evidence: finding.evidence } : {}),
+      ...(finding.suggestion ? { suggestion: finding.suggestion } : {}),
+    }))
+    const repairSuggestions = Array.isArray(gate.repair_suggestions)
+      ? gate.repair_suggestions.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : []
     return {
       key,
       status: mapDecisionGateToRunStatus(gate.status),
       verdict: gate.verdict,
       findings: gate.findings.length,
+      ...(findingDetails.length > 0 ? { findingDetails } : {}),
+      ...(repairSuggestions.length > 0 ? { repairSuggestions } : {}),
     }
   })
 }
@@ -134,13 +166,16 @@ export async function rerunMainControlGates(
   const buildTaskBrief = deps.buildTaskBrief ?? buildFallbackTaskBrief
   const recordEvidence = deps.recordEvidence ?? recordChapterGateEvidence
 
-  const drafts = await listDrafts(input.projectPath)
-  const draft = drafts.find((item) => item.id === input.draftId)
-  if (!draft) throw new Error("找不到草稿")
-  const chapterContent = draft.content
+  const managed = input.managedDraft
+  const draft = managed ? undefined : (await listDrafts(input.projectPath)).find((item) => item.id === input.draftId)
+  const chapterContent = managed?.artifact.content ?? draft?.content
+  if (chapterContent === undefined) throw new Error("找不到草稿")
   if (!chapterContent.trim()) throw new Error("草稿没有正文")
 
-  const chapterNumber = extractChapterNumber(draft.chapterName) ?? undefined
+  const chapterNumber = managed?.chapterNumber ?? (draft ? readDraftChapterNumber(draft.chapterName) : undefined)
+  if (draft?.adoptionGate && chapterNumber === undefined) {
+    throw new Error(i18n.t("chat.draftReviewNeedsChapter"))
+  }
   // D4=C：本动作自己构建 contextPack（任务书备料需要它），因此交给 evaluateChapterGates 复用，
   // 不再二次排队构建。
   const contextPack: ContextPack = await buildPack(
@@ -150,7 +185,7 @@ export async function rerunMainControlGates(
   )
   const taskBrief = buildTaskBrief(
     contextPack,
-    input.goal?.trim() || draft.chapterName,
+    input.goal?.trim() || managed?.artifact.user_request || draft?.chapterName || "",
     chapterNumber,
     resolveChapterLengthSpec(input.novelConfig.chapterTargetChars),
   )
@@ -181,6 +216,24 @@ export async function rerunMainControlGates(
     intent: MAIN_CONTROL_RERUN_INTENT,
   })
 
+  const reviewed = evaluation.semanticReviewCompleted === true && evaluation.contractEvaluated && !evaluation.reviewParseFailed
+  let adoptionGate = draft?.adoptionGate ? decideDraftAdoptionGate(evaluation.decisionGates, {
+    reviewed: reviewed && chapterNumber !== undefined,
+    manualReviewRequired: evaluation.reviewParseFailed,
+    partial: draft.partial,
+  }) : undefined
+  if (adoptionGate && draft) await (deps.recordAdoptionGate ?? recordDraftAdoptionGate)(input.projectPath, draft, adoptionGate)
+  if (managed) {
+    adoptionGate = await recordManagedDraftAdoptionGate({
+      projectPath: input.projectPath,
+      reviewed: managed.artifact,
+      chapterNumber: managed.chapterNumber,
+      decisionGates: evaluation.decisionGates,
+      reviewResults: evaluation.reviewResults,
+      finalConsistencyReviewed: reviewed,
+    })
+  }
+
   return {
     draftId: input.draftId,
     chapterNumber,
@@ -193,5 +246,6 @@ export async function rerunMainControlGates(
     evidenceRecorded: evidence.recorded,
     evidenceError: evidence.error,
     evidenceTs: evidence.ts,
+    ...(adoptionGate ? { adoptionGate } : {}),
   }
 }

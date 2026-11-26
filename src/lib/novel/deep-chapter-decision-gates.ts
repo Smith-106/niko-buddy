@@ -6,8 +6,9 @@
  * 主文件只做编排——改决策门逻辑不再动 3000 行编排体。
  */
 
+import type { DraftGateStatus } from "./lifecycle-types"
 import { resolveReviewGateKey, type NovelReviewResult } from "./review-adapter"
-import { getUpgradeThreshold, getRepairScope, GATE_MAPPING } from "./audit-taxonomy"
+import { getUpgradeThreshold, getRepairScope, GATE_MAPPING, normalizeAuditGenre } from "./audit-taxonomy"
 
 export type DeepChapterDecisionGateKey = "consistency" | "anti_ai" | "quality"
 export type DeepChapterGateVerdict = "pending" | "pass" | "warning" | "fail" | "manual_review"
@@ -108,6 +109,7 @@ export function buildDecisionGates(
   retryCount: number,
   manualReviewRequired = false,
   genre?: string,
+  semanticReviewCompleted = true,
 ): DeepChapterDecisionGates {
   const grouped: Record<DeepChapterDecisionGateKey, NovelReviewResult[]> = {
     consistency: [],
@@ -120,17 +122,21 @@ export function buildDecisionGates(
   const updatedAt = new Date().toISOString()
   const createGate = (findings: NovelReviewResult[], gateKey: DeepChapterDecisionGateKey): DeepChapterDecisionGate => {
     const hasError = findings.some((item) => item.severity === "error")
+    if (!semanticReviewCompleted && !hasError) {
+      return { ...createEmptyDecisionGate(), findings, retry_count: retryCount }
+    }
     const hasWarning = findings.some((item) => item.severity === "warning")
     const warningCount = findings.filter((item) => item.severity === "warning").length
+    const normalizedGenre = normalizeAuditGenre(genre)
     // 53 号报告 P0-3 接线② additive: 题材级 warn→fail 升级 (inkos
     // getUpgradeThreshold 模式, AGPL 只借模式)。仅 genre 已传时启用
     // (缺省零行为变更), 且只作用于 Quality 门 (P0/P1 恒硬门不受题材影响)。
     const upgradedToFail =
       gateKey === "quality" &&
-      genre !== undefined &&
+      normalizedGenre !== undefined &&
       !hasError &&
       hasWarning &&
-      warningCount >= getUpgradeThreshold(genre, GATE_MAPPING.quality.dimensionIds[0])
+      warningCount >= getUpgradeThreshold(normalizedGenre, GATE_MAPPING.quality.dimensionIds[0])
     // ISS-20260709-044: 状态与裁决分两步显式分支（与改前嵌套三元逐项等价）。
     const status = resolveGateStatus({ hasError, upgradedToFail })
     return {
@@ -140,7 +146,7 @@ export function buildDecisionGates(
       repair_suggestions: uniqueSuggestions(findings),
       retry_count: retryCount,
       updated_at: updatedAt,
-      manual_review_required: manualReviewRequired && hasError ? true : undefined,
+      manual_review_required: manualReviewRequired && (hasError || upgradedToFail) ? true : undefined,
     }
   }
   const gates: DeepChapterDecisionGates = {
@@ -151,6 +157,7 @@ export function buildDecisionGates(
   }
   // ISS-20260709-044: overall 经显式分支函数聚合（与改前 CORR-108 注释块逐项等价）。
   gates.overall = resolveOverallVerdict(gates, manualReviewRequired)
+  if (!semanticReviewCompleted && gates.overall === "pass") gates.overall = "pending"
   return gates
 }
 
@@ -214,12 +221,13 @@ export function collectRepairIssues(
   genre?: string,
 ): NovelReviewResult[] {
   const warnings: NovelReviewResult[] = []
+  const normalizedGenre = normalizeAuditGenre(genre)
   for (const gateKey of ["consistency", "anti_ai", "quality"] as const) {
     const gate = decisionGates[gateKey]
     // 53 号报告 P0-3 接线③ additive: 题材级 repair_scope 路由 (inkos
     // getRepairScope 模式)。scope=warn_only/resettle_only 的门不进自动修复。
-    if (genre !== undefined) {
-      const scope = getRepairScope(genre, GATE_MAPPING[gateKey].dimensionIds[0])
+    if (normalizedGenre !== undefined) {
+      const scope = getRepairScope(normalizedGenre, GATE_MAPPING[gateKey].dimensionIds[0])
       if (scope === "warn_only" || scope === "resettle_only") continue
     }
     for (const finding of gate.findings) {
@@ -255,4 +263,49 @@ export function collectLiteraryPolishIssues(decisionGates: DeepChapterDecisionGa
     }
   }
   return out
+}
+
+/**
+ * N-4: 守恒 Consistency(P0) > Anti-AI(P1) > Quality(P2) 优先级。
+ * 仅当 P0 与 P1 均已通过（passed）、Quality 门因题材 warning 阈值升级为 failed
+ * 且不含任何 severity === "error" 阻断项时，判定为非阻断质量升级（不死锁草稿采纳，
+ * 且 Stage 5.7 / Stage 7.6 复核亦按同源语义豁免，避免误回滚抛光/去AI味成果）。
+ */
+export function isNonBlockingQualityUpgrade(gates: DeepChapterDecisionGates): boolean {
+  return (
+    gates.consistency.status === "passed"
+    && gates.anti_ai.status === "passed"
+    && gates.quality.status === "failed"
+    && !gates.quality.findings.some((item) => item.severity === "error")
+  )
+}
+
+export function decideDraftAdoptionGate(
+  gates: DeepChapterDecisionGates,
+  evidence: { reviewed: boolean; manualReviewRequired?: boolean; partial?: boolean },
+): DraftGateStatus {
+  if (evidence.partial) return "partial"
+  if (evidence.manualReviewRequired || gates.overall === "manual_review") return "manual_review"
+  const nonBlockingQualityUpgrade = isNonBlockingQualityUpgrade(gates)
+  const hasBlockingQualityError =
+    gates.quality.status === "failed"
+    && gates.quality.findings.some((item) => item.severity === "error")
+  if (
+    gates.consistency.status === "failed"
+    || gates.anti_ai.status === "failed"
+    || hasBlockingQualityError
+    || (gates.overall === "fail" && !nonBlockingQualityUpgrade)
+  ) {
+    return "blocked"
+  }
+  // 注：上方已阻断 anti_ai.status === "failed"，且 nonBlockingQualityUpgrade 额外要求 anti_ai.status === "passed"。
+  if (
+    evidence.reviewed
+    && gates.consistency.status === "passed"
+    && (gates.consistency.verdict === "pass" || gates.consistency.verdict === "warning")
+    && (gates.overall === "pass" || gates.overall === "warning" || nonBlockingQualityUpgrade)
+  ) {
+    return "passed"
+  }
+  return "unassessed"
 }

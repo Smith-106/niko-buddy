@@ -25,7 +25,8 @@
 
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { acceptDraftAndIngest, type AcceptDraftAndIngestResult } from "./accept-draft-with-ingest"
-import { acceptChapterDraft, formalChapterPathForDraft } from "./draft-manager"
+import { acceptChapterDraft, formalChapterPathForDraft, resolveChapterDraftAdoptionTarget } from "./draft-manager"
+import type { DraftAdoptionGate } from "./lifecycle-types"
 
 /**
  * 主控采纳 seam：转调 `acceptChapterDraft`（与 ChapterDraftDock 同一实现）。
@@ -40,6 +41,8 @@ export function createMainControlAcceptSeam(input: {
   confirmed: boolean
   /** 测试注入点；生产恒为 `acceptChapterDraft`。 */
   acceptDraft?: typeof acceptChapterDraft
+  /** A01 绑定草稿复核期正文：不一致则 draft-manager 拒绝写入。 */
+  expectedDraftContent?: string
 }): (formalChapterPath: string) => Promise<void> {
   const acceptDraft = input.acceptDraft ?? acceptChapterDraft
   return async (formalChapterPath: string) => {
@@ -48,17 +51,19 @@ export function createMainControlAcceptSeam(input: {
       draftId: input.draftId,
       formalChapterPath,
       confirmed: input.confirmed,
+      ...(input.expectedDraftContent !== undefined ? { expectedDraftContent: input.expectedDraftContent } : {}),
     })
   }
 }
 
-/** 采纳目标路径（与 ChapterDraftDock 同一解析：同书同名则复用，否则写 wiki/chapters）。 */
+/** 采纳目标路径（同步解析，与 ChapterDraftDock 同源；gated 时走规范章节文件解析）。 */
 export function resolveMainControlDraftTarget(
   projectPath: string,
   chapterName: string,
   selectedFile: string | null = null,
+  gated = false,
 ): string {
-  return formalChapterPathForDraft(projectPath, chapterName, selectedFile)
+  return formalChapterPathForDraft(projectPath, chapterName, selectedFile, gated)
 }
 
 export interface MainControlAdoptDraftInput {
@@ -71,6 +76,12 @@ export interface MainControlAdoptDraftInput {
   llmConfig: LlmConfig
   selectedFile?: string | null
   signal?: AbortSignal
+  /** A01 绑定草稿复核期正文：不一致则 accept 通道拒绝写入。 */
+  expectedDraftContent?: string
+  /** 确认面板已展示的落点；给了就用它，不按当前 selectedFile 重算。 */
+  formalChapterPath?: string
+  /** R2-W01：门控草稿元数据；未显式传 formalChapterPath 时经 resolveChapterDraftAdoptionTarget 消除 gated 路径分叉。 */
+  adoptionGate?: DraftAdoptionGate
 }
 
 export interface MainControlAdoptDraftDeps {
@@ -78,6 +89,8 @@ export interface MainControlAdoptDraftDeps {
   acceptDraft?: typeof acceptChapterDraft
   /** 测试注入点；生产恒为 `acceptDraftAndIngest`。 */
   adoptAndIngest?: typeof acceptDraftAndIngest
+  /** 测试注入点；生产恒为 `resolveChapterDraftAdoptionTarget`。 */
+  resolveTarget?: typeof resolveChapterDraftAdoptionTarget
 }
 
 /**
@@ -90,9 +103,10 @@ export async function adoptMainControlDraft(
   deps: MainControlAdoptDraftDeps = {},
 ): Promise<AcceptDraftAndIngestResult> {
   const adoptAndIngest = deps.adoptAndIngest ?? acceptDraftAndIngest
-  const formalChapterPath = resolveMainControlDraftTarget(
+  const resolveTarget = deps.resolveTarget ?? resolveChapterDraftAdoptionTarget
+  const formalChapterPath = input.formalChapterPath ?? await resolveTarget(
     input.projectPath,
-    input.chapterName,
+    { chapterName: input.chapterName, adoptionGate: input.adoptionGate },
     input.selectedFile ?? null,
   )
   return adoptAndIngest({
@@ -103,6 +117,7 @@ export async function adoptMainControlDraft(
       draftId: input.draftId,
       confirmed: input.confirmed,
       acceptDraft: deps.acceptDraft,
+      ...(input.expectedDraftContent !== undefined ? { expectedDraftContent: input.expectedDraftContent } : {}),
     }),
     novelConfig: input.novelConfig,
     llmConfig: input.llmConfig,

@@ -216,9 +216,9 @@ describe("Fault: SIGKILL（mock writeCanon 抛 SIGKILL）", () => {
     // 队列持久化
     expect(store.contents).toContain("sigkill-1")
 
-    // 重放：canon 恢复正常
+    // 重放：canon 恢复正常（M2-03 首次写 + 立即自愈均失败 → attempts=2, nextRetryAt=1000+2000=3000）
     const replayDeps = memDeps(store, ok(), ok())
-    const replay = await replayPendingQueue(replayDeps, "P", 2000)
+    const replay = await replayPendingQueue(replayDeps, "P", 3000)
     expect(replay.succeeded).toBe(1)
     expect(replay.remaining).toBe(0)
 
@@ -240,9 +240,9 @@ describe("Fault: SIGKILL（mock writeCanon 抛 SIGKILL）", () => {
     const report = await shadowWriteCanon(deps, "P", [opFromDigest("both-kill")], 1000)
     expect(report.queued).toBe(1)
     expect(report.written).toBe(0)
-    // 重放：两侧都恢复
+    // 重放：两侧都恢复（attempts=2, nextRetryAt=3000）
     const replayDeps = memDeps(store, ok(), ok())
-    const replay = await replayPendingQueue(replayDeps, "P", 2000)
+    const replay = await replayPendingQueue(replayDeps, "P", 3000)
     expect(replay.succeeded).toBe(1)
     expect(replay.remaining).toBe(0)
   })
@@ -258,7 +258,7 @@ describe("Fault: SIGKILL（mock writeCanon 抛 SIGKILL）", () => {
       })
       const report = await shadowWriteCanon(deps, "P", ops, 1000)
       const replayDeps = memDeps(store, ok(), ok())
-      const replay = await replayPendingQueue(replayDeps, "P", 2000)
+      const replay = await replayPendingQueue(replayDeps, "P", 3000)
       return captureFinalState(report, replay, store)
     }
 
@@ -330,9 +330,9 @@ describe("Fault: 部分写（截断 canon-pending.jsonl JSONL 行）", () => {
       const deps = memDeps(store, ok(), fail("canon:boom"))
       const ops = deterministicDigests(s, 2).map(opFromDigest)
       const report = await shadowWriteCanon(deps, "P", ops, 1000)
-      // 重放时 canon 恢复
+      // 重放时 canon 恢复（attempts=2, nextRetryAt=3000）
       const replayDeps = memDeps(store, ok(), ok())
-      const replay = await replayPendingQueue(replayDeps, "P", 2000)
+      const replay = await replayPendingQueue(replayDeps, "P", 3000)
       return captureFinalState(report, replay, store)
     }
     const first = await run(seed)
@@ -546,9 +546,9 @@ describe("Fault: OOM（mock writeCanon 抛 OOM）", () => {
     expect(report.reconcile.divergences[0]!.reasons[0]).toContain("OOM")
     expect(store.contents).toContain("oom-1")
 
-    // OOM 恢复后重放
+    // OOM 恢复后重放（M2-03 首次写 + 立即自愈均失败 → attempts=2, nextRetryAt=3000）
     const replayDeps = memDeps(store, ok(), ok())
-    const replay = await replayPendingQueue(replayDeps, "P", 2000)
+    const replay = await replayPendingQueue(replayDeps, "P", 3000)
     expect(replay.succeeded).toBe(1)
     expect(replay.remaining).toBe(0)
 
@@ -567,9 +567,9 @@ describe("Fault: OOM（mock writeCanon 抛 OOM）", () => {
     const report = await shadowWriteCanon(deps, "P", [opFromDigest("oom-legacy")], 1000)
     expect(report.queued).toBe(1)
     expect(report.reconcile.divergences[0]!.reasons[0]).toContain("legacy")
-    // 重放：两侧恢复
+    // 重放：两侧恢复（attempts=2, nextRetryAt=3000）
     const replayDeps = memDeps(store, ok(), ok())
-    const replay = await replayPendingQueue(replayDeps, "P", 2000)
+    const replay = await replayPendingQueue(replayDeps, "P", 3000)
     expect(replay.succeeded).toBe(1)
   })
 
@@ -593,7 +593,7 @@ describe("Fault: OOM（mock writeCanon 抛 OOM）", () => {
       })
       const report = await shadowWriteCanon(deps, "P", ops, 1000)
       const replayDeps = memDeps(store, ok(), ok())
-      const replay = await replayPendingQueue(replayDeps, "P", 2000)
+      const replay = await replayPendingQueue(replayDeps, "P", 3000)
       return captureFinalState(report, replay, store)
     }
     const first = await run(seed)
@@ -620,14 +620,15 @@ describe("Fault: 时钟偏移（vi.useFakeTimers 模拟时间跳变）", () => {
     const report = await shadowWriteCanon(deps, "P", [opFromDigest("skew-1")], 1000)
     expect(report.queued).toBe(1)
 
-    // 此时 pending 记录 nextRetryAt = 1000 + BACKOFF_BASE_MS = 2000
+    // M2-03：初始写（attempts=1）+ shadowWriteCanon 内部立即自愈重试均失败 → attempts=2，
+    // nextRetryAt = 1000 + computeBackoffMs(2) = 1000 + 2000 = 3000
     const queue = await loadPendingQueue(deps, "P")
-    expect(queue[0]!.nextRetryAt).toBe(2000)
+    expect(queue[0]!.nextRetryAt).toBe(3000)
 
     // 时钟偏移：时间跳变到 5000（远超 nextRetryAt）
     vi.setSystemTime(5000)
 
-    // 重放：now=5000 > nextRetryAt=2000 → 到期，应重放
+    // 重放：now=5000 > nextRetryAt=3000 → 到期，应重放
     const replayDeps = memDeps(store, ok(), ok())
     const replay = await replayPendingQueue(replayDeps, "P", 5000)
     expect(replay.succeeded).toBe(1) // 到期重放成功
@@ -733,8 +734,10 @@ describe("跨类集成：组合故障注入（多类混合场景）", () => {
       writeLegacy: async () => ok(),
       writeCanon: async () => {
         callCount++
-        if (callCount === 1) throw new Error("SIGKILL")
-        if (callCount === 2) throw new Error("OOM")
+        // 首次双写（1/2）与 M2-03 写后立即自愈重试（3/4）均处于故障态，
+        // 两条记录以 attempts=2, nextRetryAt=3000 留存队列，交由恢复后的 replayDeps 补齐
+        if (callCount === 1 || callCount === 3) throw new Error("SIGKILL")
+        if (callCount === 2 || callCount === 4) throw new Error("OOM")
         return ok()
       },
       queueRead: async () => store.contents,
@@ -751,9 +754,9 @@ describe("跨类集成：组合故障注入（多类混合场景）", () => {
     expect(report.queued).toBe(2)
     expect(report.written).toBe(0)
 
-    // 重放：全部成功
+    // 重放：全部成功（attempts=2, nextRetryAt=3000）
     const replayDeps = memDeps(store, ok(), ok())
-    const replay = await replayPendingQueue(replayDeps, "P", 2000)
+    const replay = await replayPendingQueue(replayDeps, "P", 3000)
     expect(replay.succeeded).toBe(2)
     expect(replay.remaining).toBe(0)
   })

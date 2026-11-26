@@ -32,6 +32,7 @@ import {
 } from "@/lib/utils"
 
 import { CHAPTER_OUTLINE_PROTECTED_CAP, currentBuildBudget, tieredSlice } from "./context-engine-gaps"
+import type { ContextBuildSession } from "./context-data-source"
 import type { ContextPack } from "./context-engine"
 
 export function emptyPack(task: string): ContextPack {
@@ -105,8 +106,8 @@ export async function readOutlineContent(pp: string): Promise<string> {
  * fall back to the legacy static `CHAPTER_OUTLINE_PROTECTED_CAP` so
  * backward compatibility holds for every existing caller.
  */
-export function resolveChapterOutlineProtectedCap(): number {
-  const budget = currentBuildBudget
+export function resolveChapterOutlineProtectedCap(session?: ContextBuildSession): number {
+  const budget = session ? session.budget : currentBuildBudget
   if (budget) return budget.maxPageSize
   return CHAPTER_OUTLINE_PROTECTED_CAP
 }
@@ -114,21 +115,27 @@ export function resolveChapterOutlineProtectedCap(): number {
 export function pickChapterOutlineByNumber(
   candidates: Array<{ path: string; content: string }>,
   chapterNumber: number,
+  session?: ContextBuildSession,
 ): string {
+  const cap = resolveChapterOutlineProtectedCap(session)
   for (const group of groupOutlineSources(candidates)) {
     const frontmatterMatch = group.find((candidate) => readFrontmatterChapterNumber(candidate.content) === chapterNumber)
-    if (frontmatterMatch) return tieredSlice(frontmatterMatch.content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:frontmatter`)
+    if (frontmatterMatch) return tieredSlice(frontmatterMatch.content, "protected", cap, `chapter-outline:${chapterNumber}:frontmatter`, session)
 
     const headingMatch = group.find((candidate) =>
       includesChapterMarker(candidate.content, chapterNumber) || includesChapterMarker(candidate.path, chapterNumber),
     )
-    if (headingMatch) return tieredSlice(headingMatch.content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:heading`)
+    if (headingMatch) return tieredSlice(headingMatch.content, "protected", cap, `chapter-outline:${chapterNumber}:heading`, session)
   }
 
   return ""
 }
 
-export async function readChapterOutlineDirect(pp: string, chapterNumber: number): Promise<string> {
+export async function readChapterOutlineDirect(
+  pp: string,
+  chapterNumber: number,
+  session?: ContextBuildSession,
+): Promise<string> {
   try {
     const tree = await listDirectory(`${pp}/wiki/outlines`)
     // 来源选择先于 first80；备份文件不能挤掉正式大纲，也不能凭较早的 frontmatter 胜出。
@@ -154,19 +161,21 @@ export async function readChapterOutlineDirect(pp: string, chapterNumber: number
           return pickChapterOutlineByNumber(
             candidates.filter((candidate) => candidate.content.trim()),
             chapterNumber,
+            session,
           )
         }
       }
       const fromWiki = pickChapterOutlineByNumber(
         candidates.filter((candidate) => candidate.content.trim()),
         chapterNumber,
+        session,
       )
       if (fromWiki.trim()) return fromWiki
     }
   } catch {
     // fall through to project-root FILLED outlines (M1)
   }
-  const rootFilled = await readProjectRootFilledOutline(pp, chapterNumber)
+  const rootFilled = await readProjectRootFilledOutline(pp, chapterNumber, session)
   if (rootFilled.trim()) return rootFilled
 
   // 探测骨架章节（大纲解构分发生成物：chapter_status: "planned" 或正文大纲梗概）
@@ -187,8 +196,9 @@ export async function readChapterOutlineDirect(pp: string, chapterNumber: number
           return tieredSlice(
             outlineText,
             "protected",
-            resolveChapterOutlineProtectedCap(),
+            resolveChapterOutlineProtectedCap(session),
             `chapter-outline:${chapterNumber}:skeleton`,
+            session,
           )
         }
       }
@@ -204,7 +214,11 @@ export async function readChapterOutlineDirect(pp: string, chapterNumber: number
  * M1: projects that keep outlines as `Chapter-N-Outline-FILLED.md` at project root
  * (e.g. 8人 without wiki/) still feed buildContextPack. Prefer wiki/outlines when present.
  */
-export async function readProjectRootFilledOutline(pp: string, chapterNumber: number): Promise<string> {
+export async function readProjectRootFilledOutline(
+  pp: string,
+  chapterNumber: number,
+  session?: ContextBuildSession,
+): Promise<string> {
   const names = [
     `Chapter-${chapterNumber}-Outline-FILLED.md`,
     `Chapter-${chapterNumber}-Outline.md`,
@@ -218,8 +232,9 @@ export async function readProjectRootFilledOutline(pp: string, chapterNumber: nu
         return tieredSlice(
           content,
           "protected",
-          resolveChapterOutlineProtectedCap(),
+          resolveChapterOutlineProtectedCap(session),
           `chapter-outline:${chapterNumber}:project-root-filled`,
+          session,
         )
       }
     } catch {
@@ -229,9 +244,13 @@ export async function readProjectRootFilledOutline(pp: string, chapterNumber: nu
   return ""
 }
 
-export async function readChapterOutlineContent(pp: string, chapterNumber?: number): Promise<string> {
+export async function readChapterOutlineContent(
+  pp: string,
+  chapterNumber?: number,
+  session?: ContextBuildSession,
+): Promise<string> {
   if (!chapterNumber) return ""
-  const direct = await readChapterOutlineDirect(pp, chapterNumber)
+  const direct = await readChapterOutlineDirect(pp, chapterNumber, session)
   if (direct.trim()) return direct
   const queries = [
     `第${chapterNumber}章细纲 outline`,
@@ -248,7 +267,13 @@ export async function readChapterOutlineContent(pp: string, chapterNumber?: numb
   for (const result of selectedResults) {
     try {
       const content = await readFile(result.path)
-      return tieredSlice(content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:search`)
+      return tieredSlice(
+        content,
+        "protected",
+        resolveChapterOutlineProtectedCap(session),
+        `chapter-outline:${chapterNumber}:search`,
+        session,
+      )
     } catch {
       logger.warn("context-engine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1829 })
     }

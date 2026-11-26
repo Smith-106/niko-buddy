@@ -71,6 +71,27 @@ describe("retrieval-source-pipeline", () => {
     expect(fused[0].relevance).toBeCloseTo(SOURCE_WEIGHTS.graph / (SOURCE_RRF_K_DEFAULT + 0 + 1), 6)
   })
 
+  it("R2-M08: deduplicateResults 单源同路径取最高 RRF 不叠加（消除 3× Canon 虚增），跨源正常叠加", () => {
+    // 同一 canon 源命中 3 段同路径窗口：只取最高分 0.9/61，不叠加 0.9/61 + 0.9/62 + 0.9/63
+    const canonOnly = deduplicateResults([
+      { ...item("canon", "/p/wiki/canon.md", 0.8, "canon-w2"), sourceRank: 2 },
+      { ...item("canon", "/p/wiki/canon.md", 1.0, "canon-w0"), sourceRank: 0 },
+      { ...item("canon", "/p/wiki/canon.md", 0.9, "canon-w1"), sourceRank: 1 },
+    ])
+    expect(canonOnly).toHaveLength(1)
+    expect(canonOnly[0].relevance).toBeCloseTo(SOURCE_WEIGHTS.canon / (SOURCE_RRF_K_DEFAULT + 1), 6)
+    expect(canonOnly[0].title).toBe("canon-w0")
+
+    // 跨源（keyword + vector）同路径仍正常叠加，但单源内重复仍去重取最高
+    const crossSource = deduplicateResults([
+      { ...item("keyword", "/p/wiki/entities/a.md", 0.9, "kw0"), sourceRank: 0 },
+      { ...item("keyword", "/p/wiki/entities/a.md", 0.8, "kw1"), sourceRank: 1 },
+      { ...item("vector", "/p/wiki/entities/a.md", 0.95, "vec0"), sourceRank: 0 },
+    ])
+    expect(crossSource).toHaveLength(1)
+    expect(crossSource[0].relevance).toBeCloseTo(2 / (SOURCE_RRF_K_DEFAULT + 1), 6)
+  })
+
   it("withTimeout 正常 resolve 并透传 reject", async () => {
     await expect(withTimeout(Promise.resolve(42), 50, "ok")).resolves.toBe(42)
     await expect(withTimeout(Promise.reject(new Error("boom")), 50, "bad")).rejects.toThrow("boom")

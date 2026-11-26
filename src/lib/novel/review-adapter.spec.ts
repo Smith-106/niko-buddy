@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { LlmConfig } from "@/stores/wiki-store"
+import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { ChapterSnapshot } from "./chapter-ingest"
@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   // 非-ENOENT 错误 rethrow → preflight catch → 每次审稿都产 engine_error warning
   // 污染结果。修复：mock readFile 抛 ENOENT（模拟 E:/Novel 首运行空项目），让
   // 4 个 loader 走正常降级返空 store，checkContinuity 与短路语义真实可达。
-  fsReadFileMock: vi.fn(async () => {
+  fsReadFileMock: vi.fn<(path: string) => Promise<string>>(async () => {
     const err: NodeJS.ErrnoException = new Error("ENOENT: no such file or directory")
     err.code = "ENOENT"
     throw err
@@ -217,8 +217,8 @@ vi.mock("./mechanical-slop-detector", async () => {
         : actual.slopScore(content),
     classifySlop: (report: unknown) => (mocks.slopBlock ? "block" : actual.classifySlop(report as never)),
     slopReportToText: (report: unknown) => (mocks.slopBlock ? "机械 slop 文本" : actual.slopReportToText(report as never)),
-    detectCharacterActions: (content: string) =>
-      mocks.actionHitsOverride !== undefined ? mocks.actionHitsOverride : actual.detectCharacterActions(content),
+    detectCharacterActions: (content: string, characterNames?: readonly string[]) =>
+      mocks.actionHitsOverride !== undefined ? mocks.actionHitsOverride : actual.detectCharacterActions(content, characterNames),
     characterActionsToText: (hits: unknown) =>
       mocks.actionTextOverride !== undefined ? mocks.actionTextOverride : actual.characterActionsToText(hits as never),
   }
@@ -392,7 +392,7 @@ describe("review-adapter staged review", () => {
     }])
   })
 
-  it("returns an empty result when the model outputs analysis prose but no JSON array", async () => {
+  it("no JSON array → ReviewParseError surfaced to caller", async () => {
     streamChatMock.mockImplementation(async (
       _config: LlmConfig,
       _messages: Array<{ role: string; content: string }>,
@@ -402,9 +402,10 @@ describe("review-adapter staged review", () => {
       callbacks.onDone()
     })
 
-    await expect(reviewChapter("E:/Novel", "正文", 8, { contextPack })).rejects.toThrow(
-      "did not return a JSON array",
-    )
+    await expect(reviewChapter("E:/Novel", "正文", 8, { contextPack })).rejects.toMatchObject({
+      name: "ReviewParseError",
+      message: expect.stringContaining("did not return a JSON array"),
+    })
   })
 
   it("ISS-20260711-001: retries re-asking the model when a chunk returns no JSON array before giving up", async () => {
@@ -424,9 +425,10 @@ describe("review-adapter staged review", () => {
         callbacks.onToken("# 第16章 标题\n\n正文 markdown，没有 JSON 数组。")
         callbacks.onDone()
       })
-      const pending = expect(reviewChapter("E:/Novel", "正文", 8, { contextPack })).rejects.toThrow(
-        "did not return a JSON array",
-      )
+      const pending = expect(reviewChapter("E:/Novel", "正文", 8, { contextPack })).rejects.toMatchObject({
+        name: "ReviewParseError",
+        message: expect.stringContaining("did not return a JSON array"),
+      })
       await vi.runAllTimersAsync()
       await pending
       expect(streamChatMock).toHaveBeenCalledTimes(3)
@@ -567,6 +569,56 @@ describe("review-adapter staged review", () => {
 // :351) + critical 短路分支 (:430-432 Consistency P0 门控) 需独立接线测试。守 fix-don't-
 // hide: 不 mock toConsistencyReviewResult 自身, 只覆写 checkContinuity 驱动 preflight
 // 拿到非空 critical findings, 让 toConsistencyReviewResult 走真实 production path。
+  it("onSemanticReviewCompleted fires for a complete [] review but not for incomplete findings or truncated windows", async () => {
+    const completed = vi.fn()
+    const failed = vi.fn()
+
+    // 1) 完整审查（合法空 findings）→ 回调。
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      _messages: Array<{ role: string; content: string }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      callbacks.onToken("[]")
+      callbacks.onDone()
+    })
+    const results = await reviewChapter("E:/Novel", "测试正文", 8, { contextPack, onSemanticReviewCompleted: completed })
+    expect(results).toEqual([])
+    expect(completed).toHaveBeenCalledTimes(1)
+
+    // 2) findings 缺合法 severity/type → 结果同形，但回调不点。
+    completed.mockClear()
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      _messages: Array<{ role: string; content: string }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      callbacks.onToken(JSON.stringify([{ severity: "notice", message: "x" }]))
+      callbacks.onDone()
+    })
+    await reviewChapter("E:/Novel", "测试正文", 8, { contextPack, onSemanticReviewCompleted: failed })
+    expect(failed).not.toHaveBeenCalled()
+
+    // 3) 配置短窗（REVIEW_CHAPTER_MAX_CHARS 地板 2000 < 分块 8k）→ slice 截断 → 回调不点。
+    const prevMax = process.env.REVIEW_CHAPTER_MAX_CHARS
+    process.env.REVIEW_CHAPTER_MAX_CHARS = "2000"
+    try {
+      streamChatMock.mockImplementation(async (
+        _config: LlmConfig,
+        _messages: Array<{ role: string; content: string }>,
+        callbacks: StreamCallbacks,
+      ) => {
+        callbacks.onToken("[]")
+        callbacks.onDone()
+      })
+      await reviewChapter("E:/Novel", "字".repeat(17_000), 8, { contextPack, onSemanticReviewCompleted: failed })
+      expect(failed).not.toHaveBeenCalled()
+    } finally {
+      if (prevMax === undefined) delete process.env.REVIEW_CHAPTER_MAX_CHARS
+      else process.env.REVIEW_CHAPTER_MAX_CHARS = prevMax
+    }
+  })
+
 describe("REV-CE-003 toConsistencyReviewResult production-path 接线", () => {
   beforeEach(() => {
     streamChatMock.mockReset()
@@ -1192,7 +1244,36 @@ describe("review-adapter — 全口径收口 (可达分支 100%) ", () => {
 
     expect(results).toEqual([])
     expect(mocks.listSnapshotsMock).not.toHaveBeenCalled()
-    expect(buildContextPack).toHaveBeenCalledWith("E:/Novel", "审稿第?章", undefined)
+    expect(buildContextPack).toHaveBeenCalledWith("E:/Novel", "审稿第?章", undefined, {
+      novelConfig: undefined,
+      llmConfig: undefined,
+      novelMode: true,
+    })
+  })
+
+  it("R2-W09: reviewChapter 未传 contextPack 时向 buildContextPack 透传注入的 novelConfig / llmConfig / novelMode", async () => {
+    const { buildContextPack } = await import("./context-engine")
+    vi.mocked(buildContextPack).mockClear()
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      _messages: Array<{ role: string; content: string }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      callbacks.onToken("[]")
+      callbacks.onDone()
+    })
+    const injectedLlm = { provider: "openai", apiKey: "sk-di", model: "gpt-4o", ollamaUrl: "", customEndpoint: "", maxContextSize: 128000 } as LlmConfig
+    const injectedNovel = { ...mocks.novelConfig, searchTopK: 9 } as unknown as NovelConfig
+    await reviewChapter("E:/Novel", "正文", 4, {
+      llmConfig: injectedLlm,
+      novelConfig: injectedNovel,
+      novelMode: true,
+    })
+    expect(buildContextPack).toHaveBeenCalledWith("E:/Novel", "审稿第4章", 4, {
+      novelConfig: injectedNovel,
+      llmConfig: injectedLlm,
+      novelMode: true,
+    })
   })
 
   it("characterOnly 模式使用角色一致性专项提示词", async () => {
@@ -1576,5 +1657,132 @@ describe("clampReviewStageTimeoutMs", () => {
     expect(clampReviewStageTimeoutMs(900_000)).toBe(900_000)
     expect(clampReviewStageTimeoutMs(1_000)).toBe(60_000)
     expect(clampReviewStageTimeoutMs(9_999_999)).toBe(1_800_000)
+  })
+})
+
+describe("W1-03 门控优先级（Consistency P0 先于 Anti-AI P1）与过程库三口诀 chapterText", () => {
+  beforeEach(() => {
+    streamChatMock.mockReset()
+    mocks.continuityFindingsOverride = undefined
+    mocks.continuityThrow = undefined
+    mocks.slopBlock = false
+    mocks.actionHitsOverride = undefined
+    mocks.actionTextOverride = undefined
+    mocks.llmUsable = true
+  })
+
+  it("P0 机械连续性 error 与 P1 机械 slop 阻断同时命中时：P0 恒前置且不被 P1 短路遮蔽", async () => {
+    mocks.slopBlock = true
+    mocks.actionHitsOverride = [{ action: "皱眉", totalCount: 4 }]
+    mocks.actionTextOverride = '重复动作: "皱眉"×4'
+    mocks.continuityFindingsOverride = [{
+      type: "dead_character_state",
+      subtype: "consistency_mechanical",
+      severity: "critical",
+      ref: "character:已故掌门",
+      message: "已故掌门在第8章仍出现活跃状态变更",
+      chapter: 8,
+    }]
+
+    const results = await reviewChapter("E:/Novel", "正文", 8, { contextPack })
+
+    expect(streamChatMock).not.toHaveBeenCalled()
+    expect(results).toHaveLength(3)
+    // 严格按 P0(consistency_mechanical) → P1(anti_ai slop) → P1(character_behavior) 排序
+    expect(results[0]!.type).toBe("consistency_mechanical")
+    expect(results[0]!.severity).toBe("error")
+    expect(results[1]!.type).toBe("anti_ai")
+    expect(results[1]!.severity).toBe("error")
+    expect(results[2]!.type).toBe("character_behavior")
+    expect(results[2]!.severity).toBe("warning")
+  })
+
+  it("P0 仅有 warning 但 P1 slop 触发阻断时：仍保留前置 P0 warning 不被吞掉", async () => {
+    mocks.slopBlock = true
+    mocks.continuityFindingsOverride = [{
+      type: "dormant_thread",
+      subtype: "consistency_mechanical",
+      severity: "warning",
+      ref: "subplot:暗线",
+      message: "暗线休眠 6 章未推进",
+      chapter: 8,
+    }]
+
+    const results = await reviewChapter("E:/Novel", "正文", 8, { contextPack })
+
+    expect(streamChatMock).not.toHaveBeenCalled()
+    expect(results).toHaveLength(2)
+    expect(results[0]!.type).toBe("consistency_mechanical")
+    expect(results[0]!.severity).toBe("warning")
+    expect(results[1]!.type).toBe("anti_ai")
+    expect(results[1]!.severity).toBe("error")
+  })
+
+  it("injectedContinuityResults 含 P0 error 时：与 P1 slop 并存仍以 P0 前置短路", async () => {
+    mocks.slopBlock = true
+    const injectedP0: NovelReviewResult = {
+      severity: "error",
+      type: "consistency_mechanical",
+      message: "过程库三口诀：角色越界知情",
+      evidence: "doesNotKnow:密室密码",
+      relatedMemory: "",
+      suggestion: "删去越界认知",
+    }
+
+    const results = await reviewChapter("E:/Novel", "正文", 8, {
+      contextPack,
+      injectedContinuityResults: [injectedP0],
+    })
+
+    expect(streamChatMock).not.toHaveBeenCalled()
+    expect(results[0]).toEqual(injectedP0)
+    expect(results[1]!.type).toBe("anti_ai")
+    expect(results[1]!.severity).toBe("error")
+  })
+})
+
+describe("R2-W05 & R2-W08：state_delta_light_check 归位 P0 consistency 与当前书目角色名透传", () => {
+  it("resolveReviewGateKey 将 state_delta_light_check 及大小写变体归一到 P0 consistency", () => {
+    expect(resolveReviewGateKey("state_delta_light_check")).toBe("consistency")
+    expect(resolveReviewGateKey("  STATE_DELTA_LIGHT_CHECK ")).toBe("consistency")
+  })
+
+  it("reviewChapter 从 character-states.json 读取当前书目角色名传给 detectCharacterActions", async () => {
+    mocks.actionHitsOverride = undefined
+    mocks.actionTextOverride = undefined
+    mocks.slopBlock = false
+    const prevImpl = mocks.fsReadFileMock.getMockImplementation()
+    mocks.fsReadFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("character-states.json")) {
+        return JSON.stringify({
+          characters: [
+            { characterName: "林墨", currentLocation: "祠堂", status: "正常", equipment: [], abilities: [], relationships: {}, lastUpdatedChapter: 1, lastUpdatedAt: "" },
+          ],
+          lastUpdated: "",
+        })
+      }
+      const err: NodeJS.ErrnoException = new Error("ENOENT")
+      err.code = "ENOENT"
+      throw err
+    })
+    streamChatMock.mockImplementationOnce(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onToken("[]")
+      callbacks.onDone()
+    })
+
+    try {
+      const results = await reviewChapter(
+        "E:/Novel",
+        "林墨推了推眼镜，林墨又推了推眼镜，林墨第三次推了推眼镜。",
+        8,
+        { contextPack, injectedContinuityResults: [] },
+      )
+
+      const behavior = results.find((r) => r.type === "character_behavior")
+      expect(behavior).toBeDefined()
+      expect(behavior!.evidence).toContain("林墨: 3 次")
+    } finally {
+      if (prevImpl) mocks.fsReadFileMock.mockImplementation(prevImpl)
+    }
   })
 })

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // 内存 fs：writeFileAtomic / createDirectory / readFile 全部走内存，测试零磁盘。
 const files = new Map<string, string>()
-vi.mock("@/commands/fs", () => ({
+vi.mock("@/commands/fs", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/commands/fs")>(),
   fileExists: async (path: string) => files.has(path),
   readFile: async (path: string) => {
     const found = files.get(path)
@@ -49,10 +50,11 @@ const {
   isPipelineCompleted,
 } = await import("./director-auto-advance")
 const { createDirectorPipeline, advanceDirectorPhase, DIRECTOR_PHASES } = await import("./director-pipeline")
-const { memoryJournal } = await import("./stage-output-journal-test-helpers")
+const { memoryJournal } = await import("@/test-helpers/stage-output-journal-test-helpers")
 
 import type { DirectorSnapshot } from "./director-orchestrator"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { parseFrontmatter } from "@/lib/frontmatter"
 
 const LLM = { provider: "custom", apiKey: "k", model: "m", customEndpoint: "https://x/v1" } as unknown as LlmConfig
 
@@ -431,6 +433,7 @@ describe("开书导演自动推进 · 门过之后的状态推进仍走既有纯
 
 const {
   persistStageArtifacts: persistReal,
+  characterEntityPath: characterEntityPathReal,
   buildFirstChapterPrompt: buildPromptReal,
   loadStageArtifacts: loadArtifactsReal,
   saveStageArtifacts: saveArtifactsReal,
@@ -459,10 +462,26 @@ describe("开书导演自动推进 · 真实落盘 persistStageArtifacts", () =>
     })
     const doc = files.get(`${PROJECT}/wiki/entities/characters/陈默.md`)
     expect(doc).toContain("# 陈默")
-    expect(doc).toContain("name: 陈默")
+    expect(doc).toContain('name: "陈默"')
     expect(doc).toContain("欲望：赎身")
     expect(doc).toContain("缺陷：撒谎")
-    expect(files.get(`${PROJECT}/wiki/entities/characters/a_b_c.md`)).toContain("name: a/b:c")
+    expect(files.get(`${PROJECT}/wiki/entities/characters/a_b_c.md`)).toContain('name: "a/b:c"')
+  })
+
+  it("character 阶段：含冒号/双引号/反斜杠/#/换行的 name 与 role 经 YAML 转义后可被 parseFrontmatter 无损回读", async () => {
+    const rawName = '林: "暗影" \\ #1\n续行'
+    const rawRole = 'antagonist: "幕后" \\ #2\r\n副手'
+    await persistReal(PROJECT, "character", {
+      characters: [
+        { name: rawName, role: rawRole, desire: "夺权", flaw: "多疑" },
+      ],
+    })
+    const doc = files.get(characterEntityPathReal(PROJECT, rawName))
+    expect(doc).toBeTruthy()
+    const parsed = parseFrontmatter(doc!)
+    expect(parsed.frontmatter).not.toBeNull()
+    expect(parsed.frontmatter?.name).toBe('林: "暗影" \\ #1 续行')
+    expect(parsed.frontmatter?.role).toBe('antagonist: "幕后" \\ #2 副手')
   })
 
   it("outline 阶段：框架 + 分卷文件落盘，分卷名非法字符转义", async () => {

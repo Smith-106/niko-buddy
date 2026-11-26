@@ -61,9 +61,6 @@ import {
   loadEmotionLedger,
 } from "./emotion-ledger"
 import {
-  resolveDeAiGenre,
-} from "./genre-codes"
-import {
   countEchoFamily,
   detectChorusSing,
   detectSilentStretch,
@@ -96,7 +93,11 @@ import type {
   WatchdogState,
 } from "./watchdog"
 import {
+  isRequestCancelledError,
+} from "@/lib/llm-client"
+import {
   logger,
+  toErrorMessage,
 } from "@/lib/utils"
 import {
   LlmConfig,
@@ -163,6 +164,8 @@ interface ReviewAndRepairResult {
   currentContent: string
   revised: boolean
   manualHandoff: boolean
+  /** A01: 最后一次实跑语义审查时送审的确切正文；用于验证最终字节是否经审查。 */
+  semanticallyReviewedContent?: string
 }
 
 export async function runReviewAndRepair(
@@ -182,8 +185,11 @@ export async function runReviewAndRepair(
   cachePrefix: string | undefined,
   notePartial: (reason: string) => void,
   watchdog?: WatchdogState,
+  initialStateDeltaResults: NovelReviewResult[] = [],
+  recheckStateDelta?: (content: string) => Promise<NovelReviewResult[]>,
 ): Promise<ReviewAndRepairResult> {
   const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
+  const effectiveGenre = input.genre ?? novelConfig.genre
   let reviewResults = hasCheckpointReview(resumeCheckpoint) ? resumeCheckpoint.reviewResults : []
   let decisionGates = resumeCheckpoint?.decisionGates ?? emptyDecisionGates()
   let retryCount = resumeCheckpoint?.retryCount ?? 0
@@ -192,8 +198,13 @@ export async function runReviewAndRepair(
   // 不进 fix-loop (否则会用不可解析的噪声审计驱动 LLM 重写有效正文)。转人工。
   // 累积标记 (OR) 因 stage5.5 复审也可能触发, 任一命中即短路。
   let reviewParseFailedFlag = false
-  if (!hasCheckpointReview(resumeCheckpoint)) {
+  let semanticallyReviewedContent: string | undefined
+  if (!hasCheckpointReview(resumeCheckpoint) && !hasCheckpointRevision(resumeCheckpoint)) {
     if (!novelConfig.deepChapterReview) {
+      if (initialStateDeltaResults.length > 0) {
+        reviewResults = [...initialStateDeltaResults]
+        decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, effectiveGenre, false)
+      }
       callbacks.onThinking?.(formatStageThinking(
         "阶段4-5：已跳过审稿与返修",
         "已按设置关闭 AI 审稿，初稿将直接进入阶段6简单审查与去AI味。",
@@ -207,10 +218,34 @@ export async function runReviewAndRepair(
       // review helper so the 3 review points stay structurally identical
       // (was copy-paste drift — only stage-4 had the 6-dim wiring, the 2
       // resume/repair paths silently skipped it).
-      const stage4 = await runFullReviewWithSixDim(draftContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
-      reviewResults = applyChapterContractCheck(taskBrief, draftContent, stage4.reviewResults)
-      reviewParseFailedFlag = reviewParseFailedFlag || stage4.reviewParseFailed === true
-      decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
+      const stage4 = await runFullReviewWithSixDim(
+        draftContent,
+        input.chapterNumber,
+        input.projectPath,
+        deps,
+        signal,
+        contextPack,
+        callbacks,
+        effectiveGenre,
+        { novelConfig, llmConfig: input.llmConfig },
+      )
+      const stage4ParseFailed = stage4.reviewParseFailed === true
+      const stage4SemanticCompleted = !stage4ParseFailed && stage4.semanticReviewCompleted === true
+      semanticallyReviewedContent = stage4SemanticCompleted ? draftContent : undefined
+      // R2-W05：将阶段3.7 StateDelta 轻检 findings 合并进 reviewResults / decisionGates（P0 consistency 门），
+      // 确保 stateDeltaBlocksTrackA=true 产出的 error 真实阻断并进入返修链。
+      reviewResults = [
+        ...initialStateDeltaResults,
+        ...applyChapterContractCheck(taskBrief, draftContent, stage4.reviewResults),
+      ]
+      reviewParseFailedFlag = reviewParseFailedFlag || stage4ParseFailed
+      decisionGates = buildDecisionGates(
+        reviewResults,
+        retryCount,
+        stage4ParseFailed ? true : undefined,
+        effectiveGenre,
+        stage4SemanticCompleted,
+      )
       assertNotAborted(signal, USER_ABORT_MESSAGE)
       callbacks.onThinking?.(formatReviewThinking(reviewResults))
       // EPIC-002 / TASK-013 / Story 2.3: rewrite 率 A/B 埋点（severity=error /
@@ -234,23 +269,45 @@ export async function runReviewAndRepair(
         dimensionResults: stage4.dimensionResults,
         decisionGates,
         retryCount,
+        ...(stage4ParseFailed ? { manualReviewRequired: true } : {}),
+        ...(semanticallyReviewedContent ? { semanticallyReviewedContent } : {}),
       }))
     }
   }
 
-  if (hasCheckpointReview(resumeCheckpoint) && decisionGates.overall === "pending") {
-    decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired, resolveDeAiGenre(input.genre))
+  // Older after_revision checkpoints did not distinguish unfinished review from a reviewed revision.
+  // Circuit-breaker handoff checkpoints with manualReviewRequired=true and a settled gate verdict
+  // (overall !== "pending") are already halted for manual handoff and must NOT re-run stage 5.5.
+  const needsRevisionReview = hasCheckpointRevision(resumeCheckpoint)
+    && resumeCheckpoint.stage === "after_revision"
+    && resumeCheckpoint.revisionReviewPending !== false
+    && !(resumeCheckpoint.manualReviewRequired === true && resumeCheckpoint.decisionGates?.overall !== "pending")
+  if (hasCheckpointReview(resumeCheckpoint) && !needsRevisionReview && decisionGates.overall === "pending") {
+    const checkpointCurrentContent = hasCheckpointRevision(resumeCheckpoint)
+      ? resumeCheckpoint.currentContent
+      : draftContent
+    const checkpointSemanticReviewed =
+      !manualReviewRequired
+      && typeof resumeCheckpoint.semanticallyReviewedContent === "string"
+      && resumeCheckpoint.semanticallyReviewedContent === checkpointCurrentContent
+    decisionGates = buildDecisionGates(
+      reviewResults,
+      retryCount,
+      manualReviewRequired,
+      effectiveGenre,
+      checkpointSemanticReviewed,
+    )
   }
 
   let currentContent = draftContent
   let revised = false
 
   if (hasCheckpointRevision(resumeCheckpoint)) {
-    currentContent = resumeCheckpoint.currentContent.trim()
+    currentContent = resumeCheckpoint.currentContent
     revised = true
-    // ISS-20260708-016：stage-5.5 resume 可达性已由单测覆盖（全仓 grep 证有调用），
-    // 移除覆盖抑制死代码（结构性 unreachable 不成立，分支保留行为等价）。
-    if (novelConfig.deepChapterReview && decisionGates.overall === "pending") {
+    // BLK-01: 允许在 needsRevisionReview && manualReviewRequired（例如 stage5/5.5 reviewParseFailed 落盘恢复）
+    // 时重跑阶段 5.5 复审；复审成功按新结果重置 manualReviewRequired，仍解析失败则保持 pending + manualReviewRequired=true。
+    if (novelConfig.deepChapterReview && needsRevisionReview) {
       callbacks.onThinking?.(formatStageThinking(
         "阶段5.5：返修后复审",
         "正在恢复返修后的完整门控审查，确认上次中断前的返修结果。",
@@ -258,25 +315,64 @@ export async function runReviewAndRepair(
       // ARCH-001: the shared review helper now wires the 6-dim review here too
       // (was reviewChapter-only, silently skipping dimension findings on
       // resumed revised content). dimensionResults is checkpointed additively.
-      const stage55 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
-      reviewResults = applyChapterContractCheck(taskBrief, currentContent, stage55.reviewResults)
-      reviewParseFailedFlag = reviewParseFailedFlag || stage55.reviewParseFailed === true
-      decisionGates = buildDecisionGates(reviewResults, retryCount, manualReviewRequired, resolveDeAiGenre(input.genre))
+      const stage55 = await runFullReviewWithSixDim(
+        currentContent,
+        input.chapterNumber,
+        input.projectPath,
+        deps,
+        signal,
+        contextPack,
+        callbacks,
+        effectiveGenre,
+        { novelConfig, llmConfig: input.llmConfig },
+      )
+      const stage55ParseFailed = stage55.reviewParseFailed === true
+      const stage55SemanticCompleted = !stage55ParseFailed && stage55.semanticReviewCompleted === true
+      semanticallyReviewedContent = stage55SemanticCompleted ? currentContent : undefined
+      const stage55StateDelta = recheckStateDelta ? await recheckStateDelta(currentContent) : []
+      reviewResults = [
+        ...stage55StateDelta,
+        ...applyChapterContractCheck(taskBrief, currentContent, stage55.reviewResults),
+      ]
+      reviewParseFailedFlag = reviewParseFailedFlag || stage55ParseFailed
+      manualReviewRequired = stage55ParseFailed
+      decisionGates = buildDecisionGates(
+        reviewResults,
+        retryCount,
+        stage55ParseFailed ? true : false,
+        effectiveGenre,
+        stage55SemanticCompleted,
+      )
       assertNotAborted(signal, USER_ABORT_MESSAGE)
-      await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
+      await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
         taskBrief,
         draftContent,
         reviewResults,
         dimensionResults: stage55.dimensionResults,
         currentContent,
+        revisionReviewPending: stage55ParseFailed,
         decisionGates,
         retryCount,
+        ...(stage55ParseFailed ? { manualReviewRequired: true } : {}),
+        ...(semanticallyReviewedContent ? { semanticallyReviewedContent } : {}),
       }))
     }
   }
 
+  // W1-01: 仅当已审检查点恢复、无需阶段5.5复审、非人工接管且检查点保存的已审正文逐字节等于当前正文时，
+  // 才透传 semanticallyReviewedContent（避免恢复时误签或遗失完整语义审查凭证）。
+  if (
+    hasCheckpointReview(resumeCheckpoint)
+    && !needsRevisionReview
+    && !manualReviewRequired
+    && typeof resumeCheckpoint.semanticallyReviewedContent === "string"
+    && resumeCheckpoint.semanticallyReviewedContent === currentContent
+  ) {
+    semanticallyReviewedContent = resumeCheckpoint.semanticallyReviewedContent
+  }
+
   let blockingIssues = collectBlockingIssues(decisionGates)
-  if (!revised && blockingIssues.length === 0 && novelConfig.deepChapterReview) {
+  if (!revised && blockingIssues.length === 0 && novelConfig.deepChapterReview && !reviewParseFailedFlag && !manualReviewRequired) {
     callbacks.onThinking?.(formatStageThinking(
       "阶段5：无需自动返修",
       "AI审稿未发现阻断问题，跳过自动返修，进入阶段6简单审查与去AI味。",
@@ -306,10 +402,25 @@ export async function runReviewAndRepair(
       reviewResults,
       decisionGates,
       retryCount,
-      manualReviewRequired,
+      manualReviewRequired: true,
       currentContent,
       revised,
       manualHandoff: true,
+      semanticallyReviewedContent: undefined,
+    }
+  }
+
+  // BLK-01: manualReviewRequired=true 绝不可绕过人工复核或以 manualHandoff=false 落出到阶段7。
+  if (manualReviewRequired) {
+    return {
+      reviewResults,
+      decisionGates,
+      retryCount,
+      manualReviewRequired: true,
+      currentContent,
+      revised,
+      manualHandoff: true,
+      semanticallyReviewedContent: undefined,
     }
   }
 
@@ -323,6 +434,23 @@ export async function runReviewAndRepair(
       .filter((n) => n.length > 0)
   } catch {
     plateauCharacterNames = []
+  }
+
+  // P1-1: 3 处熔断转人工检查点统一落盘工厂；revised=true 时显式写 revisionReviewPending: false，
+  // 防止恢复时误判为未复审草稿而重跑阶段 5.5 绕过 manualReviewRequired。
+  const buildCircuitBreakerCheckpoint = () => {
+    const base = {
+      taskBrief,
+      draftContent,
+      reviewResults,
+      currentContent,
+      decisionGates,
+      retryCount,
+      manualReviewRequired: true,
+    }
+    return revised
+      ? createResumeCheckpoint(input, "after_revision", { ...base, revisionReviewPending: false })
+      : createResumeCheckpoint(input, "after_review", base)
   }
 
   while (novelConfig.deepChapterReview && blockingIssues.length > 0) {
@@ -347,7 +475,13 @@ export async function runReviewAndRepair(
         const cb = checkEmotionCircuitBreaker(emotionStore, EMOTION_CB_THRESHOLD)
         if (cb.tripped) {
           manualReviewRequired = true
-          decisionGates = buildDecisionGates(reviewResults, retryCount, true, resolveDeAiGenre(input.genre))
+          decisionGates = buildDecisionGates(
+            reviewResults,
+            retryCount,
+            true,
+            effectiveGenre,
+            semanticallyReviewedContent !== undefined,
+          )
           callbacks.onThinking?.(formatStageThinking(
             "阶段5.5：情绪债务熔断转人工",
             [
@@ -358,15 +492,7 @@ export async function runReviewAndRepair(
               formatReviewIssueList(blockingIssues),
             ].join("\n"),
           ))
-          await callbacks.onCheckpoint?.(createResumeCheckpoint(input, revised ? "after_revision" : "after_review", {
-            taskBrief,
-            draftContent,
-            reviewResults,
-            currentContent,
-            decisionGates,
-            retryCount,
-            manualReviewRequired: true,
-          }))
+          await callbacks.onCheckpoint?.(buildCircuitBreakerCheckpoint())
           return {
             reviewResults,
             decisionGates,
@@ -395,7 +521,13 @@ export async function runReviewAndRepair(
       if (continuityCritical.tripped) {
         logger.warn("continuity-engine", "critical continuity findings, manual handoff: " + continuityCritical.reason)
         manualReviewRequired = true
-        decisionGates = buildDecisionGates(reviewResults, retryCount, true)
+        decisionGates = buildDecisionGates(
+          reviewResults,
+          retryCount,
+          true,
+          effectiveGenre,
+          semanticallyReviewedContent !== undefined,
+        )
         callbacks.onThinking?.(formatStageThinking(
           "阶段5.5：连续性机械 critical 转人工",
           [
@@ -406,15 +538,7 @@ export async function runReviewAndRepair(
             formatReviewIssueList(blockingIssues),
           ].join("\n"),
         ))
-        await callbacks.onCheckpoint?.(createResumeCheckpoint(input, revised ? "after_revision" : "after_review", {
-          taskBrief,
-          draftContent,
-          reviewResults,
-          currentContent,
-          decisionGates,
-          retryCount,
-          manualReviewRequired: true,
-        }))
+        await callbacks.onCheckpoint?.(buildCircuitBreakerCheckpoint())
         return {
           reviewResults,
           decisionGates,
@@ -432,7 +556,13 @@ export async function runReviewAndRepair(
     const retryCountCircuitBreakerTripped = retryCount >= MAX_GATE_RETRY
     if (retryCountCircuitBreakerTripped) {
       manualReviewRequired = true
-      decisionGates = buildDecisionGates(reviewResults, retryCount, true)
+      decisionGates = buildDecisionGates(
+        reviewResults,
+        retryCount,
+        true,
+        effectiveGenre,
+        semanticallyReviewedContent !== undefined,
+      )
       callbacks.onThinking?.(formatStageThinking(
         "阶段5.5：转人工处理",
         [
@@ -443,15 +573,7 @@ export async function runReviewAndRepair(
           "当前草稿与 gate 结果将保留在运行态真源中，等待人工继续处理。",
         ].join("\n"),
       ))
-      await callbacks.onCheckpoint?.(createResumeCheckpoint(input, revised ? "after_revision" : "after_review", {
-        taskBrief,
-        draftContent,
-        reviewResults,
-        currentContent,
-        decisionGates,
-        retryCount,
-        manualReviewRequired: true,
-      }))
+      await callbacks.onCheckpoint?.(buildCircuitBreakerCheckpoint())
       // 原编排器此处 callbacks.onFinalContent?.(currentContent) + 完整 return。
       // 提取后改为 manualHandoff 标志回传——编排器层据此构造完整 result（含
       // partial 字段，需访问编排器 partialReason，故不在本函数构造 earlyReturn）。
@@ -473,7 +595,7 @@ export async function runReviewAndRepair(
     // the warnings so the repair model can fix non-blocking quality issues
     // (TS-01: warning dims reach stage-5) in the same pass. Dedup by message
     // to avoid double-listing an issue that is both blocking and warned.
-    const repairIssues = collectRepairIssues(decisionGates)
+    const repairIssues = collectRepairIssues(decisionGates, effectiveGenre)
     const revisionIssues = [
       ...blockingIssues,
       // R4 共识（deepseek+glm）: 旧谓词首个条件 `!repairIssueMessages.has(i.message)` 恒为 false
@@ -578,9 +700,10 @@ export async function runReviewAndRepair(
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
       taskBrief,
       draftContent,
-      reviewResults,
-      currentContent: revisedContent,
-      decisionGates,
+      reviewResults: [],
+      currentContent,
+      revisionReviewPending: true,
+      decisionGates: emptyDecisionGates(),
       retryCount,
     }))
     callbacks.onThinking?.(formatStageThinking(
@@ -591,8 +714,58 @@ export async function runReviewAndRepair(
     // 6-dim review too (was reviewChapter-only — dimension findings on
     // revised content never reached decision gates, causing quality-regression
     // blindness). dimensionResults checkpointed additively.
-    const stage5 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
-    reviewResults = applyChapterContractCheck(taskBrief, currentContent, stage5.reviewResults)
+    const stage5 = await runFullReviewWithSixDim(
+      currentContent,
+      input.chapterNumber,
+      input.projectPath,
+      deps,
+      signal,
+      contextPack,
+      callbacks,
+      effectiveGenre,
+      { novelConfig, llmConfig: input.llmConfig },
+    )
+    const stage5StateDelta = recheckStateDelta ? await recheckStateDelta(currentContent) : []
+    reviewResults = [
+      ...stage5StateDelta,
+      ...applyChapterContractCheck(taskBrief, currentContent, stage5.reviewResults),
+    ]
+    assertNotAborted(signal, USER_ABORT_MESSAGE)
+    // W1-05: 返修后复审若解析失败（reviewParseFailed=true），严禁因仅有 warning finding
+    // 而误判收敛放行——必须立即转人工并落盘 checkpoint，且不得保留 semanticallyReviewedContent。
+    if (stage5.reviewParseFailed === true) {
+      semanticallyReviewedContent = undefined
+      manualReviewRequired = true
+      // BLK-01: 显式传入 semanticReviewCompleted=false，使三门落 pending、证据账本记 skipped 而非伪 pass。
+      decisionGates = buildDecisionGates(reviewResults, retryCount, true, effectiveGenre, false)
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段5.5：返修复审解析失败转人工",
+        "返修后复审输出不可解析，禁止自动放行并转人工处理。",
+      ))
+      await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
+        taskBrief,
+        draftContent,
+        reviewResults,
+        dimensionResults: stage5.dimensionResults,
+        currentContent,
+        revisionReviewPending: true,
+        decisionGates,
+        retryCount,
+        manualReviewRequired: true,
+      }))
+      return {
+        reviewResults,
+        decisionGates,
+        retryCount,
+        manualReviewRequired: true,
+        currentContent,
+        revised,
+        manualHandoff: true,
+        semanticallyReviewedContent: undefined,
+      }
+    }
+    const stage5SemanticCompleted = stage5.semanticReviewCompleted === true
+    semanticallyReviewedContent = stage5SemanticCompleted ? currentContent : undefined
     // F-9: intentionally NOT passing manualReviewRequired here. The only path
     // that sets manualReviewRequired=true (retryCount >= MAX_GATE_RETRY at the
     // loop top) returns immediately, so reaching this post-repair gate rebuild
@@ -604,17 +777,24 @@ export async function runReviewAndRepair(
     // re-evaluates from scratch. Changing the loop to no longer return at
     // MAX_GATE_RETRY would make this divergence a real bug — keep the early
     // return, or thread manualReviewRequired explicitly here too.
-    decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
+    decisionGates = buildDecisionGates(
+      reviewResults,
+      retryCount,
+      undefined,
+      effectiveGenre,
+      stage5SemanticCompleted,
+    )
     blockingIssues = collectBlockingIssues(decisionGates)
-    assertNotAborted(signal, USER_ABORT_MESSAGE)
-    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_review", {
+    await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
       taskBrief,
       draftContent,
       reviewResults,
       dimensionResults: stage5.dimensionResults,
       currentContent,
+      revisionReviewPending: false,
       decisionGates,
       retryCount,
+      ...(semanticallyReviewedContent ? { semanticallyReviewedContent } : {}),
     }))
     // G6: plateau 早退在复审后判定——blockingIssues 为最新复审结果，
     // 仅当无阻断残留时才提前接受（有阻断继续返修，retryCount 达硬上限时
@@ -742,31 +922,112 @@ export async function runReviewAndRepair(
           afterSlop: nextSlop,
           policy: trackBPolicy,
         })
-        if (guard.accept) {
-          currentContent = polishedContent
-          revised = true
-          callbacks.onThinking?.(formatStageThinking(
-            "阶段5.7：Track B 多目标通过",
-            guard.reason,
-          ))
-        } else {
+        if (!guard.accept) {
           callbacks.onThinking?.(formatStageThinking(
             "阶段5.7：文学抛光回退",
             `多目标护栏拒绝：${guard.reason}${guard.fix1Violation ? "（FIX-1）" : ""}。已回退门控绿稿。`,
           ))
+        } else {
+          // W1-05: 仅在护栏放行后复审；复审前先快照，异常（非取消）/ parseFailed / 新阻断一律完整回滚。
+          const snapshot = {
+            currentContent,
+            revised,
+            reviewResults,
+            decisionGates,
+            semanticallyReviewedContent,
+          }
+          const rollbackPolish = (reason: string) => {
+            currentContent = snapshot.currentContent
+            revised = snapshot.revised
+            reviewResults = snapshot.reviewResults
+            decisionGates = snapshot.decisionGates
+            semanticallyReviewedContent = snapshot.semanticallyReviewedContent
+            callbacks.onThinking?.(formatStageThinking(
+              "阶段5.7：文学抛光回退",
+              `${reason}。已完整回滚至门控绿稿。`,
+            ))
+          }
+          try {
+            const stage57 = await runFullReviewWithSixDim(
+              polishedContent,
+              input.chapterNumber,
+              input.projectPath,
+              deps,
+              signal,
+              contextPack,
+              callbacks,
+              effectiveGenre,
+              { novelConfig, llmConfig: input.llmConfig },
+            )
+            assertNotAborted(signal, USER_ABORT_MESSAGE)
+            const prePolishSemanticallyReviewed =
+              snapshot.semanticallyReviewedContent !== undefined
+              && snapshot.semanticallyReviewedContent === snapshot.currentContent
+            if (stage57.reviewParseFailed === true) {
+              rollbackPolish("抛光后复审输出不可解析（reviewParseFailed）")
+            } else {
+              const stage57SemanticCompleted = stage57.semanticReviewCompleted === true
+              const stage57StateDelta = recheckStateDelta ? await recheckStateDelta(polishedContent) : []
+              const nextReviewResults = [
+                ...stage57StateDelta,
+                ...applyChapterContractCheck(taskBrief, polishedContent, stage57.reviewResults),
+              ]
+              const nextDecisionGates = buildDecisionGates(
+                nextReviewResults,
+                retryCount,
+                undefined,
+                effectiveGenre,
+                stage57SemanticCompleted,
+              )
+              const nextBlockingIssues = collectBlockingIssues(nextDecisionGates)
+              // R2-REV-001：collectBlockingIssues 强制执行 Consistency(P0) > Anti-AI(P1) > Quality(P2)
+              // 仅 error 阻断语义，自动豁免纯 Quality warning 题材阈值升级（isNonBlockingQualityUpgrade），
+              // 与 decideDraftAdoptionGate 保持同源语义，避免误回滚文学抛光成果。
+              if (nextBlockingIssues.length > 0) {
+                rollbackPolish(`抛光引入 ${nextBlockingIssues.length} 个阻断问题`)
+              } else if (prePolishSemanticallyReviewed && !stage57SemanticCompleted) {
+                // R2-W09 防反降级回滚：润色前原稿已完成语义一致性复核、但润色后复检未完成语义核验时，
+                // 禁止用未经语义核验的润色稿覆盖已审原稿，强制回滚保留已审原稿与原门控。
+                logger.warn("Deep Chapter", "Stage 5.7 polish re-review did not complete semantic check; rolling back to pre-polish reviewed content")
+                rollbackPolish("润色后语义复核未完成，已回滚保留原已审稿")
+              } else {
+                currentContent = polishedContent
+                revised = true
+                reviewResults = nextReviewResults
+                decisionGates = nextDecisionGates
+                semanticallyReviewedContent = stage57SemanticCompleted ? currentContent : undefined
+                callbacks.onThinking?.(formatStageThinking(
+                  "阶段5.7：Track B 多目标通过",
+                  guard.reason,
+                ))
+                await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
+                  taskBrief,
+                  draftContent,
+                  reviewResults,
+                  dimensionResults: stage57.dimensionResults,
+                  currentContent,
+                  revisionReviewPending: false,
+                  decisionGates,
+                  retryCount,
+                  ...(semanticallyReviewedContent ? { semanticallyReviewedContent } : {}),
+                }))
+              }
+            }
+          } catch (err) {
+            const isAbortError = typeof err === "object" && err !== null && (err as { name?: unknown }).name === "AbortError"
+            if (
+              signal?.aborted
+              || isAbortError
+              || (err instanceof Error && (err.message === USER_ABORT_MESSAGE || isRequestCancelledError(err)))
+            ) {
+              throw err
+            }
+            logger.warn("Deep Chapter", "Stage 5.7 polish re-review failed; rolling back to pre-polish gated draft", {
+              error: toErrorMessage(err),
+            })
+            rollbackPolish(`抛光后复审异常（${toErrorMessage(err)}）`)
+          }
         }
-        const stage57 = await runFullReviewWithSixDim(currentContent, input.chapterNumber, input.projectPath, deps, signal, contextPack, callbacks)
-        reviewResults = applyChapterContractCheck(taskBrief, currentContent, stage57.reviewResults)
-        decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
-        await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_revision", {
-          taskBrief,
-          draftContent,
-          reviewResults,
-          dimensionResults: stage57.dimensionResults,
-          currentContent,
-          decisionGates,
-          retryCount,
-        }))
       }
     }
   }
@@ -779,5 +1040,6 @@ export async function runReviewAndRepair(
     currentContent,
     revised,
     manualHandoff: false,
+    semanticallyReviewedContent,
   }
 }

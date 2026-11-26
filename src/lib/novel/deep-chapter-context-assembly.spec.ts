@@ -21,6 +21,7 @@ import type {
 import { DEFAULT_CHAPTER_LENGTH_SPEC } from "./deep-chapter-prompts"
 import {
   assembleContext,
+  formatSceneBreakdownForPrompt,
   generateTaskBrief,
   isSceneBreakdownCheckpointComplete,
   runSceneBreakdownStage,
@@ -372,5 +373,124 @@ describe("runSceneBreakdownStage", () => {
     expect(notePartial).not.toHaveBeenCalled()
     expect(thinking.join("\n")).toBe("")
     void thinking
+  })
+
+  it("R2-W06: assembleContext 启用 G6 稳定前缀（canonRulesBase 进 outlinePrompt + excludeCanonRulesBase=true）并透传 DI", async () => {
+    const packWithCanonBase: ContextPack = {
+      ...PACK,
+      canonRulesBase: "主角不能凭空知道旧屋主人身份。",
+      canonRules: "主角不能凭空知道旧屋主人身份。\n\n第3章新增时态约束：暴雨封路。",
+    }
+    const buildContextPack = vi.fn(async () => packWithCanonBase)
+    const contextPackToPrompt = vi.fn(() => "CTX动态段")
+    const deps = {
+      buildContextPack,
+      contextPackToPrompt,
+      streamChat: makeStreamChat("x"),
+    } as unknown as DeepChapterGenerationDeps
+    const novelConfig = makeNovelConfig()
+    const { callbacks } = makeCallbacks()
+
+    const out = await assembleContext(
+      deps,
+      makeInput(novelConfig),
+      callbacks,
+      undefined,
+      undefined,
+      "",
+      async () => null,
+    )
+
+    expect(buildContextPack).toHaveBeenCalledWith("/P", "写第3章：雨夜旧屋", 3, {
+      novelMode: true,
+      novelConfig,
+      llmConfig: LLM,
+    })
+    expect(out.outlinePrompt).toContain("第3章大纲：雨夜旧屋")
+    expect(out.outlinePrompt).toContain("主角不能凭空知道旧屋主人身份。")
+    expect(contextPackToPrompt).toHaveBeenCalledWith(
+      packWithCanonBase,
+      32000,
+      expect.objectContaining({
+        excludeOutline: true,
+        excludeCanonRulesBase: true,
+      }),
+    )
+  })
+
+  it("R2-W06: runSceneBreakdownStage 向 runSceneBreakdown 传 DI 并返回拆解结果；resume 回读 scenes.pending.json", async () => {
+    const scenes = [
+      {
+        sceneId: "S1",
+        sceneTitle: "雨夜推门",
+        location: "旧屋门槛",
+        characters: ["沈鸢", "老周"],
+        goal: "核对铜钥匙归属",
+        tension: "门外脚步逼近",
+        beat: "开场悬念升级",
+      },
+    ]
+    sceneMocks.runSceneBreakdown.mockResolvedValueOnce({ scenes })
+    const novelConfig = makeNovelConfig({ sceneBreakdownEnabled: true })
+    const inp = makeInput(novelConfig)
+    const { callbacks } = makeCallbacks()
+
+    const fresh = await runSceneBreakdownStage(
+      inp,
+      novelConfig as never,
+      undefined,
+      PACK,
+      callbacks,
+      undefined,
+      vi.fn(),
+    )
+    expect(fresh).toEqual({ scenes })
+    expect(sceneMocks.runSceneBreakdown).toHaveBeenCalledWith(
+      inp.userRequest,
+      PACK,
+      undefined,
+      { llmConfig: LLM, novelConfig },
+    )
+
+    // formatSceneBreakdownForPrompt：空输入返回空串，非空输入格式化场景细节
+    expect(formatSceneBreakdownForPrompt(null)).toBe("")
+    expect(formatSceneBreakdownForPrompt({ scenes: [] })).toBe("")
+    const formatted = formatSceneBreakdownForPrompt(fresh)
+    expect(formatted).toContain("## 阶段1.5：场景拆解蓝图")
+    expect(formatted).toContain("### 场景 1：雨夜推门")
+    expect(formatted).toContain("地点：旧屋门槛")
+    expect(formatted).toContain("出场角色：沈鸢、老周")
+    expect(formatted).toContain("场景目标：核对铜钥匙归属")
+    expect(formatted).toContain("冲突张力：门外脚步逼近")
+    expect(formatted).toContain("叙事节拍：开场悬念升级")
+
+    // resume 已过 after_scene_breakdown：回读 .novel/chapters/3/scenes.pending.json
+    sceneMocks.runSceneBreakdown.mockClear()
+    fsReadFileMock.mockResolvedValueOnce(JSON.stringify({ scenes, partial: false, token_cost: 120, latency_ms: 80 }))
+    const resumed = await runSceneBreakdownStage(
+      inp,
+      novelConfig as never,
+      { stage: "after_scene_breakdown" } as never,
+      PACK,
+      callbacks,
+      undefined,
+      vi.fn(),
+    )
+    expect(sceneMocks.runSceneBreakdown).not.toHaveBeenCalled()
+    expect(resumed).toEqual({ scenes, partial: false, partialReason: undefined, tokenCost: 120, latencyMs: 80 })
+
+    // resume 文件为空场景/损坏 JSON → 优雅返回 null
+    fsReadFileMock.mockResolvedValueOnce(JSON.stringify({ scenes: [] }))
+    expect(
+      await runSceneBreakdownStage(
+        inp,
+        novelConfig as never,
+        { stage: "after_scene_breakdown" } as never,
+        PACK,
+        callbacks,
+        undefined,
+        vi.fn(),
+      ),
+    ).toBeNull()
   })
 })

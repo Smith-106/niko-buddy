@@ -10,7 +10,7 @@ import type { ContextPack, ContextEntity } from "./context-engine"
 import type { HardInjectItem } from "./search-adapter"
 import type { TemporalFact } from "./temporal-memory"
 import { applySectionCharBudget } from "./context-pack-format-helpers"
-import { SECTION_PRIORITY } from "./context-engine-gaps"
+import { PROTECTED_TRIM_FIELDS, SECTION_PRIORITY_BY_FIELD } from "./context-engine-gaps"
 
 /** Layered recall mode (Tencent L0–L3 inspired; default = scenario+persona). */
 export type LayeredRecallMode = "default" | "full" | "scenario_persona"
@@ -42,6 +42,8 @@ export interface ContextPackToPromptOptions {
 
 interface FieldConfig {
   titleKey: string
+  /** R2-W06：i18n 缺键时兜底标题，绝不把裸 key 泄漏进 Prompt。 */
+  fallbackTitle?: string
   fieldKey: keyof ContextPack
   /**
    * F-06: 条件渲染谓词 — 仅当返回 true 才把该段渲染进 prompt.
@@ -61,6 +63,13 @@ interface FieldConfig {
   ) => string | string[]
   /** Soft layer tag for docs / budget policy (not a hard gate). */
   layer?: "L0" | "L1" | "L2" | "L3" | "aux"
+}
+
+function resolveFieldTitle(config: FieldConfig): string {
+  if (config.fallbackTitle && !i18n.exists(config.titleKey)) {
+    return config.fallbackTitle
+  }
+  return i18n.t(config.titleKey)
 }
 
 /**
@@ -112,7 +121,13 @@ const FIELD_CONFIGS: FieldConfig[] = [
     },
   },
   { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle", layer: "L3" },
-  { titleKey: "novel.contextPack.voiceStyleGuide", fieldKey: "voiceStyleGuide", layer: "L3" },
+  {
+    titleKey: "novel.contextPack.voiceStyleGuide",
+    fallbackTitle: "## 声音与风格指南",
+    fieldKey: "voiceStyleGuide",
+    layer: "L3",
+    renderIf: (pack) => Boolean(pack.voiceStyleGuide?.trim()),
+  },
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults", layer: "aux" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults", layer: "aux" },
   { titleKey: "novel.contextPack.communitySummaries", fieldKey: "communitySummaries", layer: "L2" },
@@ -215,10 +230,14 @@ const FIELD_CONFIGS: FieldConfig[] = [
  * 宁可零缓存收益，也绝不重复渲染规则（重复会把「降费」变成「增费」）。
  */
 export function splitCanonRules(pack: ContextPack): { stable: string; delta: string } {
-  const base = (pack.canonRulesBase ?? "").trim()
-  const full = pack.canonRules ?? ""
-  if (!base || !full.startsWith(base)) return { stable: "", delta: full }
-  return { stable: base, delta: full.slice(base.length).replace(/^\n+/, "") }
+  const base = (pack.canonRulesBase ?? "").replace(/\r\n/g, "\n").trim()
+  const full = (pack.canonRules ?? "").replace(/\r\n/g, "\n")
+  if (!base) return { stable: "", delta: full }
+  if (full === base) return { stable: base, delta: "" }
+  if (full.startsWith(`${base}\n`)) {
+    return { stable: base, delta: full.slice(base.length).replace(/^\n+/, "") }
+  }
+  return { stable: "", delta: full }
 }
 
 /**
@@ -228,10 +247,7 @@ export function splitCanonRules(pack: ContextPack): { stable: string; delta: str
  * [`splitCanonRules`]（它在退化时同时清空稳定段），否则会重复渲染 base。
  */
 export function canonRulesDelta(full: string, base: string): string {
-  const normalized = (base ?? "").trim()
-  if (!normalized) return full
-  if (!full.startsWith(normalized)) return full
-  return full.slice(normalized.length).replace(/^\n+/, "")
+  return splitCanonRules({ canonRules: full, canonRulesBase: base } as ContextPack).delta
 }
 
 /**
@@ -247,7 +263,47 @@ export function renderCanonRulesBaseForStablePrefix(pack: ContextPack): string {
   // 单一真源：与动态段同源切分，退化时稳定段为空（绝不重复渲染）。
   const { stable } = splitCanonRules(pack)
   if (!stable) return ""
-  return [i18n.t(config.titleKey), stable].join("\n")
+  return [resolveFieldTitle(config), stable].join("\n")
+}
+
+interface RenderedFieldSection {
+  fieldKey: keyof ContextPack
+  title: string
+  content: string | string[]
+}
+
+function estimatePromptTokens(text: string): number {
+  const cjkCount = (text.match(/[㐀-鿿]/g) ?? []).length
+  const nonCjk = text.length - cjkCount
+  return Math.ceil(nonCjk / 4 + cjkCount / 1.5)
+}
+
+function charsForTokenBudget(text: string, tokenBudget: number): number {
+  const cjkCount = (text.match(/[㐀-鿿]/g) ?? []).length
+  const cjkRatio = text.length > 0 ? cjkCount / text.length : 0
+  const charsPerToken = 1 / (cjkRatio / 1.5 + (1 - cjkRatio) / 4)
+  return Math.max(1, Math.floor(tokenBudget * charsPerToken))
+}
+
+function renderSectionsPrompt(
+  headerLines: readonly string[],
+  fieldSections: readonly RenderedFieldSection[],
+  droppedLabels: readonly string[],
+): string {
+  const lines: string[] = [...headerLines]
+  for (const { title, content } of fieldSections) {
+    lines.push(title)
+    if (Array.isArray(content)) {
+      for (const item of content) lines.push(item)
+    } else {
+      lines.push(content)
+    }
+    lines.push("")
+  }
+  if (droppedLabels.length > 0) {
+    lines.push(`[...上下文已按优先级裁剪低优分段: ${droppedLabels.join("、")}...]`)
+  }
+  return lines.join("\n")
 }
 
 export function contextPackToPrompt(
@@ -255,16 +311,16 @@ export function contextPackToPrompt(
   tokenBudget?: number,
   options?: ContextPackToPromptOptions,
 ): string {
-  const sections: string[] = []
-
-  sections.push(i18n.t("novel.contextPack.title"))
-  sections.push("")
-  sections.push(i18n.t("novel.contextPack.currentTask"))
-  sections.push(pack.task)
-  sections.push("")
+  const headerLines: string[] = [
+    i18n.t("novel.contextPack.title"),
+    "",
+    i18n.t("novel.contextPack.currentTask"),
+    pack.task,
+    "",
+  ]
 
   const layeredRecall: LayeredRecallMode = options?.layeredRecall ?? "default"
-  const fieldSections: { title: string; content: string | string[] }[] = []
+  const fieldSections: RenderedFieldSection[] = []
   for (const config of FIELD_CONFIGS) {
     // 如果设置了 excludeOutline，跳过大纲字段
     if (options?.excludeOutline && config.fieldKey === "outline") {
@@ -296,50 +352,93 @@ export function contextPackToPrompt(
     content = applySectionCharBudget(content, options?.sectionCharBudget)
     const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content)
     if (!hasContent) continue
-    fieldSections.push({ title: i18n.t(config.titleKey) + titleSuffix, content })
+    fieldSections.push({ fieldKey: config.fieldKey, title: resolveFieldTitle(config) + titleSuffix, content })
   }
 
+  // R2-W06：按语言无关 fieldKey 排序（免疫英文 locale 与 G6 titleSuffix）
   fieldSections.sort((a, b) => {
-    const keyA = a.title.replace(/^##\s*/, "")
-    const keyB = b.title.replace(/^##\s*/, "")
-    const priorityA = SECTION_PRIORITY[keyA] ?? 999
-    const priorityB = SECTION_PRIORITY[keyB] ?? 999
+    const priorityA = SECTION_PRIORITY_BY_FIELD[a.fieldKey] ?? 999
+    const priorityB = SECTION_PRIORITY_BY_FIELD[b.fieldKey] ?? 999
     return priorityA - priorityB
   })
 
-  for (const { title, content } of fieldSections) {
-    sections.push(title)
-    if (Array.isArray(content)) {
-      content.forEach(item => sections.push(item))
-    } else {
-      sections.push(content)
-    }
-    sections.push("")
-  }
-
-  const fullPrompt = sections.join("\n")
+  const fullPrompt = renderSectionsPrompt(headerLines, fieldSections, [])
 
   if (tokenBudget && tokenBudget > 0 && fullPrompt.length > tokenBudget) {
     // COR (odyssey-review): CJK chars tokenize ~1 token/1.5char, not 1/4.
-    // Niko Buddy novel prompts are predominantly Chinese, so a naive length/4
-    // underestimates real token count → budget gate misjudges and returns
-    // an over-budget prompt untrimmed. Weight CJK at ~1.5 char/token.
-    const cjkCount = (fullPrompt.match(/[㐀-鿿]/g) ?? []).length
-    const nonCjk = fullPrompt.length - cjkCount
-    const estimatedTokens = Math.ceil(nonCjk / 4 + cjkCount / 1.5)
-    if (estimatedTokens <= tokenBudget) return fullPrompt
-    const targetChars = (() => {
-      // R4 共识（deepseek+glm）: 裁剪目标原先固定按 4 字符/token 换算，与上面刚用过的
-      // CJK 加权估算（≈1.5 字符/token）自相矛盾——中文正文裁完仍然远超预算。
-      // 改为用与估算器同源的混合比换算：纯 ASCII 仍为 4 字符/token（行为不变），
-      // 纯中文为 1.5 字符/token。
-      const cjkRatio = cjkCount / fullPrompt.length
-      const charsPerToken = 1 / (cjkRatio / 1.5 + (1 - cjkRatio) / 4)
-      return Math.max(1, Math.floor(tokenBudget * charsPerToken))
-    })()
-    const headChars = Math.floor(targetChars * 0.4)
-    const tailChars = targetChars - headChars
-    return fullPrompt.slice(0, headChars) + "\n\n[...上下文已按Token预算裁剪...]\n\n" + fullPrompt.slice(-tailChars)
+    if (estimatePromptTokens(fullPrompt) <= tokenBudget) return fullPrompt
+
+    // R2-W06：优先级整段降级裁剪替代 40/60 盲切——先整段剔除非保护低优分段，
+    // 保护 P0/P1 核心段（canonRules/outline/chapterGoal/soulDoc/hardInject/mustDo/mustAvoid 等）。
+    const keptSections: RenderedFieldSection[] = fieldSections.map((s) => ({ ...s }))
+    const droppedLabels: string[] = []
+    let currentPrompt = fullPrompt
+
+    // 当且仅当剩余分段数 > 1 时整段剔除最低优非保护段；仅剩最后 1 段时留给下方 CJK 加权尾截断，避免整包清空
+    while (keptSections.length > 1 && estimatePromptTokens(currentPrompt) > tokenBudget) {
+      let dropIdx = -1
+      let maxPriority = -Infinity
+      for (let i = 0; i < keptSections.length; i += 1) {
+        const s = keptSections[i]!
+        if (PROTECTED_TRIM_FIELDS.has(s.fieldKey)) continue
+        const p = SECTION_PRIORITY_BY_FIELD[s.fieldKey] ?? 999
+        if (p > maxPriority) {
+          maxPriority = p
+          dropIdx = i
+        }
+      }
+      if (dropIdx < 0) break
+      const [removed] = keptSections.splice(dropIdx, 1)
+      droppedLabels.push(removed.title.replace(/^##\s*/, ""))
+      currentPrompt = renderSectionsPrompt(headerLines, keptSections, droppedLabels)
+    }
+
+    // 极端保底：全部非保护段已剔除（或仅剩最后 1 段）仍超预算时，对最长分段做 CJK 加权尾段截断（保 P0 前缀不断）
+    const tailNotice = "\n[...该分段尾部已按Token预算截断...]"
+    const trimmedProtected = new Set<keyof ContextPack>()
+    while (estimatePromptTokens(currentPrompt) > tokenBudget) {
+      let longestIdx = -1
+      let longestLen = 0
+      for (let i = 0; i < keptSections.length; i += 1) {
+        const s = keptSections[i]!
+        if (trimmedProtected.has(s.fieldKey)) continue
+        const body = Array.isArray(s.content) ? s.content.join("\n") : s.content
+        if (body.length > longestLen) {
+          longestLen = body.length
+          longestIdx = i
+        }
+      }
+      if (longestIdx < 0) {
+        return currentPrompt.slice(0, charsForTokenBudget(currentPrompt, tokenBudget))
+      }
+      const target = keptSections[longestIdx]!
+      const body = Array.isArray(target.content) ? target.content.join("\n") : target.content
+      const targetChars = charsForTokenBudget(currentPrompt, tokenBudget)
+      const excess = Math.max(1, currentPrompt.length - targetChars)
+      // 从估算上限起步；若截断提示引入更高 CJK 密度导致 token 仍超预算，则二分收缩 keepLen 保住完整截断提示与最长 P0 前缀
+      const initialKeep = Math.max(0, body.length - excess - tailNotice.length)
+      const renderWithKeep = (len: number) => {
+        target.content = len > 0 ? body.slice(0, len) + tailNotice : tailNotice.trim()
+        return renderSectionsPrompt(headerLines, keptSections, droppedLabels)
+      }
+      currentPrompt = renderWithKeep(initialKeep)
+      if (initialKeep > 0 && estimatePromptTokens(currentPrompt) > tokenBudget) {
+        let lo = 0
+        let hi = initialKeep
+        while (lo < hi) {
+          const mid = Math.ceil((lo + hi) / 2)
+          if (estimatePromptTokens(renderWithKeep(mid)) <= tokenBudget) {
+            lo = mid
+          } else {
+            hi = mid - 1
+          }
+        }
+        currentPrompt = renderWithKeep(lo)
+      }
+      trimmedProtected.add(target.fieldKey)
+    }
+
+    return currentPrompt
   }
 
   return fullPrompt

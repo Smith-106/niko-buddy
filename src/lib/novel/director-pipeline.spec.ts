@@ -150,4 +150,27 @@ describe("director-pipeline（增补：中间字段缺口的出口文案与早�
       directorVolumeArcSummary({ volumeNumber: 1, segment: "转", completedInVolume: 7 }, 10),
     ).toBe("卷弧滚动：第1卷 [转] 7/10 章")
   })
+
+  it("R2-W02：阻塞失败落 lastError，成功推进与末阶段完成均清空 lastError", () => {
+    const init = createDirectorPipeline()
+    const failedIdea = advanceDirectorPhase(init, { ...passingInput(), idea: { title: "", genre: "悬疑", coreConflict: "x" } })
+    expect(failedIdea.advanced).toBe(false)
+    expect(failedIdea.state.lastError).toBe("书名缺失")
+
+    const retried = retryDirectorPhase(failedIdea.state)
+    const passedIdea = advanceDirectorPhase(retried, passingInput())
+    expect(passedIdea.advanced).toBe(true)
+    expect(passedIdea.state.lastError).toBeUndefined()
+
+    // 推进到 chapters 阶段并先失败一次，再通过完成
+    let st = passedIdea.state
+    st = advanceDirectorPhase(st, passingInput()).state // world -> character
+    st = advanceDirectorPhase(st, passingInput()).state // character -> outline
+    st = advanceDirectorPhase(st, passingInput()).state // outline -> chapters
+    const failedChapters = advanceDirectorPhase(st, { ...passingInput(), firstChapterReady: false })
+    expect(failedChapters.state.lastError).toBe("首章未就绪")
+    const completed = advanceDirectorPhase(retryDirectorPhase(failedChapters.state), passingInput())
+    expect(completed.completed).toBe(true)
+    expect(completed.state.lastError).toBeUndefined()
+  })
 })

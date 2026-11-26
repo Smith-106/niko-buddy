@@ -1,6 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage } from "@/lib/llm-client"
-import { streamChat, combineAbortSignals } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, isRequestCancelledError } from "@/lib/llm-client"
 import {
   runDeepChapterGeneration,
   type DeepChapterGenerationCallbacks,
@@ -14,13 +14,12 @@ import { resolveConsensusModels } from "./model-resolver"
 
 /**
  * 写作共识执行器（consensus feature，consensusEnabled=true 旁路）：
- * N 路独立 LlmConfig 并行 runDeepChapterGeneration → 互评（排除自评，
- * debateRounds 轮互看匿名评分迭代）→ 互评平均分最高稿胜出（保作者声音
- * 一致性，不做段落合成）→ 胜者结果原样返回，照常进 Draft pending 状态机。
+ * N 路独立 LlmConfig 并行 runDeepChapterGeneration → Track A 门控先筛（Consistency P0 >
+ * Anti-AI P1 > Quality P2）→ 互评（排除自评，debateRounds 轮真辩论注入他席匿名评分）→
+ * 互评平均分最高稿胜出 → 胜者结果原样返回，照常进 Draft pending 状态机。
  *
  * 等价性：consensusEnabled=false / 模型组空 / 解析后单模型 → 直通
- * runDeepChapterGeneration，行为与现状逐字节一致（不触碰
- * deep-chapter-generation.ts 内部 resolveWritingConfig 约定）。
+ * runDeepChapterGeneration，行为与现状逐字节一致。
  */
 
 export interface ConsensusTrace {
@@ -35,14 +34,80 @@ export interface ConsensusTrace {
 export type ConsensusTraceListener = (trace: ConsensusTrace) => void
 
 const EVAL_SYSTEM_PROMPT = "你是专业网文编辑，正在为多模型共识评审给一篇候选章节稿打分。输出必须使用中文。"
+const CONSENSUS_ABORT_MESSAGE = "已停止生成"
 
-function buildEvaluationPrompt(input: DeepChapterGenerationInput, candidateContent: string): string {
+type GateTriState = "passed" | "failed" | "pending" | undefined
+
+function readGateState(
+  decisionGates: DeepChapterGenerationResult["decisionGates"] | undefined,
+  key: "consistency" | "anti_ai",
+): GateTriState {
+  const gate = decisionGates?.[key]
+  if (!gate) return undefined
+  if (gate.status === "failed" || gate.verdict === "fail" || gate.verdict === "manual_review") {
+    return "failed"
+  }
+  if (gate.status === "passed" || gate.verdict === "pass" || gate.verdict === "warning") {
+    return "passed"
+  }
+  return "pending"
+}
+
+/**
+ * R2-REV-004：Track A 门控优先级过滤（Consistency P0 > Anti-AI P1 > Quality P2）。
+ * 先按 P0 一致性筛，再在 P0 存活集内按 P1 反 AI 筛；绝不允许 P0 失败稿凭高文学分翻盘。
+ * 当所有候选均未提供 decisionGates（兼容旧夹具）时保留全集。
+ */
+export function selectGateEligibleCandidates<
+  T extends { result: Pick<DeepChapterGenerationResult, "decisionGates"> },
+>(seats: readonly T[]): T[] {
+  if (seats.length <= 1) return [...seats]
+
+  // P0: Consistency
+  let pool = [...seats]
+  const p0Passed = pool.filter((s) => readGateState(s.result.decisionGates, "consistency") === "passed")
+  if (p0Passed.length > 0) {
+    pool = p0Passed
+  } else {
+    const p0NotFailed = pool.filter((s) => readGateState(s.result.decisionGates, "consistency") !== "failed")
+    if (p0NotFailed.length > 0) {
+      pool = p0NotFailed
+    }
+  }
+
+  // P1: Anti-AI (within P0 survivors)
+  if (pool.length > 1) {
+    const p1Passed = pool.filter((s) => readGateState(s.result.decisionGates, "anti_ai") === "passed")
+    if (p1Passed.length > 0) {
+      pool = p1Passed
+    } else {
+      const p1NotFailed = pool.filter((s) => readGateState(s.result.decisionGates, "anti_ai") !== "failed")
+      if (p1NotFailed.length > 0) {
+        pool = p1NotFailed
+      }
+    }
+  }
+
+  return pool
+}
+
+export function buildEvaluationPrompt(
+  input: DeepChapterGenerationInput,
+  candidateContent: string,
+  peerOpinions?: readonly PeerEvaluation[],
+): string {
   const chapterLabel = input.chapterNumber ? `第${input.chapterNumber}章` : "本章"
+  const peerSection =
+    peerOpinions && peerOpinions.length > 0
+      ? `\n\n【多模型共识辩论】其他席位对该候选稿的上轮匿名评分与理由：\n${peerOpinions
+          .map((op) => `- 评审${op.voter}：${op.score} 分 —— ${op.rationale}`)
+          .join("\n")}\n请综合参考上述他席意见后重新独立评分，并在 rationale 中说明维持原判或调整分数的依据。`
+      : ""
   return `写作目标：
 ${input.userRequest}
 
 候选${chapterLabel}稿件全文：
-${candidateContent}
+${candidateContent}${peerSection}
 
 请以编辑身份独立评分（0-10，可一位小数）。评分维度：目标达成、叙事张力、文风一致性、可用性。
 只输出 JSON：{"score": 0.0, "rationale": "评分理由（引用稿件具体之处）"}`
@@ -53,12 +118,15 @@ async function evaluateDraft(
   input: DeepChapterGenerationInput,
   candidateContent: string,
   signal: AbortSignal | undefined,
+  peerOpinions?: readonly PeerEvaluation[],
 ): Promise<PeerEvaluation> {
+  if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const messages: ChatMessage[] = [
     { role: "system", content: EVAL_SYSTEM_PROMPT },
-    { role: "user", content: buildEvaluationPrompt(input, candidateContent) },
+    { role: "user", content: buildEvaluationPrompt(input, candidateContent, peerOpinions) },
   ]
   let text = ""
+  let streamError: unknown = null
   await streamChat(
     llmConfig,
     messages,
@@ -68,13 +136,20 @@ async function evaluateDraft(
       },
       onDone: () => {},
       onError: (err: unknown) => {
-        // IMT-ODX-02: 同型修复（见 consensus-review.ts）——互评席位流中断不再静默
+        streamError = err
+        // IMT-ODX-02: 互评席位流中断记录日志并在流结束后主动抛出
         logger.warn("Consensus Writing", `互评席位流中断: ${toErrorMessage(err)}`)
       },
     },
     combineAbortSignals(signal, AbortSignal.timeout(120000)),
     { reasoning: { mode: input.novelConfig.reviewReasoningEffort ?? "high" } },
   )
+  if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
+  const readStreamError = (): unknown => streamError
+  const caughtStreamError = readStreamError()
+  if (caughtStreamError !== null) {
+    throw caughtStreamError instanceof Error ? caughtStreamError : new Error(toErrorMessage(caughtStreamError))
+  }
   const jsonMatch = text.trim().match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error("互评没有返回 JSON")
   const parsed = JSON.parse(jsonMatch[0]) as { score?: unknown; rationale?: unknown }
@@ -100,6 +175,7 @@ export async function runDeepChapterGenerationConsensus(
   signal?: AbortSignal,
   onTrace?: ConsensusTraceListener,
 ): Promise<DeepChapterGenerationResult> {
+  if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const cfg = input.novelConfig
   const configured = cfg.consensusEnabled ? cfg.consensusWritingModels.filter((m) => m.trim()) : []
   // 等价直通：未启用 / 未配置模型组（解析后单模型也直通）
@@ -115,11 +191,20 @@ export async function runDeepChapterGenerationConsensus(
   const settled = await Promise.allSettled(
     models.map((llmConfig) => runDeepChapterGeneration({ ...input, llmConfig }, {}, deps, signal)),
   )
-  const successes: { llmConfig: LlmConfig; result: DeepChapterGenerationResult }[] = []
+  if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
+  for (const s of settled) {
+    if (s.status === "rejected" && isRequestCancelledError(s.reason)) {
+      throw s.reason
+    }
+  }
+  const successes: { llmConfig: LlmConfig; result: DeepChapterGenerationResult; anonymousId: string }[] = []
   const failedSeats: string[] = []
   settled.forEach((s, i) => {
-    if (s.status === "fulfilled") successes.push({ llmConfig: models[i]!, result: s.value })
-    else failedSeats.push(anonymousId(i))
+    if (s.status === "fulfilled") {
+      successes.push({ llmConfig: models[i]!, result: s.value, anonymousId: anonymousId(successes.length) })
+    } else {
+      failedSeats.push(anonymousId(i))
+    }
   })
   if (successes.length === 0) {
     // 全部失败：抛最后一个错误（与单模型失败语义一致）
@@ -135,33 +220,48 @@ export async function runDeepChapterGenerationConsensus(
     return successes[0]!.result
   }
 
-  // 互评：每模型评其他成功稿（排除自评），debateRounds 轮迭代
-  const candidates: DraftCandidate[] = successes.map((s, i) => ({
-    anonymousId: anonymousId(i),
+  // R2-REV-004：Track A 门控先于互评选优（Consistency P0 > Anti-AI P1 > Quality P2）
+  const eligibleSeats = selectGateEligibleCandidates(successes)
+  if (eligibleSeats.length === 1) {
+    const soleWinner = eligibleSeats[0]!
+    onTrace?.({
+      seatCount: successes.length,
+      debateRounds: 0,
+      averageScores: [],
+      winner: soleWinner.anonymousId,
+      rationaleDigest: "Track A 门控过滤唯一存活候选稿",
+      failedSeats,
+    })
+    return soleWinner.result
+  }
+
+  // 互评：每席评存活集合内其他候选稿（排除自评），debateRounds 轮真辩论迭代
+  const candidates: DraftCandidate[] = eligibleSeats.map((s) => ({
+    anonymousId: s.anonymousId,
     content: s.result.finalContent,
   }))
   let evaluations: PeerEvaluation[] = []
   const rounds = Math.max(1, cfg.consensusDebateRounds)
   for (let round = 0; round < rounds; round++) {
+    if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
     const roundEvals = await Promise.allSettled(
-      successes.flatMap((seat, si) => {
-        const voterId = anonymousId(si)
+      eligibleSeats.flatMap((seat) => {
+        const voterId = seat.anonymousId
         return candidates
           .filter((c) => c.anonymousId !== voterId)
           .map(async (c) => {
-            const base = await evaluateDraft(seat.llmConfig, input, c.content, signal)
-            const prev = evaluations.find((e) => e.voter === voterId && e.candidate === c.anonymousId)
-            // 迭代轮：模型看到他席上轮评分（辩论式互看）
+            // 仅把「其他席位对该候选稿的上轮匿名评分」注入辩论 prompt（修复旧版自查他稿 Bug）
+            const peerOpinions =
+              round > 0
+                ? evaluations.filter((e) => e.voter !== voterId && e.candidate === c.anonymousId)
+                : []
+            const base = await evaluateDraft(seat.llmConfig, input, c.content, signal, peerOpinions)
             const adjusted =
-              round > 0 && prev
+              round > 0 && peerOpinions.length > 0
                 ? {
                     ...base,
-                    rationale: `${base.rationale}（他席上轮评分：${candidates
-                      .filter((o) => o.anonymousId !== voterId && o.anonymousId !== c.anonymousId)
-                      .map((o) => {
-                        const found = evaluations.find((e) => e.voter === voterId && e.candidate === o.anonymousId)
-                        return `${o.anonymousId} ${found?.score ?? "?"}`
-                      })
+                    rationale: `${base.rationale}（他席上轮评分：${peerOpinions
+                      .map((op) => `${op.voter} ${op.score}`)
                       .join("、")}）`,
                   }
                 : base
@@ -169,13 +269,18 @@ export async function runDeepChapterGenerationConsensus(
           })
       }),
     )
+    if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
+    for (const r of roundEvals) {
+      if (r.status === "rejected" && isRequestCancelledError(r.reason)) {
+        throw r.reason
+      }
+    }
     const valid = roundEvals.filter((r) => r.status === "fulfilled").map((r) => r.value)
     if (valid.length > 0) evaluations = valid
   }
 
   const outcome = pickBestDraft(candidates, evaluations)
-  const winnerIndex = candidates.findIndex((c) => c.anonymousId === outcome.winner.anonymousId)
-  const winnerResult = successes[winnerIndex]!.result
+  const winnerSeat = eligibleSeats.find((s) => s.anonymousId === outcome.winner.anonymousId)!
   onTrace?.({
     seatCount: successes.length,
     debateRounds: rounds,
@@ -184,5 +289,5 @@ export async function runDeepChapterGenerationConsensus(
     rationaleDigest: outcome.rationaleDigest,
     failedSeats,
   })
-  return winnerResult
+  return winnerSeat.result
 }

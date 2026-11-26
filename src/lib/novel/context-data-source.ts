@@ -1,5 +1,6 @@
 import { logger, toErrorMessage } from "@/lib/utils"
-import type { NovelConfig, RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
+import type { ContextBudget } from "@/lib/context-budget"
+import type { EmbeddingConfig, NovelConfig, RerankConfig, RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
 
 /**
  * 上下文数据源抽象层
@@ -13,6 +14,29 @@ import type { NovelConfig, RevisionFeedbackWindowConfig } from "@/stores/wiki-st
  * 复用此类型, recordGap 注入契约也用它, 使调用方传非 union 字符串时编译期报错。
  */
 export type ContextGapReason = "budget_exceeded" | "tier_compressible" | "datasource_error" | "temporal_history_unavailable"
+
+export type SourceTier = "protected" | "compressible"
+
+export interface ContextGap {
+  type: "compressed" | "truncated" | "load_failed" | "unavailable"
+  ref: string
+  reason: ContextGapReason
+  originalLength: number
+  retainedLength: number
+}
+
+/**
+ * Per-build 隔离会话契约（R2-W06）：卸载模块级全局可变态，使并发 buildContextPack
+ * 拥有独立 gaps / budget 槽位，零串包、零串行 mutex 阻塞。
+ */
+export interface ContextBuildSession {
+  readonly gaps: ContextGap[]
+  readonly budget: ContextBudget | null
+  recordGap: (ref: string, reason?: ContextGapReason) => void
+  recordTruncated: (ref: string, tier: SourceTier, originalLength: number, retainedLength: number) => void
+  tieredSlice: (content: string, tier: SourceTier, cap: number, ref: string) => string
+  collectGaps: () => ContextGap[]
+}
 
 /**
  * 上下文加载配置
@@ -40,6 +64,11 @@ export interface ContextLoadContext {
    * 供 build 内的二级加载函数（如社区摘要）复用，避免 lib 层再直读 UI store。
    */
   novelConfig?: NovelConfig
+  /** R2-W06：按需透传的 embedding / rerank 配置，避免下游检索数据源漏传回退全局 store。 */
+  embeddingConfig?: EmbeddingConfig
+  rerankConfig?: RerankConfig
+  /** R2-W06：per-build 隔离会话（gaps + budget）。 */
+  buildSession?: ContextBuildSession
   /**
    * DC-8 (odyssey-improve): optional gap recorder injected by buildContextPack.
    * Data sources call this in their `catch` block (instead of a bare `catch {}`)

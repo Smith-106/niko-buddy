@@ -9,32 +9,35 @@
  * 将冷启动到分章起草的自动化等级推向 100%（全自动无人值守闭环）：
  * 仅需单句核心构思/灵感，全自动链式自主推演：
  * 1. 灵魂文档孵化 (SoulDoc)：确立全书主旨、调性、价值观困境与防失真禁区
- * 2. 世界观蓝图派生 (WorldBlueprint)：自动生成并通过完备性校验的五大分层骨架
- * 3. 核心角色小传建立 (Character Workstation)：生成主角、对手与盟友档案
- * 4. 宏观总纲推演 (Outline Orchestration)：生成贯穿全书与分章的剧情框架
+ * 2. 世界观蓝图派生 (WorldBlueprint)：调用 LLM 生成并通过完备性校验的五大分层骨架
+ * 3. 核心角色小传建立 (Character Workstation)：调用 LLM 生成主角、对手与盟友档案
+ * 4. 宏观总纲推演 (Outline Orchestration)：基于灵魂文档、世界观与真实角色生成分章框架
  * 5. 章节骨架自动铺排 (Auto Unpack)：零人工点击，原子解构并铺排 chapters/chapter-*.md
- * 6. 故事模拟起承转合提取与绑定 (Auto Framework Derive & Bind)：提取 4 阶段节拍并落盘 active-binding.json
+ * 6. 故事模拟起承转合提取与绑定 (Auto Framework Derive & Bind)：基于真实角色与大纲提取 4 阶段节拍并落盘 active-binding.json
  *
- * 随后可无缝衔接 Autonomous Draft Campaign 巡航器，实现端到端无人值守正文推进！
+ * 纪律（P0-01 fail-closed）：
+ * - 禁止任何硬编码假人名/假世界观/静态兜底模板；
+ * - 无可用 LLM 配置、调用失败、空输出或非法结构一律 fail-loud 抛出带阶段名的 Error。
  */
 
 import { createDirectory, writeFileAtomic } from "@/commands/fs"
-import { recordModuleHit } from "./module-heat"
-import { appendStageMetric } from "./novel-session-status"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, streamChat } from "@/lib/llm-client"
 import { normalizePath } from "@/lib/path-utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG } from "@/stores/wiki-store"
-import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "@/lib/llm-client"
-import { writeSoulDoc } from "./soul-doc"
 import {
-  saveWorldBlueprint,
-  validateWorldBlueprint,
-  type WorldBlueprint,
-} from "./world-blueprint"
+  runAutonomousDraftCampaign,
+  type CampaignReport,
+} from "./campaign-runner"
+import { recordModuleHit } from "./module-heat"
+import { appendStageMetric } from "./novel-session-status"
 import {
   unpackOutlineToChapterFiles,
   type UnpackOutlineResult,
 } from "./outline-chapter-unpack"
+import { writeSoulDoc } from "./soul-doc"
 import {
   saveBinding,
 } from "./story-simulation/framework-binding"
@@ -44,9 +47,12 @@ import type {
   StoryNode,
 } from "./story-simulation/types"
 import {
-  runAutonomousDraftCampaign,
-  type CampaignReport,
-} from "./campaign-runner"
+  WORLD_LAYERS,
+  saveWorldBlueprint,
+  validateWorldBlueprint,
+  type WorldBlueprint,
+  type WorldLayer,
+} from "./world-blueprint"
 
 export interface NovelIncubatorOptions {
   projectPath: string
@@ -84,26 +90,34 @@ export interface NovelIncubatorResult {
   activeBinding: FrameworkBinding
 }
 
+const REQUIRED_STORY_PHASES: readonly StoryNode["phase"][] = ["起", "承", "转", "合"]
+const WORLD_LAYER_SET: ReadonlySet<string> = new Set<string>(WORLD_LAYERS)
+
 /**
- * 辅助调用 LLM，若调用异常或超时则使用 deterministic 回退生成器保证全自动流程永不崩溃
+ * Fail-loud LLM 调用入口：无可用配置、用户取消、流式错误、异常或空输出一律抛出带阶段名的 Error，
+ * 绝不静默降级为静态假模板。
  */
-async function callLlmWithFallback(
+async function callIncubatorLlm(
+  stageLabel: string,
   llmConfig: LlmConfig,
   prompt: string,
-  fallbackGenerator: () => string,
   signal?: AbortSignal,
 ): Promise<string> {
-  // 如果是空 key 或 test/mock 环境，直接走 deterministic 派生
-  if (!llmConfig.apiKey && llmConfig.provider !== "ollama") {
-    return fallbackGenerator()
+  if (signal?.aborted) {
+    throw new Error(`[${stageLabel}] 孵化已被取消`)
+  }
+  if (!hasUsableLlm(llmConfig)) {
+    throw new Error(
+      `[${stageLabel}] 缺少可用的 LLM 配置（provider=${llmConfig.provider}，请配置有效的 API Key / 端点与模型）`,
+    )
   }
 
-  try {
-    let output = ""
-    let hasError: Error | null = null
-    const timeoutSignal = AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)
-    const combinedSignal = combineAbortSignals(signal, timeoutSignal)
+  let output = ""
+  let streamError: Error | null = null
+  const timeoutSignal = AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)
+  const combinedSignal = combineAbortSignals(signal, timeoutSignal)
 
+  try {
     await streamChat(
       llmConfig,
       [{ role: "user", content: prompt }],
@@ -113,19 +127,132 @@ async function callLlmWithFallback(
         },
         onDone: () => {},
         onError: (err) => {
-          hasError = err
+          streamError = err
         },
       },
       combinedSignal,
     )
-
-    if (hasError || !output.trim()) {
-      return fallbackGenerator()
-    }
-    return output.trim()
-  } catch {
-    return fallbackGenerator()
+  } catch (err) {
+    throw new Error(`[${stageLabel}] LLM 调用失败：${toErrorMessage(err)}`)
   }
+
+  if (signal?.aborted) {
+    throw new Error(`[${stageLabel}] 孵化已被取消`)
+  }
+  const readStreamError = (): Error | null => streamError
+  const errNow = readStreamError()
+  if (errNow) {
+    throw new Error(`[${stageLabel}] LLM 流式返回错误：${toErrorMessage(errNow)}`)
+  }
+
+  const trimmed = output.trim()
+  if (!trimmed) {
+    throw new Error(`[${stageLabel}] LLM 返回空内容`)
+  }
+  return trimmed
+}
+
+/**
+ * 提取平衡 JSON 对象或数组文本片段（支持 markdown code fence）。
+ */
+function extractBalancedJsonSpan(text: string, openChar: "{" | "[", closeChar: "}" | "]"): string | null {
+  const fenceMatch = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const cleaned = fenceMatch ? fenceMatch[1].trim() : text.trim()
+  if (cleaned.startsWith(openChar) && cleaned.endsWith(closeChar)) {
+    return cleaned
+  }
+  const start = cleaned.indexOf(openChar)
+  if (start === -1) return null
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < cleaned.length; i += 1) {
+    const ch = cleaned[i]
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (ch === "\\") {
+        escaped = true
+      } else if (ch === '"') {
+        inString = false
+      }
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+    } else if (ch === openChar) {
+      depth += 1
+    } else if (ch === closeChar) {
+      depth -= 1
+      if (depth === 0) return cleaned.slice(start, i + 1)
+    }
+  }
+  return null
+}
+
+/**
+ * 严格解析 LLM 返回的结构化 JSON，非法文本或容器类型不符时抛出带阶段名的 Error。
+ */
+function parseIncubatorJson(stageLabel: string, raw: string, expectedKind: "object" | "array"): unknown {
+  const openChar = expectedKind === "object" ? "{" : "["
+  const closeChar = expectedKind === "object" ? "}" : "]"
+  const span = extractBalancedJsonSpan(raw, openChar, closeChar)
+  if (!span) {
+    throw new Error(`[${stageLabel}] LLM 输出缺少合法 JSON ${expectedKind === "object" ? "对象" : "数组"}`)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(span)
+  } catch (err) {
+    throw new Error(`[${stageLabel}] LLM 输出非法 JSON：${toErrorMessage(err)}`)
+  }
+  if (expectedKind === "array" && !Array.isArray(parsed)) {
+    throw new Error(`[${stageLabel}] LLM 输出必须为 JSON 数组`)
+  }
+  if (expectedKind === "object" && (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))) {
+    throw new Error(`[${stageLabel}] LLM 输出必须为 JSON 对象`)
+  }
+  return parsed
+}
+
+const WINDOWS_RESERVED_DEVICE_NAME_RE = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i
+
+/**
+ * 清洗角色文件名以防止路径穿越（移除 `..`、路径分隔符、非法文件名字符与 Windows 保留设备名），并去重。
+ */
+function sanitizeCharacterFileName(name: string, index: number, usedFileNames: Set<string>): string {
+  const cleaned = name
+    .replace(/\.\./g, "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/^[_.\s]+/, "")
+    .slice(0, 64)
+    .replace(/[_.\s]+$/g, "")
+  let base = cleaned || `character-${index + 1}`
+  if (WINDOWS_RESERVED_DEVICE_NAME_RE.test(base)) {
+    base = `char-${base}`
+  }
+  let candidate = base
+  let suffix = 2
+  while (usedFileNames.has(candidate.toLowerCase())) {
+    candidate = `${base}-${suffix}`
+    suffix += 1
+  }
+  usedFileNames.add(candidate.toLowerCase())
+  return candidate
+}
+
+function asNonEmptyStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+}
+
+function asNonEmptyString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : ""
 }
 
 /**
@@ -173,113 +300,156 @@ async function generateSoulDocContent(
 4. 包含创作红线与禁忌事项
 5. 输出纯 Markdown 格式。`
 
-  return callLlmWithFallback(
-    llmConfig,
-    prompt,
-    () => `# 作品灵魂文档：《${title}》\n\n## 1. 核心构想与主旨\n- **作品定位**：${genre}史诗长篇\n- **核心命题**：基于"${idea}"展开，探讨人性抉择与命运枷锁的对抗。\n\n## 2. 情绪基调与审美\n- 沉浸感、冲突递进、真实代入感。\n\n## 3. 叙事红线\n- 严禁机械降神，尊重因果逻辑与动机一致性。`,
-    signal,
-  )
+  return callIncubatorLlm("阶段1:soul-doc", llmConfig, prompt, signal)
 }
 
 /**
- * 阶段 2：生成世界观蓝图
+ * 阶段 2：调用 LLM 生成世界观蓝图并严格校验完备性
  */
 async function generateWorldBlueprintData(
   title: string,
   genre: string,
   idea: string,
-  _llmConfig: LlmConfig,
-  _signal?: AbortSignal,
+  soulDoc: string,
+  llmConfig: LlmConfig,
+  signal?: AbortSignal,
 ): Promise<WorldBlueprint> {
-  // 构建符合 REQUIRED_WORLD_LAYERS 校验的标准蓝图
-  const bp: WorldBlueprint = {
-    version: "1.0",
-    worldType: genre,
-    layers: {
-      axioms: [
-        `世界运行遵循《${title}》底层法则`,
-        `核心动力源于：${idea.slice(0, 30)}`,
-        "能量与代价严格守恒",
-      ],
-      background: [
-        `时代背景：波澜壮阔的${genre}大变革前夜`,
-        "旧秩序正在坍塌，新势力在阴影中崛起",
-      ],
-      geography: [
-        "核心圣地/枢纽巨城：故事展开的起源中心",
-        "边缘荒原/外围裂隙：孕育危险与机遇的交界带",
-      ],
-      cultures: [
-        "崇尚实力与智慧的生存信条",
-        "阶层间根深蒂固的信息壁垒与信仰冲突",
-      ],
-      conflicts: [
-        `主干冲突：围绕核心灵感【${idea.slice(0, 20)}】展开的生死对抗`,
-        "个体生存与宏大命运的永恒拉扯",
-      ],
-      technology: [
-        genre.includes("科幻") ? "高维量子演算与神经义体网络" : "上古神纹禁制与灵石驱动机械",
-      ],
-      factions: [
-        "执掌旧日秩序的正统权威同盟",
-        "潜伏于深渊的异端革新者阵营",
-      ],
-    },
-    crossRefs: [],
+  const stageLabel = "阶段2:world-blueprint"
+  const prompt = `你是一位专业世界观架构师。请为长篇小说《${title}》（流派：${genre}）构建一份严格结构化的【世界观蓝图】JSON。
+核心构思：${idea}
+灵魂文档参考：
+${soulDoc.slice(0, 1500)}
+
+要求：
+1. 只输出一个合法 JSON 对象，不要输出额外解释。
+2. 必须包含字段 "worldType"（字符串）与 "layers"（对象）。
+3. "layers" 必须包含且非空以下五大必填分层（每层为字符串数组，至少 1 条贴合本题材的具体设定）：
+   - "axioms"（底层公理/运行法则）
+   - "background"（时代背景与格局）
+   - "geography"（核心地理空间）
+   - "cultures"（文化、秩序与社会规则）
+   - "conflicts"（核心结构性冲突）
+4. 可按需补充可选分层："races"、"magicSystem"、"politics"、"technology"、"economy"、"religions"、"history"、"factions"。
+5. 可选字段 "crossRefs"：数组，元素形如 { "from": "层名", "to": "层名", "term": "被引用条目原文" }。`
+
+  const raw = await callIncubatorLlm(stageLabel, llmConfig, prompt, signal)
+  const parsed = parseIncubatorJson(stageLabel, raw, "object") as Record<string, unknown>
+
+  const rawLayers = parsed.layers
+  if (rawLayers === null || typeof rawLayers !== "object" || Array.isArray(rawLayers)) {
+    throw new Error(`[${stageLabel}] LLM 输出的世界观蓝图缺少 layers 对象`)
+  }
+  const layerRecord = rawLayers as Record<string, unknown>
+  const layers: Partial<Record<WorldLayer, string[]>> = {}
+  for (const layer of WORLD_LAYERS) {
+    const entries = asNonEmptyStringArray(layerRecord[layer])
+    if (entries.length > 0) {
+      layers[layer] = entries
+    }
   }
 
-  // 严格检验确定性完备性
+  const crossRefs: NonNullable<WorldBlueprint["crossRefs"]> = []
+  if (Array.isArray(parsed.crossRefs)) {
+    for (const item of parsed.crossRefs) {
+      if (item === null || typeof item !== "object" || Array.isArray(item)) continue
+      const rec = item as Record<string, unknown>
+      const from = asNonEmptyString(rec.from)
+      const to = asNonEmptyString(rec.to)
+      const term = asNonEmptyString(rec.term)
+      if (WORLD_LAYER_SET.has(from) && WORLD_LAYER_SET.has(to) && term) {
+        crossRefs.push({ from: from as WorldLayer, to: to as WorldLayer, term })
+      }
+    }
+  }
+
+  const bp: WorldBlueprint = {
+    version: "1.0",
+    worldType: asNonEmptyString(parsed.worldType) || genre,
+    layers,
+    crossRefs,
+  }
+
   const validation = validateWorldBlueprint(bp)
   if (validation.verdict !== "complete") {
-    // 自动补齐缺失层
-    if (!bp.layers.axioms?.length) bp.layers.axioms = ["基础公理"]
-    if (!bp.layers.background?.length) bp.layers.background = ["时代背景"]
-    if (!bp.layers.geography?.length) bp.layers.geography = ["核心地理"]
-    if (!bp.layers.cultures?.length) bp.layers.cultures = ["文化习俗"]
-    if (!bp.layers.conflicts?.length) bp.layers.conflicts = ["核心冲突"]
+    const missing = validation.findings
+      .filter((f) => f.severity === "error")
+      .map((f) => f.layer ?? f.message)
+      .join(", ")
+    throw new Error(`[${stageLabel}] 世界观蓝图完备性校验失败：${missing || "缺少必填层"}`)
   }
 
   return bp
 }
 
 /**
- * 阶段 3：生成核心角色
+ * 阶段 3：调用 LLM 生成核心角色小传并清洗文件名落盘
  */
 async function generateCoreCharacters(
   projectPath: string,
   title: string,
   genre: string,
   idea: string,
+  soulDoc: string,
+  worldBlueprint: WorldBlueprint,
+  llmConfig: LlmConfig,
+  signal?: AbortSignal,
 ): Promise<IncubatedCharacter[]> {
+  const stageLabel = "阶段3:characters"
+  const worldSummary = [
+    `世界类型：${worldBlueprint.worldType}`,
+    `底层法则：${(worldBlueprint.layers.axioms ?? []).join("；")}`,
+    `时代背景：${(worldBlueprint.layers.background ?? []).join("；")}`,
+    `核心冲突：${(worldBlueprint.layers.conflicts ?? []).join("；")}`,
+  ].join("\n")
+
+  const prompt = `你是一位资深小说人物设定师。请根据作品《${title}》（流派：${genre}）的核心构思与世界观，塑造 3 位核心人物（主角、主要对抗者、重要盟友），输出【核心角色档案】JSON 数组。
+核心构思：${idea}
+灵魂文档参考：
+${soulDoc.slice(0, 1200)}
+世界观参考：
+${worldSummary}
+
+要求：
+1. 只输出一个合法 JSON 数组，至少包含 3 个角色对象，不要输出额外解释。
+2. 每个角色对象必须包含以下非空字符串字段：
+   - "name"：贴合本作品题材的真实角色姓名（不得使用占位词或组织泛称）
+   - "role"：角色定位（如主角、主要对抗者、重要盟友）
+   - "profile"：完整的 Markdown 角色档案（含身份、性格、核心动机、能力/资源与关键弱点）`
+
+  const raw = await callIncubatorLlm(stageLabel, llmConfig, prompt, signal)
+  const parsed = parseIncubatorJson(stageLabel, raw, "array") as unknown[]
+
+  if (parsed.length === 0) {
+    throw new Error(`[${stageLabel}] LLM 返回的角色列表为空`)
+  }
+
   const pp = normalizePath(projectPath)
   const charDir = `${pp}/wiki/entities/characters`
+  const usedFileNames = new Set<string>()
+  const characters: IncubatedCharacter[] = []
+
+  for (let idx = 0; idx < parsed.length; idx += 1) {
+    const item = parsed[idx]
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`[${stageLabel}] 第 ${idx + 1} 个角色项不是合法对象`)
+    }
+    const rec = item as Record<string, unknown>
+    const name = asNonEmptyString(rec.name)
+    const role = asNonEmptyString(rec.role)
+    const profile = asNonEmptyString(rec.profile)
+    if (!name || !role || !profile) {
+      throw new Error(`[${stageLabel}] 第 ${idx + 1} 个角色缺少必填字段（name / role / profile）`)
+    }
+    const safeFileName = sanitizeCharacterFileName(name, idx, usedFileNames)
+    characters.push({
+      name,
+      role,
+      profile,
+      filePath: `${charDir}/${safeFileName}.md`,
+    })
+  }
+
   await createDirectory(charDir)
-
-  const protagonistName = idea.match(/[一-龥]{2,4}(?=的身体)/)?.[0] || "主角"
-  const antagonistName = "租赁公司"
-  const allyName = "合同线索提供者"
-
-  const characters: IncubatedCharacter[] = [
-    {
-      name: protagonistName,
-      role: "主角 (Protagonist)",
-      profile: `# ${protagonistName}\n\n- **作品**：《${title}》（${genre}）\n- **身份**：核心破局者\n- **性格**：冷静、隐忍、果决\n- **核心动机**：在【${idea.slice(0, 20)}】的剧变中打破宿命桎梏\n- **能力特质**：独具敏锐感知与非常规推演力`,
-      filePath: `${charDir}/${protagonistName}.md`,
-    },
-    {
-      name: antagonistName,
-      role: "主要对抗者 (Antagonist)",
-      profile: `# ${antagonistName}\n\n- **作品**：《${title}》（${genre}）\n- **身份**：旧秩序强权执掌者\n- **性格**：霸道、深沉、利益至上\n- **核心动机**：维护既有体系，掌控关键秘密\n- **能力特质**：手握压倒性资源与权力网络`,
-      filePath: `${charDir}/${antagonistName}.md`,
-    },
-    {
-      name: allyName,
-      role: "重要盟友 (Ally)",
-      profile: `# ${allyName}\n\n- **作品**：《${title}》（${genre}）\n- **身份**：隐秘线索掌握者 / 助手\n- **性格**：机敏、敏锐、信守诺言\n- **核心动机**：探寻家族被掩盖的真相`,
-      filePath: `${charDir}/${allyName}.md`,
-    },
-  ]
-
   for (const c of characters) {
     await writeFileAtomic(c.filePath, c.profile)
   }
@@ -288,117 +458,128 @@ async function generateCoreCharacters(
 }
 
 /**
- * 阶段 4：自动生成宏观大纲与分章概要
+ * 阶段 4：串联灵魂文档、世界观与阶段 3 真实角色，调用 LLM 生成宏观大纲与分章概要
  */
 async function generateMacroOutline(
   title: string,
   genre: string,
   idea: string,
   targetChapters: number,
+  soulDoc: string,
+  worldBlueprint: WorldBlueprint,
+  characters: IncubatedCharacter[],
   llmConfig: LlmConfig,
   signal?: AbortSignal,
 ): Promise<string> {
-  const prompt = `请为长篇小说《${title}》（流派：${genre}，总计目标 ${targetChapters} 章）生成一份专业的大纲。
+  const stageLabel = "阶段4:outline"
+  const characterRoster = characters
+    .map((c) => `- ${c.name}（${c.role}）`)
+    .join("\n")
+
+  const prompt = `你是一位长篇小说总策划。请为作品《${title}》（流派：${genre}，目标 ${targetChapters} 章）撰写【宏观总纲与分章规划】。
 核心灵感：${idea}
-必须包含从第 1 章到第 ${targetChapters} 章的分章纲要，严格按如下格式输出每一章：
+核心角色清单（必须直接使用下列真实角色姓名推进剧情，严禁替换为无关角色名）：
+${characterRoster}
+世界观核心冲突：${(worldBlueprint.layers.conflicts ?? []).join("；")}
+灵魂文档参考：
+${soulDoc.slice(0, 1200)}
+
+要求：
+1. 输出结构清晰的 Markdown 总纲，包含全书主线与第 1 章到第 ${targetChapters} 章的分章纲要。
+2. 每一章必须严格使用如下标题格式：
 ### 第X章 章节标题
 本章剧情概要与核心冲突...`
 
-  return callLlmWithFallback(
-    llmConfig,
-    prompt,
-    () => {
-      const chaptersList: string[] = []
-      for (let i = 1; i <= targetChapters; i++) {
-        let chapterTitle = `破局之始`
-        let summary = `主角在变局中首次察觉异常，危机悄然逼近。`
-        if (i === 1) {
-          chapterTitle = "异变初显"
-          summary = `风暴来临的前夕，主角林玄在看似平静的日常中发现了关键异常，宿命齿轮开始转动。`
-        } else if (i === 2) {
-          chapterTitle = "暗流汹涌"
-          summary = `多方势力入场试探，主角险象环生，被迫做出第一次重大选择。`
-        } else if (i === 3) {
-          chapterTitle = "生死交锋"
-          summary = `首次正面碰撞爆发，底牌尽显，局势彻底失控走向高潮。`
-        } else if (i >= 4 && i < targetChapters) {
-          chapterTitle = `迷局深处 第${i}幕`
-          summary = `线索层层推进，揭开关于【${idea.slice(0, 15)}】背后的更大阴谋。`
-        } else if (i === targetChapters) {
-          chapterTitle = "终局余波"
-          summary = `首卷决战爆发，旧谜题解开，更大的未知世界向主角敞开大门。`
-        }
-        chaptersList.push(`### 第${i}章 ${chapterTitle}\n${summary}\n`)
-      }
-
-      return [
-        `# 《${title}》全书总纲与分卷计划`,
-        "",
-        `> **题材定位**：${genre} | **篇幅设计**：${targetChapters} 章基础体量`,
-        "",
-        `## 核心构思`,
-        `${idea}`,
-        "",
-        `## 章节分章规划`,
-        "",
-        ...chaptersList,
-      ].join("\n")
-    },
-    signal,
+  const outline = await callIncubatorLlm(stageLabel, llmConfig, prompt, signal)
+  const hasChapterHeading = /^(?:#{1,6}\s+|\*{2}|[-*+]\s+|\d+\.\s+)?(?:第\s*[0-9零〇一二两三四五六七八九十百千万]+\s*[章节回]|Chapter\s*[0-9]+)/im.test(
+    outline,
   )
+  if (!hasChapterHeading) {
+    throw new Error(`[${stageLabel}] LLM 生成的大纲缺少可解析的分章标题（如 ### 第1章 ...）`)
+  }
+  return outline
 }
 
 /**
- * 阶段 6：从大纲推导起承转合 4 节点 StoryFramework 并绑定
+ * 阶段 6：串联阶段 3 真实角色与阶段 4 大纲，调用 LLM 提取起承转合 4 节点 StoryFramework 并绑定
  */
 async function deriveAndBindFramework(
   projectPath: string,
   title: string,
+  genre: string,
   idea: string,
   targetChapters: number,
+  characters: IncubatedCharacter[],
+  outlineContent: string,
+  llmConfig: LlmConfig,
+  signal?: AbortSignal,
 ): Promise<FrameworkBinding> {
-  const nodes: StoryNode[] = [
-    {
-      index: 1,
-      phase: "起",
-      title: "异象破晓·宿命入局",
-      coreConflict: "日常秩序与突发异变的猛烈撞击",
-      involvedCharacters: ["林玄"],
-      goal: "探寻异变源头，获取立足资本",
-      causeFromPrev: "无（开局初始事件）",
-      expectedOutcome: "主角被迫卷入风暴中心，明确首要生存目标",
-    },
-    {
-      index: 2,
-      phase: "承",
-      title: "多方角力·险境前行",
-      coreConflict: "对手势力的步步紧逼与资源争夺",
-      involvedCharacters: ["林玄", "顾渊", "白芷"],
-      goal: "在夹缝中结盟并寻找破局关键物",
-      causeFromPrev: "承接入局后的追缉压力",
-      expectedOutcome: "成功获得核心情报，但付出重大代价",
-    },
-    {
-      index: 3,
-      phase: "转",
-      title: "背叛逆转·真相显现",
-      coreConflict: "既有认知坍塌与生死绝境的背水一战",
-      involvedCharacters: ["林玄", "顾渊"],
-      goal: "逆转杀局，绝地求生",
-      causeFromPrev: "对手布设的致命陷阱触发",
-      expectedOutcome: "以意想不到的方式撕开死局，引爆全卷最高潮",
-    },
-    {
-      index: 4,
-      phase: "合",
-      title: "尘埃落定·序章终了",
-      coreConflict: "旧局势结算与新危机萌生",
-      involvedCharacters: ["林玄", "白芷"],
-      goal: "奠定新格局，开启新征程",
-      causeFromPrev: "高潮决战后的势力真空与余波",
-      expectedOutcome: "首卷完美收官，埋下跨卷宏大伏笔",
-    },
-  ]
+  const stageLabel = "阶段6:framework-binding"
+  const characterNames = characters.map((c) => c.name)
+  const prompt = `你是一位叙事结构专家。请根据作品《${title}》（流派：${genre}，共 ${targetChapters} 章）的真实角色与宏观大纲，提取【起承转合故事模拟框架】JSON 对象。
+核心灵感：${idea}
+真实角色名单（involvedCharacters 必须从真实角色中选取，禁止杜撰无关占位名）：${characterNames.join("、")}
+宏观大纲：
+${outlineContent.slice(0, 4000)}
+
+要求：
+1. 只输出一个合法 JSON 对象，格式为 { "nodes": [ ... ] }，不要输出额外解释。
+2. "nodes" 必须严格包含 4 个节点，依次覆盖阶段 "起"、"承"、"转"、"合"。
+3. 每个节点必须包含以下非空字段：
+   - "phase": "起" | "承" | "转" | "合"
+   - "title": 节点标题（非空字符串）
+   - "coreConflict": 核心冲突（非空字符串）
+   - "involvedCharacters": 参与角色名数组（至少 1 个非空字符串）
+   - "goal": 本阶段目标（非空字符串）
+   - "causeFromPrev": 承接上一阶段的因果（非空字符串）
+   - "expectedOutcome": 本阶段预期结果（非空字符串）`
+
+  const raw = await callIncubatorLlm(stageLabel, llmConfig, prompt, signal)
+  const parsed = parseIncubatorJson(stageLabel, raw, "object") as Record<string, unknown>
+
+  if (!Array.isArray(parsed.nodes) || parsed.nodes.length !== REQUIRED_STORY_PHASES.length) {
+    throw new Error(`[${stageLabel}] LLM 输出的框架必须包含恰好 4 个起承转合节点`)
+  }
+
+  const seenPhases = new Set<StoryNode["phase"]>()
+  const nodes: StoryNode[] = parsed.nodes.map((item, idx) => {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`[${stageLabel}] 第 ${idx + 1} 个框架节点不是合法对象`)
+    }
+    const rec = item as Record<string, unknown>
+    const phase = asNonEmptyString(rec.phase) as StoryNode["phase"]
+    if (!REQUIRED_STORY_PHASES.includes(phase)) {
+      throw new Error(`[${stageLabel}] 第 ${idx + 1} 个框架节点 phase 非法：${String(rec.phase)}`)
+    }
+    seenPhases.add(phase)
+    const nodeTitle = asNonEmptyString(rec.title)
+    const coreConflict = asNonEmptyString(rec.coreConflict)
+    const involvedCharacters = asNonEmptyStringArray(rec.involvedCharacters)
+    const goal = asNonEmptyString(rec.goal)
+    const causeFromPrev = asNonEmptyString(rec.causeFromPrev)
+    const expectedOutcome = asNonEmptyString(rec.expectedOutcome)
+
+    if (!nodeTitle || !coreConflict || involvedCharacters.length === 0 || !goal || !causeFromPrev || !expectedOutcome) {
+      throw new Error(`[${stageLabel}] 第 ${idx + 1} 个框架节点（${phase}）缺少必填字段`)
+    }
+
+    return {
+      index: idx + 1,
+      phase,
+      title: nodeTitle,
+      coreConflict,
+      involvedCharacters,
+      goal,
+      causeFromPrev,
+      expectedOutcome,
+    }
+  })
+
+  for (const requiredPhase of REQUIRED_STORY_PHASES) {
+    if (!seenPhases.has(requiredPhase)) {
+      throw new Error(`[${stageLabel}] 框架缺少必需阶段：${requiredPhase}`)
+    }
+  }
 
   const framework: StoryFramework = {
     id: `fw-${Date.now()}`,
@@ -443,7 +624,10 @@ function incubatorTokenCost(value: unknown): number {
   if (value !== null && typeof value === "object") {
     try {
       return JSON.stringify(value).replace(/\s/g, "").length
-    } catch {
+    } catch (err) {
+      logger.warn("autonomous-incubator", "tokenCost stringify skipped (non-serializable)", {
+        error: toErrorMessage(err),
+      })
       return 0
     }
   }
@@ -500,7 +684,7 @@ export async function runAutonomousNovelIncubator(
     message: `[2/6] 正在构建《${title}》世界观五大分层骨架蓝图...`,
   })
   const t0WorldBlueprint = Date.now()
-  const worldBlueprint = await generateWorldBlueprintData(title, genre, idea, llmConfig, signal)
+  const worldBlueprint = await generateWorldBlueprintData(title, genre, idea, soulDoc, llmConfig, signal)
   await saveWorldBlueprint(pp, worldBlueprint)
   // R3：孵化 2/6 遥测（诊断近似，非计费）
   await appendStageMetric(pp, { stage: "incubator:world-blueprint", tokenCost: incubatorTokenCost(worldBlueprint), latencyMs: stageLatencyMs(t0WorldBlueprint), partial: false, timestamp: new Date().toISOString() })
@@ -514,7 +698,7 @@ export async function runAutonomousNovelIncubator(
     message: `[3/6] 正在塑造《${title}》主角、主要对抗者与核心盟友档案...`,
   })
   const t0Characters = Date.now()
-  const characters = await generateCoreCharacters(pp, title, genre, idea)
+  const characters = await generateCoreCharacters(pp, title, genre, idea, soulDoc, worldBlueprint, llmConfig, signal)
   // R3：孵化 3/6 遥测（characters 取各 profile 累加）
   await appendStageMetric(pp, { stage: "incubator:characters", tokenCost: incubatorTokenCost(characters), latencyMs: stageLatencyMs(t0Characters), partial: false, timestamp: new Date().toISOString() })
   recordModuleHit({ path: "src/lib/novel/autonomous-incubator.ts", at: Date.now(), ok: true, detail: `孵化 3/6 核心角色 ${title}` })
@@ -533,7 +717,17 @@ export async function runAutonomousNovelIncubator(
     message: `[4/6] 正在进行大纲多智能体全局推演与分章规划...`,
   })
   const t0Outline = Date.now()
-  const outlineContent = await generateMacroOutline(title, genre, idea, targetChapters, llmConfig, signal)
+  const outlineContent = await generateMacroOutline(
+    title,
+    genre,
+    idea,
+    targetChapters,
+    soulDoc,
+    worldBlueprint,
+    characters,
+    llmConfig,
+    signal,
+  )
   const outlineDir = `${pp}/wiki/outlines`
   await createDirectory(outlineDir)
   await writeFileAtomic(`${outlineDir}/story-outline.md`, outlineContent)
@@ -566,7 +760,17 @@ export async function runAutonomousNovelIncubator(
     message: `[6/6] 正在提取起承转合 4 节点故事模拟框架并写入全局激活绑定...`,
   })
   const t0Binding = Date.now()
-  const activeBinding = await deriveAndBindFramework(pp, title, idea, targetChapters)
+  const activeBinding = await deriveAndBindFramework(
+    pp,
+    title,
+    genre,
+    idea,
+    targetChapters,
+    characters,
+    outlineContent,
+    llmConfig,
+    signal,
+  )
   // R3：孵化 6/6 遥测
   await appendStageMetric(pp, { stage: "incubator:framework-binding", tokenCost: incubatorTokenCost(activeBinding), latencyMs: stageLatencyMs(t0Binding), partial: false, timestamp: new Date().toISOString() })
   recordModuleHit({ path: "src/lib/novel/story-simulation/framework-binding.ts", at: Date.now(), ok: true, detail: `孵化 6/6 框架绑定 ${title}` })
@@ -621,6 +825,7 @@ export async function runEndToEndAutonomousNovelProduction(
       llmConfig: options.llmConfig,
       novelConfig: options.novelConfig || DEFAULT_NOVEL_CONFIG,
       cruiseMode: true,
+      incubationSkeletons: incubation.unpackedSkeletons.createdSkeletons,
       onProgress: options.onProgress,
       signal: options.signal,
     })

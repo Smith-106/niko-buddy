@@ -213,7 +213,8 @@ describe("P2-IMP-14 注册表三方键集等值（CI fail-loud）", () => {
     expect(ingestIdx).toBeGreaterThan(-1)
     const ingestBlock = src.slice(ingestIdx, src.indexOf("finally {", ingestIdx))
     expect(ingestBlock).toMatch(/Object\.entries\(PROJECTION_REGISTRY\)/)
-    expect(ingestBlock).toMatch(/if \(!entry\.applyToStore \|\| !entry\.load \|\| !entry\.save \|\| !entry\.createEmpty\) continue/)
+    expect(ingestBlock).toMatch(/const \{ load, createEmpty, applyToStore, save \} = entry/)
+    expect(ingestBlock).toMatch(/if \(!load \|\| !createEmpty \|\| !applyToStore \|\| !save\) continue/)
     expect(ingestBlock).toMatch(/await runProjection\(projection, /)
     // 行为等值（ingest 实跑账本 ⊇ 9 fold id）见 projection-self-heal.spec.ts 集成用例。
   })
@@ -345,7 +346,7 @@ describe("P2-IMP-14 四路径同源遍历注册表（行为等值）", () => {
     const rebuildIdx = src.indexOf("async function rebuildFromCommittedSnapshot")
     expect(rebuildIdx).toBeGreaterThan(-1)
     const rebuildBlock = src.slice(rebuildIdx, src.indexOf("export async function rebuildDerivedMemoryFromSnapshots"))
-    expect(rebuildBlock).toMatch(/rebuildRegistryProjections\(projectPath, snapshots, foldCtx\)/)
+    expect(rebuildBlock).toMatch(/rebuildRegistryProjections\(projectPath, foldCtx, undefined, latestSnapshot\)/)
     // 旧版逐类 save 不再出现（cognition 等经注册表统一 save）。
     expect(rebuildBlock).not.toMatch(/await saveCognitionState\(projectPath/)
     expect(rebuildBlock).not.toMatch(/await writeStructuredMemoryDocuments\(projectPath, snapshots\)/)

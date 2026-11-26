@@ -14,6 +14,7 @@ import {
   resolveChapterPovCharacter,
   resolveMatchingMap,
   rewriteRateABStats,
+  saveCognitionFoldPreservingTelemetry,
   saveCognitionState,
   type CanonCognitionInput,
   type CognitionState,
@@ -687,5 +688,81 @@ describe("resolveChapterPovCharacter (P2-IMP-12 POV 真源)", () => {
   it("非字符串 povCharacter（脏数据）→ null（不臆造）", async () => {
     seedSnapshot("/pov-dirty", 4, { chapterNumber: 4, povCharacter: 42 })
     await expect(resolveChapterPovCharacter("/pov-dirty", 4)).resolves.toBeNull()
+  })
+})
+
+describe("R2-M04 遥测桶保留与并发锁保护", () => {
+  it("mergeCognitionFromSnapshot 浅拷贝透传已有遥测桶且缺失时不新增键", () => {
+    const base = emptyCognitionState()
+    const snap = {
+      chapterId: "ch-1",
+      chapterNumber: 1,
+      summary: "",
+      characters: ["林晚"],
+      locations: [],
+      organizations: [],
+      items: [],
+      events: [],
+      characterStateChanges: [],
+      relationshipChanges: [],
+      knowledgeChanges: ["林晚知道秘密"],
+      foreshadowingChanges: [],
+      newCanonFacts: [],
+      timelineEvents: [],
+      conflicts: [],
+      endingHook: "",
+      graphNodes: [],
+      graphEdges: [],
+    } as ChapterSnapshot
+
+    const mergedWithout = mergeCognitionFromSnapshot(base, snap)
+    expect("routingROIBuckets" in mergedWithout).toBe(false)
+    expect("exemplarABuckets" in mergedWithout).toBe(false)
+    expect("rewriteRateABuckets" in mergedWithout).toBe(false)
+
+    const withTelemetry: CognitionState = {
+      ...base,
+      routingROIBuckets: [{ variant: "enabled", irrelevantRatio: 0.1, chapterId: "1", timestamp: "t1" }],
+      exemplarABuckets: [{ variant: "disabled", score: 4, chapterId: "1", timestamp: "t2" }],
+      rewriteRateABuckets: [{ variant: "enabled", rewriteRate: 0.2, chapterId: "1", timestamp: "t3" }],
+    }
+    const mergedWith = mergeCognitionFromSnapshot(withTelemetry, snap)
+    expect(mergedWith.routingROIBuckets).toEqual(withTelemetry.routingROIBuckets)
+    expect(mergedWith.routingROIBuckets).not.toBe(withTelemetry.routingROIBuckets)
+    expect(mergedWith.exemplarABuckets).toEqual(withTelemetry.exemplarABuckets)
+    expect(mergedWith.rewriteRateABuckets).toEqual(withTelemetry.rewriteRateABuckets)
+  })
+
+  it("saveCognitionFoldPreservingTelemetry 写盘重放结果时保留磁盘已有 3 个遥测桶", async () => {
+    await saveCognitionState("/fold-keep", {
+      characters: [{ character: "旧", knows: ["旧事"], doesNotKnow: [] }],
+      readerKnows: [],
+      lastUpdatedChapter: 1,
+      routingROIBuckets: [{ variant: "enabled", irrelevantRatio: 0.12, chapterId: "1", timestamp: "t1" }],
+      exemplarABuckets: [{ variant: "enabled", score: 5, chapterId: "1", timestamp: "t2" }],
+      rewriteRateABuckets: [{ variant: "disabled", rewriteRate: 0.3, chapterId: "1", timestamp: "t3" }],
+    })
+    await saveCognitionFoldPreservingTelemetry("/fold-keep", {
+      characters: [{ character: "新", knows: ["新事"], doesNotKnow: [] }],
+      readerKnows: ["读者事"],
+      lastUpdatedChapter: 2,
+    })
+    const loaded = await loadCognitionState("/fold-keep")
+    expect(loaded?.characters[0]?.character).toBe("新")
+    expect(loaded?.routingROIBuckets).toHaveLength(1)
+    expect(loaded?.exemplarABuckets).toHaveLength(1)
+    expect(loaded?.rewriteRateABuckets).toHaveLength(1)
+  })
+
+  it("并发调用 3 个遥测追加函数在 withProjectionStoreWriteLock 串行化下不丢写", async () => {
+    await Promise.all([
+      appendRoutingROISample("/conc-tel", { variant: "enabled", irrelevantRatio: 0.1, chapterId: "1", timestamp: "t1" }),
+      appendExemplarABSample("/conc-tel", { variant: "enabled", score: 5, chapterId: "1", timestamp: "t2" }),
+      appendRewriteRateASample("/conc-tel", { variant: "disabled", rewriteRate: 0.25, chapterId: "1", timestamp: "t3" }),
+    ])
+    const loaded = await loadCognitionState("/conc-tel")
+    expect(loaded?.routingROIBuckets).toHaveLength(1)
+    expect(loaded?.exemplarABuckets).toHaveLength(1)
+    expect(loaded?.rewriteRateABuckets).toHaveLength(1)
   })
 })

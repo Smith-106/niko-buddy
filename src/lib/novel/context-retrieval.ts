@@ -35,7 +35,15 @@ import { RETRIEVAL_BUDGET_PATHS, getRetrievalBudgetLedger } from "./retrieval-bu
 import { rerankCandidates } from "@/lib/rerank"
 import { selectRelevantNovelVectorResults } from "./vector-relevance"
 import { reorderByEntityBoost } from "./entity-boost"
+import { logDegradation } from "./context-engine-gaps"
+import type { ContextBuildSession, ContextGapReason } from "./context-data-source"
 import type { BuildContextOptions, ContextEntity, ContextGap, ContextPack } from "./context-engine"
+
+/** R2-W06：检索函数可选参数，在 BuildContextOptions 基础上透传 per-build gap 记录器与会话。 */
+export interface ContextRetrievalOptions extends BuildContextOptions {
+  recordGap?: (ref: string, reason?: ContextGapReason) => void
+  buildSession?: ContextBuildSession
+}
 
 /**
  * Build-scoped gap recorder。默认关闭（active=false）——与 engine 内
@@ -133,12 +141,24 @@ export function computeIrrelevantRatio(
  */
 export const searchRelevantContent = searchRelevantContentUnified
 
+function recordRetrievalGap(
+  options: Pick<ContextRetrievalOptions, "recordGap" | "buildSession"> | undefined,
+  ref: string,
+  reason: ContextGapReason = "datasource_error",
+): void {
+  if (options?.recordGap) {
+    options.recordGap(ref, reason)
+  } else if (options?.buildSession) {
+    options.buildSession.recordGap(ref, reason)
+  }
+}
+
 export async function searchRelevantContentUnified(
   pp: string,
   task: string,
   chapterNumber: number | undefined,
   limit: number,
-  options: BuildContextOptions = {},
+  options: ContextRetrievalOptions = {},
 ): Promise<string> {
   const tokens = tokenizeQuery(task)
   const entityHints = tokens.filter((t) => t.length >= 2).slice(0, 5)
@@ -167,12 +187,26 @@ export async function searchRelevantContentUnified(
         // E-02 (C-3): 写作路径经 dual-track 编排 — canon 不参与 RRF 排名。
         // 本层不传 povCharacter → 通道 A 空（通道 A 由 buildContextPackUnlocked
         // 第四源承载，避免二次 load）；只消费通道 B（includeCanon:false）。
+        // K-4：补齐与非双轨分支对等的检索选项透传（含 embCfg）。
         const dual = await retrieveDualTrack({
           projectPath: pp,
           query,
+          task,
           chapterNumber,
           topK: Math.max(limit * 2, 6),
-        }).catch(() => null)
+          authoritativeOnly: true,
+          includeKeyword: true,
+          includeVector: true,
+          includeGraph: true,
+          includeRecentChapters: true,
+          embCfg: options.embeddingConfig,
+          recipe,
+          anchors,
+        }).catch((err: unknown) => {
+          logDegradation("dual-track semantic retrieval failed, degrading to empty", err, { retrievalFailed: true })
+          recordRetrievalGap(options, "searchResults:semantic", "datasource_error")
+          return null
+        })
         return dual ? dual.ranked : []
       }
       return novelMixedSearch({
@@ -187,16 +221,30 @@ export async function searchRelevantContentUnified(
         includeGraph: true,
         includeRecentChapters: true,
         includeCanon: true,
+        embCfg: options.embeddingConfig,
         recipe,
         anchors,
-      }).catch(() => [])
+      }).catch((err: unknown) => {
+        logDegradation("mixed semantic retrieval failed, degrading to empty", err, { retrievalFailed: true })
+        recordRetrievalGap(options, "searchResults:semantic", "datasource_error")
+        return []
+      })
     })(),
     searchWiki(pp, `关键词索引 向量索引 ${task}`, {
       rerank: true,
       topK: Math.max(limit, 4),
       rerankPurpose: "用于补充剧情上下文中的索引和记忆条目。",
-    }).catch(() => []),
-    runVectorSearchForContext(pp, query, limit, options).catch(() => []), /* v8 ignore start */ /* v8 ignore stop */
+      includeVector: false,
+    }).catch((err: unknown) => {
+      logDegradation("keyword index retrieval failed, degrading to empty", err, { retrievalFailed: true })
+      recordRetrievalGap(options, "searchResults:keyword", "datasource_error")
+      return []
+    }),
+    runVectorSearchForContext(pp, query, limit, options).catch((err: unknown) => {
+      logDegradation("vector retrieval failed, degrading to empty", err, { retrievalFailed: true })
+      recordRetrievalGap(options, "searchResults:vector", "datasource_error")
+      return []
+    }),
   ])
 
   const candidates = [
@@ -247,20 +295,20 @@ export async function searchRelevantContentUnified(
 
   const rerankStartedAt = Date.now()
   const budgetLedger = getRetrievalBudgetLedger()
-  // R0-d：回退策略为“保留原候选”（每次调用传 ctx，共享账本不持调用级数据）。
+  // R0-d：回退策略为“保留去重后候选”（每次调用传 ctx，共享账本不持调用级数据）。
   budgetLedger.ensureRollback(
     RETRIEVAL_BUDGET_PATHS.contextRerank,
-    (ctx: typeof candidates) => ctx,
+    (ctx: typeof dedupedCandidates) => ctx,
   )
   const reranked = await rerankCandidates(query, dedupedCandidates, {
     topK: Math.max(limit * 2, limit),
     purpose: "用于构建小说写作上下文，优先保留最能支撑当前章节任务的记忆、设定、伏笔和正史约束。",
   }).catch(() => {
-    // R0-d：LLM rerank 失败/超时→回退原始候选（字节级语义不变）；账本记账实测耗时。
+    // R0-d：LLM rerank 失败/超时→回退已去重候选（与 rerank 输入同口径，避免重复路径回灌）；账本记账实测耗时。
     budgetLedger.check(RETRIEVAL_BUDGET_PATHS.contextRerank, Date.now() - rerankStartedAt)
-    return budgetLedger.rollback<typeof candidates, typeof candidates>(
+    return budgetLedger.rollback<typeof dedupedCandidates, typeof dedupedCandidates>(
       RETRIEVAL_BUDGET_PATHS.contextRerank,
-      candidates,
+      dedupedCandidates,
     )
   })
 
@@ -321,7 +369,7 @@ export async function runVectorSearchForContext(
   pp: string,
   query: string,
   limit: number,
-  options: BuildContextOptions = {},
+  options: ContextRetrievalOptions = {},
 ): Promise<{ title: string; snippet: string; path: string }[]> {
   const hits = await runVectorSearchShared({
     pp,
@@ -335,14 +383,18 @@ export async function runVectorSearchForContext(
       // （type=truncated / reason=tier_compressible），不静默降级。
       // (backport from Mochocyang/QMAI v3.0.1 xiangliangzaoyinzhili)
       const gatedVectorResults = selectRelevantNovelVectorResults(results, n)
-      if (gapsActive && gapSink && results.length - gatedVectorResults.length > 0) {
-        gapSink.push({
-          type: "truncated",
-          ref: "vector-context",
-          reason: "tier_compressible",
-          originalLength: results.length,
-          retainedLength: gatedVectorResults.length,
-        })
+      if (results.length - gatedVectorResults.length > 0) {
+        if (options.buildSession) {
+          options.buildSession.recordTruncated("vector-context", "compressible", results.length, gatedVectorResults.length)
+        } else if (gapsActive && gapSink) {
+          gapSink.push({
+            type: "truncated",
+            ref: "vector-context",
+            reason: "tier_compressible",
+            originalLength: results.length,
+            retainedLength: gatedVectorResults.length,
+          })
+        }
       }
       return gatedVectorResults
     },
@@ -355,6 +407,7 @@ export async function searchGraphRelevantContent(
   pp: string,
   task: string,
   _chapterNumber: number | undefined,
+  options?: Pick<ContextRetrievalOptions, "recordGap" | "buildSession">,
 ): Promise<string> {
   try {
     const { buildRetrievalGraph, getRelatedNodes } = await import("@/lib/graph-relevance")
@@ -441,13 +494,15 @@ export async function searchGraphRelevantContent(
     try {
       const { searchCommunitySummaries } = await import("./community-summary")
       communityResults = await searchCommunitySummaries(pp, task, 3)
-    } catch {
-      // 社区摘要检索失败不影响主流程
+    } catch (err) {
+      logDegradation("community summary vector search failed, skipping", err, { retrievalFailed: true })
+      recordRetrievalGap(options, "graphSearchResults:community", "datasource_error")
     }
 
     return [nodeResults, communityResults].filter(Boolean).join("\n")
-  } catch {
-    logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 2474 })
+  } catch (err) {
+    logDegradation("graph retrieval failed, degrading to empty", err, { retrievalFailed: true })
+    recordRetrievalGap(options, "graphSearchResults", "datasource_error")
     return ""
   }
 }

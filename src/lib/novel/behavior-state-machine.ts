@@ -114,18 +114,21 @@ const CHARACTER_BEHAVIOR_PROFILES: Record<string, CharacterBehaviorProfile> = {
 /**
  * 跨章节分析角色行为模式。
  * @param chapterPaths - 章节文件路径数组，每项 { num, path }
+ * @param characterNames - 可选角色名单，缺省使用内置行为画像的角色名列表
  * @returns 行为状态报告
  */
 export function analyzeBehaviorStateMachine(
-  chapterPaths: { num: number; path: string }[]
+  chapterPaths: { num: number; path: string }[],
+  characterNames?: readonly string[],
 ): BehaviorStateReport {
   const allActions: BehaviorRecord[] = []
+  const names = characterNames ?? Object.keys(CHARACTER_BEHAVIOR_PROFILES)
 
   // 逐章分析
   for (const ch of chapterPaths) {
     try {
       const content = readFileSync(ch.path, "utf-8")
-      const hits = detectCharacterActions(content)
+      const hits = detectCharacterActions(content, names)
 
       for (const hit of hits) {
         for (const [char, count] of Object.entries(hit.perCharacter)) {

@@ -942,35 +942,98 @@ export const GENRE_UPGRADE_THRESHOLDS: Record<string, number> = {
 export const DEFAULT_UPGRADE_THRESHOLD = 3
 
 /**
+ * R2-W03：题材统一别名表（英文码 / 中文流派名 / 拼音键 → audit-taxonomy 规范键）。
+ * 解决 `NovelConfig.genre`（英文码，如 `mystery`）、`resolveDeAiGenre`（中文，如 `悬疑`）
+ * 与 `GENRE_AUDIT_ACTIVATION`/`GENRE_UPGRADE_THRESHOLDS`/`GENRE_REPAIR_SCOPE`（拼音，如 `tuili`）
+ * 三套口径失配导致的规则死代码问题。
+ */
+const AUDIT_GENRE_ALIASES: Readonly<Record<string, string>> = {
+  // 推理 / 悬疑
+  tuili: "tuili",
+  mystery: "tuili",
+  suspense: "tuili",
+  detective: "tuili",
+  thriller: "tuili",
+  "推理": "tuili",
+  "悬疑": "tuili",
+  "悬疑推理": "tuili",
+  "侦探": "tuili",
+  "刑侦": "tuili",
+  // 灵异 / 恐怖
+  lingyi: "lingyi",
+  horror: "lingyi",
+  supernatural: "lingyi",
+  "灵异": "lingyi",
+  "悬疑灵异": "lingyi",
+  "恐怖": "lingyi",
+  "惊悚": "lingyi",
+  // 短篇
+  duanpian: "duanpian",
+  duanpian_nv: "duanpian",
+  short: "duanpian",
+  short_story: "duanpian",
+  "短篇": "duanpian",
+  "短篇小说": "duanpian",
+  "短篇精品": "duanpian",
+  // 体育 / 竞技
+  tiyu: "tiyu",
+  tiyujingji: "tiyu",
+  sports: "tiyu",
+  "体育": "tiyu",
+  "体育竞技": "tiyu",
+  // 其他 / 通用
+  qita: "qita",
+  general: "qita",
+  other: "qita",
+  "其他": "qita",
+  "通用": "qita",
+}
+
+/**
+ * 统一归一化题材标识（支持英文码、中文名、拼音键；大小写与首尾空白无关）。
+ * 空串或 undefined 返回 undefined；未注册题材保留小写原值（下游查表未命中仍走默认全量/阈值/路由）。
+ */
+export function normalizeAuditGenre(genre: string | undefined): string | undefined {
+  if (!genre) return undefined
+  const trimmed = genre.trim()
+  if (!trimmed) return undefined
+  const lowered = trimmed.toLowerCase()
+  return AUDIT_GENRE_ALIASES[lowered] ?? lowered
+}
+
+/**
  * 按题材选择激活的审计维度子集 (纯函数, 零 LLM/IO).
  * 未注册 genre → 返回全量 37 维 (向后兼容, 守基数不变).
  * 已注册 genre → Consistency(15) + Anti-AI(10) 恒全 + Quality 子集.
  */
 export function selectAuditDimensions(genre: string | undefined): AuditDimensionId[] {
- if (!genre) return ALL_AUDIT_DIMENSION_IDS
- const qualitySubset = GENRE_AUDIT_ACTIVATION[genre]
- if (!qualitySubset) return ALL_AUDIT_DIMENSION_IDS
- // P0/P1 恒激活 + P2 子集
- return [
-   ...GATE_MAPPING.consistency.dimensionIds,
-   ...GATE_MAPPING.anti_ai.dimensionIds,
-   ...qualitySubset,
- ]
+  const normalized = normalizeAuditGenre(genre)
+  if (!normalized) return ALL_AUDIT_DIMENSION_IDS
+  const qualitySubset = GENRE_AUDIT_ACTIVATION[normalized]
+  if (!qualitySubset) return ALL_AUDIT_DIMENSION_IDS
+  // P0/P1 恒激活 + P2 子集
+  return [
+    ...GATE_MAPPING.consistency.dimensionIds,
+    ...GATE_MAPPING.anti_ai.dimensionIds,
+    ...qualitySubset,
+  ]
 }
 
 /**
  * 查询题材级升级阈值 (纯函数). 未注册返回 DEFAULT_UPGRADE_THRESHOLD.
  */
 export function getUpgradeThreshold(genre: string | undefined, dimensionId: AuditDimensionId): number {
- if (!genre) return DEFAULT_UPGRADE_THRESHOLD
- return GENRE_UPGRADE_THRESHOLDS[`${genre}:${dimensionId}`] ?? DEFAULT_UPGRADE_THRESHOLD
+  const normalized = normalizeAuditGenre(genre)
+  if (!normalized) return DEFAULT_UPGRADE_THRESHOLD
+  return GENRE_UPGRADE_THRESHOLDS[`${normalized}:${dimensionId}`] ?? DEFAULT_UPGRADE_THRESHOLD
 }
 
 /**
  * 查询题材级 repair_scope (纯函数). 未注册返回 DEFAULT_REPAIR_SCOPE.
  */
 export function getRepairScope(genre: string | undefined, dimensionId: AuditDimensionId): RepairScope {
- const gate = getGateForDimension(dimensionId)
- if (!genre) return DEFAULT_REPAIR_SCOPE[gate]
- return GENRE_REPAIR_SCOPE[genre]?.[gate] ?? DEFAULT_REPAIR_SCOPE[gate]
+  const gate = getGateForDimension(dimensionId)
+  const normalized = normalizeAuditGenre(genre)
+  if (!normalized) return DEFAULT_REPAIR_SCOPE[gate]
+  return GENRE_REPAIR_SCOPE[normalized]?.[gate] ?? DEFAULT_REPAIR_SCOPE[gate]
 }

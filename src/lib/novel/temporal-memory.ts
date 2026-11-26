@@ -256,7 +256,10 @@ export function factsFromCommittedSnapshots(
   ledger: ProjectionStatusLedger | undefined,
   aliasMap?: NameAliasMap,
 ): TemporalFact[] {
-  const sorted = [...snapshots].sort((a, b) => a.chapterNumber - b.chapterNumber)
+  // 仅折叠正文章快照（过滤负数大纲快照与 0，避免出现第 -N 章 / 第 0 章伪时序事实）
+  const sorted = snapshots
+    .filter((s) => Number.isFinite(s.chapterNumber) && s.chapterNumber > 0)
+    .sort((a, b) => a.chapterNumber - b.chapterNumber)
   const facts: TemporalFact[] = []
 
   for (const snapshot of sorted) {

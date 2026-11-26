@@ -202,7 +202,7 @@ export const chapterOutlineDataSource: DataSource<string> = {
   priority: 2,
   async load(context: ContextLoadContext): Promise<string> {
     if (!context.chapterNumber) return ""
-    return await readChapterOutlineContent(context.projectPath, context.chapterNumber)
+    return await readChapterOutlineContent(context.projectPath, context.chapterNumber, context.buildSession)
   },
 }
 
@@ -388,9 +388,7 @@ export const fallbackRecentSummariesDataSource: DataSource<string[]> = {
             const fm = parsed.frontmatter as Record<string, unknown> | null
             const meta = fm ? parseChapterMeta(fm) : null
             if (meta && (!context.chapterNumber || meta.chapterNumber < context.chapterNumber)) {
-              const bodyStart = content.indexOf("---", 4)
-              /* v8 ignore next */
-              const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
+              const body = parsed.body.trim()
               return { chapter: meta.chapterNumber, text: `第${meta.chapterNumber}章 (${meta.status}): ${body.slice(0, 800)}` }
             }
             return null
@@ -442,8 +440,7 @@ export const fallbackPreviousEndingDataSource: DataSource<string> = {
     const content = contents.get(chapterNumber)
     let ending = ""
     if (content !== undefined) {
-      const bodyStart = content.indexOf("---", 4)
-      const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
+      const body = stripFrontmatterBody(content)
       const lines = body.split("\n")
       ending = lines.slice(-30).join("\n").slice(-DRAFT_ENDING_TAIL_CHARS)
     }
@@ -626,12 +623,24 @@ export const searchResultsDataSource: DataSource<string> = {
   name: "searchResults",
   priority: 13,
   async load(context: ContextLoadContext): Promise<string> {
-    return await searchRelevantContentUnified(
-      context.projectPath,
-      context.task,
-      context.chapterNumber,
-      context.config.searchTopK
-    )
+    try {
+      return await searchRelevantContentUnified(
+        context.projectPath,
+        context.task,
+        context.chapterNumber,
+        context.config.searchTopK,
+        {
+          novelConfig: context.novelConfig,
+          embeddingConfig: context.embeddingConfig,
+          rerankConfig: context.rerankConfig,
+          recordGap: context.recordGap,
+          buildSession: context.buildSession,
+        },
+      )
+    } catch {
+      context.recordGap?.("searchResults", "datasource_error")
+      return ""
+    }
   },
 }
 
@@ -642,11 +651,20 @@ export const graphSearchResultsDataSource: DataSource<string> = {
   name: "graphSearchResults",
   priority: 14,
   async load(context: ContextLoadContext): Promise<string> {
-    return await searchGraphRelevantContent(
-      context.projectPath,
-      context.task,
-      context.chapterNumber
-    )
+    try {
+      return await searchGraphRelevantContent(
+        context.projectPath,
+        context.task,
+        context.chapterNumber,
+        {
+          recordGap: context.recordGap,
+          buildSession: context.buildSession,
+        },
+      )
+    } catch {
+      context.recordGap?.("graphSearchResults", "datasource_error")
+      return ""
+    }
   },
 }
 

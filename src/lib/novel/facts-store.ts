@@ -84,10 +84,21 @@ export function emptyFactsFile(): FactsFileShape {
  * 读取 facts 表 (文件真源)。路径不存在时返回空表 (可重建语义)。
  * 任何解析错误都抛错 — 表损坏不应静默吞掉 (宁可 fail loud)。
  */
-export function loadFactsFile(raw: string): FactsFileShape {
+export function loadFactsFile(raw: string, options: { strict?: boolean } = {}): FactsFileShape {
   const parsed = JSON.parse(raw) as Partial<FactsFileShape>
   if (parsed.schema_version !== "facts/1.0") {
     throw new Error(`facts.json schema_version mismatch: ${parsed.schema_version}`)
+  }
+  if (options.strict) {
+    // strict 读：损坏表绝不以宽松空字段覆写回盘——拒绝以保留原字节。
+    if (!Array.isArray(parsed.facts)
+      || !Array.isArray(parsed.episodes)
+      || !Number.isSafeInteger(parsed.next_id)
+      || (parsed.next_id ?? 0) < 1
+      || parsed.facts.some(f => !f || typeof f.id !== "string" || !f.id)
+      || parsed.episodes.some(e => !e || !Array.isArray(e.fact_ids) || !Number.isSafeInteger(e.chapter))) {
+      throw new Error("Invalid facts.json store; refusing to overwrite.")
+    }
   }
   const facts: FactRecord[] = Array.isArray(parsed.facts) ? parsed.facts : []
   const episodes: EpisodeRecord[] = Array.isArray(parsed.episodes) ? parsed.episodes : []
@@ -118,7 +129,8 @@ export function getFactsAt(
 ): FactRecord[] {
   const canonical = subject !== undefined ? resolve(subject, aliasMap) : undefined
   return state.facts.filter((f) => {
-    if (f.expired_at !== undefined && f.expired_at <= chapter) return false
+    // 统一全局软删语义：一旦标记 expired_at，对所有章节均不可见。
+    if (f.expired_at !== undefined) return false
     if (f.valid_at > chapter) return false
     if (f.invalid_at !== undefined && f.invalid_at <= chapter) return false
     if (canonical !== undefined && resolve(f.subject, aliasMap) !== canonical) return false
@@ -131,9 +143,9 @@ function resolve(name: string, aliasMap?: Record<string, string>): string {
   return aliasMap[name] ?? name
 }
 
-/** 查询某事实当前是否有效 (在任何 chapter 都无效则整体过期)。 */
+/** 查询某事实当前是否有效 (expired_at 一旦设置即全局软删不可见)。 */
 export function isFactActive(fact: FactRecord, chapter: number): boolean {
-  if (fact.expired_at !== undefined && fact.expired_at <= chapter) return false
+  if (fact.expired_at !== undefined) return false
   if (fact.valid_at > chapter) return false
   if (fact.invalid_at !== undefined && fact.invalid_at <= chapter) return false
   return true
@@ -227,6 +239,77 @@ export function recordEpisode(
   return { ...state, episodes: [...rest, episode] }
 }
 
+/**
+ * 删除指定章节引入的事实与溯源记录（供 deleteChapterSnapshots 联动清理）。
+ * - 产生于该章（reference_time === chapter 或 valid_at === chapter）或仅由该章提及的事实被移除；
+ * - 其余跨章事实保留，但从其 episodes 溯源列表中移除该章号；
+ * - 若被删事实曾取代旧事实并在该章闭合其 invalid_at，则撤销该章闭合；
+ * - next_id 单调递增不回退，避免历史 id 复用；无变更时返回原 state 引用。
+ */
+export function removeChapterFacts(
+  state: FactsFileShape,
+  chapter: number,
+): FactsFileShape {
+  const removedIds = new Set<string>()
+  const supersededByRemoved = new Set<string>()
+  const remainingFacts: FactRecord[] = []
+  let factsChanged = false
+
+  for (const fact of state.facts) {
+    const remainingEpisodes = fact.episodes.filter((c) => c !== chapter)
+    const originatedInChapter = fact.reference_time === chapter || fact.valid_at === chapter
+    const onlyInChapter = fact.episodes.length > 0 && remainingEpisodes.length === 0
+    if (originatedInChapter || onlyInChapter) {
+      removedIds.add(fact.id)
+      factsChanged = true
+      for (const oldId of fact.supersedes ?? []) {
+        supersededByRemoved.add(oldId)
+      }
+      continue
+    }
+    if (remainingEpisodes.length !== fact.episodes.length) {
+      factsChanged = true
+      remainingFacts.push({ ...fact, episodes: remainingEpisodes })
+    } else {
+      remainingFacts.push(fact)
+    }
+  }
+
+  const restoredFacts =
+    supersededByRemoved.size > 0
+      ? remainingFacts.map((fact) => {
+          if (supersededByRemoved.has(fact.id) && fact.invalid_at === chapter) {
+            factsChanged = true
+            return { ...fact, invalid_at: undefined }
+          }
+          return fact
+        })
+      : remainingFacts
+
+  let episodesChanged = false
+  const remainingEpisodes: EpisodeRecord[] = []
+  for (const ep of state.episodes) {
+    if (ep.chapter === chapter) {
+      episodesChanged = true
+      continue
+    }
+    const nextFactIds = ep.fact_ids.filter((id) => !removedIds.has(id))
+    if (nextFactIds.length !== ep.fact_ids.length) {
+      episodesChanged = true
+      remainingEpisodes.push({ ...ep, fact_ids: nextFactIds })
+    } else {
+      remainingEpisodes.push(ep)
+    }
+  }
+
+  if (!factsChanged && !episodesChanged) return state
+  return {
+    ...state,
+    facts: restoredFacts,
+    episodes: remainingEpisodes,
+  }
+}
+
 // ============================================================================
 // 派生: temporal-memory 兼容投影
 // ============================================================================
@@ -234,6 +317,7 @@ export function recordEpisode(
 /**
  * 把 facts 表投影为 temporal-memory 的 TemporalFact 数组。
  * 字段映射: valid_at→validFrom / invalid_at→validUntil / reference_time→source。
+ * 已软删除（expired_at !== undefined）的事实不进入投影视图。
  * 调用方把结果传给 temporal-memory.getFactsAt/queryFactsAt 即得一致语义 —
  * facts 表为唯一持久化源, temporal-memory 保持 VIEW 角色。
  */
@@ -250,15 +334,17 @@ export function projectToTemporalFacts(
   source: string
   confidence?: number
 }> {
-  return state.facts.map((f) => ({
-    id: f.id,
-    subject: f.subject,
-    predicate: f.predicate,
-    object: f.object,
-    validFrom: f.valid_at,
-    validUntil: f.invalid_at,
-    supersedes: f.supersedes,
-    source: `facts:${f.reference_time}${f.episodes.length > 1 ? `+${f.episodes.length - 1}ep` : ""}`,
-    confidence: f.confidence,
-  }))
+  return state.facts
+    .filter((f) => f.expired_at === undefined)
+    .map((f) => ({
+      id: f.id,
+      subject: f.subject,
+      predicate: f.predicate,
+      object: f.object,
+      validFrom: f.valid_at,
+      validUntil: f.invalid_at,
+      supersedes: f.supersedes,
+      source: `facts:${f.reference_time}${f.episodes.length > 1 ? `+${f.episodes.length - 1}ep` : ""}`,
+      confidence: f.confidence,
+    }))
 }

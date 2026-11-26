@@ -228,11 +228,13 @@ describe("cognition 章前隔离与 alias", () => {
     installHistory([
       valid,
       { ...snapshot(2, ["林砚知道outline泄露"]), sourceType: "outline" },
-      { ...snapshot(3, ["林砚知道historical泄露"]), isHistorical: true },
       snapshot(5, ["林砚知道target泄露"]),
       snapshot(6, ["林砚知道future泄露"]),
       first,
     ])
+    // 历史归档属于 history/ 目录（strict listSnapshots 只扫当前 dir）——写入当前 dir
+    // 的历史快照是损坏而非泄露源，strict reader 会拒绝。
+    mocks.files.set(`${PROJECT}/.novel/snapshots/history/003/extraction.snapshot.json`, JSON.stringify({ ...snapshot(3, ["林砚知道historical泄露"]), isHistorical: true }))
     // 同章额外目录项仍由现有 loader 读取当前文件并去重。
     mocks.files.set(`${PROJECT}/.novel/snapshots/001-copy.snapshot.json`, JSON.stringify(first))
     putLive(liveState())

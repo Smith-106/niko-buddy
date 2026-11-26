@@ -10,15 +10,18 @@ const mocks = vi.hoisted(() => ({
   fileExists: vi.fn(),
   writeFile: vi.fn(),
   writeFileAtomic: vi.fn(),
+  writeFilesAtomic: vi.fn(),
   readFile: vi.fn(),
   listDirectory: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
+vi.mock("@/commands/fs", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/commands/fs")>(),
   createDirectory: mocks.createDirectory,
   fileExists: mocks.fileExists,
   writeFile: mocks.writeFile,
   writeFileAtomic: mocks.writeFileAtomic,
+  writeFilesAtomic: mocks.writeFilesAtomic,
   readFile: mocks.readFile,
   listDirectory: mocks.listDirectory,
 }))
@@ -107,8 +110,10 @@ describe("outline-chapter-unpack (大纲自动解构分发器)", () => {
     expect(result.createdFiles).toHaveLength(1)
     expect(result.createdFiles[0]).toContain("chapter-002.md")
 
-    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
-    const writtenContent = mocks.writeFileAtomic.mock.calls[0][1] as string
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.writeFilesAtomic).toHaveBeenCalledTimes(1)
+    const writtenContent = result.createdSkeletons?.get(result.createdFiles[0])
+    expect(mocks.writeFilesAtomic).toHaveBeenCalledWith([[result.createdFiles[0], writtenContent]], [null])
     expect(writtenContent).toContain("chapter_status: planned")
     expect(writtenContent).toContain("chapter_number: 2")
     expect(writtenContent).toContain("# 第2章 云涌")

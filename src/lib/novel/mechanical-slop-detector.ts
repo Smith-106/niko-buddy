@@ -111,20 +111,14 @@ export function slopReportToText(report: SlopReport): string {
 // P0: Structural Pattern Detector (角色-动作绑定 + 重复模式统计)
 // ============================================================================
 
-/** 角色名单 (用于角色-动作关联分析) */
-const CHARACTER_NAMES = [
-  "白砚", "王迦", "陈烬", "李昭然", "苏未晞", "陆织锦", "周棠", "白鹭",
-  "01 号", "02 号", "03 号", "04 号", "05 号", "06 号", "07 号", "08 号",
-] as const
-
-/** 角色行为模式定义 */
+/** 角色行为模式定义（通用模式，不含任何特定书目硬编码角色名） */
 const CHARACTER_ACTION_PATTERNS = [
   { action: "推眼镜", regex: /推了推眼镜|推眼镜|扶了扶镜架|扶镜架/g, type: "mannerism" as const, suggest: "建议 ≤3 次/角色，用其他微动作替代" },
   { action: "嘴角上扬", regex: /嘴角上扬|嘴角带着一丝微笑|嘴角微微上扬/g, type: "expression" as const, suggest: "建议 ≤2 次/角色，用其他表情替代" },
-  { action: "转动戒指", regex: /戒指[在指间缓缓转]*转动|戒指在指间/g, type: "mannerism" as const, suggest: "白砚标志性动作，全章 ≤3 次" },
-  { action: "抠指甲", regex: /抠指甲/g, type: "mannerism" as const, suggest: "苏未晞标志性动作，全章 ≤3 次" },
+  { action: "转动戒指", regex: /戒指[在指间缓缓转]*转动|戒指在指间/g, type: "mannerism" as const, suggest: "标志性微动作，建议全章 ≤3 次" },
+  { action: "抠指甲", regex: /抠指甲/g, type: "mannerism" as const, suggest: "标志性微动作，建议全章 ≤3 次" },
   { action: "低下头", regex: /低下头|低头/g, type: "reaction" as const, suggest: "建议 ≤3 次，用其他反应替代" },
-  { action: "后退", regex: /后退了一步|后退/g, type: "reaction" as const, suggest: "王迦后退仅保留 1 次最有冲击力的" },
+  { action: "后退", regex: /后退了一步|后退/g, type: "reaction" as const, suggest: "建议 ≤3 次，保留最有冲击力的反应" },
   { action: "波形图", regex: /波形图/g, type: "imagery" as const, suggest: "建议全章 ≤4 次" },
   { action: "安静了", regex: /安静了/g, type: "mood" as const, suggest: "建议全章 ≤5 次" },
   { action: "沉默了", regex: /沉默了|沉默/g, type: "mood" as const, suggest: "建议全章 ≤3 次" },
@@ -144,13 +138,23 @@ export interface CharacterActionHit {
 }
 
 /**
- * 检测角色-动作关联：在文本中找到动作，并判断由哪个角色执行。
- * 零 LLM，纯正则 + 上下文窗口匹配。
+ * 检测角色-动作关联：在文本中找到动作，并按调用方传入的当前书目角色名单归因到最近角色。
+ * 零 LLM，纯正则 + 上下文窗口匹配；未传 `characterNames` 或窗口内无匹配时归因至 `"未知"`。
  */
-export function detectCharacterActions(rawText: string): CharacterActionHit[] {
+export function detectCharacterActions(
+  rawText: string,
+  characterNames?: readonly string[],
+): CharacterActionHit[] {
   // A4 检测视图统一归一: 走 normalizeSourceText (NFKC + 零宽 + soft-hyphen + 同形字还原),
   // 与模块内 slopScore 同一归一口径; 返回的归一副本仅用于匹配, 不回写正文存储。
   const { text } = normalizeSourceText(rawText)
+  const normalizedNames = [
+    ...new Set(
+      (characterNames ?? [])
+        .map((name) => normalizeSourceText(name).text.trim())
+        .filter((name) => name.length > 0),
+    ),
+  ]
   const results: CharacterActionHit[] = []
 
   for (const pattern of CHARACTER_ACTION_PATTERNS) {
@@ -164,17 +168,21 @@ export function detectCharacterActions(rawText: string): CharacterActionHit[] {
       const contextStart = Math.max(0, actionPos - 80)
       const contextEnd = Math.min(text.length, actionPos + 80)
       const context = text.slice(contextStart, contextEnd)
+      const actionOffset = actionPos - contextStart
 
       let nearestChar = "未知"
       let nearestDist = Infinity
-      for (const char of CHARACTER_NAMES) {
-        const charIdx = context.indexOf(char)
-        if (charIdx !== -1) {
-          const dist = Math.abs(charIdx - 80)
+      for (const char of normalizedNames) {
+        let searchFrom = 0
+        while (searchFrom <= context.length) {
+          const charIdx = context.indexOf(char, searchFrom)
+          if (charIdx === -1) break
+          const dist = Math.abs(charIdx - actionOffset)
           if (dist < nearestDist) {
             nearestDist = dist
             nearestChar = char
           }
+          searchFrom = charIdx + char.length
         }
       }
 

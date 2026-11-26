@@ -72,9 +72,6 @@ export interface LiteraryCraftInput {
   readonly totalChapters?: number
 }
 
-// 输入引用（由 createLiteraryCraftPack 注入）
-let input: LiteraryCraftInput = {}
-
 // ============================================================================
 // 14 条规则内部实现
 // ============================================================================
@@ -725,109 +722,104 @@ function checkEightFundamentals(data: LiteraryCraftInput): readonly RawRuleFindi
 // ============================================================================
 
 /**
- * 14 条文学提升规则注册表（按 ruleId 字典序，与 combinePacks 全序一致）。
- */
-const RULES: readonly RuleDefinition[] = Object.freeze([
-  Object.freeze({
-    id: "craft.arc-progression",
-    gate: "quality" as const,
-    dimensionId: "emotional_impact" as AuditDimensionId,
-    run: () => checkArcProgression(input),
-  }),
-  Object.freeze({
-    id: "craft.bridge-caliber",
-    gate: "quality" as const,
-    dimensionId: "pacing_tension" as AuditDimensionId,
-    run: () => checkBridgeCaliber(input),
-  }),
-  Object.freeze({
-    id: "craft.chapter-end-hook",
-    gate: "quality" as const,
-    dimensionId: "reading_power" as AuditDimensionId,
-    run: () => checkChapterEndHook(input),
-  }),
-  Object.freeze({
-    id: "craft.delay-ratio",
-    gate: "quality" as const,
-    dimensionId: "pacing_tension" as AuditDimensionId,
-    run: () => checkDelayRatio(input),
-  }),
-  Object.freeze({
-    id: "craft.domino-closure-dangling-hooks",
-    gate: "quality" as const,
-    dimensionId: "scene_craft" as AuditDimensionId,
-    run: () => checkDominoClosureDanglingHooks(input),
-  }),
-  Object.freeze({
-    id: "craft.eight-fundamentals",
-    gate: "quality" as const,
-    dimensionId: "structural_balance" as AuditDimensionId,
-    run: () => checkEightFundamentals(input),
-  }),
-  Object.freeze({
-    id: "craft.ending-three-precepts",
-    gate: "quality" as const,
-    dimensionId: "structural_balance" as AuditDimensionId,
-    run: () => checkEndingThreePrecepts(input),
-  }),
-  Object.freeze({
-    id: "craft.ghost-unrevealed",
-    gate: "quality" as const,
-    dimensionId: "emotional_impact" as AuditDimensionId,
-    run: () => checkGhostUnrevealed(input),
-  }),
-  Object.freeze({
-    id: "craft.opening-hook",
-    gate: "quality" as const,
-    dimensionId: "reading_power" as AuditDimensionId,
-    run: () => checkOpeningHook(input),
-  }),
-  Object.freeze({
-    id: "craft.opening-red-line-five-categories",
-    gate: "quality" as const,
-    dimensionId: "structural_balance" as AuditDimensionId,
-    run: () => checkOpeningRedLineFiveCategories(input),
-  }),
-  Object.freeze({
-    id: "craft.significant-detail",
-    gate: "quality" as const,
-    dimensionId: "description_vividness" as AuditDimensionId,
-    run: () => checkSignificantDetail(input),
-  }),
-  Object.freeze({
-    id: "craft.thrill-density",
-    gate: "quality" as const,
-    dimensionId: "thrill_density" as AuditDimensionId,
-    run: () => checkThrillDensity(input),
-  }),
-  Object.freeze({
-    id: "craft.thrill-spacing",
-    gate: "quality" as const,
-    dimensionId: "thrill_density" as AuditDimensionId,
-    run: () => checkThrillSpacing(input),
-  }),
-  Object.freeze({
-    id: "craft.tension-relax-alternation",
-    gate: "quality" as const,
-    dimensionId: "tension_curve" as AuditDimensionId,
-    run: () => checkTensionRelaxAlternation(input),
-  }),
-])
-
-/**
  * 文学提升规则包定义（14 条 quality 门规则，warning 态，终局升格由外部处理）。
  *
- * 注意：本包是**有状态工厂**——调用 `createLiteraryCraftPack(data)` 会设置
- * 内部输入引用，返回的包不可变。多次调用创建独立实例。
+ * 无状态工厂：每次调用通过独立局部闭包捕获输入快照，并发创建多份规则包零状态踩踏。
+ * 按 ruleId 字典序排列，与 combinePacks 全序一致。
  * 使用方式：`combinePacks([createLiteraryCraftPack(data)])`。
  */
 export function createLiteraryCraftPack(data: LiteraryCraftInput): RulePackDefinition {
-  // 设置内部输入引用
-  input = { ...data }
+  const snapshot: LiteraryCraftInput = { ...data }
+  const rules: readonly RuleDefinition[] = Object.freeze([
+    Object.freeze({
+      id: "craft.arc-progression",
+      gate: "quality" as const,
+      dimensionId: "emotional_impact" as AuditDimensionId,
+      run: () => checkArcProgression(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.bridge-caliber",
+      gate: "quality" as const,
+      dimensionId: "pacing_tension" as AuditDimensionId,
+      run: () => checkBridgeCaliber(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.chapter-end-hook",
+      gate: "quality" as const,
+      dimensionId: "reading_power" as AuditDimensionId,
+      run: () => checkChapterEndHook(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.delay-ratio",
+      gate: "quality" as const,
+      dimensionId: "pacing_tension" as AuditDimensionId,
+      run: () => checkDelayRatio(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.domino-closure-dangling-hooks",
+      gate: "quality" as const,
+      dimensionId: "scene_craft" as AuditDimensionId,
+      run: () => checkDominoClosureDanglingHooks(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.eight-fundamentals",
+      gate: "quality" as const,
+      dimensionId: "structural_balance" as AuditDimensionId,
+      run: () => checkEightFundamentals(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.ending-three-precepts",
+      gate: "quality" as const,
+      dimensionId: "structural_balance" as AuditDimensionId,
+      run: () => checkEndingThreePrecepts(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.ghost-unrevealed",
+      gate: "quality" as const,
+      dimensionId: "emotional_impact" as AuditDimensionId,
+      run: () => checkGhostUnrevealed(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.opening-hook",
+      gate: "quality" as const,
+      dimensionId: "reading_power" as AuditDimensionId,
+      run: () => checkOpeningHook(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.opening-red-line-five-categories",
+      gate: "quality" as const,
+      dimensionId: "structural_balance" as AuditDimensionId,
+      run: () => checkOpeningRedLineFiveCategories(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.significant-detail",
+      gate: "quality" as const,
+      dimensionId: "description_vividness" as AuditDimensionId,
+      run: () => checkSignificantDetail(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.thrill-density",
+      gate: "quality" as const,
+      dimensionId: "thrill_density" as AuditDimensionId,
+      run: () => checkThrillDensity(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.thrill-spacing",
+      gate: "quality" as const,
+      dimensionId: "thrill_density" as AuditDimensionId,
+      run: () => checkThrillSpacing(snapshot),
+    }),
+    Object.freeze({
+      id: "craft.tension-relax-alternation",
+      gate: "quality" as const,
+      dimensionId: "tension_curve" as AuditDimensionId,
+      run: () => checkTensionRelaxAlternation(snapshot),
+    }),
+  ])
 
   return Object.freeze({
     id: "literary-craft-pack",
-    rules: RULES,
+    rules,
   })
 }
 

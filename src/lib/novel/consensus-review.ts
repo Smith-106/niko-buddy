@@ -1,6 +1,6 @@
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import type { ContextPack } from "@/lib/novel/context-engine"
-import { streamChat, combineAbortSignals, type ChatMessage } from "@/lib/llm-client"
+import { streamChat, combineAbortSignals, isRequestCancelledError, type ChatMessage } from "@/lib/llm-client"
 import {
   buildDimensionReviewPrompt,
   parseDimensionReviewResult,
@@ -8,6 +8,8 @@ import {
   type SixReviewDimensionDefinition,
 } from "./dimension-review-adapter"
 import { aggregateReviewDimension, anonymousId, type ReviewConsensusOutcome } from "./consensus-aggregate"
+import { resolveTaskExtraPrompt } from "./task-customization"
+import { appendTaskExtraSection } from "./deep-chapter-prompts"
 import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -37,12 +39,15 @@ export interface DimensionConsensusOptions {
       : never
     : never
   goldReadinessHint?: string
+  /** R2-W09 / R2-REV-004：透传 Track B skill hook 软提示片段（首轮 + 辩论轮同步）。 */
+  skillHookPromptFragments?: readonly string[]
 }
 
 const DEBATE_SYSTEM_PROMPT =
   "你是专业网文审稿编辑，当前只负责多评审共识辩论中你这一席的重新评分。输出必须使用中文。"
+const CONSENSUS_ABORT_MESSAGE = "已停止生成"
 
-/** 辩论轮附加段：展示其他席位的匿名评分与理由（不含身份信息）。 */
+/** 辩论轮附加段：展示其他席位的匿名评分与理由（不含身份信息），明确沿用上方同一 JSON schema。 */
 function buildDebateSection(ballots: { anonymousId: string; score: number; summary: string }[], selfId: string): string {
   const others = ballots
     .filter((b) => b.anonymousId !== selfId)
@@ -52,7 +57,7 @@ function buildDebateSection(ballots: { anonymousId: string; score: number; summa
 【多模型共识辩论】其他独立评审对本维度的匿名意见：
 ${others.join("\n")}
 
-请参考上述意见重新独立给出本维度的最终 JSON 评分。若你维持原判，请原样重申你的评分与理由；若意见改变，请说明被说服的点。`
+辩论裁决说明：综合参考他席匿名意见后重新独立裁决，保持上文同一 JSON 输出 schema，仅输出最终 JSON 对象（不要输出额外解释、标题或 markdown 代码块）。若你维持原判，请在 summary 中重申你的评分与理由；若意见改变，请说明被说服的关键依据。`
 }
 
 async function debateCall(
@@ -61,11 +66,16 @@ async function debateCall(
   signal: AbortSignal | undefined,
   novelConfig: NovelConfig | undefined,
 ): Promise<string> {
+  if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const messages: ChatMessage[] = [
-    { role: "system", content: DEBATE_SYSTEM_PROMPT },
+    {
+      role: "system",
+      content: appendTaskExtraSection(DEBATE_SYSTEM_PROMPT, resolveTaskExtraPrompt(novelConfig, "review")),
+    },
     { role: "user", content: debatePrompt },
   ]
   let result = ""
+  let streamError: unknown = null
   await streamChat(
     llmConfig,
     messages,
@@ -75,25 +85,43 @@ async function debateCall(
       },
       onDone: () => {},
       onError: (err: unknown) => {
-        // IMT-ODX-01: 辩论流式错误此前静默吞噬（onError 空）——席位降级路径依赖 catch 采样不到流中断，失败不可排查。
+        streamError = err
+        // IMT-ODX-01: 辩论流式错误记录日志并随后主动抛出，避免半截/空流被误解析。
         logger.warn("Consensus Review", `辩论席位流中断（降级沿用上轮票）: ${toErrorMessage(err)}`)
       },
     },
     combineAbortSignals(signal, AbortSignal.timeout(120000)),
     { reasoning: { mode: (novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" } },
   )
+  if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
+  const readStreamError = (): unknown => streamError
+  const caughtStreamError = readStreamError()
+  if (caughtStreamError !== null) {
+    throw caughtStreamError instanceof Error ? caughtStreamError : new Error(toErrorMessage(caughtStreamError))
+  }
   return result.trim()
 }
 
 /**
  * 单维共识：N 路并行独立评审 → debateRounds 轮匿名辩论 → 聚合。
  * 任一独立评审失败（parse/stream）→ 整维抛错（外层 buildFailedDimensionResult 路径处理）；
- * 辩论轮单席位失败 → 该席位沿用上一轮票（降级容错）。
+ * 辩论轮单席位非取消失败 → 该席位沿用上一轮票（降级容错）；取消信号立即中止并上抛。
  * models 长度为 1 时直通（无辩论），与单模型行为等价。
  */
 export async function runDimensionConsensus(options: DimensionConsensusOptions): Promise<ReviewConsensusOutcome> {
-  const { models, dimension, contextPack, chapterContent, debateRounds, signal, novelConfig, goldAnchors, goldReadinessHint } =
-    options
+  const {
+    models,
+    dimension,
+    contextPack,
+    chapterContent,
+    debateRounds,
+    signal,
+    novelConfig,
+    goldAnchors,
+    goldReadinessHint,
+    skillHookPromptFragments,
+  } = options
+  if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const usable = models.filter((m) => hasUsableLlm(m))
   if (usable.length === 0) throw new Error(`${dimension.label}共识模型均不可用`)
 
@@ -109,6 +137,7 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
         novelConfig,
         goldAnchors,
         goldReadinessHint,
+        skillHookPromptFragments,
       }),
     ),
   )
@@ -122,6 +151,7 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
 
   // 辩论轮：互看匿名意见再评（单模型直通不辩论）
   for (let round = 0; round < Math.max(0, debateRounds) && ballots.length > 1; round++) {
+    if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
     const nextBallots = await Promise.all(
       usable.map(async (llmConfig, i) => {
         const seat = anonymousId(i)
@@ -129,6 +159,7 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
           const basePrompt = buildDimensionReviewPrompt(contextPack, chapterContent, dimension, {
             goldAnchors,
             goldReadinessHint,
+            skillHookPromptFragments,
             hardInjectEnabled: novelConfig?.hardInjectEnabled,
           })
           const debatePrompt = basePrompt + buildDebateSection(ballots, seat)
@@ -136,10 +167,13 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
           const parsed = parseDimensionReviewResult(dimension, text, `${dimension.label}辩论轮${round + 1}`)
           return { anonymousId: seat, score: parsed.score, status: parsed.status, summary: parsed.summary, issues: parsed.issues }
         } catch (err) {
+          if (signal?.aborted || (err instanceof Error && isRequestCancelledError(err))) {
+            throw err instanceof Error ? err : new Error(toErrorMessage(err))
+          }
           // 降级容错：该席位沿用上一轮票（IMT-ODX-01: 补日志，失败席位/轮次可观测）
           logger.warn(
             "Consensus Review",
-            `辩论席位 ${anonymousId(i)} 第 ${round + 1} 轮失败，沿用上轮票: ${toErrorMessage(err)}`,
+            `辩论席位 ${seat} 第 ${round + 1} 轮失败，沿用上轮票: ${toErrorMessage(err)}`,
           )
           return ballots[i]!
         }

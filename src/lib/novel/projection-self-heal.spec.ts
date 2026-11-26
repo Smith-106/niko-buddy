@@ -89,6 +89,7 @@ const moduleMocks = vi.hoisted(() => ({
   shouldRebuildCommunitySummaries: vi.fn(),
   generateCommunitySummaries: vi.fn(),
   mergeSnapshotTimeline: vi.fn(),
+  removeChapterTimelineEvents: vi.fn(),
   clearGraphCache: vi.fn(),
   clearTemporalFactsCache: vi.fn(),
   buildEntityLinkIndex: vi.fn(),
@@ -97,6 +98,7 @@ const moduleMocks = vi.hoisted(() => ({
   planAddOpsFromCanonFacts: vi.fn(),
   applyMemoryOps: vi.fn(),
   embedPage: vi.fn(),
+  removePageEmbedding: vi.fn(),
 }))
 
 vi.mock("./graph-adapter", () => ({
@@ -121,6 +123,7 @@ vi.mock("./community-summary", () => ({
 }))
 vi.mock("./timeline", () => ({
   mergeSnapshotTimeline: (...args: unknown[]) => moduleMocks.mergeSnapshotTimeline(...args),
+  removeChapterTimelineEvents: (...args: unknown[]) => moduleMocks.removeChapterTimelineEvents(...args),
 }))
 vi.mock("@/lib/graph-relevance", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/graph-relevance")>()
@@ -152,6 +155,7 @@ vi.mock("@/lib/embedding", async (importOriginal) => {
   return {
     ...actual,
       embedPage: (...args: unknown[]) => moduleMocks.embedPage(...args),
+      removePageEmbedding: (...args: unknown[]) => moduleMocks.removePageEmbedding(...args),
     
   }
 })
@@ -164,10 +168,16 @@ vi.mock("./promotion-bridge", () => ({
 import {
   autoRepairTruthFoldDrift,
   computeTruthFoldDrift,
+  deleteChapterSnapshots,
   ingestChapter,
+  rebuildDerivedMemoryFromSnapshots,
   selfHealFailedProjections,
   type ChapterSnapshot,
 } from "./chapter-ingest"
+import { readCurrentSnapshot } from "./chapter-ingest-history"
+import { invalidateChapterCache } from "./chapter-utils"
+import { listSnapshotEntriesWithMtime, loadAllSnapshots } from "./context-engine-temporal"
+import { emptyFactsFile, saveFactsFile } from "./facts-store"
 import { collectKbMetricsLive, decideDriftAlarmAfterRepair } from "./kb-observability"
 import {
   applyCharacterStateChangesToStore,
@@ -316,6 +326,7 @@ function readLedger(files: Map<string, string>): {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  invalidateChapterCache()
   storeState.novelMode = true
   storeState.embeddingConfig = { enabled: false, model: "" }
   storeState.llmConfig = { provider: "custom", model: "extract-model", customEndpoint: "http://localhost:11434", apiKey: "" } as LlmConfig
@@ -330,6 +341,7 @@ beforeEach(() => {
   moduleMocks.shouldRebuildCommunitySummaries.mockReturnValue(false)
   moduleMocks.generateCommunitySummaries.mockResolvedValue(undefined)
   moduleMocks.mergeSnapshotTimeline.mockResolvedValue(undefined)
+  moduleMocks.removeChapterTimelineEvents.mockResolvedValue(undefined)
   moduleMocks.clearGraphCache.mockReturnValue(undefined)
   moduleMocks.clearTemporalFactsCache.mockReturnValue(undefined)
   moduleMocks.buildEntityLinkIndex.mockReturnValue({})
@@ -338,6 +350,7 @@ beforeEach(() => {
   moduleMocks.planAddOpsFromCanonFacts.mockReturnValue([])
   moduleMocks.applyMemoryOps.mockReturnValue([])
   moduleMocks.embedPage.mockResolvedValue(undefined)
+  moduleMocks.removePageEmbedding.mockResolvedValue(undefined)
   promotionBridgeMock.promotionReplaySuccessRate.mockResolvedValue({ success: 1, total: 1, rate: 1 })
 })
 
@@ -492,6 +505,35 @@ describe("P2-IMP-14 ingest 入口自愈（集成：先 rebuild 再增量）", ()
     // 自愈 rebuild 审计事件在账本中可见。
     expect(ledger.auditTrail.some((e) => e.projection === "cognition" && e.status === "rebuild")).toBe(true)
   })
+
+  it("M2-07 消除双倍 fold：单次 ingestChapter 中 cognition/character/foreshadow 各自仅写盘 1 次，且伏笔推进备注无重复行", async () => {
+    const files = makeFileMap()
+    files.set(`${PROJECT}/wiki/chapters/chapter-001.md`, chapterContent(1))
+    files.set(`${PROJECT}/wiki/chapters/chapter-002.md`, chapterContent(2))
+    installFs(files)
+    const snapJson = {
+      ...llmSnapshotJson(2),
+      foreshadowingChanges: ["推进伏笔：玉佩-微光再现"],
+    }
+    mockLlmJsonResponse(snapJson)
+    fsMocks.writeFileAtomic.mockClear()
+
+    const result = await ingestChapter(PROJECT, `${PROJECT}/wiki/chapters/chapter-002.md`)
+    expect(result.snapshot).not.toBeNull()
+
+    const paths = writtenPaths()
+    expect(paths.filter((p) => p.endsWith(".novel/character-states.json"))).toHaveLength(1)
+    expect(paths.filter((p) => p.endsWith(".novel/cognition-state.json"))).toHaveLength(1)
+    expect(paths.filter((p) => p.endsWith(".novel/foreshadowing-tracker.json"))).toHaveLength(1)
+
+    const foreshadowing = JSON.parse(files.get(`${PROJECT}/.novel/foreshadowing-tracker.json`) ?? "{}") as {
+      items: Array<{ name: string; notes: string; advancedChapters: number[] }>
+    }
+    const jade = foreshadowing.items.find((i) => i.name === "玉佩")
+    expect(jade).toBeDefined()
+    expect(jade!.advancedChapters).toEqual([2])
+    expect(jade!.notes).toBe("[第2章推进] 微光再现")
+  })
 })
 
 describe("P2-IMP-15 autoRepairTruthFoldDrift — drift>0 自动经注册表 rebuild，复测仍>0 才升级", () => {
@@ -609,5 +651,189 @@ describe("P2-IMP-15 kb-observability：自愈告警决策 + promotion_replay_suc
     })
     expect(overridden.promotion_replay_success.value).toBe(0.5)
     expect(overridden.truth_fold_drift.value).toBe(0)
+  })
+})
+
+describe("R2-M02 / R2-M03 / R2-M05 / R2-M09 / R2-M11 集成回归守卫", () => {
+  function installHierarchicalFs(files: Map<string, string>) {
+    installFs(files)
+    fsMocks.deleteFile.mockImplementation(async (p: string) => {
+      files.delete(p)
+    })
+    fsMocks.listDirectory.mockImplementation(async (dir: string) => {
+      const prefix = dir.endsWith("/") ? dir : dir + "/"
+      const directFiles: Array<{ name: string; path: string; is_dir: boolean; children?: unknown[] }> = []
+      const subdirs = new Map<string, Array<{ name: string; path: string; is_dir: boolean }>>()
+      for (const k of files.keys()) {
+        if (!k.startsWith(prefix)) continue
+        const rest = k.slice(prefix.length)
+        const slash = rest.indexOf("/")
+        if (slash === -1) {
+          directFiles.push({ name: rest, path: prefix + rest, is_dir: false })
+        } else {
+          const sub = rest.slice(0, slash)
+          const leaf = rest.slice(slash + 1)
+          if (!leaf.includes("/")) {
+            const arr = subdirs.get(sub) ?? []
+            arr.push({ name: leaf, path: `${prefix}${sub}/${leaf}`, is_dir: false })
+            subdirs.set(sub, arr)
+          }
+        }
+      }
+      for (const [sub, children] of subdirs.entries()) {
+        directFiles.push({ name: sub, path: prefix + sub, is_dir: true, children })
+      }
+      if (directFiles.length === 0) throw new Error(`ENOENT: ${dir}`)
+      return directFiles
+    })
+  }
+
+  it("R2-M03: deleteChapterSnapshots 联动清理 chapter-ingest-output / facts / timeline / ledger / 向量 / 分目录孤儿实体", async () => {
+    const files = makeFileMap()
+    const snap2: ChapterSnapshot = {
+      ...SNAPSHOT1,
+      chapterId: "ch-2",
+      chapterNumber: 2,
+      summary: "第二章继续推进",
+    }
+    files.set(`${PROJECT}/.novel/snapshots/002.snapshot.json`, JSON.stringify(snap2))
+    files.set(`${PROJECT}/.novel/snapshots/001.snapshot.md`, "# ch1")
+    files.set(`${PROJECT}/.novel/snapshots/history/001`, "hist")
+    files.set(`${PROJECT}/.novel/chapter-ingest-output/001.output.json`, "{}")
+    files.set(`${PROJECT}/.novel/chapter-ingest-output/001.wiki-patch.json`, "{}")
+    files.set(`${PROJECT}/.novel/chapter-ingest-output/001.search-index.json`, "{}")
+    files.set(`${PROJECT}/.novel/chapter-ingest-output/001.vector-index.json`, "{}")
+    files.set(
+      `${PROJECT}/wiki/chapters/chapter-001-dawn.md`,
+      "---\ntype: chapter\nchapter_number: 1\nchapter_status: final\n---\n\n正文",
+    )
+    const facts = emptyFactsFile()
+    facts.facts.push(
+      { id: "f1", subject: "甲", predicate: "在", object: "都城", valid_at: 1, reference_time: 1, source: "chapter-1", episodes: [1] },
+      { id: "f2", subject: "乙", predicate: "在", object: "山寨", valid_at: 2, reference_time: 2, source: "chapter-2", episodes: [2] },
+    )
+    facts.episodes.push({ chapter: 1, fact_ids: ["f1"] }, { chapter: 2, fact_ids: ["f2"] })
+    facts.next_id = 3
+    files.set(`${PROJECT}/.novel/facts.json`, saveFactsFile(facts))
+    seedLedger(files, {
+      "1": { cognition: { status: "committed", category: "fold_rebuildable" } },
+      "2": { cognition: { status: "committed", category: "fold_rebuildable" } },
+    })
+    // 分目录孤儿实体（仅引用 001.snapshot.json）应按完整 f.path 删除；跨章混引实体保留。
+    files.set(`${PROJECT}/wiki/entities/characters/独章甲.md`, "---\nsource: 001.snapshot.json\n---\n")
+    files.set(
+      `${PROJECT}/wiki/entities/characters/跨章乙.md`,
+      "---\nsources: [001.snapshot.json, 002.snapshot.json]\n---\n",
+    )
+    installHierarchicalFs(files)
+
+    await deleteChapterSnapshots(PROJECT, 1)
+
+    // 1. chapter-ingest-output/001.* 全删
+    expect(files.has(`${PROJECT}/.novel/chapter-ingest-output/001.output.json`)).toBe(false)
+    expect(files.has(`${PROJECT}/.novel/chapter-ingest-output/001.wiki-patch.json`)).toBe(false)
+    expect(files.has(`${PROJECT}/.novel/chapter-ingest-output/001.search-index.json`)).toBe(false)
+    expect(files.has(`${PROJECT}/.novel/chapter-ingest-output/001.vector-index.json`)).toBe(false)
+    // 2. facts.json 移除第 1 章，保留第 2 章
+    const savedFacts = JSON.parse(files.get(`${PROJECT}/.novel/facts.json`)!) as {
+      facts: Array<{ id: string }>
+    }
+    expect(savedFacts.facts.map((f) => f.id)).toEqual(["f2"])
+    // 3. timeline 联动清理
+    expect(moduleMocks.removeChapterTimelineEvents).toHaveBeenCalledWith(PROJECT, 1)
+    // 4. projection-status.json 移除第 1 章，保留第 2 章
+    const ledger = readLedger(files)
+    expect(ledger.chapters["1"]).toBeUndefined()
+    expect(ledger.chapters["2"]).toBeDefined()
+    // 5. LanceDB 向量清理覆盖 chapter-001 / 001 / 真实文件 stem
+    const removedIds = moduleMocks.removePageEmbedding.mock.calls.map((c) => c[1])
+    expect(removedIds).toContain("chapter-001")
+    expect(removedIds).toContain("001")
+    expect(removedIds).toContain("chapter-001-dawn")
+    // 6. 分目录孤儿实体按完整路径清理，跨章混引实体保留
+    expect(files.has(`${PROJECT}/wiki/entities/characters/独章甲.md`)).toBe(false)
+    expect(files.has(`${PROJECT}/wiki/entities/characters/跨章乙.md`)).toBe(true)
+  })
+
+  it("R2-M02: rebuildDerivedMemoryFromSnapshots 章节向量 pageId 使用真实文件 stem，缺失时回退 chapter-001", async () => {
+    const files = makeFileMap()
+    files.set(
+      `${PROJECT}/wiki/chapters/chapter-001-dawn.md`,
+      "---\ntype: chapter\nchapter_number: 1\nchapter_status: final\n---\n\n正文",
+    )
+    installHierarchicalFs(files)
+
+    const embCfg = { enabled: true, model: "text-embedding-3-small", endpoint: "", apiKey: "" }
+    await rebuildDerivedMemoryFromSnapshots(PROJECT, undefined, {
+      embeddingConfig: embCfg,
+    })
+    expect(moduleMocks.embedPage).toHaveBeenCalledWith(
+      PROJECT,
+      "chapter-001-dawn",
+      expect.any(String),
+      SNAPSHOT1.summary,
+      expect.objectContaining({ enabled: true, model: "text-embedding-3-small" }),
+    )
+
+    // 章节源文件缺失时回退 chapter-001
+    moduleMocks.embedPage.mockClear()
+    files.delete(`${PROJECT}/wiki/chapters/chapter-001-dawn.md`)
+    invalidateChapterCache(PROJECT)
+    await rebuildDerivedMemoryFromSnapshots(PROJECT, undefined, {
+      embeddingConfig: embCfg,
+    })
+    expect(moduleMocks.embedPage).toHaveBeenCalledWith(
+      PROJECT,
+      "chapter-001",
+      expect.any(String),
+      SNAPSHOT1.summary,
+      expect.objectContaining({ enabled: true, model: "text-embedding-3-small" }),
+    )
+  })
+
+  it("R2-M05: ingestChapter 默认同号多正式章直接拒收 duplicate_chapter_number（不触发 LLM）", async () => {
+    const files = makeFileMap()
+    const ch2Body = "---\ntype: chapter\nchapter_number: 2\nchapter_status: final\n---\n\n正文"
+    files.set(`${PROJECT}/wiki/chapters/chapter-002-a.md`, ch2Body)
+    files.set(`${PROJECT}/wiki/chapters/chapter-002-b.md`, ch2Body)
+    installHierarchicalFs(files)
+
+    const result = await ingestChapter(PROJECT, `${PROJECT}/wiki/chapters/chapter-002-a.md`)
+    expect(result).toEqual({ snapshot: null, failReason: "duplicate_chapter_number" })
+    expect(streamChatMock).not.toHaveBeenCalled()
+  })
+
+  it("R2-M09: listSnapshotEntriesWithMtime 与 loadAllSnapshots 过滤大纲负数/零号快照", async () => {
+    const files = makeFileMap()
+    files.set(
+      `${PROJECT}/.novel/snapshots/outline-001.snapshot.json`,
+      JSON.stringify({ ...SNAPSHOT1, chapterNumber: -1, chapterId: "outline-1" }),
+    )
+    files.set(
+      `${PROJECT}/.novel/snapshots/000.snapshot.json`,
+      JSON.stringify({ ...SNAPSHOT1, chapterNumber: 0, chapterId: "chapter-0" }),
+    )
+    installHierarchicalFs(files)
+
+    const entries = await listSnapshotEntriesWithMtime(PROJECT)
+    expect(entries.map((e) => e.number)).toEqual([1])
+    const snapshots = await loadAllSnapshots(PROJECT)
+    expect(snapshots.map((s) => s.chapterNumber)).toEqual([1])
+  })
+
+  it("R2-M11: readCurrentSnapshot 仅真缺失返回 null，权限错与坏 JSON 上抛", async () => {
+    const files = new Map<string, string>()
+    installHierarchicalFs(files)
+
+    // 真缺失 → null
+    await expect(readCurrentSnapshot(PROJECT, 99)).resolves.toBeNull()
+
+    // 非缺失 IO 错 → 上抛
+    fsMocks.readFile.mockRejectedValueOnce(new Error("EACCES: permission denied"))
+    await expect(readCurrentSnapshot(PROJECT, 99)).rejects.toThrow(/EACCES/)
+
+    // 坏 JSON → 上抛 SyntaxError
+    files.set(`${PROJECT}/.novel/snapshots/001.snapshot.json`, "{corrupted-json")
+    await expect(readCurrentSnapshot(PROJECT, 1)).rejects.toThrow(SyntaxError)
   })
 })

@@ -6,12 +6,19 @@
  * 智能 skill、大纲注入、社区摘要注入、Track B pre_write hooks、cachePrefix。
  */
 import {
+  readFile,
+} from "@/commands/fs"
+import {
+  normalizePath,
+} from "@/lib/path-utils"
+import {
   formatStageThinking,
 } from "./chapter-utils"
 import {
   computeCheckpointDigestOf,
 } from "./checkpoint-digest"
 import {
+  renderCanonRulesBaseForStablePrefix,
 } from "./context-engine"
 import type {
   ContextPack,
@@ -56,6 +63,7 @@ import {
   runSceneBreakdown,
 } from "./scene-breakdown"
 import type {
+  Scene,
   SceneBreakdownResult,
 } from "./scene-breakdown"
 // ISS-20260713-009：resume 重试语义（仅已完成才跳过，否则重试失败 scene）。
@@ -195,6 +203,14 @@ export async function assembleContext(
     input.projectPath,
     input.userRequest,
     input.chapterNumber,
+    {
+      buildOptions: {
+        novelConfig: input.novelConfig,
+        llmConfig: input.llmConfig,
+        novelMode: true,
+      },
+      onThinking: (msg) => callbacks.onThinking?.(formatStageThinking("阶段1：上下文装配降级告警", msg)),
+    },
   )
   assertNotAborted(signal, USER_ABORT_MESSAGE)
 
@@ -204,8 +220,8 @@ export async function assembleContext(
   // 阶段1后：加载用户记忆 store（Wave 1 接线；无文件时返回默认空 store）
   const userMemoryStore = await loadUserMemoryForProject(input.projectPath)
 
-  // 独立提取大纲，不通过contextPackToPrompt
-  const outlinePrompt = contextPack.outline
+  // 独立提取大纲，不通过contextPackToPrompt；R2-W06 按需启用 G6 稳定前缀（canonRulesBase）
+  const baseOutlinePrompt = contextPack.outline
     ? [
         "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "# 【强制遵守】作品完整大纲",
@@ -221,17 +237,10 @@ export async function assembleContext(
         "",
       ].join("\n")
     : ""
+  const stableCanonPrefix = renderCanonRulesBaseForStablePrefix(contextPack)
+  const outlinePrompt = [baseOutlinePrompt, stableCanonPrefix].filter(Boolean).join("\n\n")
 
   // TASK-003 (ANL-013 S4): pre-generation community-summary generate side.
-  // After context assembly, before prose generation: generate (or reuse the
-  // cached) narrative summaries for the communities most relevant to the
-  // current chapter's task tokens, and inject them into the compressible
-  // context tier. This closes the previously-orphaned generate side — only
-  // the retrieval side (`searchCommunitySummaries` via graphSearchResults)
-  // was wired before. `generateCommunitySummariesForChapter` is the per-chapter
-  // lazy-cached entry point; it internally calls `generateSingleCommunitySummary`
-  // (community-summary.ts) for each relevant community. Best-effort: failure
-  // returns "" and does not block.
   let communitySummaryInjection = ""
   try {
     const { generateCommunitySummariesForChapter } = await import("./community-summary")
@@ -285,11 +294,12 @@ export async function assembleContext(
     }
   }
 
-  // 其他上下文可以进行token预算管理，但大纲已被排除
+  // 其他上下文可以进行token预算管理，但大纲已被排除；稳定前缀已包含 canonRulesBase 时动态段仅渲染增量
   const contextPrompt = [
     previousChaptersAnalysis ? `## 前情分析\n\n${previousChaptersAnalysis}` : "",
     deps.contextPackToPrompt(contextPack, 32000, {
       excludeOutline: true,
+      ...(stableCanonPrefix ? { excludeCanonRulesBase: true } : {}),
       // U4: default layered recall (L2+L3 first; L0 bodies only on full)
       layeredRecall: "default",
       sectionCharBudget: 4000,
@@ -316,13 +326,6 @@ export async function assembleContext(
 }
 
 // 阶段1.5：Scene Breakdown（ADR-30 / EPIC-002 / TASK-012）。
-// 仅当 sceneBreakdownEnabled 开启时，在 contextPack（阶段 1）之后、task_brief
-// （阶段 2）之前插入单次 LLM 调用，把章节蓝图拆成 3-8 个连续场景，持久化到
-// .novel/chapters/{n}/scenes.pending.json（Draft-first pending，ADR-08），并通过
-// ADR-31 工厂 buildNextStatus 写回 status.json evidence_refs（HARD-1 真源不变）。
-// 向后兼容（ADR-30）：flag=false 时跳过整段，after_task_brief 恢复序不变。
-// ISS-20260713-009：resume 时仅已过 after_scene_breakdown 才跳过；
-// 否则（含失败/未执行）重试失败 scene——首次成功路径仍单次调用，零行为变更。
 /** 场景拆解重试上限（含首次）：失败 scene 最多补试一次，非阻断。 */
 export const SCENE_BREAKDOWN_MAX_ATTEMPTS = 2
 
@@ -332,6 +335,55 @@ export function isSceneBreakdownCheckpointComplete(
 ): boolean {
   return checkpointStageAtLeast(checkpoint, "after_scene_breakdown")
 }
+
+/** R2-W06：把阶段1.5场景拆解结果格式化为可注入任务书与初稿阶段的结构化提示片段。 */
+export function formatSceneBreakdownForPrompt(result: SceneBreakdownResult | null | undefined): string {
+  if (!result || !Array.isArray(result.scenes) || result.scenes.length === 0) {
+    return ""
+  }
+  const lines: string[] = [
+    "## 阶段1.5：场景拆解蓝图",
+    "请严格按以下连续场景推进本章叙事与张力变化：",
+  ]
+  for (const [index, scene] of result.scenes.entries()) {
+    lines.push("", `### 场景 ${index + 1}：${scene.sceneTitle || scene.sceneId}`)
+    if (scene.location) lines.push(`- 地点：${scene.location}`)
+    if (scene.characters.length > 0) lines.push(`- 出场角色：${scene.characters.join("、")}`)
+    if (scene.goal) lines.push(`- 场景目标：${scene.goal}`)
+    if (scene.tension) lines.push(`- 冲突张力：${scene.tension}`)
+    if (scene.beat) lines.push(`- 叙事节拍：${scene.beat}`)
+  }
+  return lines.join("\n")
+}
+
+async function readPendingSceneBreakdown(
+  projectPath: string,
+  chapterId: string,
+): Promise<SceneBreakdownResult | null> {
+  const safeChapterId = chapterId.replace(/[^a-zA-Z0-9_-]/g, "-")
+  const pendingPath = `${normalizePath(projectPath)}/.novel/chapters/${safeChapterId}/scenes.pending.json`
+  try {
+    const raw = await readFile(pendingPath)
+    const parsed = JSON.parse(raw) as {
+      scenes?: unknown
+      partial?: unknown
+      partial_reason?: unknown
+      token_cost?: unknown
+      latency_ms?: unknown
+    }
+    if (!Array.isArray(parsed.scenes) || parsed.scenes.length === 0) return null
+    return {
+      scenes: parsed.scenes as Scene[],
+      partial: typeof parsed.partial === "boolean" ? parsed.partial : undefined,
+      partialReason: typeof parsed.partial_reason === "string" ? parsed.partial_reason : undefined,
+      tokenCost: typeof parsed.token_cost === "number" ? parsed.token_cost : undefined,
+      latencyMs: typeof parsed.latency_ms === "number" ? parsed.latency_ms : undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
 export async function runSceneBreakdownStage(
   input: DeepChapterGenerationInput,
   novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
@@ -340,27 +392,27 @@ export async function runSceneBreakdownStage(
   callbacks: DeepChapterGenerationCallbacks,
   signal: AbortSignal | undefined,
   notePartial: (reason: string) => void,
-): Promise<void> {
+): Promise<SceneBreakdownResult | null> {
   if (!novelConfig.sceneBreakdownEnabled) {
-    return
+    return null
   }
-  // ISS-20260713-009：有 checkpoint 但未过 after_scene_breakdown（含失败/中断）
-  // 不再整体跳过——进入下述重试路径；已完成才跳过（避免重复拆解）。
+  const chapterId = String(input.chapterNumber ?? "")
+  // ISS-20260713-009 + R2-W06：已完成检查点跳过 LLM，优雅回读 pending 场景供下游消费。
   if (isSceneBreakdownCheckpointComplete(resumeCheckpoint)) {
-    return
+    return await readPendingSceneBreakdown(input.projectPath, chapterId)
   }
   callbacks.onThinking?.(formatStageThinking("阶段1.5：场景拆解", "正在根据章节蓝图拆解连续场景..."))
-  const chapterId = String(input.chapterNumber ?? "")
   let sceneResult: SceneBreakdownResult | null = null
-  // ISS-20260713-009：失败 scene 重试（最多 SCENE_BREAKDOWN_MAX_ATTEMPTS 次）。
-  // 成功路径首次即中（单次调用，与改前字节级一致）；仅失败/空结果才补试，
-  // 且全失败仍非阻断（与改前降级语义一致：记日志后继续 task_brief）。
   let lastError: unknown = null
   for (let attempt = 1; attempt <= SCENE_BREAKDOWN_MAX_ATTEMPTS; attempt += 1) {
     try {
-      // blueprint = 章节原始意图（userRequest）；buildSceneBreakdownPrompt 再补充
-      // contextPack 的结构化字段（chapterGoal/outline/mustDo/mustAvoid/...）。
-      const attemptResult = await runSceneBreakdown(input.userRequest, contextPack, signal)
+      // R2-W06：补全 injectedStore DI，避免回退全局 useWikiStore.getState()
+      const attemptResult = await runSceneBreakdown(
+        input.userRequest,
+        contextPack,
+        signal,
+        { llmConfig: input.llmConfig, novelConfig },
+      )
       if (attemptResult && attemptResult.scenes.length > 0) {
         sceneResult = attemptResult
         lastError = null
@@ -370,8 +422,6 @@ export async function runSceneBreakdownStage(
       lastError = new Error("scene breakdown returned no scenes")
     } catch (error) {
       lastError = error
-      // F-16 (CWE-532): message-only. Scene breakdown 是加性中间层（ADR-30），
-      // 失败不阻断主链——记日志后按 attempt 决定重试或降级。
       logger.error("deep-chapter-generation", `场景拆解失败（非阻断，尝试 ${attempt}/${SCENE_BREAKDOWN_MAX_ATTEMPTS}）`, { error: toErrorMessage(error) })
       if (attempt >= SCENE_BREAKDOWN_MAX_ATTEMPTS) break
     }
@@ -381,18 +431,11 @@ export async function runSceneBreakdownStage(
   }
   assertNotAborted(signal, USER_ABORT_MESSAGE)
   if (sceneResult && sceneResult.scenes.length > 0) {
-    // 工厂持久化（ADR-31 硬先决）：persistSceneBreakdownDraft 内部用
-    // buildNextStatus + persistCheckpointBase 写 status.json，非手动 const next 块。
     try {
       await persistSceneBreakdownDraft(input.projectPath, chapterId, sceneResult)
     } catch (error) {
-      // 持久化失败不阻断主链（加性中间层），仅记日志。
       logger.error("deep-chapter-generation", "场景拆解持久化失败（非阻断）", { error: toErrorMessage(error) })
     }
-    // EPIC-002 / TASK-013 / Story 2.3: 阶段指标溯源写 status.json stage_metrics
-    // （HARD-1 真源 additive optional 字段，非新真源）。sceneResult.tokenCost/
-    // latencyMs/partial 从 runSceneBreakdown 单次 LLM 调用采集，O-201 成本经验
-    // 决策可据。non-fatal — 指标采集失败不阻断主链。
     await appendStageMetric(input.projectPath, {
       stage: "scene_breakdown",
       tokenCost: sceneResult.tokenCost,
@@ -401,12 +444,6 @@ export async function runSceneBreakdownStage(
       chapterId,
       timestamp: new Date().toISOString(),
     })
-    // spec S-444k typed signal 传播：sceneResult.partial 经 notePartial 进入
-    // runDeepChapter 的 partialReason，最终 DeepChapterGenerationResult.partial=true
-    // → chat-panel pauseDeepChapterSession（draft_status pending）而非
-    // completeDeepChapterSession（ready），防 partial 误标 complete（Draft-first 边界）。
-    // first-partial-reason-wins：仅当主链尚未记录 partial 时才记 scene 的 reason
-    // （与 collectModelText 的 notePartial 语义一致，:852）。
     if (sceneResult.partial && sceneResult.partialReason) {
       notePartial(`scene-breakdown: ${sceneResult.partialReason}`)
     }
@@ -416,6 +453,7 @@ export async function runSceneBreakdownStage(
     ))
   }
   await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_scene_breakdown"))
+  return sceneResult
 }
 
 // 阶段2 + 2.5：任务书生成 + 纠偏（含 repair while 循环）。

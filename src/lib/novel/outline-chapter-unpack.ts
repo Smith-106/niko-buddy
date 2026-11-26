@@ -12,7 +12,7 @@
  * 4. 契约规范：骨架章节采用符合规范的 Frontmatter（chapter_status: "planned"），无缝接入后续任务路由与分章计划。
  */
 
-import { createDirectory, fileExists, writeFileAtomic } from "@/commands/fs"
+import { createDirectory, fileExists, writeFileAtomic, writeFilesAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { yamlEscape } from "@/lib/wiki-filename"
 import { parseChineseInteger } from "./chapter-import"
@@ -35,6 +35,7 @@ export interface UnpackOutlineResult {
   createdCount: number
   skippedCount: number
   createdFiles: string[]
+  createdSkeletons?: ReadonlyMap<string, string>
   chapters: UnpackedOutlineChapter[]
 }
 
@@ -143,6 +144,7 @@ export async function unpackOutlineToChapterFiles(
 
   const parsedChapters = parseOutlineToChapters(outlineContent)
   const createdFiles: string[] = []
+  const createdSkeletons = new Map<string, string>()
   let createdCount = 0
   let skippedCount = 0
 
@@ -177,7 +179,12 @@ export async function unpackOutlineToChapterFiles(
     ].join("\n")
 
     const fullContent = `${frontmatter}${bodyContent}`
-    await writeFileAtomic(filePath, fullContent)
+    if (overwriteExisting) {
+      await writeFileAtomic(filePath, fullContent)
+    } else {
+      await writeFilesAtomic([[filePath, fullContent]], [null])
+      createdSkeletons.set(filePath, fullContent)
+    }
 
     createdCount++
     createdFiles.push(filePath)
@@ -188,6 +195,7 @@ export async function unpackOutlineToChapterFiles(
     createdCount,
     skippedCount,
     createdFiles,
+    createdSkeletons,
     chapters: parsedChapters,
   }
 }

@@ -10,16 +10,63 @@
  * 正差值原样透传（证伪「恒返回 0」的实现）。
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { ChatMessage, StreamCallbacks } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { runAutonomousNovelIncubator } from "./autonomous-incubator"
 
 const mockLlmConfig: LlmConfig = {
   provider: "openai",
-  apiKey: "",
+  apiKey: "test-key",
   model: "gpt-4o",
   ollamaUrl: "",
   customEndpoint: "",
   maxContextSize: 128000,
+}
+
+function installStageAwareMockLlm(streamChatMock: ReturnType<typeof vi.fn>) {
+  const responses = {
+    soulDoc: "# 灵魂文档\n\n探讨记忆与秩序边界的悬疑长篇。",
+    worldBlueprint: JSON.stringify({
+      worldType: "科幻未来",
+      layers: {
+        axioms: ["记忆哈希可审计且改写必付神经熵增代价"],
+        background: ["旧城与上城以记忆税隔离"],
+        geography: ["上城算力白塔", "旧城沉降区黑市"],
+        cultures: ["以记忆完整度评定信用等级"],
+        conflicts: ["觉醒代码冲击记忆垄断体制"],
+      },
+      crossRefs: [],
+    }),
+    characters: JSON.stringify([
+      { name: "苏砚", role: "主角", profile: "# 苏砚\n\n冷静克制的记忆修复师。" },
+      { name: "陆沉舟", role: "对抗者", profile: "# 陆沉舟\n\n算力审查署执行官。" },
+      { name: "沈知微", role: "盟友", profile: "# 沈知微\n\n旧城地下档案员。" },
+    ]),
+    outline: "# 全书总纲\n\n### 第1章 断点唤醒\n苏砚修复芯片时触发觉醒代码。\n\n### 第2章 档案交换\n苏砚与沈知微追查断层日志。",
+    framework: JSON.stringify({
+      nodes: [
+        { phase: "起", title: "断点唤醒", coreConflict: "禁码现世", involvedCharacters: ["苏砚"], goal: "查明来源", causeFromPrev: "开篇", expectedOutcome: "卷入风波" },
+        { phase: "承", title: "黑市结盟", coreConflict: "审查围堵", involvedCharacters: ["苏砚", "陆沉舟", "沈知微"], goal: "获取日志", causeFromPrev: "行踪暴露", expectedOutcome: "结盟转移" },
+        { phase: "转", title: "白塔陷阱", coreConflict: "身份反转", involvedCharacters: ["苏砚", "陆沉舟"], goal: "广播真相", causeFromPrev: "渗透触发警报", expectedOutcome: "撕开黑箱" },
+        { phase: "合", title: "垄断瓦解", coreConflict: "新旧交替", involvedCharacters: ["苏砚", "沈知微"], goal: "重建存证", causeFromPrev: "真相公开", expectedOutcome: "引出新局" },
+      ],
+    }),
+  }
+
+  streamChatMock.mockImplementation(
+    async (_cfg: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+      const prompt = messages
+        .map((m) => (typeof m.content === "string" ? m.content : ""))
+        .join("\n")
+      let payload = responses.soulDoc
+      if (prompt.includes("【世界观蓝图】")) payload = responses.worldBlueprint
+      else if (prompt.includes("【核心角色档案】")) payload = responses.characters
+      else if (prompt.includes("【宏观总纲与分章规划】")) payload = responses.outline
+      else if (prompt.includes("【起承转合故事模拟框架】")) payload = responses.framework
+      callbacks.onToken(payload)
+      callbacks.onDone()
+    },
+  )
 }
 
 const STEP_MS = 60_000
@@ -116,6 +163,8 @@ describe("autonomous-incubator 阶段延迟遥测钳位（增补）", () => {
       createdFiles: ["/test/project/wiki/chapters/chapter-001.md"],
       chapters: [],
     })
+    mocks.streamChat.mockReset()
+    installStageAwareMockLlm(mocks.streamChat)
   })
 
   it("时钟回拨（结束时刻早于开始时刻）→ 6 个阶段延迟全部钳为 0，且 tokenCost 仍正常采集", async () => {

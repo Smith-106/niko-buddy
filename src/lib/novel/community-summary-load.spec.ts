@@ -9,6 +9,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     ...actual,
       listDirectory: (...args: unknown[]) => listDirectory(...args),
       readFile: (...args: unknown[]) => readFile(...args),
+      fileExists: vi.fn(async () => false),
       writeFile: vi.fn(),
       createDirectory: vi.fn(),
     

@@ -236,8 +236,8 @@ function makeSharedStore(): MemCanonStore {
 interface HarnessOptions {
   store?: MemCanonStore
   queueRef?: { content: string }
-  canonFail?: { count: number; msg: string }
-  legacyFail?: { count: number; msg: string }
+  canonFail?: { count: number; msg: string; perOpAttempts?: number }
+  legacyFail?: { count: number; msg: string; perOpAttempts?: number }
   queueFail?: { count: number; msg: string }
 }
 
@@ -278,8 +278,12 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
   const queueRef = opts.queueRef ?? { content: "" }
   let canonFailCount = opts.canonFail?.count ?? 0
   const canonFailMsg = opts.canonFail?.msg ?? "canon crash"
+  const canonFailPerOp = opts.canonFail?.perOpAttempts ?? 1
+  const canonFailsByDigest = new Map<string, number>()
   let legacyFailCount = opts.legacyFail?.count ?? 0
   const legacyFailMsg = opts.legacyFail?.msg ?? "legacy crash"
+  const legacyFailPerOp = opts.legacyFail?.perOpAttempts ?? 1
+  const legacyFailsByKey = new Map<string, number>()
   let queueFailCount = opts.queueFail?.count ?? 0
   const queueFailMsg = opts.queueFail?.msg ?? "queue crash"
   const legacyLog: unknown[] = []
@@ -300,8 +304,14 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
           ? ep.source_chapter
           : 1
     const seq = Number(/fact(\d+)$/.exec(ep.id ?? "")?.[1] ?? 0)
-    if (canonFailCount > 0) {
+    let remainingCanonFails = canonFailsByDigest.get(digest)
+    if (remainingCanonFails === undefined && canonFailCount > 0) {
       canonFailCount -= 1
+      remainingCanonFails = canonFailPerOp
+      canonFailsByDigest.set(digest, remainingCanonFails)
+    }
+    if (remainingCanonFails !== undefined && remainingCanonFails > 0) {
+      canonFailsByDigest.set(digest, remainingCanonFails - 1)
       return { ok: false, error: canonFailMsg }
     }
     const key = `${chapter}:${digest}`
@@ -315,8 +325,15 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
   }
 
   const writeLegacy: CanonDualWriteDeps["writeLegacy"] = async (_pp, payload) => {
-    if (legacyFailCount > 0) {
+    const legacyKey = JSON.stringify(payload)
+    let remainingLegacyFails = legacyFailsByKey.get(legacyKey)
+    if (remainingLegacyFails === undefined && legacyFailCount > 0) {
       legacyFailCount -= 1
+      remainingLegacyFails = legacyFailPerOp
+      legacyFailsByKey.set(legacyKey, remainingLegacyFails)
+    }
+    if (remainingLegacyFails !== undefined && remainingLegacyFails > 0) {
+      legacyFailsByKey.set(legacyKey, remainingLegacyFails - 1)
       return { ok: false, error: legacyFailMsg }
     }
     legacyLog.push(payload)
@@ -653,7 +670,9 @@ describe("A-10.3 崩溃注入 ×5 点：无悬空态、状态可重建续跑", (
   })
 
   it("C2 digest 记录写失败：legacy 侧 ENOSPC → 持久队列 → 重放补齐零差异", async () => {
-    const h = makeHarness({ legacyFail: { count: 1, msg: "ENOSPC@digest-record" } })
+    // M2-03 写后立即自愈会消费 1 次重试；perOpAttempts: 2 使首写 + 立即重试均失败，
+    // 保留 1 条记录（attempts=2）在持久队列，供后续 T0+T_ADVANCE 两阶段重放验证。
+    const h = makeHarness({ legacyFail: { count: 1, perOpAttempts: 2, msg: "ENOSPC@digest-record" } })
     const ops = await buildChapterOps(REAL_CHAPTER)
 
     // 双写：1 条失败入持久队列
@@ -689,7 +708,9 @@ describe("A-10.3 崩溃注入 ×5 点：无悬空态、状态可重建续跑", (
   })
 
   it("C3 canon 双写失败：canon 侧 SIGKILL → 待写队列 → 两阶段重放零差异", async () => {
-    const h = makeHarness({ canonFail: { count: 1, msg: "SIGKILL" } })
+    // M2-03 写后立即自愈会消费 1 次重试；perOpAttempts: 2 使首写 + 立即重试均失败，
+    // 保留 1 条记录（attempts=2）在持久队列，供后续 T0+T_ADVANCE 两阶段重放验证。
+    const h = makeHarness({ canonFail: { count: 1, perOpAttempts: 2, msg: "SIGKILL" } })
     const ops = await buildChapterOps(REAL_CHAPTER)
 
     const dual = await shadowWriteCanon(h.deps, PROJECT, ops, T0)

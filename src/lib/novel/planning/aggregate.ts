@@ -394,9 +394,9 @@ export async function buildChapterPlan(
     chapterSummaries,
     povResolved,
   ] = await Promise.all([
-    loadForeshadowingTracker(projectPath),
+    loadForeshadowingTracker(projectPath).catch(() => null),
     loadCharacterStates(projectPath).catch(() => null),
-    loadSubplotBoard(projectPath),
+    loadSubplotBoard(projectPath).catch(() => null),
     loadAllSnapshotsForPlan(projectPath),
     // P2-IMP-11 扩载（逐维 catch → 判别联合；Promise.all 永不整体 reject）
     loadDim(() => loadCognitionState(projectPath)),
@@ -413,10 +413,10 @@ export async function buildChapterPlan(
   const view = buildChapterPlanView(
     {
       currentChapter: chapterNumber,
-      foreshadowing,
+      foreshadowing: foreshadowing ?? { items: [], lastUpdated: "" },
       characterStates: characterStates ?? { characters: [], lastUpdated: "" },
       appearances,
-      subplots: subplots.items,
+      subplots: subplots?.items ?? [],
       povCharacter,
       cognition,
       encounterMatrix,
@@ -429,7 +429,9 @@ export async function buildChapterPlan(
 
   // 逐维降级标记（IC-02 展示层等价物：可见而非静默）
   // 四新维的 degraded 标注由 buildChapterPlanView 按同源判定完成，此处不重复。
+  if (foreshadowing === null) view.foreshadowing.status = "degraded"
   if (characterStates === null) view.characters.status = "degraded"
+  if (subplots === null) view.threads.status = "degraded"
 
   return view
 }

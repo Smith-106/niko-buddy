@@ -9,8 +9,10 @@
  */
 import { logger, toErrorMessage } from "@/lib/utils"
 import { classifyKbError, recoveryPlanFor } from "./kb-observability"
-import type { ContextGapReason } from "./context-data-source"
+import type { ContextBuildSession, ContextGap, ContextGapReason, SourceTier } from "./context-data-source"
 import type { ContextBudget } from "@/lib/context-budget"
+
+export type { ContextBuildSession, ContextGap, SourceTier } from "./context-data-source"
 
 export const SECTION_PRIORITY: Record<string, number> = {
   "当前任务": 1,
@@ -43,6 +45,112 @@ export const SECTION_PRIORITY: Record<string, number> = {
 }
 
 /**
+ * R2-W06：基于 fieldKey 的语言无关稳定排序真源（免疫英文 locale 与 G6 titleSuffix）。
+ * 视觉渲染顺序保持与既有中文测试顺序一致，并与下方预算裁剪保护集解耦。
+ */
+export const SECTION_PRIORITY_BY_FIELD: Record<string, number> = {
+  chapterGoal: 2,
+  soulDoc: 3,
+  outline: 4,
+  canonRules: 5,
+  hardInject: 5.5,
+  recentSummaries: 6,
+  recentStateDeltas: 6.1,
+  previousChapterEnding: 7,
+  characterStates: 8,
+  characterAuras: 9,
+  foreshadowingStates: 10,
+  timeline: 11,
+  cognitionStates: 12,
+  relatedSettings: 13,
+  searchResults: 14,
+  graphSearchResults: 14.2,
+  references: 14.5,
+  referenceBindings: 14.6,
+  communitySummaries: 14.8,
+  revisionDirectives: 15,
+  nextChapterAdvice: 16,
+  writingStyle: 17,
+  voiceStyleGuide: 17.5,
+  formerFacts: 18,
+  worldBlueprint: 19,
+  narrativeVisibility: 20,
+  relatedChapters: 21,
+  recentChapterContents: 22,
+  mustDo: 23,
+  mustAvoid: 24,
+  activeEntities: 25,
+}
+
+/**
+ * R2-W06：Token 预算裁剪时的 P0/P1 留存保护字段集（与视觉渲染顺序解耦）。
+ * 超预算时先整段淘汰非保护低优分段，保护字段优先完整留存。
+ */
+export const PROTECTED_TRIM_FIELDS: ReadonlySet<string> = new Set([
+  "chapterGoal",
+  "soulDoc",
+  "outline",
+  "canonRules",
+  "hardInject",
+  "mustDo",
+  "mustAvoid",
+  "foreshadowingStates",
+  "cognitionStates",
+])
+
+/**
+ * R2-W06：创建 per-build 隔离上下文会话（零模块级共享状态）。
+ * 并发多次 buildContextPack 各自持有独立 gaps 与 budget，天然隔离无串包。
+ */
+export function createContextBuildSession(budget: ContextBudget | null = null): ContextBuildSession {
+  const gaps: ContextGap[] = []
+  const recordGap = (ref: string, reason: ContextGapReason = "datasource_error"): void => {
+    gaps.push({
+      type: reason === "temporal_history_unavailable" ? "unavailable" : "load_failed",
+      ref,
+      reason,
+      originalLength: 0,
+      retainedLength: 0,
+    })
+  }
+  const recordTruncated = (
+    ref: string,
+    tier: SourceTier,
+    originalLength: number,
+    retainedLength: number,
+  ): void => {
+    gaps.push({
+      type: "truncated",
+      ref,
+      reason: tier === "protected" ? "budget_exceeded" : "tier_compressible",
+      originalLength,
+      retainedLength,
+    })
+  }
+  const sliceInSession = (
+    content: string,
+    tier: SourceTier,
+    cap: number,
+    ref: string,
+  ): string => {
+    if (!content) return ""
+    const originalLength = content.length
+    if (originalLength <= cap) return content
+    const retained = content.slice(0, cap)
+    recordTruncated(ref, tier, originalLength, retained.length)
+    return retained
+  }
+  return {
+    gaps,
+    budget,
+    recordGap,
+    recordTruncated,
+    tieredSlice: sliceInSession,
+    collectGaps: () => [...gaps],
+  }
+}
+
+/**
  * Tier caps (TASK-003 protected/compressible layering).
  *
  * Protected sources carry load-bearing constraints for the current chapter
@@ -55,34 +163,6 @@ export const SECTION_PRIORITY: Record<string, number> = {
  * compression (TASK-003 subtask 3) before injection.
  */
 export const CHAPTER_OUTLINE_PROTECTED_CAP = 6000
-
-/**
- * ANL-013 S4 (TASK-003): protected/compressible context tiering.
- *
- * Context sources are classified into two tiers:
- *   - `protected`: canon facts / character cognition (knows + doesNotKnow) /
- *     current chapter outline / active foreshadowing. These MUST NOT be
- *     silently compressed — they carry load-bearing constraints. Truncation
- *     (only when a single source file vastly exceeds the cap) is recorded
- *     as a gap with reason `budget_exceeded`.
- *   - `compressible`: historical chapter summaries / community summaries /
- *     older snapshots / derived fallback state. These are budget-elastic —
- *     truncated under budget pressure and the compression is recorded as a
- *     gap with reason `tier_compressible`.
- *
- * `gaps[]` is the IC-02 contract: every compression / truncation MUST be
- * surfaced explicitly, never silently degraded. Callers (and tests) can
- * inspect `pack.gaps` to verify no source was silently dropped.
- */
-export type SourceTier = "protected" | "compressible"
-
-export interface ContextGap {
-  type: "compressed" | "truncated" | "load_failed" | "unavailable"
-  ref: string
-  reason: ContextGapReason
-  originalLength: number
-  retainedLength: number
-}
 
 /**
  * Module-level gap recorder.
@@ -180,7 +260,11 @@ export function tieredSlice(
   tier: SourceTier,
   cap: number,
   ref: string,
+  session?: ContextBuildSession,
 ): string {
+  if (session) {
+    return session.tieredSlice(content, tier, cap, ref)
+  }
   if (!content) return ""
   const originalLength = content.length
   if (originalLength <= cap) return content

@@ -74,6 +74,8 @@ const AUDIT_DIMENSION_ID_SET: ReadonlySet<string> = new Set<string>(ALL_AUDIT_DI
  */
 const PRODUCER_TYPE_ALIASES: Readonly<Record<string, AuditDimensionId>> = {
   character_behavior: "behavioral_repetition",
+  // R2-W05：StateDelta 轻检属于角色状态与存亡一致性检查，归位 P0 consistency 门（不再落默认 quality 门）。
+  state_delta_light_check: "character_consistency",
 }
 
 /**

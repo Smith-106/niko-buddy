@@ -58,13 +58,12 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
 
   it("buildContextPack computes the budget BEFORE registry.loadAll and clears it after", () => {
     const src = readSource("context-engine.ts")
-    // The budget is computed from context.maxContextSize + context.chapterNumber
-    // and assigned to currentBuildBudget before loadAll runs.
+    // R2-W06：按每次构建隔离的 ContextBuildSession 持有预算（不再污染模块级全局变量），
+    // 在 registry.loadAll 前用 computeContextBudget 创建 session 并随构建结束自然释放。
     expect(src).toMatch(
-      /setCurrentBuildBudget\(\s*computeContextBudget\(\s*context\.maxContextSize,\s*context\.chapterNumber\s*\)\s*\)/,
+      /const\s+buildBudget\s*=\s*computeContextBudget\(\s*llmConfig\.maxContextSize,\s*resolvedChapterNumber\s*\)/,
     )
-    // Cleared after the build (so direct callers fall back to the legacy cap).
-    expect(src).toMatch(/setCurrentBuildBudget\(null\)/)
+    expect(src).toMatch(/createContextBuildSession\(\s*buildBudget\s*\)/)
   })
 
   it("buildLoadContext populates context.maxContextSize from useWikiStore.llmConfig", () => {
@@ -79,9 +78,9 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
   it("defines resolveChapterOutlineProtectedCap reading currentBuildBudget.maxPageSize", () => {
     const src = readSource("context-engine-outline.ts")
     expect(src).toMatch(/function\s+resolveChapterOutlineProtectedCap\b/)
-    // The resolver must reference budget.maxPageSize (the adaptive cap) and
-    // fall back to CHAPTER_OUTLINE_PROTECTED_CAP when outside a build.
-    expect(src).toMatch(/const\s+budget\s*=\s*currentBuildBudget/)
+    // The resolver must reference budget.maxPageSize (per-build session.budget with currentBuildBudget fallback)
+    // and fall back to CHAPTER_OUTLINE_PROTECTED_CAP when outside a build.
+    expect(src).toMatch(/const\s+budget\s*=\s*session\s*\?\s*session\.budget\s*:\s*currentBuildBudget/)
     expect(src).toMatch(/budget\.maxPageSize/)
     expect(src).toMatch(/CHAPTER_OUTLINE_PROTECTED_CAP/)
   })
@@ -89,11 +88,10 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
   it("pickChapterOutlineByNumber drives tieredSlice caps via resolveChapterOutlineProtectedCap (not the hardcoded constant)", () => {
     const src = readSource("context-engine-outline.ts")
     // The two tieredSlice calls in pickChapterOutlineByNumber must call
-    // resolveChapterOutlineProtectedCap() — NOT the bare constant. This is
-    // the core wiring assertion: the cap VALUE now comes from the budget.
+    // resolveChapterOutlineProtectedCap(session) — NOT the bare constant.
     const pickBlock = src.match(/export function pickChapterOutlineByNumber[\s\S]*?\n\}/)
     expect(pickBlock).not.toBeNull()
-    expect(pickBlock![0]).toContain("resolveChapterOutlineProtectedCap()")
+    expect(pickBlock![0]).toContain("resolveChapterOutlineProtectedCap(session)")
     // The bare CHAPTER_OUTLINE_PROTECTED_CAP must NOT appear as a tieredSlice
     // cap argument inside pickChapterOutlineByNumber anymore.
     expect(pickBlock![0]).not.toMatch(/tieredSlice\([^)]*CHAPTER_OUTLINE_PROTECTED_CAP/)
@@ -104,7 +102,7 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
     // The search-path tieredSlice call must also use the budget-driven cap.
     const readBlock = src.match(/export async function readChapterOutlineContent[\s\S]*?\n\}/)
     expect(readBlock).not.toBeNull()
-    expect(readBlock![0]).toContain("resolveChapterOutlineProtectedCap()")
+    expect(readBlock![0]).toContain("resolveChapterOutlineProtectedCap(session)")
     expect(readBlock![0]).not.toMatch(/tieredSlice\([^)]*CHAPTER_OUTLINE_PROTECTED_CAP/)
   })
 

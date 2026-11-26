@@ -11,6 +11,7 @@ vi.mock("./deep-chapter-generation", () => ({
 vi.mock("@/lib/llm-client", () => ({
   streamChat: streamChatMock,
   combineAbortSignals: () => undefined,
+  isRequestCancelledError: () => false,
 }))
 
 import { runDeepChapterGenerationConsensus } from "./consensus-writing"

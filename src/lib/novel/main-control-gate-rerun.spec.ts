@@ -218,4 +218,114 @@ describe("buildMainControlGateRows", () => {
       ["quality", "skipped"],
     ])
   })
+
+  it("提取 findingDetails 与 repairSuggestions 供 UI 展开错因与修复建议", () => {
+    const gates = buildDecisionGates(
+      [
+        {
+          severity: "error",
+          type: "timeline_consistency",
+          message: "第3章日期倒退两天",
+          evidence: "三月五日紧接三月七日之后",
+          relatedMemory: "",
+          suggestion: "统一改为三月八日",
+        },
+      ],
+      1,
+    )
+    const rows = buildMainControlGateRows({ decisionGates: gates })
+    const consistency = rows.find((row) => row.key === "consistency")
+    expect(consistency?.findingDetails).toEqual([
+      {
+        severity: "error",
+        type: "timeline_consistency",
+        message: "第3章日期倒退两天",
+        evidence: "三月五日紧接三月七日之后",
+        suggestion: "统一改为三月八日",
+      },
+    ])
+    expect(consistency?.repairSuggestions).toEqual(["统一改为三月八日"])
+    expect(rows.find((row) => row.key === "anti_ai")?.findingDetails).toBeUndefined()
+  })
+})
+
+describe("rerunMainControlGates adoptionGate (A01)", () => {
+  it("机械复核（无语义审查回调）落 unassessed；语义+契约齐才落 passed", async () => {
+    const bound = draft({ content: "\r\n\r\n 第三段正文。\r\n", adoptionGate: { status: "unassessed" } })
+    listDrafts.mockResolvedValue([bound])
+    const recordAdoptionGate = vi.fn(async () => {})
+
+    // 机械门全过但无语义审查证据 → reviewed=false → unassessed
+    evaluateChapterGates.mockResolvedValueOnce({
+      reviewResults: [],
+      decisionGates: buildDecisionGates([], 0),
+      semanticReviewCompleted: false,
+      llmMediated: true,
+      contractEvaluated: true,
+      unassessedGates: [],
+      unassessedDimensions: [],
+    })
+    const out1 = await rerunMainControlGates(
+      { projectPath: "/proj", draftId: bound.id, goal: "", novelConfig: novelConfig(), llmConfig },
+      { listDrafts, buildPack, recordEvidence, recordAdoptionGate },
+    )
+    expect(recordAdoptionGate).toHaveBeenCalledTimes(1)
+    expect(recordAdoptionGate).toHaveBeenCalledWith("/proj", bound, "unassessed")
+    expect(out1.adoptionGate).toBe("unassessed")
+
+    // 语义审查回调 + 契约维度齐 → reviewed=true → passed
+    evaluateChapterGates.mockResolvedValueOnce({
+      reviewResults: [],
+      decisionGates: buildDecisionGates([], 0),
+      semanticReviewCompleted: true,
+      llmMediated: true,
+      contractEvaluated: true,
+      unassessedGates: [],
+      unassessedDimensions: [],
+    })
+    const out2 = await rerunMainControlGates(
+      { projectPath: "/proj", draftId: bound.id, goal: "", novelConfig: novelConfig(), llmConfig },
+      { listDrafts, buildPack, recordEvidence, recordAdoptionGate },
+    )
+    expect(recordAdoptionGate).toHaveBeenCalledTimes(2)
+    expect(recordAdoptionGate).toHaveBeenLastCalledWith("/proj", bound, "passed")
+    expect(evaluateChapterGates).toHaveBeenLastCalledWith(expect.objectContaining({ chapterNumber: 3, chapterContent: bound.content }))
+    expect(buildPack).toHaveBeenLastCalledWith("/proj", bound.content, 3)
+    expect(out2.adoptionGate).toBe("passed")
+  })
+
+  it("未绑定安全章号的收件箱草稿显示失败，不生成未定章的通过结论", async () => {
+    const unidentified = draft({ chapterName: "续写旧梦", adoptionGate: { status: "unassessed" } })
+    listDrafts.mockResolvedValue([unidentified])
+    const recordAdoptionGate = vi.fn(async () => {})
+    await expect(rerunMainControlGates(
+      { projectPath: "/proj", draftId: unidentified.id, novelConfig: novelConfig(), llmConfig },
+      { listDrafts, buildPack, recordEvidence, recordAdoptionGate },
+    )).rejects.toThrow("未绑定章号")
+    expect(buildPack).not.toHaveBeenCalled()
+    expect(evaluateChapterGates).not.toHaveBeenCalled()
+    expect(recordEvidence).not.toHaveBeenCalled()
+    expect(recordAdoptionGate).not.toHaveBeenCalled()
+  })
+
+  it("门控机械与语义均通过也不能给截断稿通过回执", async () => {
+    const partial = draft({ partial: true, adoptionGate: { status: "partial" } })
+    listDrafts.mockResolvedValue([partial])
+    evaluateChapterGates.mockResolvedValueOnce({
+      reviewResults: [],
+      decisionGates: buildDecisionGates([], 0),
+      semanticReviewCompleted: true,
+      llmMediated: true,
+      contractEvaluated: true,
+      unassessedGates: [],
+      unassessedDimensions: [],
+    })
+    const recordAdoptionGate = vi.fn(async () => {})
+    const out = await rerunMainControlGates(
+      { projectPath: "/proj", draftId: partial.id, novelConfig: novelConfig(), llmConfig },
+      { listDrafts, buildPack, recordEvidence, recordAdoptionGate },
+    )
+    expect(out.adoptionGate).toBe("partial")
+    expect(recordAdoptionGate).toHaveBeenCalledExactlyOnceWith("/proj", partial, "partial")
+  })
 })

@@ -36,7 +36,13 @@ import { buildTrustGradeMap } from "./trust-grader"
 import { retrieveDualTrack, kbRoutingView, type DualTrackResult } from "./search-adapter"
 // P1-IMP-14: 向量检索共享核心（与 search-adapter.runVectorSearch 同形孪生归一）。
 import type { FileNode } from "@/types/wiki"
-import { DataSourceRegistry, ContextLoadContext, type ContextRawData, } from "./context-data-source"
+import {
+  DataSourceRegistry,
+  type ContextBuildSession,
+  type ContextGapReason,
+  type ContextLoadContext,
+  type ContextRawData,
+} from "./context-data-source"
 import { getAllDataSources } from "./context-data-sources"
 import { computeContextBudget, } from "@/lib/context-budget"
 // Wave 5 (v2.5.0): 上下文用量快照装配 — 预算线 + 记忆实测（user-memory 模块是
@@ -144,11 +150,48 @@ export {
 
 
 /**
- * ISS-20260709-029 (F-003) mutex wrapper: 串行化所有 buildContextPack 调用。
- * 每次 build 排队等前一次完成后才执行，消除跨调用 interleave race（gaps 串包
- * + budget 错配）。buildContextPackUnlocked 是原实现；本 wrapper 把它接到模块
- * 级 Promise 链尾串行执行。链续接吞掉 build 错误（避免 reject 卡死后续排队
- * 调用），错误经 releasePromise 原样透传给调用方。保留 try/finally 单次内清理。
+ * R2-W09 / 契约 3：构造携带显式 IC-02 `load_failed` gap 的降级空上下文包。
+ * 供深章流水线（safeBuildChapterContextPack）与聊天面板（chat-panel-context-assembly）共用，
+ * 避免构建失败后静默返回无 gap 裸空包。
+ */
+export function createEmptyContextPackWithGap(
+  task: string,
+  ref = "context_pack_build",
+  reason: ContextGapReason = "datasource_error",
+): ContextPack {
+  const pack = emptyPack(task)
+  pack.gaps = [
+    {
+      type: reason === "temporal_history_unavailable" ? "unavailable" : "load_failed",
+      ref,
+      reason,
+      originalLength: 0,
+      retainedLength: 0,
+    },
+  ]
+  return pack
+}
+
+/**
+ * R2-W09 / 契约 3：判定上下文包是否因构建期整包失败而降级为空包。
+ * 单数据源局部失败不触发本判定；仅整包构建失败（context_pack_build / chat_context_pack）命中。
+ */
+export function hasContextPackLoadFailure(
+  pack: ContextPack | null | undefined,
+): boolean {
+  return Boolean(
+    pack?.gaps?.some(
+      (g) =>
+        g.type === "load_failed"
+        && (g.ref === "context_pack_build" || g.ref === "chat_context_pack"),
+    ),
+  )
+}
+
+/**
+ * R2-W06：per-build 隔离会话取代模块级全局可变态与 buildMutex 串行排队。
+ * 并发两次 buildContextPack 各自持有独立 ContextBuildSession（gaps + budget），
+ * 天然隔离、零串包。
  */
 export async function buildContextPack(
   projectPath: string,
@@ -156,28 +199,8 @@ export async function buildContextPack(
   chapterNumber?: number,
   options: BuildContextOptions = {},
 ): Promise<ContextPack> {
-  const releasePromise = new Promise<ContextPack>((resolve, reject) => {
-    void buildMutex
-      .then(() => buildContextPackUnlocked(projectPath, task, chapterNumber, options))
-      .then(resolve, reject)
-  })
-  // 续接链: 前次 settle 后本次才执行。catch 掉 releasePromise 的 reject 以
-  // 避免链本身 reject 传播卡死后续排队 build(错误已透传给原调用方)。
-  setBuildMutex(buildMutex.then(() => releasePromise).catch(() => {}))
-  return releasePromise
+  return buildContextPackUnlocked(projectPath, task, chapterNumber, options)
 }
-
-/**
- * EPIC-003 / ADR-32 / TASK-003 (RPC-4 Track B): compressible-with-floor 预算截断
- * （TASK-004 仅出数字，本函数落地）。rank0 entity（relevance:high 或
- * location:chapter-N 当前章节）floor 保护全保；rank1/rank2 按 tier cap
- * （rank1CompressibleCap / rank2CompressibleCap）压缩。原序保持（仅按 tier 配额
- * 丢弃超额 entity，不重排），故 flag=false 时 activeEntities 原序不变（D4）。
- *
- * IC-02：rank1/rank2 被 tier cap 截断时返回显式 ContextGap（type 'truncated'，
- * reason 'tier_compressible'）——绝不静默。调用方 push 到 pack.gaps。
- * budget 为 undefined（无 build 预算场景，如单测直调）时原样返回不截断不记 gap。
- */
 
 async function buildContextPackUnlocked(
   projectPath: string,
@@ -192,347 +215,248 @@ async function buildContextPackUnlocked(
     return emptyPack(task)
   }
 
-  // 构建加载上下文
-  const context = buildLoadContext(pp, task, chapterNumber, options)
+  // R2-W06：计算本次 build 专属预算并创建隔离 ContextBuildSession（零模块级共享可变态）
+  const resolvedChapterNumber = chapterNumber ?? extractChapterNumberFromTask(task)
+  const llmConfig = options.llmConfig ?? useWikiStore.getState().llmConfig
+  const buildBudget = computeContextBudget(llmConfig.maxContextSize, resolvedChapterNumber)
+  const session = createContextBuildSession(buildBudget)
 
-  // 重置 gap recorder — 生命周期为本次 buildContextPack 调用
-  resetContextGaps()
+  // 构建加载上下文（注入 session + recordGap + 配置）
+  const context = buildLoadContext(pp, task, resolvedChapterNumber, options, session)
 
-  // PERF-011 (TASK-007): compute the adaptive budget BEFORE loading data
-  // sources so the tieredSlice call sites in readChapterOutlineContent /
-  // pickChapterOutlineByNumber (invoked via chapterOutlineDataSource during
-  // registry.loadAll) can drive the protected-tier cap from
-  // computeContextBudget's chapterAdaptiveScale instead of the static
-  // CHAPTER_OUTLINE_PROTECTED_CAP. Cleared after the build so direct
-  // callers (tests / non-build invocations) fall back to the legacy cap.
-  setCurrentBuildBudget(computeContextBudget(context.maxContextSize, context.chapterNumber))
-
-  // PAT-M2 (odyssey sibling): currentBuildBudget is a module-level flag. If
-  // loadAll / buildContextPackFromRawData throw, the flag would leak into the
-  // next build (stale budget). Wrap the build body in try/finally so the
-  // flag is always cleared — same shape as the partialReason clear-on-recover
-  // fix (CORR-107).
-  try {
-    // 创建数据源注册器并加载所有数据
-    const registry = createDataSourceRegistry()
-    //
-    // ── T25 / A-04.4: 三源真并行（wiki / canon / 技法 单次 Promise.all）───────
-    // 源1 wiki   = registry.loadAll（原有全部上下文数据源，最长链）；
-    // 源2 canon  = 时序事实（loadCanonSourceFacts：默认折叠路径；canon_migration
-    //              ≥ dual 时改走 T14 读出口 queryCanonEdges + fromCanonGraph）；
-    // 源3 技法 = T27b 离线编译技法块（compileFromCommittedSnapshot，纯同步计算
-    //              包一层 async 以统一三源计时口径）。
-    // 三源无数据依赖，原先 wiki 串行 await 完才走后续装配；现在单次 Promise.all
-    // 并发发出，canon/technique 与 wiki 装载重叠。各源 performance.now 差值记入
-    // pack.sourceTimingsMs（telemetry 计时点）并输出一次 logger.info 遥测事件。
-    // 失败降级均在各源函数内处理（不 reject），不阻断主装配。
-    const timings: SourceTimingsMs = { wiki: 0, canon: 0, technique: 0 }
-    const timedSource = async <T>(slot: keyof SourceTimingsMs, run: () => Promise<T>): Promise<T> => {
-      const startedAt = performance.now()
-      try {
-        return await run()
-      } finally {
-        timings[slot] = performance.now() - startedAt
-      }
-    }
-    const [rawData, canonSource, techniqueText] = await Promise.all([
-      timedSource("wiki", () => registry.loadAll(context)),
-      timedSource("canon", () => loadCanonSourceFacts(pp, context.chapterNumber ?? 0)),
-      timedSource("technique", () => loadTechniqueBlocks(pp)),
-    ])
-    const temporalFactsPreloaded = canonSource.current
-    // telemetry 计时点：每次 build 输出一次三源耗时（毫秒，非整数保留亚毫秒分辨率）。
-    logger.info("ContextEngine", "context-pack 三源并行装配计时", { ...timings })
-
-    // EPIC-001 + EPIC-003 / TASK-004 + TASK-006: 并行加载 exemplar + activeEntities，
-    // 与 buildContextPackFromRawData 无数据依赖（两者在 pack 返回后 merge 注入）。
-    // 两个新字段都是 additive — 失败/空数据优雅降级为 []，不影响现有 pack 字段。
-    // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
-    const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
-    // S2a (TASK-101/TASK-102 / roadmap R06): 四维反查 + 伏笔逾期 finding 文本。
-    // relatedChaptersEnabled 默认 true；关闭时跳过注入返回 ""（=现状行为）。additive：
-    // 失败 catch 降级空文本，不阻断 pack（与 exemplars/activeEntities 同款）。
-    // 数据来源均为本 build 已持有（pp/context/rawData）：伏笔台账 loadForeshadowingTracker
-    // （其内部失败降级空 store，不 throw）；出场维度由快照构造（loadAllSnapshots 失败
-    // 降级 []，仅跳过该维度）。buildRelatedChaptersContext 同步组合四维反查 + 伏笔逾期
-    // finding，.text 即注入文本（related-chapters.ts 模块调用，不平行实现）。
-    const relatedChaptersPromise =
-      novelConfig.relatedChaptersEnabled
-        ? (async (): Promise<string> => {
-            try {
-              const foreshadowing = await loadForeshadowingTracker(pp)
-              const snapshots = await loadAllSnapshots(pp).catch(() => [] as ChapterSnapshot[])
-              return buildRelatedChaptersContext({
-                currentChapter: context.chapterNumber ?? 0,
-                chapterOutline: typeof rawData.chapterOutline === "string" ? rawData.chapterOutline : "",
-                foreshadowing,
-                snapshots,
-              }).text
-            } catch (error) {
-              // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
-              logDegradation("related-chapters context build failed, skipping injection", error, { sourceFailed: true })
-              return ""
-            }
-          })()
-        : Promise.resolve("")
-    // Wave 2 (v2.5.0): @引用注入。referenceEnabled 默认 true；关闭时跳过注入
-    // 返回 ""（=现状行为）。additive：失败 catch 降级空文本，不阻断 pack
-    // （与 relatedChapters 同款）。数据来源：task 文本解析 @ 引用 → 候选装载
-    // → novelMixedSearch 三路融合检索 → 引用段（含用户记忆偏好原文，PR6 通道）。
-    const referencesPromise =
-      novelConfig.referenceEnabled
-        ? (async (): Promise<ReferenceContextResult | null> => {
-            try {
-              return await buildReferenceContext(pp, task, {
-                chapterNumber: context.chapterNumber,
-              })
-            } catch (error) {
-              // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
-              logDegradation("reference context build failed, skipping injection", error, { sourceFailed: true })
-              return null
-            }
-          })()
-        : Promise.resolve(null)
-    // E-02 (C-5/C-9, run-execute-1 双库架构蓝图 capability-kb-retrieval): 硬注入第四源。
-    // 单次 retrieveDualTrack 调用（通道 A 硬注入 + 通道 B 语义检索）；POV 真源：
-    // P2-IMP-12 起由 resolveChapterPovCharacter 读快照 povCharacter 人工声明解析，
-    // 无声明 → null → 通道 A 空（不臆造 POV），通道 B 仍可用。
-    // 失败降级 null（不阻断 pack 装配，与 relatedChapters/references 同款模式）。
-    // 注：D5「复用 loadCanonSourceFacts 结果」未采纳——retrieveDualTrack 通道 A 走
-    // getFactsKnownBy（known_by 认知轴 POV 过滤，C-5 要求），与 loadCanonSourceFacts
-    // （世界层时序事实）语义不同；二次 load 仅发生在 hardInjectEnabled=true 时（flag 门控）。
-    const hardInjectPromise =
-      novelConfig.hardInjectEnabled
-        ? (async (): Promise<DualTrackResult | null> => {
-            try {
-              const povCharacter =
-                options.povCharacter ??
-                (await resolveChapterPovCharacter(pp, context.chapterNumber ?? 0).catch(() => null)) ??
-                undefined
-              return await retrieveDualTrack({
-                projectPath: pp,
-                query: task,
-                chapterNumber: context.chapterNumber,
-                povCharacter,
-                intent: "draft",
-                topK: novelConfig.searchTopK > 0 ? novelConfig.searchTopK : 5,
-                hardInjectCapChars: currentBuildBudget?.hardInjectionBudget.capChars,
-                trustFilterEnabled: novelConfig.trustFilterEnabled,
-                // P1-IMP-06: 由 buildTrustGradeMap 从 KB-VIEW 非 tech 条目构建 path→trust 映射。
-                // flag 默认 false → 字节级回退；开启时 blocked 条目被归一查找剔除。
-                trustGrades: novelConfig.trustFilterEnabled ? buildTrustGradeMap(kbRoutingView as Parameters<typeof buildTrustGradeMap>[0]) : undefined,
-              })
-            } catch (error) {
-              // P1-IMP-13: 分级记录（DEGRADED — 检索路径失败，降级不注入，不终止写作）
-              logDegradation("hard-inject build failed, skipping injection", error, { retrievalFailed: true })
-              return null
-            }
-          })()
-        : Promise.resolve(null)
-    const [pack, exemplars, activeEntities, relatedChaptersText, referencesResult, hardInjectResult] = await Promise.all([
-      // ISS-20260709-035: loadAll 产出 Record<string, unknown>，经显式 cast
-      // 收敛到 ContextRawData 契约（键集合一致，收窄语义由 normalize 入口保证）。
-      buildContextPackFromRawData(rawData as ContextRawData, context, temporalFactsPreloaded),
-      // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
-      novelConfig.exemplarEnabled
-        ? loadStyleExemplars(pp).then((all) => pickTopKExemplars(all)) /* token budget: prefer keeping thril/pull exemplar slots when present */.catch((error) => {
-            // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
-            logDegradation("style exemplars load failed, skipping injection", error, { sourceFailed: true })
-            return [] as StyleExemplar[]
-          })
-        : Promise.resolve([] as StyleExemplar[]),
-      // TASK-006: conditionalRoutingEnabled 默认 true；关闭时跳过路由返回 []。
-      // 零 entity 优雅降级在 selectActiveEntities 内部处理（回退全量 + warning）。
-      novelConfig.conditionalRoutingEnabled
-        ? selectActiveEntities(pp, {
-            chapterNumber: context.chapterNumber,
-            outline: joinNonEmpty([typeof rawData.outline === "string" ? rawData.outline : "", typeof rawData.chapterOutline === "string" ? rawData.chapterOutline : ""], "\n\n"),
-            sceneCharacters: extractSceneCharacters(rawData),
-          }).catch((error) => {
-            // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
-            logDegradation("conditional entity routing failed, skipping injection", error, { sourceFailed: true })
-            return [] as ContextEntity[]
-          })
-        : Promise.resolve([] as ContextEntity[]),
-      relatedChaptersPromise,
-      referencesPromise,
-      hardInjectPromise,
-    ])
-
-    pack.gaps = collectContextGaps()
-    // EPIC-001 / ADR-29: exemplar 注入（top-K=3 按 markType 多样性排名，text 截断）。
-    // 零 exemplar 时 [] — de-ai-adapter 单次 pass 不变（contextPack.styleExemplars 消费）。
-    pack.styleExemplars = exemplars
-    // S2a (TASK-101/TASK-102 / roadmap R06): 四维反查 + 伏笔逾期 finding 注入
-    // （related-chapters 模块组合，additive 独立字段）。relatedChaptersEnabled=false
-    // 或空结果时为 ""（优雅降级，不影响既有 pack 字段）。消费方按需读取
-    // pack.relatedChapters（与 styleExemplars 同款 pack 字段消费模式）。
-    pack.relatedChapters = relatedChaptersText
-    // Wave 2 (v2.5.0): @引用段注入（additive 独立字段）。referenceEnabled=false
-    // 或零引用时为 ""（优雅降级，不影响既有 pack 字段）。消费方按需读取
-    // pack.references（与 relatedChapters 同款 pack 字段消费模式）。
-    // P1-IMP-03: 结构化返回（截断/失败显式记账，IC-02 绝不静默）。
-    const referencesText = referencesResult?.text ?? ""
-    pack.references = referencesText
-    if (referencesResult && referencesResult.truncated) {
-      pack.gaps.push({
-        type: "truncated",
-        ref: "references",
-        reason: "budget_exceeded",
-        originalLength: referencesText.length + 1,
-        retainedLength: referencesText.length,
-      })
-    }
-    if (referencesResult && referencesResult.cause === "load_failed") {
-      pack.gaps.push({
-        type: "load_failed",
-        ref: "references",
-        reason: "datasource_error",
-        originalLength: 0,
-        retainedLength: 0,
-      })
-    }
-    // E-02 (C-9): 硬注入装配 — additive 独立字段。零条目 → undefined（不渲染该段）；
-    // 超 cap 裁剪与路由缺口同步镜像进 pack.gaps（IC-02 主账，绝不静默）。
-    if (hardInjectResult) {
-      pack.hardInject = hardInjectResult.hardInject.length > 0 ? hardInjectResult.hardInject : undefined
-      pack.hardInjectUsage = hardInjectResult.usage
-      if (hardInjectResult.gaps.length > 0) {
-        pack.kbRoutingGaps = hardInjectResult.gaps
-        for (const gap of hardInjectResult.gaps) {
-          const isBudget = gap.message.includes("budget_exceeded") || gap.collection === "hardInject"
-          pack.gaps.push({
-            type: isBudget ? "truncated" : "load_failed",
-            ref: gap.collection,
-            reason: isBudget ? "budget_exceeded" : "datasource_error",
-            originalLength: 0,
-            retainedLength: 0,
-          })
-        }
-      }
-      // P1-IMP-17: KB-VIEW 条目关键词/域匹配零 LLM 检索结果——additive 独立段。
-      // 零命中 → undefined（字节级不变）；独立 referenceBudget 不复用 hardInject。
-      if (hardInjectResult.kbReferences && hardInjectResult.kbReferences.length > 0) {
-        pack.kbReferences = hardInjectResult.kbReferences
-      }
-    }
-    // P1-IMP-13 (A1a): reference-binding 素材用途绑定注入 — additive 独立字段。
-    // loadReferenceBindings 读 reference-bindings.json（原子存储，缺失/损坏降级空 store）；
-    // bindingsToContextText 渲染本章绑定（零绑定 → ""）。空文本 → undefined（renderIf
-    // 非空才渲染，零绑定字节级不变）。失败降级 undefined，不阻断 pack 装配。
-    let referenceBindingsText = ""
+  // 创建数据源注册器并加载所有数据
+  const registry = createDataSourceRegistry()
+  //
+  // ── T25 / A-04.4: 三源真并行（wiki / canon / 技法 单次 Promise.all）───────
+  const timings: SourceTimingsMs = { wiki: 0, canon: 0, technique: 0 }
+  const timedSource = async <T>(slot: keyof SourceTimingsMs, run: () => Promise<T>): Promise<T> => {
+    const startedAt = performance.now()
     try {
-      /* v8 ignore next -- 台账 context-engine.ts L424：loadReferenceBindings（reference-binding.ts L47-51）直委 createAtomicJsonStore.load，后者对缺失/损坏一律降级 emptyCtor，从不 reject，故 .catch 回退体不可达 */
-      const bindingStore = await loadReferenceBindings(pp).catch(() => null)
-      if (bindingStore) {
-        referenceBindingsText = bindingsToContextText(bindingStore, context.chapterNumber ?? 0)
-      }
-    } catch {
-      referenceBindingsText = ""
+      return await run()
+    } finally {
+      timings[slot] = performance.now() - startedAt
     }
-    pack.referenceBindings = referenceBindingsText || undefined
-    // C（方案 X 全做 M+）：已失效（曾成立）事实独立分块注入。former 为空时设 undefined
-    // → 不渲染该段（flag=false 字节级不变）。绝不并入 canonRules/有效 temporal 块。
-    pack.formerFacts = canonSource.former.length > 0 ? canonSource.former : undefined
-    // T25 (F-19/A-04.4): 技法块注入（additive 独立字段）— 空文本不注入（undefined），
-    // 消费方按需读取 pack.techniqueBlocks；三源计时探针遥测字段同步注入。
-    pack.techniqueBlocks = techniqueText || undefined
-    pack.sourceTimingsMs = timings
-    // EPIC-003 / ADR-32: activeEntities 注入（entity-tags 路由双源匹配）。
-    // 零 entity 优雅降级 [] — 加性原则，不减少现有上下文。
-    // EPIC-003 / ADR-32 / TASK-003 (RPC-4 Track B): Track B rerank 接线（接上方
-    // activeEntities 注入）。temporalFactsEnabled=true 时按章节时间线 temporal facts
-    // （载体 pack.temporalFacts，已由 canon 路径 load，D7 避免 PAT-G2 孪生重复 load）
-    // rerank activeEntities；只升不降（D6 rank0 封顶），关闭时回退原序（D4 canon
-    // baseline + Track A 原序保持）。rerank 后按 compressible-with-floor 预算
-    // （TASK-004）截断 rank1/rank2（rank0 floor 保护全保），截断显式推 IC-02
-    // ContextGap，绝不静默。
-    const reranked = novelConfig.temporalFactsEnabled
-      ? rerankActiveEntitiesByTemporalFacts(activeEntities, pack.temporalFacts ?? null, context.chapterNumber ?? 0)
-      : activeEntities
-    const wired = truncateActiveEntitiesByBudget(reranked, currentBuildBudget?.activeEntitiesBudget, context.chapterNumber ?? 0)
-    pack.activeEntities = wired.entities
-    if (wired.gap) pack.gaps.push(wired.gap)
-    // Quality Foundation v1 + mid-loop: soft audit when temporal is on but mid-chapter pack has no facts.
-    // Surfaces IC-02 gap (not Track A FAIL). See temporal-facts-audit.ts.
-    const chNum = context.chapterNumber ?? 0
-    const temporalAudit = auditTemporalFactsStatus({
-      enabled: novelConfig.temporalFactsEnabled === true,
-      chapterNumber: chNum,
-      facts: pack.temporalFacts ?? null,
-    })
-    if (temporalAudit.level === "empty_soft") {
-      logger.warn("ContextEngine", temporalAudit.message, {
-        chapterNumber: chNum,
-        factCount: temporalAudit.factCount,
-      })
-    }
-    if (temporalAudit.shouldRecordGap) {
-      pack.gaps.push({
-        type: "load_failed",
-        ref: temporalEmptySoftGapRef(chNum),
-        reason: "datasource_error",
-        originalLength: 0,
-        retainedLength: 0,
-      })
-    }
-    // ISS-20260713-005: 条件路由 ROI 遥测经 context-telemetry 分层投递。
-    // engine 只产出样本（variant/占比/章节/时间），落盘归 sink；缺省 sink
-    // 写 cognition-state.json routingROIBuckets（现有 key，HARD-1 守恒）。
-    // A/B 分组：conditionalRoutingEnabled true → 'enabled'，false → 'disabled'。
-    // G-002/G-003 跨章节累积统计。失败非致命 — ROI 采集不影响主链装配。
-    reportRoutingROI(pp, {
-      pack,
-      activeEntities,
-      chapterNumber: context.chapterNumber,
-      conditionalRoutingEnabled: novelConfig.conditionalRoutingEnabled,
-    }, options.telemetrySink)
-    // Wave 5 (v2.5.0): 上下文用量快照 — 预算线直读 currentBuildBudget（本 build
-    // 已算，不重算），记忆段实测 user-memory preference 字符数。additive：加载
-    // 失败/无 store 时 memoryChars=0，仍冻结预算线（ring 照常渲染其余四段）。
-    /* v8 ignore next -- 台账 context-engine.ts L491：loadUserMemoryForProject（user-memory/session.ts L39-51）内部 loadUserMemory（store.ts L15-35）自带 try/catch，读失败/解析失败一律返回 createDefaultStore，从不 reject */
-    const userMemoryStore = await loadUserMemoryForProject(pp).catch(() => null)
-    if (currentBuildBudget) {
-      pack.contextUsage = buildContextUsage(currentBuildBudget, userMemoryStore)
-    }
-    // P2-IMP-13 (P2-M4): KbMetrics 三项真实采集 — buildContextPackUnlocked 尾部装配。
-    //   truth_fold_drift ← IMP-06 sampleTruthFoldDrift 采样聚合值（内部失败吞掉 →
-    //     null → N/A，不阻断主链）；
-    //   hard_injection_budget_usage ← pack.hardInjectUsage.ratio（:728 已装配；
-    //     hardInjectEnabled=false / 装配降级时缺失 → N/A 诚实降级）；
-    //   gap_report_rate ← pack.gaps 计数（IC-02 缺口透明化）。
-    //   canon_violation_rate / obligation_coverage 显式 N/A 保留（评测 gate P1 轨道，
-    //   不伪造 —— agentmemory 诚实降级模式）。
-    // 注：部分测试环境以子集 mock chapter-ingest 模块（仅 listSnapshots/loadSnapshot），
-    //   静态导入的 sampleTruthFoldDrift 绑定在 mock 缺席时经模块 namespace 抛错 ——
-    //   此处 try/catch 守卫：mock 缺席/采样异常一律诚实降级 N/A（null），不阻断主链。
-    //   （生产路径 sampleTruthFoldDrift 内部已自吞失败返回 null。）
-    let driftSample: { driftCount: number; driftedFiles: string[] } | null = null
-    try {
-      driftSample = await sampleTruthFoldDrift(pp)
-    } catch {
-      driftSample = null
-    }
-    pack.kbMetrics = collectKbMetrics({
-      truthFoldDrift: driftSample ? driftSample.driftCount : null,
-      hardInjectionBudgetUsage: pack.hardInjectUsage ? pack.hardInjectUsage.ratio : null,
-      gapReportRate: pack.gaps?.length ?? null,
-    })
-    return pack
-  } finally {
-    // PERF-011 / DC-6 (odyssey-improve): clear BOTH module-level build flags.
-    // `collectContextGaps()` (normal path above) sets contextGapsActive=false,
-    // but if `buildContextPackFromRawData` throws, collectContextGaps never
-    // runs and contextGapsActive stays true — leaving tieredSlice (line ~153)
-    // recording gaps into a stale buffer that the next build's reset would
-    // clear only at its start. Clear both flags here so the post-build window
-    // (between an aborted build and the next reset) is not vulnerable to
-    // stray gap recording, and contextGaps array doesn't accumulate across a
-    // failed build. Idempotent on the normal path (collect already set false).
-    setCurrentBuildBudget(null)
-    setContextGapsActive(false)
-    contextGaps.length = 0
   }
+  const [rawData, canonSource, techniqueText] = await Promise.all([
+    timedSource("wiki", () => registry.loadAll(context)),
+    timedSource("canon", () => loadCanonSourceFacts(pp, context.chapterNumber ?? 0)),
+    timedSource("technique", () => loadTechniqueBlocks(pp)),
+  ])
+  const temporalFactsPreloaded = canonSource.current
+  // telemetry 计时点：每次 build 输出一次三源耗时（毫秒，非整数保留亚毫秒分辨率）。
+  logger.info("ContextEngine", "context-pack 三源并行装配计时", { ...timings })
+
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
+  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
+  const relatedChaptersPromise =
+    novelConfig.relatedChaptersEnabled
+      ? (async (): Promise<string> => {
+          try {
+            const foreshadowing = await loadForeshadowingTracker(pp)
+            const snapshots = await loadAllSnapshots(pp).catch(() => [] as ChapterSnapshot[])
+            return buildRelatedChaptersContext({
+              currentChapter: context.chapterNumber ?? 0,
+              chapterOutline: typeof rawData.chapterOutline === "string" ? rawData.chapterOutline : "",
+              foreshadowing,
+              snapshots,
+            }).text
+          } catch (error) {
+            // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
+            logDegradation("related-chapters context build failed, skipping injection", error, { sourceFailed: true })
+            return ""
+          }
+        })()
+      : Promise.resolve("")
+  const referencesPromise =
+    novelConfig.referenceEnabled
+      ? (async (): Promise<ReferenceContextResult | null> => {
+          try {
+            return await buildReferenceContext(pp, task, {
+              chapterNumber: context.chapterNumber,
+            })
+          } catch (error) {
+            // P1-IMP-13 + R2-W06 IC-02: 显式记录 references 采源失败 gap
+            logDegradation("reference context build failed, skipping injection", error, { sourceFailed: true })
+            session.recordGap("references", "datasource_error")
+            return null
+          }
+        })()
+      : Promise.resolve(null)
+  const hardInjectPromise =
+    novelConfig.hardInjectEnabled
+      ? (async (): Promise<DualTrackResult | null> => {
+          try {
+            const povCharacter =
+              options.povCharacter ??
+              (await resolveChapterPovCharacter(pp, context.chapterNumber ?? 0).catch(() => null)) ??
+              undefined
+            return await retrieveDualTrack({
+              projectPath: pp,
+              query: task,
+              chapterNumber: context.chapterNumber,
+              povCharacter,
+              intent: "draft",
+              topK: novelConfig.searchTopK > 0 ? novelConfig.searchTopK : 5,
+              hardInjectCapChars: session.budget?.hardInjectionBudget.capChars,
+              trustFilterEnabled: novelConfig.trustFilterEnabled,
+              trustGrades: novelConfig.trustFilterEnabled ? buildTrustGradeMap(kbRoutingView as Parameters<typeof buildTrustGradeMap>[0]) : undefined,
+            })
+          } catch (error) {
+            // P1-IMP-13: 分级记录（DEGRADED — 检索路径失败，降级不注入，不终止写作）
+            logDegradation("hard-inject build failed, skipping injection", error, { retrievalFailed: true })
+            return null
+          }
+        })()
+      : Promise.resolve(null)
+  const [pack, exemplars, activeEntities, relatedChaptersText, referencesResult, hardInjectResult] = await Promise.all([
+    // ISS-20260709-035: loadAll 产出 Record<string, unknown>，经显式 cast
+    // 收敛到 ContextRawData 契约（键集合一致，收窄语义由 normalize 入口保证）。
+    buildContextPackFromRawData(rawData as ContextRawData, context, temporalFactsPreloaded),
+    // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
+    novelConfig.exemplarEnabled
+      ? loadStyleExemplars(pp).then((all) => pickTopKExemplars(all)) /* token budget: prefer keeping thril/pull exemplar slots when present */.catch((error) => {
+          // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
+          logDegradation("style exemplars load failed, skipping injection", error, { sourceFailed: true })
+          return [] as StyleExemplar[]
+        })
+      : Promise.resolve([] as StyleExemplar[]),
+    // TASK-006: conditionalRoutingEnabled 默认 true；关闭时跳过路由返回 []。
+    // 零 entity 优雅降级在 selectActiveEntities 内部处理（回退全量 + warning）。
+    novelConfig.conditionalRoutingEnabled
+      ? selectActiveEntities(pp, {
+          chapterNumber: context.chapterNumber,
+          outline: joinNonEmpty([typeof rawData.outline === "string" ? rawData.outline : "", typeof rawData.chapterOutline === "string" ? rawData.chapterOutline : ""], "\n\n"),
+          sceneCharacters: extractSceneCharacters(rawData),
+        }).catch((error) => {
+          // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
+          logDegradation("conditional entity routing failed, skipping injection", error, { sourceFailed: true })
+          return [] as ContextEntity[]
+        })
+      : Promise.resolve([] as ContextEntity[]),
+    relatedChaptersPromise,
+    referencesPromise,
+    hardInjectPromise,
+  ])
+
+  pack.gaps = session.collectGaps()
+  // EPIC-001 / ADR-29: exemplar 注入（top-K=3 按 markType 多样性排名，text 截断）。
+  pack.styleExemplars = exemplars
+  pack.relatedChapters = relatedChaptersText
+  // P1-IMP-03: 结构化返回（截断/失败显式记账，IC-02 绝不静默）。
+  const referencesText = referencesResult?.text ?? ""
+  pack.references = referencesText
+  if (referencesResult && referencesResult.truncated) {
+    pack.gaps.push({
+      type: "truncated",
+      ref: "references",
+      reason: "budget_exceeded",
+      originalLength: referencesText.length + 1,
+      retainedLength: referencesText.length,
+    })
+  }
+  if (referencesResult && referencesResult.cause === "load_failed") {
+    pack.gaps.push({
+      type: "load_failed",
+      ref: "references",
+      reason: "datasource_error",
+      originalLength: 0,
+      retainedLength: 0,
+    })
+  }
+  // E-02 (C-9): 硬注入装配 — additive 独立字段。零条目 → undefined（不渲染该段）；
+  // 超 cap 裁剪与路由缺口同步镜像进 pack.gaps（IC-02 主账，绝不静默）。
+  if (hardInjectResult) {
+    pack.hardInject = hardInjectResult.hardInject.length > 0 ? hardInjectResult.hardInject : undefined
+    pack.hardInjectUsage = hardInjectResult.usage
+    if (hardInjectResult.gaps.length > 0) {
+      pack.kbRoutingGaps = hardInjectResult.gaps
+      for (const gap of hardInjectResult.gaps) {
+        const isBudget = gap.message.includes("budget_exceeded") || gap.collection === "hardInject"
+        pack.gaps.push({
+          type: isBudget ? "truncated" : "load_failed",
+          ref: gap.collection,
+          reason: isBudget ? "budget_exceeded" : "datasource_error",
+          originalLength: 0,
+          retainedLength: 0,
+        })
+      }
+    }
+    if (hardInjectResult.kbReferences && hardInjectResult.kbReferences.length > 0) {
+      pack.kbReferences = hardInjectResult.kbReferences
+    }
+  }
+  // P1-IMP-13 (A1a) + R2-W06 IC-02: reference-binding 素材用途绑定注入
+  let referenceBindingsText = ""
+  try {
+    const bindingStore = await loadReferenceBindings(pp)
+    if (bindingStore) {
+      referenceBindingsText = bindingsToContextText(bindingStore, context.chapterNumber ?? 0)
+    }
+  } catch (error) {
+    logDegradation("reference bindings load failed, skipping injection", error, { sourceFailed: true })
+    pack.gaps.push({
+      type: "load_failed",
+      ref: "referenceBindings",
+      reason: "datasource_error",
+      originalLength: 0,
+      retainedLength: 0,
+    })
+    referenceBindingsText = ""
+  }
+  pack.referenceBindings = referenceBindingsText || undefined
+  pack.formerFacts = canonSource.former.length > 0 ? canonSource.former : undefined
+  pack.techniqueBlocks = techniqueText || undefined
+  pack.sourceTimingsMs = timings
+  const reranked = novelConfig.temporalFactsEnabled
+    ? rerankActiveEntitiesByTemporalFacts(activeEntities, pack.temporalFacts ?? null, context.chapterNumber ?? 0)
+    : activeEntities
+  const wired = truncateActiveEntitiesByBudget(reranked, session.budget?.activeEntitiesBudget, context.chapterNumber ?? 0)
+  pack.activeEntities = wired.entities
+  if (wired.gap) pack.gaps.push(wired.gap)
+  const chNum = context.chapterNumber ?? 0
+  const temporalAudit = auditTemporalFactsStatus({
+    enabled: novelConfig.temporalFactsEnabled === true,
+    chapterNumber: chNum,
+    facts: pack.temporalFacts ?? null,
+  })
+  if (temporalAudit.level === "empty_soft") {
+    logger.warn("ContextEngine", temporalAudit.message, {
+      chapterNumber: chNum,
+      factCount: temporalAudit.factCount,
+    })
+  }
+  if (temporalAudit.shouldRecordGap) {
+    pack.gaps.push({
+      type: "load_failed",
+      ref: temporalEmptySoftGapRef(chNum),
+      reason: "datasource_error",
+      originalLength: 0,
+      retainedLength: 0,
+    })
+  }
+  reportRoutingROI(pp, {
+    pack,
+    activeEntities,
+    chapterNumber: context.chapterNumber,
+    conditionalRoutingEnabled: novelConfig.conditionalRoutingEnabled,
+  }, options.telemetrySink)
+  /* v8 ignore next -- 台账 context-engine.ts L491：loadUserMemoryForProject（user-memory/session.ts L39-51）内部 loadUserMemory（store.ts L15-35）自带 try/catch，读失败/解析失败一律返回 createDefaultStore，从不 reject */
+  const userMemoryStore = await loadUserMemoryForProject(pp).catch(() => null)
+  if (session.budget) {
+    pack.contextUsage = buildContextUsage(session.budget, userMemoryStore)
+  }
+  let driftSample: { driftCount: number; driftedFiles: string[] } | null = null
+  try {
+    driftSample = await sampleTruthFoldDrift(pp)
+  } catch {
+    driftSample = null
+  }
+  pack.kbMetrics = collectKbMetrics({
+    truthFoldDrift: driftSample ? driftSample.driftCount : null,
+    hardInjectionBudgetUsage: pack.hardInjectUsage ? pack.hardInjectUsage.ratio : null,
+    gapReportRate: pack.gaps?.length ?? null,
+  })
+  return pack
 }
 
 /**
@@ -543,14 +467,11 @@ function buildLoadContext(
   task: string,
   chapterNumber?: number,
   options: BuildContextOptions = {},
+  session?: ContextBuildSession,
 ): ContextLoadContext {
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
   const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
   const revisionFeedbackWindowConfig = options.revisionFeedbackWindowConfig ?? useWikiStore.getState().revisionFeedbackWindowConfig
-  // PERF-011 (TASK-007): wire llmConfig.maxContextSize through so
-  // computeContextBudget's chapterAdaptiveScale is live on the read path
-  // (was dead code — no read-path caller). Optional field: absent →
-  // computeContextBudget falls back to DEFAULT_MAX_CTX (backward compatible).
   const llmConfig = options.llmConfig ?? useWikiStore.getState().llmConfig
 
   return {
@@ -559,17 +480,16 @@ function buildLoadContext(
     chapterNumber: chapterNumber ?? extractChapterNumberFromTask(task),
     maxContextSize: llmConfig.maxContextSize,
     novelConfig,
+    embeddingConfig: options.embeddingConfig,
+    rerankConfig: options.rerankConfig,
+    buildSession: session,
     config: {
       recentSummaryWindow: novelConfig.recentSummaryWindow > 0 ? novelConfig.recentSummaryWindow : 8,
       searchTopK: novelConfig.searchTopK > 0 ? novelConfig.searchTopK : 5,
       snapshotLookback: 3,
       revisionFeedbackWindowConfig,
     },
-    // DC-8 (odyssey-improve): inject the gap recorder so data sources can
-    // surface load failures into pack.gaps (IC-02) without importing
-    // context-engine (avoids circular dependency). No-op outside a build
-    // (guarded by contextGapsActive inside recordDatasourceLoadFailure).
-    recordGap: recordDatasourceLoadFailure,
+    recordGap: session ? session.recordGap : recordDatasourceLoadFailure,
   }
 }
 
@@ -824,17 +744,28 @@ export function applyTemporalFactsToCanonRules(
 /**
  * 职责 7：派生 stores（世界骨架/叙事可见性，原 return 内联 await 逐字搬迁）。
  */
-export async function resolveDerivedStoreSections(projectPath: string): Promise<DerivedStoreSections> {
+export async function resolveDerivedStoreSections(
+  projectPath: string,
+  recordGap?: (ref: string, reason?: ContextGapReason) => void,
+): Promise<DerivedStoreSections> {
   // MIG-002: 世界骨架接入 context pack — loadWorldBlueprint 非空且有完备层时
   // 渲染为 prompt 片段注入；null/空骨架 → undefined → 不渲染（字节级不变）。
   const worldBlueprint = await loadWorldBlueprint(projectPath).then(
     (bp) => (bp ? worldBlueprintToPromptFragment(bp) || undefined : undefined),
-  ).catch(() => undefined)
+  ).catch((error) => {
+    logDegradation("world blueprint load failed, skipping", error, { sourceFailed: true })
+    recordGap?.("worldBlueprint", "datasource_error")
+    return undefined
+  })
   // MIG-003: 叙事信息差可见性——loadNarrativeState 非空且有效声明时
   // 渲染视角可见性摘要；空 store → undefined → 不渲染。
   const narrativeVisibility = await loadNarrativeState(projectPath).then(
     (store) => narrativeVisibilitySummary(store) || undefined,
-  ).catch(() => undefined)
+  ).catch((error) => {
+    logDegradation("narrative visibility load failed, skipping", error, { sourceFailed: true })
+    recordGap?.("narrativeVisibility", "datasource_error")
+    return undefined
+  })
   return { worldBlueprint, narrativeVisibility }
 }
 
@@ -847,13 +778,6 @@ async function buildContextPackFromRawData(
   // 收窄（行为与 any 时代字节级一致：缺失/非 string → ""/[]）。下沉 helper
   // 内 rawStrField/rawStrArrField 与原内联三 helper 语义同一。
   const snapshots = normalizeRawSnapshots(rawData)
-  // PERF-011 (TASK-007): the adaptive budget for this build was already
-  // computed in `buildContextPack` (stored as `currentBuildBudget`) before
-  // the data-source load, so the tieredSlice call sites in
-  // readChapterOutlineContent / pickChapterOutlineByNumber drive their caps
-  // from `currentBuildBudget.maxPageSize` (which supersedes the static
-  // CHAPTER_OUTLINE_PROTECTED_CAP) instead of the legacy hardcoded constant.
-  // No recompute here — single source of truth via the module-level budget.
 
   // 职责 1：摘要/正文/delta/上章结尾
   const { recentSummaries, recentChapterContents, recentStateDeltas, previousChapterEnding } =
@@ -877,6 +801,10 @@ async function buildContextPackFromRawData(
   // 构建角色氛围上下文（依赖其他数据）
   const characterAuraPromise = buildCharacterAuraContext(context.projectPath, context.task, {
     matchingText: resolveAuraMatchingText(rawData, snapshots, chapterGoal),
+  }).catch((error) => {
+    logDegradation("character aura context build failed, degrading to empty", error, { sourceFailed: true })
+    context.recordGap?.("characterAuras", "datasource_error")
+    return ""
   })
 
   // 职责 5：时序 canon 基线 + 社区摘要并发（temporal 预载直传消费）。
@@ -895,7 +823,7 @@ async function buildContextPackFromRawData(
   const canonRules = applyTemporalFactsToCanonRules(baseCanonRules, temporalFacts, targetChapter)
 
   // 职责 7：派生 stores（世界骨架/叙事可见性）
-  const derivedStores = await resolveDerivedStoreSections(context.projectPath)
+  const derivedStores = await resolveDerivedStoreSections(context.projectPath, context.recordGap)
 
   // 职责 6：最终装配
   return {
@@ -1029,6 +957,8 @@ function normalizeEntityName(value: string): string {
   return value.normalize("NFKC").trim()
 }
 
+const ENTITY_READ_CONCURRENCY = 16
+
 export async function selectActiveEntities(
   pp: string,
   hints: { chapterNumber?: number; outline: string; sceneCharacters: string },
@@ -1046,17 +976,22 @@ export async function selectActiveEntities(
   const mdFiles = files.filter((f) => !f.is_dir && f.name.toLowerCase().endsWith(".md"))
   if (mdFiles.length === 0) return []
 
-  // 读取所有 entity page 内容（并行）。
-  const contents = await Promise.all(
-    mdFiles.map(async (f) => {
-      try {
-        return { path: f.path, content: await readFile(f.path) }
-      } catch {
-        logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1945 })
-        return null
-      }
-    }),
-  )
+  // K-6：按 ENTITY_READ_CONCURRENCY=16 分批并行读取 entity page 内容（保序、防无界并发打满 IPC）。
+  const contents: Array<{ path: string; content: string } | null> = []
+  for (let i = 0; i < mdFiles.length; i += ENTITY_READ_CONCURRENCY) {
+    const batch = mdFiles.slice(i, i + ENTITY_READ_CONCURRENCY)
+    const batchResults = await Promise.all(
+      batch.map(async (f) => {
+        try {
+          return { path: f.path, content: await readFile(f.path) }
+        } catch {
+          logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1945 })
+          return null
+        }
+      }),
+    )
+    contents.push(...batchResults)
+  }
 
   const chapterN = hints.chapterNumber
   // 双源匹配文本：chapter outline mentions + scene characters。
@@ -1178,6 +1113,7 @@ import {
   searchRelevantContentUnified as searchRelevantContentUnifiedImpl,
   runVectorSearchForContext as runVectorSearchForContextImpl,
   __setGapRecorderForTests,
+  type ContextRetrievalOptions,
 } from "./context-retrieval"
 // ── 分层裁剪/来源装载/时序 memo/大纲读取子模块（P1 巨文件拆分）──────────────
 // SECTION_PRIORITY 与 gap 契约抽离到 context-engine-gaps.ts；
@@ -1185,20 +1121,15 @@ import {
 // 时序事实 memo 抽离到 context-engine-temporal.ts；大纲读取族抽离到
 // context-engine-outline.ts。对外导出面不变（下方 import + 逐项 re-export）。
 import {
-  buildMutex,
   contextGaps,
+  createContextBuildSession,
   getContextGapsActive,
-  setBuildMutex,
-  setContextGapsActive,
-  setCurrentBuildBudget,
-  collectContextGaps,
-  currentBuildBudget,
   logDegradation,
   recordDatasourceLoadFailure,
-  resetContextGaps,
 } from "./context-engine-gaps"
-export type { ContextGap, SourceTier } from "./context-engine-gaps"
-export { collectContextGaps, resetContextGaps } from "./context-engine-gaps"
+export type { ContextBuildSession, ContextGap, SourceTier } from "./context-engine-gaps"
+export { collectContextGaps, createContextBuildSession, resetContextGaps } from "./context-engine-gaps"
+export type { ContextRetrievalOptions } from "./context-retrieval"
 import {
   loadCanonSourceFacts,
   loadTechniqueBlocks,
@@ -1239,7 +1170,7 @@ export async function searchRelevantContent(
   task: string,
   chapterNumber: number | undefined,
   limit: number,
-  options: BuildContextOptions = {},
+  options: ContextRetrievalOptions = {},
 ): Promise<string> {
   return searchRelevantContentUnified(pp, task, chapterNumber, limit, options)
 }
@@ -1248,9 +1179,11 @@ export async function searchRelevantContentUnified(
   task: string,
   chapterNumber: number | undefined,
   limit: number,
-  options: BuildContextOptions = {},
+  options: ContextRetrievalOptions = {},
 ): Promise<string> {
-  if (!getContextGapsActive()) return searchRelevantContentUnifiedImpl(pp, task, chapterNumber, limit, options)
+  if (options.buildSession || !getContextGapsActive()) {
+    return searchRelevantContentUnifiedImpl(pp, task, chapterNumber, limit, options)
+  }
   __setGapRecorderForTests(contextGaps, true)
   try {
     return await searchRelevantContentUnifiedImpl(pp, task, chapterNumber, limit, options)
@@ -1262,9 +1195,11 @@ export async function runVectorSearchForContext(
   pp: string,
   query: string,
   limit: number,
-  options: BuildContextOptions = {},
+  options: ContextRetrievalOptions = {},
 ): Promise<{ title: string; snippet: string; path: string }[]> {
-  if (!getContextGapsActive()) return runVectorSearchForContextImpl(pp, query, limit, options)
+  if (options.buildSession || !getContextGapsActive()) {
+    return runVectorSearchForContextImpl(pp, query, limit, options)
+  }
   __setGapRecorderForTests(contextGaps, true)
   try {
     return await runVectorSearchForContextImpl(pp, query, limit, options)

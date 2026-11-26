@@ -72,7 +72,7 @@ describe("54 ⑨ avoid-ai 审计——anti_ai gate 维度 × 检测器覆盖矩�
     // 复用 mechanical-slop-detector.spec.ts 已验证的 detector fixture/style：
     // 同一角色同一动作标签 3 次 = 本维度「≥3 次/章」机械信号。
     const sameChapterText = "白砚推了推眼镜，白砚又推了推眼镜，白砚再推了推眼镜。"
-    const hits = detectCharacterActions(sameChapterText)
+    const hits = detectCharacterActions(sameChapterText, ["白砚"])
 
     expect(hits.length).toBeGreaterThan(0)
     const pushGlasses = hits.find((hit) => hit.action === "推眼镜")

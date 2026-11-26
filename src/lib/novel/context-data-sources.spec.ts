@@ -761,11 +761,11 @@ describe("outlineDataSource / chapterOutlineDataSource", () => {
     expect(mocks.readOutlineContent).toHaveBeenCalledWith("E:/Novel")
   })
 
-  it("chapterOutlineDataSource.load: 无 chapterNumber 返回空串, 有则读章节大纲", async () => {
+  it("chapterOutlineDataSource.load: 无 chapterNumber 返回空串, 有则读章节大纲并透传 buildSession", async () => {
     await expect(chapterOutlineDataSource.load({ ...context, chapterNumber: undefined })).resolves.toBe("")
     mocks.readChapterOutlineContent.mockResolvedValue("第三章细纲")
     await expect(chapterOutlineDataSource.load(context)).resolves.toBe("第三章细纲")
-    expect(mocks.readChapterOutlineContent).toHaveBeenCalledWith("E:/Novel", 3)
+    expect(mocks.readChapterOutlineContent).toHaveBeenCalledWith("E:/Novel", 3, undefined)
   })
 })
 
@@ -1282,16 +1282,44 @@ describe("writingStyleDataSource 错误分支", () => {
 })
 
 describe("searchResultsDataSource / graphSearchResultsDataSource", () => {
-  it("searchResultsDataSource 透传 unified 搜索结果", async () => {
+  it("searchResultsDataSource 透传 unified 搜索结果及 DI 选项（novelConfig / recordGap / buildSession）", async () => {
+    const recordGap = vi.fn()
     mocks.searchRelevantContentUnified.mockResolvedValue("相关正文")
-    await expect(searchResultsDataSource.load(context)).resolves.toBe("相关正文")
-    expect(mocks.searchRelevantContentUnified).toHaveBeenCalledWith("E:/Novel", "生成第三章正文", 3, 5)
+    await expect(searchResultsDataSource.load({ ...context, recordGap })).resolves.toBe("相关正文")
+    expect(mocks.searchRelevantContentUnified).toHaveBeenCalledWith(
+      "E:/Novel",
+      "生成第三章正文",
+      3,
+      5,
+      expect.objectContaining({
+        novelConfig: context.novelConfig,
+        embeddingConfig: context.embeddingConfig,
+        rerankConfig: context.rerankConfig,
+        recordGap,
+        buildSession: context.buildSession,
+      }),
+    )
   })
 
-  it("graphSearchResultsDataSource 透传图谱搜索结果", async () => {
-    mocks.searchGraphRelevantContent.mockResolvedValue("图谱正文")
-    await expect(graphSearchResultsDataSource.load(context)).resolves.toBe("图谱正文")
-    expect(mocks.searchGraphRelevantContent).toHaveBeenCalledWith("E:/Novel", "生成第三章正文", 3)
+  it("searchResultsDataSource 异常时记录 IC-02 datasource_error gap 并降级空串", async () => {
+    const recordGap = vi.fn()
+    mocks.searchRelevantContentUnified.mockRejectedValueOnce(new Error("search down"))
+    await expect(searchResultsDataSource.load({ ...context, recordGap })).resolves.toBe("")
+    expect(recordGap).toHaveBeenCalledWith("searchResults", "datasource_error")
+  })
+
+  it("graphSearchResultsDataSource 透传图谱搜索结果及 gap 记录器，异常记录 datasource_error", async () => {
+    const recordGap = vi.fn()
+    mocks.searchGraphRelevantContent.mockResolvedValueOnce("图谱正文")
+    await expect(graphSearchResultsDataSource.load({ ...context, recordGap })).resolves.toBe("图谱正文")
+    expect(mocks.searchGraphRelevantContent).toHaveBeenCalledWith("E:/Novel", "生成第三章正文", 3, {
+      recordGap,
+      buildSession: context.buildSession,
+    })
+
+    mocks.searchGraphRelevantContent.mockRejectedValueOnce(new Error("graph down"))
+    await expect(graphSearchResultsDataSource.load({ ...context, recordGap })).resolves.toBe("")
+    expect(recordGap).toHaveBeenCalledWith("graphSearchResults", "datasource_error")
   })
 })
 

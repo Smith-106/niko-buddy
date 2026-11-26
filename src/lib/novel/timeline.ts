@@ -1,6 +1,8 @@
-import { readFile, writeFile } from "@/commands/fs"
-import { logger } from "@/lib/utils"
+import { readFile, writeFileAtomic } from "@/commands/fs"
+import { todayStamp } from "@/lib/utils"
 import { normalizePath } from "@/lib/path-utils"
+import { isMissingFile } from "./chapter-ingest-utils"
+import { withProjectLock } from "./novel-locks"
 
 /**
  * 时间线条目结构。
@@ -42,16 +44,21 @@ function timelinePath(projectPath: string): string {
  */
 export async function loadTimeline(projectPath: string): Promise<TimelineFile> {
   const path = timelinePath(projectPath)
+  let raw: string
   try {
-    const raw = await readFile(path)
-    const data = JSON.parse(raw)
-    if (data.version === 1 && Array.isArray(data.entries)) {
-      return data as TimelineFile
-    }
-  } catch {
-    logger.warn("timeline", "silent-degrade: 降级返回空值（吞错已标记）", { line: 50 })
+    raw = await readFile(path, { exactUtf8: true })
+  } catch (error) {
+    if (await isMissingFile(path, error)) return { version: 1, entries: [], serial: 0, updatedAt: "" }
+    throw error
   }
-  return { version: 1, entries: [], serial: 0, updatedAt: "" }
+  const data: TimelineFile = JSON.parse(raw.replace(/^\uFEFF/, ""))
+  if (data?.version !== 1 || !Array.isArray(data.entries)
+    || !Number.isSafeInteger(data.serial) || data.serial < 0
+    || typeof data.updatedAt !== "string"
+    || data.entries.some(entry => entry == null || !Number.isSafeInteger(entry.chapterNumber) || typeof entry.event !== "string")) {
+    throw new Error(`Invalid timeline document: ${path}`)
+  }
+  return data
 }
 
 /**
@@ -63,8 +70,8 @@ export async function loadTimeline(projectPath: string): Promise<TimelineFile> {
  */
 async function saveTimeline(projectPath: string, data: TimelineFile): Promise<void> {
   const path = timelinePath(projectPath)
-  data.updatedAt = new Date().toISOString()
-  await writeFile(path, JSON.stringify(data, null, 2))
+  data.updatedAt = todayStamp()
+  await writeFileAtomic(path, JSON.stringify(data, null, 2))
 }
 
 /**
@@ -82,21 +89,45 @@ export async function mergeSnapshotTimeline(
 ): Promise<void> {
   if (!timelineEvents || timelineEvents.length === 0) return
 
-  const tl = await loadTimeline(projectPath)
+  await withProjectLock(`timeline:${normalizePath(projectPath)}`, async () => {
+    const tl = await loadTimeline(projectPath)
 
-  // 使用 Set 进行去重
-  const existing = new Set(tl.entries.map((e) => `${e.chapterNumber}:${e.event}`))
+    // 使用 Set 进行去重
+    const existing = new Set(tl.entries.map((e) => `${e.chapterNumber}:${e.event}`))
 
-  for (const event of timelineEvents) {
-    const key = `${chapterNumber}:${event}`
-    if (!existing.has(key)) {
-      tl.serial++
-      tl.entries.push({ chapterNumber, event })
-      existing.add(key)
+    for (const event of timelineEvents) {
+      const key = `${chapterNumber}:${event}`
+      if (!existing.has(key)) {
+        if (tl.serial === Number.MAX_SAFE_INTEGER) throw new Error("Timeline serial is exhausted")
+        tl.serial++
+        tl.entries.push({ chapterNumber, event })
+        existing.add(key)
+      }
     }
-  }
 
-  await saveTimeline(projectPath, tl)
+    await saveTimeline(projectPath, tl)
+  })
+}
+
+/**
+ * 移除指定章节的全部时间线事件（短锁 RMW，供删章联动清理）。
+ * 文件缺失或无该章事件时零写盘并返回 false；坏文档或读错 fail-loud 上抛。
+ */
+export async function removeChapterTimelineEvents(
+  projectPath: string,
+  chapterNumber: number,
+): Promise<boolean> {
+  const pp = normalizePath(projectPath)
+  return withProjectLock(`timeline:${pp}`, async () => {
+    const tl = await loadTimeline(pp)
+    const remaining = tl.entries.filter((e) => e.chapterNumber !== chapterNumber)
+    if (remaining.length === tl.entries.length) return false
+    if (tl.serial === Number.MAX_SAFE_INTEGER) throw new Error("Timeline serial is exhausted")
+    tl.entries = remaining
+    tl.serial++
+    await saveTimeline(pp, tl)
+    return true
+  })
 }
 
 /**

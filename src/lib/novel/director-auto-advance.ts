@@ -40,6 +40,7 @@ import { recordModuleHit } from "./module-heat"
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { toErrorMessage } from "@/lib/utils"
+import { yamlEscape } from "@/lib/wiki-filename"
 
 /** 阶段产物存档（供后续阶段当上游、供面板展示摘要）。 */
 export const DIRECTOR_ARTIFACTS_FILE = "director-stage-artifacts.json"
@@ -69,11 +70,15 @@ export async function saveStageArtifacts(projectPath: string, stages: DirectorSt
 // 产物落盘（写到出口门真正会读的位置——否则「生成成功但门永远不过」）
 // ──────────────────────────────────────────────────────────────────────────
 
+function yamlQuoted(value: string): string {
+  return `"${yamlEscape(value.replace(/[\r\n]+/g, " "))}"`
+}
+
 function characterEntityDoc(entry: { name: string; role: string; desire: string; flaw: string }): string {
   return [
     "---",
-    `name: ${entry.name}`,
-    `role: ${entry.role}`,
+    `name: ${yamlQuoted(entry.name)}`,
+    `role: ${yamlQuoted(entry.role)}`,
     "---",
     "",
     `# ${entry.name}`,

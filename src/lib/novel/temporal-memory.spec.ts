@@ -689,4 +689,38 @@ describe("fromCanonGraph (T25)", () => {
     expect(byId.get("e-assert")!.modality).toBe("assertive")
     expect(byId.get("e-assert")!.recordedRevision).toBe(7)
   })
+
+  it("R2-M09: factsFromCommittedSnapshots 过滤 chapterNumber <= 0 的大纲快照", () => {
+    const mkSnap = (chapterNumber: number, newCanonFacts: string[]) => ({
+      chapterId: `ch-${chapterNumber}`,
+      chapterNumber,
+      summary: "",
+      characters: [],
+      locations: [],
+      organizations: [],
+      items: [],
+      events: [],
+      characterStateChanges: [],
+      relationshipChanges: [],
+      knowledgeChanges: [],
+      foreshadowingChanges: [],
+      newCanonFacts,
+      timelineEvents: [],
+      conflicts: [],
+      endingHook: "",
+      graphNodes: [],
+      graphEdges: [],
+    })
+    const facts = factsFromCommittedSnapshots(
+      [
+        mkSnap(-5, ["大纲设定：不应进入正文章时序"]),
+        mkSnap(0, ["零号设定：不应进入正文章时序"]),
+        mkSnap(2, ["林澈：抵达都城"]),
+      ],
+      undefined,
+    )
+    expect(facts).toHaveLength(1)
+    expect(facts[0]!.validFrom).toBe(2)
+    expect(facts[0]!.subject).toBe("林澈")
+  })
 })

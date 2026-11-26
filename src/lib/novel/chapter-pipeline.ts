@@ -1,4 +1,5 @@
-import type { IngestResult } from "./chapter-ingest";
+import type { IngestFailReason, IngestResult } from "./chapter-ingest";
+import { toErrorMessage } from "@/lib/utils";
 import { recordModuleHit } from "./module-heat"
 import { resolveReviewModel } from "./review-model";
 import { listResumeCandidates, type ResumeCandidate } from "./stage-output-journal";
@@ -63,10 +64,15 @@ export function createBatchChapterPipeline(deps: ChapterPipelineDeps): (
       try {
         const result = await deps.ingestChapter(projectPath, chapterPath, reviewModel);
         results.push({ chapterPath, result });
-      } catch {
+      } catch (err) {
+        const message = toErrorMessage(err);
+        const failReason: IngestFailReason =
+          /Multiple final chapter files share chapter number|duplicate_chapter_number/i.test(message)
+            ? "duplicate_chapter_number"
+            : "extract_failed";
         results.push({
           chapterPath,
-          result: { snapshot: null, failReason: "extract_failed" },
+          result: { snapshot: null, failReason },
         });
       }
     }

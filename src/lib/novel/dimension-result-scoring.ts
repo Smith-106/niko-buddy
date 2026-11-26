@@ -122,6 +122,7 @@ export function buildFailedDimensionResult(
     dimensionKey: dimension.key,
     score: 0,
     status: "error",
+    executionFailed: true,
     summary: `${dimension.label}审查失败：${message}`,
     thinking: formatDimensionThinking(dimension, `审查失败：${message}`),
     issues: [{

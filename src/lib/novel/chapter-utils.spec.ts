@@ -275,6 +275,20 @@ describe("project-scoped chapter index cache (ISS-20260724-005)", () => {
     await expect(findChapterFileByNumber("E:/Novel", 1)).resolves.toBeNull()
   })
 
+  it("R2-M05: findChapterFileByNumber 优先返回 isFinal === true 的正式章，无 final 时回退非 final", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      chapterNode("chapter-002-old.md"),
+      chapterNode("chapter-002-final.md"),
+    ])
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (p.includes("chapter-002-old.md")) {
+        return "---\ntype: chapter\nchapter_number: 2\nchapter_status: draft\n---\n# 第2章 草稿\n"
+      }
+      return "---\ntype: chapter\nchapter_number: 2\nchapter_status: final\n---\n# 第2章 正式\n"
+    })
+    await expect(findChapterFileByNumber("E:/Novel", 2)).resolves.toBe("E:/Novel/wiki/chapters/chapter-002-final.md")
+  })
+
   it("discards an in-flight index snapshot when the cache is invalidated mid-load", async () => {
     let resolveList!: (value: unknown) => void
     fsMocks.listDirectory.mockReturnValueOnce(new Promise((resolve) => { resolveList = resolve }))

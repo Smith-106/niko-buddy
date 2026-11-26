@@ -1,9 +1,9 @@
-import { listDirectory, readFile, writeFile, createDirectory } from "@/commands/fs"
+import {createDirectory, fileExists, listDirectory, readFile, writeFilesAtomic} from "@/commands/fs"
 import { buildWikiGraph, type GraphNode, type CommunityInfo } from "@/lib/wiki-graph"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
-import { embedPage, searchByEmbedding } from "@/lib/embedding"
+import { indexCommunitySummary, searchByEmbedding } from "@/lib/embedding"
 import { useWikiStore, type NovelConfig, type LlmConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
 import { logger, toErrorMessage } from "@/lib/utils"
@@ -15,6 +15,59 @@ export interface CommunitySummaryRecord {
   nodeCount: number
   topNodes: string[]
   generatedAt: string
+}
+
+interface CommunitySummarySet {
+  schemaVersion: 1
+  vectorSlot: 0 | 1 | null
+  records: CommunitySummaryRecord[]
+}
+
+const CURRENT_SET_NAME = "current-set.json"
+
+class InvalidCommunitySummarySetError extends Error {
+  constructor() {
+    super("Invalid published community summary set.")
+  }
+}
+
+function summaryPageId(slot: 0 | 1, communityId: number): string {
+  return `community-summary-${slot}.${communityId}`
+}
+
+function isCommunitySummaryRecord(value: unknown): value is CommunitySummaryRecord {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false
+  const record = value as Partial<CommunitySummaryRecord>
+  return typeof record.communityId === "number" && Number.isSafeInteger(record.communityId) && record.communityId >= 0
+    && typeof record.summary === "string" && record.summary.trim().length > 0
+    && typeof record.nodeCount === "number" && Number.isSafeInteger(record.nodeCount) && record.nodeCount >= 0
+    && Array.isArray(record.topNodes) && record.topNodes.every(node => typeof node === "string")
+    && typeof record.generatedAt === "string" && Number.isFinite(Date.parse(record.generatedAt))
+}
+
+function areCommunitySummaryRecords(records: unknown): records is CommunitySummaryRecord[] {
+  return Array.isArray(records) && records.every(isCommunitySummaryRecord)
+    && new Set(records.map(record => record.communityId)).size === records.length
+}
+
+/** 只有文件缺失才走旧版读取路径；损坏从不视为缺失。 */
+async function readCurrentSet(manifestPath: string): Promise<{ set: CommunitySummarySet; raw: string } | null> {
+  if (!(await fileExists(manifestPath))) return null
+  const raw = await readFile(manifestPath)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new InvalidCommunitySummarySetError()
+  }
+  if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const { schemaVersion, vectorSlot, records } = parsed as Partial<CommunitySummarySet>
+    if (schemaVersion === 1 && (vectorSlot === null || vectorSlot === 0 || vectorSlot === 1)
+      && areCommunitySummaryRecords(records)) {
+      return { set: { schemaVersion, vectorSlot, records }, raw }
+    }
+  }
+  throw new InvalidCommunitySummarySetError()
 }
 
 /**
@@ -70,91 +123,82 @@ export function shouldRebuildCommunitySummaries(
   return chapterNumber % interval === 0
 }
 
-/** 生成所有社区的叙事摘要并持久化 + 向量化 */
+/** 暂存全部叙事摘要；调用侧持有项目摘要锁，最后才原子发布整组。 */
 export async function generateCommunitySummaries(
   projectPath: string,
   llmConfig: LlmConfig,
   novelConfig: NovelConfig,
   embCfg?: EmbeddingConfig,
+  onFailure?: (error: unknown) => void,
 ): Promise<void> {
-  const pp = normalizePath(projectPath)
-  const { nodes, communities } = await buildWikiGraph(pp)
-  if (communities.length === 0) return
+  try {
+    const pp = normalizePath(projectPath)
+    const { nodes, communities } = await buildWikiGraph(pp)
+    if (communities.length === 0) return
 
-  // 按社区 ID 分组节点
-  const nodesByCommunity = new Map<number, GraphNode[]>()
-  for (const node of nodes) {
-    const bucket = nodesByCommunity.get(node.community) ?? []
-    bucket.push(node)
-    nodesByCommunity.set(node.community, bucket)
-  }
+    const summaryDir = `${pp}/.novel/community-summaries`
+    const manifestPath = `${summaryDir}/${CURRENT_SET_NAME}`
+    const published = await readCurrentSet(manifestPath)
+    const currentSet = published?.set
+    const nodesByCommunity = new Map<number, GraphNode[]>()
+    for (const node of nodes) {
+      const bucket = nodesByCommunity.get(node.community) ?? []
+      bucket.push(node)
+      nodesByCommunity.set(node.community, bucket)
+    }
 
-  // 准备持久化目录
-  const summaryDir = `${pp}/.novel/community-summaries`
-  await createDirectory(summaryDir)
-
-  // 解析摘要模型
-  const summaryLlmConfig = resolveNovelModel(llmConfig, novelConfig, "summary")
-  const embCfgResolved = embCfg ?? useWikiStore.getState().embeddingConfig
-
-  // TASK-402: 社区 LLM 并行 + 自写信号量限流（防配额打爆）。
-  // 每个社区独立 try/catch 保留失败不阻断语义；结果按 index 落数组，
-  // 全部生成完毕后依 communities 输入序 writeFile + embedPage（输出顺序确定性）。
-  const semaphore = createSemaphore(maxConcurrency)
-  const results: Array<{ community: CommunityInfo; record: CommunitySummaryRecord } | undefined> = new Array(communities.length)
-
-  await Promise.all(
-    communities.map(async (community, index) => {
-      await semaphore.acquire()
-      try {
-        const members = nodesByCommunity.get(community.id) ?? []
-        if (members.length === 0) return
-
+    const summaryLlmConfig = resolveNovelModel(llmConfig, novelConfig, "summary")
+    const embCfgResolved = embCfg ?? useWikiStore.getState().embeddingConfig
+    // TASK-402：并行限流、按输入序收集；任一失败都不得进入写入阶段。
+    const semaphore = createSemaphore(maxConcurrency)
+    let firstFailure: { cause: unknown } | undefined
+    const staged = await Promise.all(
+      communities.map(async (community): Promise<CommunitySummaryRecord | undefined> => {
+        const members = nodesByCommunity.get(community.id)
+        if (!members?.length) return
+        await semaphore.acquire()
         try {
           const summary = await generateSingleCommunitySummary(community, members, summaryLlmConfig)
-          results[index] = {
-            community,
-            record: {
-              communityId: community.id,
-              summary,
-              nodeCount: community.nodeCount,
-              topNodes: community.topNodes,
-              generatedAt: new Date().toISOString(),
-            },
+          return {
+            communityId: community.id,
+            summary,
+            nodeCount: community.nodeCount,
+            topNodes: community.topNodes,
+            generatedAt: new Date().toISOString(),
           }
         } catch (err) {
           logger.warn("CommunitySummary", `生成社区 ${community.id} 摘要失败`, { error: toErrorMessage(err) })
+          firstFailure ??= { cause: err }
+        } finally {
+          semaphore.release()
         }
-      } finally {
-        semaphore.release()
-      }
-    }),
-  )
+      }),
+    )
+    if (firstFailure) throw firstFailure.cause
+    const records = staged.filter((entry): entry is CommunitySummaryRecord => entry !== undefined)
+    if (!records.length) return
+    if (!areCommunitySummaryRecords(records)) throw new Error("Invalid generated community summary set.")
 
-  // 依 communities 输入序聚合持久化 + 向量化（顺序确定性）
-  for (const entry of results) {
-    if (!entry) continue
-    const { community, record } = entry
-
-    // 持久化到 JSON
-    const summaryPath = `${summaryDir}/${community.id}.json`
-    try {
-      await writeFile(summaryPath, JSON.stringify(record, null, 2))
-    } catch (err) {
-      logger.warn("CommunitySummary", `持久化社区 ${community.id} 摘要失败`, { error: toErrorMessage(err) })
-      continue
-    }
-
-    // 向量化写入 LanceDB（page_id = community:xxx）
-    if (embCfgResolved.enabled && embCfgResolved.model) {
-      try {
-        const pageId = `community:${community.id}`
-        const title = `社区 ${community.id} 摘要（${community.topNodes[0] ?? ""}）`
-        await embedPage(pp, pageId, title, record.summary, embCfgResolved)
-      } catch (err) {
-        logger.warn("CommunitySummary", `向量化社区 ${community.id} 失败`, { error: toErrorMessage(err) })
+    const vectorSlot = embCfgResolved.enabled && embCfgResolved.model
+      ? (currentSet?.vectorSlot === 0 ? 1 : 0)
+      : null
+    if (vectorSlot !== null) {
+      for (const record of records) {
+        const title = `社区 ${record.communityId} 摘要（${record.topNodes[0] ?? ""}）`
+        await indexCommunitySummary(pp, summaryPageId(vectorSlot, record.communityId), title, record.summary, embCfgResolved)
       }
     }
+
+    // 只切换发布入口，不把 JSON 与 LanceDB 伪装成跨存储事务。manifest 用
+    // native 守卫批量（expectedContents CAS）：若发布前 manifest 被外部改动，
+    // native 拒绝且不覆盖——已活动的旧发布原样保留，TS 不再二次回读。
+    const nextSet: CommunitySummarySet = { schemaVersion: 1, vectorSlot, records }
+    const raw = JSON.stringify(nextSet, null, 2)
+    await createDirectory(summaryDir)
+    await writeFilesAtomic([[manifestPath, raw]], [published?.raw ?? null])
+  } catch (err) {
+    if (!onFailure) throw err
+    onFailure(err)
   }
 }
 
@@ -255,32 +299,38 @@ export async function loadPersistedCommunitySummaries(
   const maxRecords = Math.max(1, options?.maxRecords ?? 8)
   const maxChars = Math.max(200, options?.maxChars ?? 2400)
   const summaryDir = `${pp}/.novel/community-summaries`
-  const records: CommunitySummaryRecord[] = []
+  let records: CommunitySummaryRecord[] = []
 
   try {
-    const nodes = await listDirectory(summaryDir)
-    const files = nodes
-      .filter((n) => n.name.endsWith(".json") && !n.is_dir)
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .slice(0, maxRecords * 2)
+    const currentSet = (await readCurrentSet(`${summaryDir}/${CURRENT_SET_NAME}`))?.set
+    if (currentSet) {
+      records = currentSet.records
+    } else {
+      const nodes = await listDirectory(summaryDir)
+      const files = nodes
+        .filter((n) => n.name !== CURRENT_SET_NAME && n.name.endsWith(".json") && !n.is_dir)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .slice(0, maxRecords * 2)
 
-    for (const file of files) {
-      if (records.length >= maxRecords) break
-      try {
-        const raw = await readFile(file.path)
-        const parsed = JSON.parse(raw) as CommunitySummaryRecord
-        if (parsed && typeof parsed.summary === "string" && parsed.summary.trim()) {
-          records.push(parsed)
+      for (const file of files) {
+        if (records.length >= maxRecords) break
+        try {
+          const raw = await readFile(file.path)
+          const parsed = JSON.parse(raw) as CommunitySummaryRecord
+          if (parsed && typeof parsed.summary === "string" && parsed.summary.trim()) {
+            records.push(parsed)
+          }
+        } catch {
+          // 保持旧版文件逐个跳过的行为。
         }
-      } catch {
-        // skip bad files
       }
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof InvalidCommunitySummarySetError) logger.warn("CommunitySummary", toErrorMessage(err))
     return { text: "", records: [] }
   }
 
-  // Prefer larger communities first when over maxRecords already sliced by name order
+  // 优先较大社区；旧版读取仍先按文件名截断。
   records.sort((a, b) => (b.nodeCount ?? 0) - (a.nodeCount ?? 0))
   const top = records.slice(0, maxRecords)
 
@@ -315,7 +365,20 @@ export async function searchCommunitySummaries(
 
   try {
     const results = await searchByEmbedding(pp, query, embCfgResolved, topK * 3)
-    // 只保留 community: 前缀的结果
+    // 先取向量再读取当前发布入口，避免向量查询期间切槽后注入旧内容。
+    const currentSet = (await readCurrentSet(`${pp}/.novel/community-summaries/${CURRENT_SET_NAME}`))?.set
+    if (currentSet) {
+      const { vectorSlot, records } = currentSet
+      if (vectorSlot === null) return ""
+      const byId = new Map(records.map(record => [summaryPageId(vectorSlot, record.communityId), record]))
+      return results.flatMap(r => {
+        const record = byId.get(r.id)
+        if (!record || !r.matchedChunks?.some(chunk => chunk.text === record.summary)) return []
+        return [`- 【社区摘要·社区${record.communityId}】: ${record.summary.slice(0, 400)}`]
+      }).slice(0, topK).join("\n")
+    }
+
+    // 仅尚未发布整组摘要的旧项目可读取旧版向量命中。
     const communityResults = results.filter(r => r.id.startsWith("community:"))
     if (communityResults.length === 0) return ""
 
@@ -326,7 +389,8 @@ export async function searchCommunitySummaries(
       const snippet = r.matchedChunks?.[0]?.text?.slice(0, 400) ?? ""
       return `- 【社区摘要·社区${communityId}】: ${snippet}`
     }).join("\n")
-  } catch {
+  } catch (err) {
+    if (err instanceof InvalidCommunitySummarySetError) logger.warn("CommunitySummary", toErrorMessage(err))
     return ""
   }
 }

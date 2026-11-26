@@ -1035,3 +1035,21 @@ describe("W1 补强二：literary-craft-pack 剩余两分支", () => {
     expect(findings.some((f) => f.severity === "info" && f.message.includes("伏笔待回收"))).toBe(true)
   })
 })
+
+describe("R2 并发隔离：createLiteraryCraftPack 闭包快照不互相污染", () => {
+  it("先构造 packA 再构造 packB，最后运行 packA 仍读到 packA 自己的快照数据", () => {
+    const packA = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      edgeCraftFields: { ...makeDefaultTestInput().edgeCraftFields!, hook_type: undefined },
+    })
+    const packB = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      edgeCraftFields: { ...makeDefaultTestInput().edgeCraftFields!, hook_type: "suspense" },
+    })
+
+    const findingsA = w1Run(packA, "craft.opening-hook")
+    const findingsB = w1Run(packB, "craft.opening-hook")
+    expect(findingsA.some((f) => f.message.includes("开篇钩子缺失"))).toBe(true)
+    expect(findingsB).toEqual([])
+  })
+})

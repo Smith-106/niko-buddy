@@ -338,34 +338,36 @@ describe("S1a 防绕过预处理 normalizeText + TIER 词库补全 (roadmap S1 P
 })
 
 describe("P0 角色-动作关联检测 detectCharacterActions + characterActionsToText", () => {
-  it("detects actions and attributes them to the nearest named character", () => {
-    // 归因窗口为动作前后 ±80 字符，用长间隔隔开避免窗口内出现多个角色名
+  it("detects actions and attributes them to the nearest character from caller-supplied characterNames", () => {
+    // R2-W08：归因依赖调用方传入的当前书目角色名单，不再硬编码任何特定作品人名
     const gap = "。".repeat(100)
-    const hits = detectCharacterActions(`白砚推了推眼镜${gap}王迦后退了一步${gap}苏未晞抠指甲`)
+    const cast = ["林墨", "顾青", "沈鸢"]
+    const hits = detectCharacterActions(`林墨推了推眼镜${gap}顾青后退了一步${gap}沈鸢抠指甲`, cast)
     const byAction = new Map(hits.map((h) => [h.action, h]))
-    expect(byAction.get("推眼镜")!.perCharacter["白砚"]).toBeGreaterThanOrEqual(1)
-    expect(byAction.get("后退")!.perCharacter["王迦"]).toBeGreaterThanOrEqual(1)
-    expect(byAction.get("抠指甲")!.perCharacter["苏未晞"]).toBeGreaterThanOrEqual(1)
+    expect(byAction.get("推眼镜")!.perCharacter["林墨"]).toBeGreaterThanOrEqual(1)
+    expect(byAction.get("后退")!.perCharacter["顾青"]).toBeGreaterThanOrEqual(1)
+    expect(byAction.get("抠指甲")!.perCharacter["沈鸢"]).toBeGreaterThanOrEqual(1)
   })
 
-  it("counts repeated actions per character and falls back to 未知 when no character nearby", () => {
-    const repeated = detectCharacterActions("白砚推了推眼镜，白砚又推了推眼镜，白砚再推了推眼镜。")
+  it("counts repeated actions per character and falls back to 未知 when characterNames omitted or no match nearby", () => {
+    const repeated = detectCharacterActions("林墨推了推眼镜，林墨又推了推眼镜，林墨再推了推眼镜。", ["林墨"])
     const push = repeated.find((h) => h.action === "推眼镜")!
     expect(push.totalCount).toBe(3)
-    expect(push.perCharacter["白砚"]).toBe(3)
+    expect(push.perCharacter["林墨"]).toBe(3)
 
-    const orphan = detectCharacterActions("推了推眼镜。")
-    const orphanHit = orphan.find((h) => h.action === "推眼镜")!
-    expect(orphanHit.perCharacter["未知"]).toBe(1)
+    // 未传 characterNames 时不再硬编码匹配《8人》人名，一律归因至 未知
+    const withoutCast = detectCharacterActions("白砚推了推眼镜，王迦后退了一步，苏未晞抠指甲。")
+    expect(withoutCast.find((h) => h.action === "推眼镜")!.perCharacter["未知"]).toBe(1)
+    expect(withoutCast.find((h) => h.action === "后退")!.perCharacter["未知"]).toBe(1)
+    expect(withoutCast.find((h) => h.action === "抠指甲")!.perCharacter["未知"]).toBe(1)
   })
 
   it("keeps the closer character when multiple names share one attribution window", () => {
-    // 窗口内同时出现苏未晞(远)与白砚(近): 白砚更近应胜出, 苏未晞的 dist >= nearestDist
-    // 分支（falsy side of dist < nearestDist）被覆盖。
-    const hits = detectCharacterActions(`苏未晞${("。").repeat(70)}白砚推了推眼镜。`)
+    // 窗口内同时出现沈鸢(远)与林墨(近): 林墨更近应胜出
+    const hits = detectCharacterActions(`沈鸢${("。").repeat(70)}林墨推了推眼镜。`, ["沈鸢", "林墨"])
     const push = hits.find((h) => h.action === "推眼镜")!
-    expect(push.perCharacter["白砚"]).toBe(1)
-    expect(push.perCharacter["苏未晞"]).toBeUndefined()
+    expect(push.perCharacter["林墨"]).toBe(1)
+    expect(push.perCharacter["沈鸢"]).toBeUndefined()
   })
 
   it("renders empty text for empty hits and skips single-occurrence hits", () => {

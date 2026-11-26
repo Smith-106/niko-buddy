@@ -86,10 +86,11 @@ describe("timeline-client / IPC 契约", () => {
     expect(TIMELINE_PAGE_SIZE).toBe(50);
   });
 
-  it("previewSnapshotPoint 走 snapshot_preview_point", async () => {
-    invokeMock.mockResolvedValue(diff());
+  it("previewSnapshotPoint 走 snapshot_preview_point 并透传 confirm_token", async () => {
+    invokeMock.mockResolvedValue(diff({ confirm_token: "srv-tok-10-20" }));
     const out = await previewSnapshotPoint("C:/proj", "ch-10-20");
     expect(out.snapshot_id).toBe("ch-10-20");
+    expect(out.confirm_token).toBe("srv-tok-10-20");
     expect(invokeMock).toHaveBeenCalledWith("snapshot_preview_point", {
       projectPath: "C:/proj",
       snapshotId: "ch-10-20",

@@ -393,4 +393,84 @@ describe("novel-skill-hooks", () => {
     expect(ctx.bag.promptFragments).toEqual([])
     expect(ctx.bag.notes.some((n) => n.includes("statistical-ai-signature: score"))).toBe(true)
   })
+
+  it("R2-W04: extraHooks runs locally without mutating global registry and isolates concurrent runs", async () => {
+    registerNovelSkillHook({
+      id: "shared.id",
+      title: "global",
+      stages: ["pre_six_dim_review"],
+      track: "B",
+      run: (ctx) => {
+        ctx.bag.promptFragments.push("FROM-GLOBAL")
+      },
+    })
+    registerNovelSkillHook({
+      id: "global.only",
+      title: "global-only",
+      stages: ["pre_six_dim_review"],
+      track: "B",
+      run: (ctx) => {
+        ctx.bag.promptFragments.push("KEEP-GLOBAL")
+      },
+    })
+
+    const [ctxA, ctxB] = await Promise.all([
+      runNovelSkillHooks("pre_six_dim_review", {
+        projectPath: "/bookA",
+        chapterNumber: 1,
+        extraHooks: [
+          {
+            id: "shared.id",
+            title: "local-override-A",
+            stages: ["pre_six_dim_review"],
+            track: "B",
+            run: async (ctx) => {
+              await new Promise((r) => setTimeout(r, 5))
+              ctx.bag.promptFragments.push("LOCAL-A")
+            },
+          },
+          {
+            id: "bad.track",
+            title: "bad",
+            stages: ["pre_six_dim_review"],
+            track: "A" as "B",
+            run: (ctx) => {
+              ctx.bag.promptFragments.push("SHOULD-SKIP")
+            },
+          },
+          {
+            id: "disabled.local",
+            title: "off",
+            stages: ["pre_six_dim_review"],
+            track: "B",
+            enabled: false,
+            run: (ctx) => {
+              ctx.bag.promptFragments.push("SHOULD-SKIP-OFF")
+            },
+          },
+        ],
+      }),
+      runNovelSkillHooks("pre_six_dim_review", {
+        projectPath: "/bookB",
+        chapterNumber: 2,
+        extraHooks: [
+          {
+            id: "shared.id",
+            title: "local-override-B",
+            stages: ["pre_six_dim_review"],
+            track: "B",
+            run: (ctx) => {
+              ctx.bag.promptFragments.push("LOCAL-B")
+            },
+          },
+        ],
+      }),
+    ])
+
+    expect(ctxA.bag.promptFragments).toEqual(["KEEP-GLOBAL", "LOCAL-A"])
+    expect(ctxA.bag.notes.some((n) => n.includes("bad.track") && n.includes("Track B only"))).toBe(true)
+    expect(ctxB.bag.promptFragments).toEqual(["KEEP-GLOBAL", "LOCAL-B"])
+    // 全局 registry 保持干净，仅含最初注册的 2 个全局 hook
+    expect(getNovelSkillHookRegistry().hooks.map((h) => h.id)).toEqual(["shared.id", "global.only"])
+  })
 })

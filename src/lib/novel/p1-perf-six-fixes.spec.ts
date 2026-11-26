@@ -450,7 +450,12 @@ describe("ISS-20260713-002 runSixDimensionReview 复用 contextPack", () => {
       dimensionKeys: ["thrill"],
     })
     expect(mocks.buildContextPackMock).toHaveBeenCalledTimes(1)
-    expect(mocks.buildContextPackMock).toHaveBeenCalledWith(PP, "六维审查第8章", 8)
+    expect(mocks.buildContextPackMock).toHaveBeenCalledWith(
+      PP,
+      "六维审查第8章",
+      8,
+      expect.objectContaining({ novelMode: true }),
+    )
     expect(results.thrill?.status).toBe("pass")
   })
 })

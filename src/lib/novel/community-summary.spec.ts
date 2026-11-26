@@ -2,10 +2,14 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 import type { CommunityInfo, GraphNode } from "@/lib/wiki-graph"
 import type { CommunitySummaryRecord } from "./community-summary"
 import { DEFAULT_NOVEL_CONFIG, type LlmConfig } from "@/stores/wiki-store"
+import { logger } from "@/lib/utils"
 
 const fsMocks = {
   readFile: vi.fn(),
   writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
+  writeFilesAtomic: vi.fn(),
+  fileExists: vi.fn(),
   createDirectory: vi.fn(),
   listDirectory: vi.fn(),
 }
@@ -16,6 +20,9 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     ...actual,
       readFile: (...args: unknown[]) => fsMocks.readFile(...args),
       writeFile: (...args: unknown[]) => fsMocks.writeFile(...args),
+      writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
+      writeFilesAtomic: (...args: unknown[]) => fsMocks.writeFilesAtomic(...args),
+      fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
       createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
       listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
     
@@ -79,13 +86,14 @@ vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
 })
 
 const embedPageMock = vi.fn()
+const indexCommunitySummaryMock = vi.fn()
 const searchByEmbeddingMock = vi.fn()
 vi.mock("@/lib/embedding", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/embedding")>()
   return {
     ...actual,
       embedPage: (...args: unknown[]) => embedPageMock(...args),
-      // community-summary.ts 也 import 了 searchByEmbedding —— mock 必须镜像该导出
+      indexCommunitySummary: (...args: unknown[]) => indexCommunitySummaryMock(...args),
       searchByEmbedding: (...args: unknown[]) => searchByEmbeddingMock(...args),
     
   }
@@ -112,22 +120,73 @@ function communityIdFromMessages(messages: unknown[]): number {
 }
 
 const llmConfig = { provider: "custom", apiKey: "x", model: "mock" } as LlmConfig
+const summaryDir = "/p/.novel/community-summaries"
+const manifestPath = `${summaryDir}/current-set.json`
 
-describe("generateCommunitySummaries (TASK-402 并行 + 信号量限流)", () => {
+function publishedRecord(overrides: Partial<CommunitySummaryRecord> = {}): CommunitySummaryRecord {
+  return {
+    communityId: 1,
+    summary: "已发布摘要",
+    nodeCount: 2,
+    topNodes: ["成员1"],
+    generatedAt: "2026-10-01T00:00:00.000Z",
+    ...overrides,
+  }
+}
+
+function setRaw(vectorSlot: 0 | 1 | null, records: CommunitySummaryRecord[]): string {
+  return JSON.stringify({ schemaVersion: 1, vectorSlot, records })
+}
+
+describe("generateCommunitySummaries (TASK-402 并行限流 + 原子发布)", () => {
+  const files = new Map<string, string>()
+
+  function mockGeneration(ids: number[]): void {
+    buildWikiGraphMock.mockResolvedValue({ nodes: makeNodes(ids), communities: ids.map(makeCommunity) })
+    streamChatMock.mockImplementation(async (_cfg, messages, callbacks: { onToken: (text: string) => void; onDone: () => void }) => {
+      callbacks.onToken(`摘要-社区${communityIdFromMessages(messages)}`)
+      callbacks.onDone()
+    })
+  }
+
+  function persistedSet() {
+    return JSON.parse(files.get(manifestPath)!) as { vectorSlot: 0 | 1 | null; records: CommunitySummaryRecord[] }
+  }
+
   beforeEach(() => {
-    fsMocks.readFile.mockReset()
-    fsMocks.writeFile.mockReset()
-    fsMocks.createDirectory.mockReset()
+    files.clear()
+    fsMocks.readFile.mockReset().mockImplementation(async (path: string) => {
+      const persisted = files.get(path)
+      if (persisted !== undefined) return persisted
+      if (path.startsWith("/p/wiki/")) return "成员正文内容"
+      throw new Error("ENOENT")
+    })
+    fsMocks.writeFile.mockReset().mockImplementation(async (path: string, raw: string) => {
+      files.set(path, raw)
+    })
+    fsMocks.writeFileAtomic.mockReset().mockImplementation(async (path: string, raw: string) => {
+      files.set(path, raw)
+    })
+    fsMocks.writeFilesAtomic.mockReset().mockImplementation(async (entries: Array<[string, string]>, expectedContents?: (string | null)[]) => {
+      for (const [i, [path]] of entries.entries()) {
+        const current = files.has(path) ? files.get(path)! : null
+        if (expectedContents !== undefined && current !== expectedContents[i]) {
+          throw new Error(`Batch target '${path}' changed before staging; left untouched`)
+        }
+      }
+      for (const [path, raw] of entries) {
+        files.set(path, raw)
+      }
+    })
+    fsMocks.fileExists.mockReset().mockImplementation(async (path: string) => files.has(path))
+    fsMocks.createDirectory.mockReset().mockResolvedValue(undefined)
+    fsMocks.listDirectory.mockReset()
     streamChatMock.mockReset()
-    buildWikiGraphMock.mockReset()
+    buildWikiGraphMock.mockReset().mockResolvedValue({ nodes: [], communities: [] })
     embedPageMock.mockReset()
-
-    fsMocks.readFile.mockResolvedValue("成员正文内容")
-    fsMocks.createDirectory.mockResolvedValue(undefined)
-    fsMocks.writeFile.mockResolvedValue(undefined)
-    embedPageMock.mockResolvedValue(undefined)
+    indexCommunitySummaryMock.mockReset().mockResolvedValue(undefined)
+    searchByEmbeddingMock.mockReset()
     wikiStoreState.embeddingConfig = { enabled: true, model: "test-model" }
-    buildWikiGraphMock.mockResolvedValue({ nodes: [], communities: [] })
   })
 
   it("limits concurrent community LLM calls to maxConcurrency", async () => {
@@ -156,11 +215,12 @@ describe("generateCommunitySummaries (TASK-402 并行 + 信号量限流)", () =>
     expect(peak).toBeLessThanOrEqual(maxConcurrency)
     // 且确实发生了并行（串行实现 peak 恒为 1）
     expect(peak).toBeGreaterThan(1)
-    // 每个社区都落盘
-    expect(fsMocks.writeFile.mock.calls).toHaveLength(6)
+    // 所有社区通过一次发布写盘。
+    expect(fsMocks.writeFilesAtomic).toHaveBeenCalledTimes(1)
+    expect(persistedSet().records.map(record => record.communityId)).toEqual(ids)
   })
 
-  it("persists summaries in input community order regardless of LLM completion order", async () => {
+  it("publishes one set in input community order after indexing and reads back the exact bytes", async () => {
     const ids = [2, 5, 1]
     buildWikiGraphMock.mockResolvedValue({ nodes: makeNodes(ids), communities: ids.map(makeCommunity) })
 
@@ -176,147 +236,197 @@ describe("generateCommunitySummaries (TASK-402 并行 + 信号量限流)", () =>
     const { generateCommunitySummaries } = await import("./community-summary")
     await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
 
-    // 写 JSON 顺序 = communities 输入序（确定性收敛）
-    const writtenIds = fsMocks.writeFile.mock.calls.map(([path]) => Number(String(path).match(/(\d+)\.json$/)?.[1]))
-    expect(writtenIds).toEqual(ids)
-
-    // 向量化顺序同样 = 输入序
-    const embeddedIds = embedPageMock.mock.calls.map(([, pageId]) => Number(String(pageId).replace("community:", "")))
-    expect(embeddedIds).toEqual(ids)
-
-    // 每个文件内容与对应社区匹配
-    const firstRecord = JSON.parse(String(fsMocks.writeFile.mock.calls[0][1]))
-    expect(firstRecord.communityId).toBe(2)
-    expect(firstRecord.summary).toContain("摘要-社区2")
+    expect(fsMocks.writeFilesAtomic).toHaveBeenCalledExactlyOnceWith([[manifestPath, files.get(manifestPath)!]], [null])
+    expect(fsMocks.writeFilesAtomic.mock.invocationCallOrder[0]).toBeGreaterThan(indexCommunitySummaryMock.mock.invocationCallOrder.slice(-1)[0])
+    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(embedPageMock).not.toHaveBeenCalled()
+    expect(indexCommunitySummaryMock.mock.calls.map(([, pageId]) => pageId)).toEqual(ids.map(id => `community-summary-0.${id}`))
+    expect(persistedSet()).toMatchObject({
+      schemaVersion: 1,
+      vectorSlot: 0,
+      records: ids.map(id => ({
+        communityId: id, summary: `摘要-社区${id}`, nodeCount: 2, topNodes: [`成员${id}`], generatedAt: expect.any(String),
+      })),
+    })
   })
 
-  it("keeps per-community failure non-blocking: surviving communities still persist", async () => {
+  it("collects all generation results but reports only the first failure and performs no writes", async () => {
     const ids = [1, 2, 3]
     buildWikiGraphMock.mockResolvedValue({ nodes: makeNodes(ids), communities: ids.map(makeCommunity) })
+    const prior = setRaw(0, [publishedRecord()])
+    files.set(manifestPath, prior)
+    const firstError = new Error("LLM quota exceeded")
 
     streamChatMock.mockImplementation(async (_cfg, messages, callbacks: { onToken?: (t: string) => void; onDone?: () => void }) => {
       const id = communityIdFromMessages(messages)
-      if (id === 2) throw new Error("LLM quota exceeded")
+      if (id === 2) throw firstError
+      if (id === 3) {
+        await delay(5)
+        throw new Error("another generation error")
+      }
       callbacks.onToken?.(`摘要-社区${id}`)
       callbacks.onDone?.()
     })
 
     const { generateCommunitySummaries } = await import("./community-summary")
-    await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
-
-    // 社区 2 失败被吞掉，1/3 仍按输入序落盘
-    const writtenIds = fsMocks.writeFile.mock.calls.map(([path]) => Number(String(path).match(/(\d+)\.json$/)?.[1]))
-    expect(writtenIds).toEqual([1, 3])
+    const onFailure = vi.fn()
+    await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig, undefined, onFailure)
+    expect(streamChatMock).toHaveBeenCalledTimes(ids.length)
+    expect(onFailure).toHaveBeenCalledExactlyOnceWith(firstError)
+    expect(indexCommunitySummaryMock).not.toHaveBeenCalled()
+    expect(fsMocks.createDirectory).not.toHaveBeenCalled()
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(files.get(manifestPath)).toBe(prior)
   })
 
   it("returns early when the graph has no communities", async () => {
-    buildWikiGraphMock.mockResolvedValue({ nodes: [], communities: [] })
+    files.set(manifestPath, setRaw(0, [publishedRecord()]))
     const { generateCommunitySummaries } = await import("./community-summary")
     await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
-    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(fsMocks.fileExists).not.toHaveBeenCalled()
+    expect(fsMocks.writeFilesAtomic).not.toHaveBeenCalled()
+    expect(streamChatMock).not.toHaveBeenCalled()
   })
 
   it("skips communities that have no member nodes", async () => {
-    const ids = [1, 2]
-    // 社区 1 无成员节点（nodes 里没有任何 community:1 的节点），社区 2 有
-    buildWikiGraphMock.mockResolvedValue({
-      nodes: [{ id: "n2-a", label: "成员2", type: "character", path: "/p/wiki/2-a.md", linkCount: 3, community: 2 }],
-      communities: ids.map(makeCommunity),
+    mockGeneration([1, 2])
+    buildWikiGraphMock.mockResolvedValue({ nodes: makeNodes([2]), communities: [1, 2].map(makeCommunity) })
+    const { generateCommunitySummaries } = await import("./community-summary")
+    await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    expect(persistedSet().records.map(record => record.communityId)).toEqual([2])
+  })
+
+  it.each(["vector", "manifest"] as const)("keeps the prior published set after a %s dependency failure", async (stage) => {
+    mockGeneration([1, 2, 3])
+    const priorRecord = publishedRecord()
+    const prior = setRaw(0, [priorRecord])
+    const legacyPath = `${summaryDir}/3.json`
+    const lastGoodPath = `${legacyPath}.last-good`
+    files.set(manifestPath, prior)
+    files.set(legacyPath, "legacy bytes")
+    files.set(lastGoodPath, "last-good bytes")
+    const vectors = new Map([["community-summary-0.1", priorRecord.summary], ["community:3", "legacy vector"]])
+    // 用非 Error 原因模拟底层拒绝；回调应保留实际原因。
+    const failure = { code: stage === "vector" ? "LANCE" : "EIO" }
+    indexCommunitySummaryMock.mockImplementation(async (_project: string, pageId: string, _title: string, text: string) => {
+      if (stage === "vector" && pageId === "community-summary-1.2") throw failure
+      vectors.set(pageId, text)
+    })
+    if (stage === "manifest") fsMocks.writeFilesAtomic.mockRejectedValueOnce(failure)
+
+    const { generateCommunitySummaries, loadPersistedCommunitySummaries, searchCommunitySummaries } = await import("./community-summary")
+    const onFailure = vi.fn()
+    await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig, undefined, onFailure)
+    expect(onFailure).toHaveBeenCalledExactlyOnceWith(failure)
+    expect(indexCommunitySummaryMock.mock.calls.map(([, pageId]) => pageId)).toEqual(stage === "vector"
+      ? ["community-summary-1.1", "community-summary-1.2"]
+      : ["community-summary-1.1", "community-summary-1.2", "community-summary-1.3"])
+    expect(fsMocks.writeFilesAtomic).toHaveBeenCalledTimes(stage === "vector" ? 0 : 1)
+    expect(files.get(manifestPath)).toBe(prior)
+    expect(files.get(legacyPath)).toBe("legacy bytes")
+    expect(files.get(lastGoodPath)).toBe("last-good bytes")
+    expect((await loadPersistedCommunitySummaries("/p")).records).toEqual([priorRecord])
+
+    expect(vectors.get("community-summary-1.1")).toBe("摘要-社区1")
+    searchByEmbeddingMock.mockResolvedValue([...vectors].reverse().map(([id, text]) => ({ id, matchedChunks: [{ text }] })))
+    expect(await searchCommunitySummaries("/p", "q")).toBe(`- 【社区摘要·社区1】: ${priorRecord.summary}`)
+  })
+
+  it("switches the active slot only after staging and ignores the old slot afterward", async () => {
+    mockGeneration([1])
+    const prior = setRaw(0, [publishedRecord()])
+    files.set(manifestPath, prior)
+    indexCommunitySummaryMock.mockImplementation(async () => {
+      expect(files.get(manifestPath)).toBe(prior)
     })
 
-    streamChatMock.mockImplementation(async (_cfg, messages, callbacks: { onToken?: (t: string) => void; onDone?: () => void }) => {
-      callbacks.onToken?.(`摘要-社区${communityIdFromMessages(messages)}`)
-      callbacks.onDone?.()
+    const { generateCommunitySummaries, searchCommunitySummaries } = await import("./community-summary")
+    await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
+    expect(persistedSet().vectorSlot).toBe(1)
+    searchByEmbeddingMock.mockResolvedValue([
+      { id: "community-summary-0.1", matchedChunks: [{ text: "已发布摘要" }] },
+      { id: "community-summary-1.1", matchedChunks: [{ text: "摘要-社区1" }] },
+    ])
+    expect(await searchCommunitySummaries("/p", "q")).toBe("- 【社区摘要·社区1】: 摘要-社区1")
+  })
+
+  it("refuses to overwrite a manifest changed between the read and the publish (native CAS)", async () => {
+    mockGeneration([1])
+    const prior = setRaw(0, [publishedRecord()])
+    files.set(manifestPath, prior)
+    const newer = setRaw(0, [{ ...publishedRecord(), summary: "外部更新的摘要" }])
+    indexCommunitySummaryMock.mockImplementation(async () => {
+      files.set(manifestPath, newer)
     })
 
     const { generateCommunitySummaries } = await import("./community-summary")
-    await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
-    // 只有社区 2 落盘
-    const writtenIds = fsMocks.writeFile.mock.calls.map(([path]) => Number(String(path).match(/(\d+)\.json$/)?.[1]))
-    expect(writtenIds).toEqual([2])
+    await expect(generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)).rejects.toThrow("changed before staging")
+    expect(files.get(manifestPath)).toBe(newer)
+    expect(fsMocks.writeFilesAtomic).toHaveBeenCalledTimes(1)
   })
 
-  it("persist failure is non-blocking for later communities", async () => {
-    const ids = [1, 2]
-    buildWikiGraphMock.mockResolvedValue({ nodes: makeNodes(ids), communities: ids.map(makeCommunity) })
-    streamChatMock.mockImplementation(async (_cfg, messages, callbacks: { onToken?: (t: string) => void; onDone?: () => void }) => {
-      callbacks.onToken?.(`摘要-社区${communityIdFromMessages(messages)}`)
-      callbacks.onDone?.()
-    })
-    // 社区 1 写盘失败，社区 2 正常；失败不阻断后续落盘
-    fsMocks.writeFile.mockRejectedValueOnce(new Error("disk full"))
-
-    const { generateCommunitySummaries } = await import("./community-summary")
-    await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
-    // 两次写盘均被尝试（社区 2 未被阻断）
-    const writtenIds = fsMocks.writeFile.mock.calls.map(([path]) => Number(String(path).match(/(\d+)\.json$/)?.[1]))
-    expect(writtenIds).toEqual([1, 2])
-  })
-
-  it("embed failure is non-blocking and summary still persists", async () => {
-    const ids = [1]
-    buildWikiGraphMock.mockResolvedValue({ nodes: makeNodes(ids), communities: ids.map(makeCommunity) })
-    streamChatMock.mockImplementation(async (_cfg, messages, callbacks: { onToken?: (t: string) => void; onDone?: () => void }) => {
-      callbacks.onToken?.(`摘要-社区${communityIdFromMessages(messages)}`)
-      callbacks.onDone?.()
-    })
-    embedPageMock.mockRejectedValue(new Error("lance error"))
-
-    const { generateCommunitySummaries } = await import("./community-summary")
-    await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
-    // 写入仍发生（embed 失败不阻断）
-    expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
-  })
-
-  it("does not embed when embedding is disabled", async () => {
-    const ids = [1]
-    buildWikiGraphMock.mockResolvedValue({ nodes: makeNodes(ids), communities: ids.map(makeCommunity) })
-    streamChatMock.mockImplementation(async (_cfg, messages, callbacks: { onToken?: (t: string) => void; onDone?: () => void }) => {
-      callbacks.onToken?.(`摘要-社区${communityIdFromMessages(messages)}`)
-      callbacks.onDone?.()
-    })
+  it("publishes a null vector slot when embedding is disabled", async () => {
+    mockGeneration([1])
+    files.set(manifestPath, setRaw(0, [publishedRecord()]))
     wikiStoreState.embeddingConfig = { enabled: false, model: "" }
 
-    const { generateCommunitySummaries } = await import("./community-summary")
+    const { generateCommunitySummaries, searchCommunitySummaries } = await import("./community-summary")
     await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
-    expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
-    expect(embedPageMock).not.toHaveBeenCalled()
+    expect(persistedSet()).toMatchObject({ vectorSlot: null, records: [{ summary: "摘要-社区1" }] })
+    expect(indexCommunitySummaryMock).not.toHaveBeenCalled()
+    // 查询侧已重新开启向量化，但发布时没有活跃槽，也不复用旧命中。
+    wikiStoreState.embeddingConfig = { enabled: true, model: "test-model" }
+    searchByEmbeddingMock.mockResolvedValue([
+      { id: "community-summary-0.1", matchedChunks: [{ text: "已发布摘要" }] },
+      { id: "community:2", matchedChunks: [{ text: "legacy vector" }] },
+    ])
+    expect(await searchCommunitySummaries("/p", "q")).toBe("")
   })
 
-  it("tolerates non-Error throws from LLM / write / embed", async () => {
-    const ids = [1, 2]
-    buildWikiGraphMock.mockResolvedValue({ nodes: makeNodes(ids), communities: ids.map(makeCommunity) })
-    // 社区 1：LLM 抛非 Error 值；社区 2：正常
-    streamChatMock.mockImplementation(async (_cfg, messages, callbacks: { onToken?: (t: string) => void; onDone?: () => void }) => {
-      if (communityIdFromMessages(messages) === 1) throw "string-error"
-      callbacks.onToken?.("摘要")
-      callbacks.onDone?.()
-    })
+  it("rejects non-Error generation failures for strict consumers", async () => {
+    mockGeneration([1, 2])
+    streamChatMock.mockRejectedValueOnce("string-error")
     const { generateCommunitySummaries } = await import("./community-summary")
-    await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
-    // 社区 1 被跳过，社区 2 正常落盘
-    const writtenIds = fsMocks.writeFile.mock.calls.map(([path]) => Number(String(path).match(/(\d+)\.json$/)?.[1]))
-    expect(writtenIds).toEqual([2])
+    await expect(generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)).rejects.toBe("string-error")
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(indexCommunitySummaryMock).not.toHaveBeenCalled()
   })
 
-  it("tolerates non-Error throws from write and embed", async () => {
-    const ids = [1, 2]
-    buildWikiGraphMock.mockResolvedValue({ nodes: makeNodes(ids), communities: ids.map(makeCommunity) })
-    streamChatMock.mockImplementation(async (_cfg, messages, callbacks: { onToken?: (t: string) => void; onDone?: () => void }) => {
-      callbacks.onToken?.(`摘要-社区${communityIdFromMessages(messages)}`)
-      callbacks.onDone?.()
-    })
-    // 社区 1 写盘抛非 Error；社区 2 embed 抛非 Error
-    fsMocks.writeFile.mockImplementation(async (path: string) => {
-      if (String(path).includes("1.json")) throw { code: "EIO" }
-    })
-    embedPageMock.mockRejectedValue({ code: "LANCE" })
-    const { generateCommunitySummaries } = await import("./community-summary")
-    await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
-    // 两条路径均被尝试且不抛出
-    const writtenIds = fsMocks.writeFile.mock.calls.map(([path]) => Number(String(path).match(/(\d+)\.json$/)?.[1]))
-    expect(writtenIds).toEqual([1, 2])
-    expect(embedPageMock).toHaveBeenCalledTimes(1)
+  it.each([
+    ["JSON", "{"],
+    ["schema", JSON.stringify({ schemaVersion: 2, vectorSlot: 0, records: [publishedRecord()] })],
+    ["slot", JSON.stringify({ schemaVersion: 1, vectorSlot: 2, records: [publishedRecord()] })],
+    ["id", setRaw(0, [publishedRecord({ communityId: Number.MAX_SAFE_INTEGER + 1 })])],
+    ["summary", setRaw(0, [publishedRecord({ summary: "  " })])],
+    ["nodeCount", setRaw(0, [publishedRecord({ nodeCount: -1 })])],
+    ["topNodes", JSON.stringify({ schemaVersion: 1, vectorSlot: 0, records: [{ ...publishedRecord(), topNodes: [42] }] })],
+    ["generatedAt", setRaw(0, [publishedRecord(), publishedRecord({ communityId: 2, generatedAt: "bad date" })])],
+    ["duplicate id", setRaw(0, [publishedRecord(), publishedRecord({ summary: "不同文本" })])],
+  ])("refuses a corrupt published set (%s) without writing or falling back", async (_reason, raw) => {
+    mockGeneration([1])
+    files.set(manifestPath, raw)
+    searchByEmbeddingMock.mockResolvedValue([
+      { id: "community:1", matchedChunks: [{ text: "legacy vector" }] },
+      { id: "community-summary-0.1", matchedChunks: [{ text: "已发布摘要" }] },
+    ])
+
+    const { generateCommunitySummaries, loadPersistedCommunitySummaries, searchCommunitySummaries } = await import("./community-summary")
+    await expect(generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)).rejects.toThrow("Invalid published community summary set")
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    try {
+      expect(await loadPersistedCommunitySummaries("/p")).toEqual({ text: "", records: [] })
+      expect(await searchCommunitySummaries("/p", "q")).toBe("")
+      expect(warn).toHaveBeenCalledTimes(2)
+      expect(warn).toHaveBeenCalledWith("CommunitySummary", "Invalid published community summary set.")
+    } finally {
+      warn.mockRestore()
+    }
+    expect(fsMocks.listDirectory).not.toHaveBeenCalled()
+    expect(indexCommunitySummaryMock).not.toHaveBeenCalled()
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(files.get(manifestPath)).toBe(raw)
   })
 
   it("handles communities with empty topNodes", async () => {
@@ -330,9 +440,10 @@ describe("generateCommunitySummaries (TASK-402 并行 + 信号量限流)", () =>
     })
     const { generateCommunitySummaries } = await import("./community-summary")
     await generateCommunitySummaries("/p", llmConfig, wikiStoreState.novelConfig)
-    expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
-    // 标题回退为空串（topNodes[0] ?? ""）
-    expect(embedPageMock).toHaveBeenCalledTimes(1)
+    expect(persistedSet().records).toMatchObject([{ communityId: 1, topNodes: [] }])
+    expect(indexCommunitySummaryMock).toHaveBeenCalledExactlyOnceWith(
+      "/p", "community-summary-0.1", "社区 1 摘要（）", "摘要", wikiStoreState.embeddingConfig,
+    )
   })
 })
 
@@ -358,6 +469,7 @@ describe("generateSingleCommunitySummary / searchCommunitySummaries", () => {
   beforeEach(() => {
     fsMocks.readFile.mockReset()
     fsMocks.readFile.mockResolvedValue("成员正文内容")
+    fsMocks.fileExists.mockReset().mockResolvedValue(false)
     streamChatMock.mockReset()
     searchByEmbeddingMock.mockReset()
   })
@@ -427,6 +539,25 @@ describe("generateSingleCommunitySummary / searchCommunitySummaries", () => {
     // embedding 抛错 → 空串
     searchByEmbeddingMock.mockRejectedValue(new Error("vec down"))
     expect(await searchCommunitySummaries("/p", "q")).toBe("")
+  })
+
+  it("resolves the active set after vector search and requires exact published text for that community", async () => {
+    const { searchCommunitySummaries } = await import("./community-summary")
+    const published = publishedRecord({ communityId: 0, summary: "已发布".repeat(200) })
+    let current = setRaw(0, [publishedRecord()])
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.readFile.mockImplementation(async () => current)
+    wikiStoreState.embeddingConfig = { enabled: true, model: "test-model" }
+    searchByEmbeddingMock.mockImplementation(async () => {
+      current = setRaw(1, [published, publishedRecord()])
+      return [
+        { id: "community-summary-0.1", matchedChunks: [{ text: "已发布摘要" }] },
+        { id: "community-summary-1.1", matchedChunks: [{ text: "同槽残留旧字节" }] },
+        { id: "community-summary-1.2", matchedChunks: [{ text: published.summary }] },
+        { id: "community-summary-1.0", matchedChunks: [{ text: "不使用首个 chunk" }, { text: published.summary }] },
+      ]
+    })
+    expect(await searchCommunitySummaries("/p", "q", 1)).toBe(`- 【社区摘要·社区0】: ${published.summary.slice(0, 400)}`)
   })
 })
 
@@ -581,6 +712,22 @@ describe("loadPersistedCommunitySummaries (Wave B 读取 + 裁剪)", () => {
   beforeEach(() => {
     fsMocks.listDirectory.mockReset()
     fsMocks.readFile.mockReset()
+    fsMocks.fileExists.mockReset().mockResolvedValue(false)
+  })
+
+  it("uses only the published set and applies record ordering and context caps", async () => {
+    const { loadPersistedCommunitySummaries } = await import("./community-summary")
+    const small = publishedRecord()
+    const largest = publishedRecord({ communityId: 2, nodeCount: 12, summary: "发布内容".repeat(200) })
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.readFile.mockResolvedValue(setRaw(null, [small, largest]))
+    fsMocks.listDirectory.mockResolvedValue([entry("9.json")])
+
+    const { records, text } = await loadPersistedCommunitySummaries("/p", { maxRecords: 1, maxChars: 200 })
+    expect(records).toEqual([largest])
+    expect(text).toMatch(/^【社区2·12节点·成员1】.+…$/)
+    expect(text.length).toBeLessThan(200)
+    expect(fsMocks.listDirectory).not.toHaveBeenCalled()
   })
 
   it("filters json files, sorts by name, and caps by maxRecords", async () => {

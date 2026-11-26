@@ -63,17 +63,47 @@ vi.mock("./avoid-ai-patterns", async (importOriginal) => {
 })
 
 // novel-session-status 默认行为与 ENOENT 空项目一致：load → null（跳过持久化分支），
-// save 仅在用例显式给出 status 时才被调用到；默认 resolve 不影响既有用例。
-const sessionStatusMocks = vi.hoisted(() => ({
-  loadNovelSessionStatus: vi.fn<(projectPath: string) => Promise<import("./novel-session-status").NovelSessionStatus | null>>(async () => null),
-  saveNovelSessionStatus: vi.fn<(projectPath: string, status: import("./novel-session-status").NovelSessionStatus) => Promise<void>>(async () => {}),
-}))
+// save 仅在用例显式给出 status 时才被调用到；updateNovelSessionStatus 默认透传 load→mutator→save。
+const sessionStatusMocks = vi.hoisted(() => {
+  const loadNovelSessionStatus = vi.fn<
+    (projectPath: string) => Promise<import("./novel-session-status").NovelSessionStatus | null>
+  >(async () => null)
+  const saveNovelSessionStatus = vi.fn<
+    (projectPath: string, status: import("./novel-session-status").NovelSessionStatus) => Promise<void>
+  >(async () => {})
+  const defaultUpdateImpl = async (
+    projectPath: string,
+    mutator: import("./novel-session-status").NovelSessionStatusMutator,
+  ): Promise<import("./novel-session-status").NovelSessionStatus | null> => {
+    const cur = await loadNovelSessionStatus(projectPath)
+    const next = await mutator(cur)
+    if (next) await saveNovelSessionStatus(projectPath, next)
+    return next
+  }
+  const updateNovelSessionStatus = vi.fn<
+    (
+      projectPath: string,
+      mutator: import("./novel-session-status").NovelSessionStatusMutator,
+    ) => Promise<import("./novel-session-status").NovelSessionStatus | null>
+  >(defaultUpdateImpl)
+  return {
+    loadNovelSessionStatus,
+    saveNovelSessionStatus,
+    updateNovelSessionStatus,
+    defaultUpdateImpl,
+  }
+})
 vi.mock("./novel-session-status", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./novel-session-status")>()
   return {
     ...actual,
     loadNovelSessionStatus: (...a: [projectPath: string]) => sessionStatusMocks.loadNovelSessionStatus(...a),
-    saveNovelSessionStatus: (...a: [projectPath: string, status: import("./novel-session-status").NovelSessionStatus]) => sessionStatusMocks.saveNovelSessionStatus(...a),
+    saveNovelSessionStatus: (
+      ...a: [projectPath: string, status: import("./novel-session-status").NovelSessionStatus]
+    ) => sessionStatusMocks.saveNovelSessionStatus(...a),
+    updateNovelSessionStatus: (
+      ...a: [projectPath: string, mutator: import("./novel-session-status").NovelSessionStatusMutator]
+    ) => sessionStatusMocks.updateNovelSessionStatus(...a),
   }
 })
 
@@ -154,6 +184,7 @@ import {
   applyCachePrefix,
   applyChapterContractCheck,
 } from "./deep-chapter-generation"
+import { decideDraftAdoptionGate } from "./deep-chapter-decision-gates"
 import { buildChapterContractSection } from "./deep-chapter-task-brief"
 import { createWatchdog, pollWatchdog } from "./watchdog"
 import { createDefaultStructureThrilPacingPlan } from "./chapter-structure-plan"
@@ -1763,16 +1794,20 @@ describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005
     // it is the exact code the stage-5.5-resume path calls, and proving it
     // merges 6-dim findings proves the stage-5.5 contract holds whenever
     // that path does fire.
-    const reviewChapter = vi.fn(async () => [
-      {
-        severity: "info",
-        type: "plot",
-        message: "reviewChapter 基础发现",
-        evidence: "",
-        relatedMemory: "",
-        suggestion: "",
-      },
-    ] as NovelReviewResult[])
+    const reviewChapter = vi.fn(async (...args: unknown[]) => {
+      // A01: 调用方注入的语义审查完成回调——实跑语义审查必须置位。
+      (args[3] as { onSemanticReviewCompleted?: () => void } | undefined)?.onSemanticReviewCompleted?.()
+      return [
+        {
+          severity: "info",
+          type: "plot",
+          message: "reviewChapter 基础发现",
+          evidence: "",
+          relatedMemory: "",
+          suggestion: "",
+        },
+      ] as NovelReviewResult[]
+    })
     const runSixDim = vi.fn<(args: { projectPath: string, chapterContent: string, chapterNumber?: number }) => Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>>>(async () => ({
       character: makeDimResult("character"),
     }))
@@ -1784,7 +1819,7 @@ describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005
       streamChat: vi.fn(async () => {}),
     }
 
-    const { reviewResults, dimensionResults } = await runFullReviewWithSixDim(
+    const { reviewResults, dimensionResults, semanticReviewCompleted } = await runFullReviewWithSixDim(
       "章节正文内容",
       3,
       "E:/Novel",
@@ -1808,6 +1843,34 @@ describe("ARCH-001: 6-dim review wiring at all 3 review points (ISS-20260708-005
     expect(reviewResults.some((r) => r.message.includes("character 维度问题"))).toBe(true)
     expect(reviewResults.some((r) => r.type === "character_consistency")).toBe(true)
     expect(reviewResults.some((r) => r.message.includes("reviewChapter 基础发现"))).toBe(true)
+    // A01: 实跑语义审查（回调被注入端调用）⇒ semanticReviewCompleted=true。
+    expect(semanticReviewCompleted).toBe(true)
+  })
+
+  it("runFullReviewWithSixDim reports semanticReviewCompleted=false when the stub never invokes the callback", async () => {
+    const reviewChapter = vi.fn(async () => [] as NovelReviewResult[])
+    const runSixDim = vi.fn<(args: { projectPath: string, chapterContent: string, chapterNumber?: number }) => Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>>>(async () => ({
+      character: makeDimResult("character"),
+    }))
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      runSixDimensionReview: runSixDim,
+      streamChat: vi.fn(async () => {}),
+    }
+
+    const { semanticReviewCompleted } = await runFullReviewWithSixDim(
+      "章节正文内容",
+      3,
+      "E:/Novel",
+      deps,
+      undefined,
+      contextPack,
+      {},
+    )
+
+    expect(semanticReviewCompleted).toBe(false)
   })
 
   it("runFullReviewWithSixDim keeps the main review flow alive when runSixDimensionReview throws (non-blocking)", async () => {
@@ -2696,6 +2759,42 @@ describe("coverage-100: resume / thinking formatting", () => {
     )
     expect(result.revised).toBe(true)
     expect(result.finalContent).toContain("最终去AI味正文")
+  })
+  it.each([
+    { stage: "after_review", pending: undefined, reviewCalls: 0 },
+    { stage: "after_revision", pending: undefined, reviewCalls: 1 },
+    { stage: "after_revision", pending: false, reviewCalls: 0 },
+    { stage: "after_revision", pending: true, reviewCalls: 1 },
+  ] as const)("resumes the selected revision at $stage (pending: $pending)", async ({ stage, pending, reviewCalls }) => {
+    const deps = createDeps()
+    const repaired = chapterText("Selected revision marker", 3000)
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "Draft chapter 3",
+      chapterNumber: 3,
+      stage,
+      taskBrief: "The chapter brief",
+      draftContent: chapterText("Superseded initial marker", 3000),
+      currentContent: repaired,
+      revisionReviewPending: pending,
+      reviewResults: [],
+      decisionGates: buildDecisionGates([], 1),
+      retryCount: 1,
+    }
+
+    const result = await runDeepChapterGeneration(
+      residualBaseInput({ novelConfig: { ...novelConfig, deepChapterReview: true }, resumeCheckpoint: checkpoint }),
+      {},
+      deps,
+    )
+
+    expect(result.revised).toBe(true)
+    expect(result.finalConsistencyReviewed).toBeUndefined()
+    expect(deps.reviewChapter).toHaveBeenCalledTimes(reviewCalls)
+    const calls = vi.mocked(deps.streamChat).mock.calls
+    const finalPrompt = messagesPromptText(calls[calls.length - 1][1])
+    expect(finalPrompt).toContain("Selected revision marker")
+    expect(finalPrompt).not.toContain("Superseded initial marker")
   })
 
   it("surfaces character-consistency issues in the stage-4 thinking with severity labels", async () => {
@@ -4544,12 +4643,14 @@ describe("RV-001 标题生成真接线（autoGenerateChapterTitle 真值驱动�
   })
 })
 
-describe("覆盖增补：终稿后接线（avoid-ai 持久化 / 数值检查容错 / chase 记账）", () => {
+describe("覆盖增补：终稿后接线（avoid-ai 锁内持久化 / 数值检查容错 / Draft-first 不写 chase_debt）", () => {
   beforeEach(() => {
     sessionStatusMocks.loadNovelSessionStatus.mockReset()
     sessionStatusMocks.loadNovelSessionStatus.mockResolvedValue(null)
     sessionStatusMocks.saveNovelSessionStatus.mockReset()
     sessionStatusMocks.saveNovelSessionStatus.mockResolvedValue(undefined)
+    sessionStatusMocks.updateNovelSessionStatus.mockReset()
+    sessionStatusMocks.updateNovelSessionStatus.mockImplementation(sessionStatusMocks.defaultUpdateImpl)
   })
 
   const validStatus = () => ({
@@ -4563,7 +4664,23 @@ describe("覆盖增补：终稿后接线（avoid-ai 持久化 / 数值检查容�
     current_task: { task_id: "t", conversation_id: "c", user_request: "生成第3章", status: "running" },
     draft: { draft_id: "d", file_path: "f", draft_status: "pending" },
     evidence_refs: [],
-    chase_debt: { debts: [], debt_events: [], updated_at: "2026-11-05T00:00:00.000Z" },
+    chase_debt: {
+      debts: [
+        {
+          id: "chase-1-1",
+          debt_type: "hook_strength",
+          original_amount: 1,
+          current_amount: 1,
+          interest_rate: 0.1,
+          source_chapter: 1,
+          due_chapter: 4,
+          status: "active" as const,
+          ref: "ending-hook",
+        },
+      ],
+      debt_events: [],
+      updated_at: "2026-11-05T00:00:00.000Z",
+    },
   })
 
   function polishDeps(polish: string): DeepChapterGenerationDeps {
@@ -4585,8 +4702,9 @@ describe("覆盖增补：终稿后接线（avoid-ai 持久化 / 数值检查容�
     } as unknown as DeepChapterGenerationDeps
   }
 
-  it("status 存在 → avoid-ai 摘要与 chase 债务落盘 status.json", async () => {
-    sessionStatusMocks.loadNovelSessionStatus.mockResolvedValue(validStatus() as never)
+  it("status 存在 → avoid-ai 摘要经 updateNovelSessionStatus 锁内原子更新 1 次，且草稿期绝不写入或计息 chase_debt", async () => {
+    const initialStatus = validStatus()
+    sessionStatusMocks.loadNovelSessionStatus.mockResolvedValue(initialStatus as never)
     avoidAiStub.resultOverride = {
       schemaVersion: 1,
       score: 0.9,
@@ -4604,19 +4722,26 @@ describe("覆盖增补：终稿后接线（avoid-ai 持久化 / 数值检查容�
     expect(result.finalContent).toContain("揭开真相")
     // avoid-ai 摘要持久化成功（无跳过提示）
     expect(thinking.join("\n")).not.toContain("摘要写入跳过")
-    // 两次落盘：avoid-ai 摘要 + chase 债务（withDebt !== status 经 hook 承诺句触发）
-    expect(sessionStatusMocks.saveNovelSessionStatus).toHaveBeenCalledTimes(2)
-    const [firstPath, firstSaved] = sessionStatusMocks.saveNovelSessionStatus.mock.calls[0]
-    expect(firstPath).toBe("E:/Novel")
-    expect(firstSaved.avoid_ai_summary).toMatchObject({ label: expect.any(String) })
-    expect(firstSaved.avoid_ai_summary).toMatchObject({ issueTypes: ["repetition"], issueCount: 2 })
-    expect(typeof firstSaved.avoid_ai_summary?.issueCount).toBe("number")
-    const [, secondSaved] = sessionStatusMocks.saveNovelSessionStatus.mock.calls[1]
-    const debts = secondSaved.chase_debt?.debts ?? []
-    expect(debts.some((d) => d.source_chapter === 3)).toBe(true)
+    // N-5a: 仅经 updateNovelSessionStatus 锁内原子更新 1 次（写入 avoid_ai_summary）
+    expect(sessionStatusMocks.updateNovelSessionStatus).toHaveBeenCalledTimes(1)
+    expect(sessionStatusMocks.updateNovelSessionStatus.mock.calls[0][0]).toBe("E:/Novel")
+    expect(sessionStatusMocks.saveNovelSessionStatus).toHaveBeenCalledTimes(1)
+    const [savedPath, savedStatus] = sessionStatusMocks.saveNovelSessionStatus.mock.calls[0]
+    expect(savedPath).toBe("E:/Novel")
+    expect(savedStatus.avoid_ai_summary).toMatchObject({
+      score: 0.9,
+      label: "Suspicious",
+      issueTypes: ["repetition"],
+      issueCount: 2,
+      updatedAt: expect.any(String),
+    })
+    // Draft-first 不变量：草稿生成期绝不创建新 chase_debt，也绝不对既有未偿债务计息
+    expect(savedStatus.chase_debt).toEqual(initialStatus.chase_debt)
+    expect(savedStatus.chase_debt?.debts.some((d) => d.source_chapter === 3)).toBe(false)
+    expect(savedStatus.chase_debt?.debt_events).toHaveLength(0)
   })
 
-  it("status 存在但保存失败 → onThinking 提示跳过，生成照常返回（内层 + chase 双 catch）", async () => {
+  it("status 存在但锁内更新失败 → onThinking 提示摘要写入跳过，不触发 chase_debt 记账，生成照常返回", async () => {
     sessionStatusMocks.loadNovelSessionStatus.mockResolvedValue(validStatus() as never)
     sessionStatusMocks.saveNovelSessionStatus.mockRejectedValue(new Error("disk boom"))
     const thinking: string[] = []
@@ -4626,9 +4751,11 @@ describe("覆盖增补：终稿后接线（avoid-ai 持久化 / 数值检查容�
       polishDeps("终稿正文。他必须在三天后回来揭开真相。"),
     )
     expect(result.finalContent).toContain("揭开真相")
+    expect(sessionStatusMocks.updateNovelSessionStatus).toHaveBeenCalledTimes(1)
     const joined = thinking.join("\n")
     expect(joined).toContain("摘要写入跳过")
-    expect(joined).toContain("chase_debt 记账跳过")
+    expect(joined).not.toContain("chase_debt 记账跳过")
+    expect(joined).not.toContain("追读债务记账")
   })
 
   it("avoid-ai 分析抛错 → 外层 catch 提示审计跳过，生成照常返回", async () => {
@@ -4673,6 +4800,8 @@ describe("覆盖增补：route 壳与 snapshotWriter 注入", () => {
     sessionStatusMocks.loadNovelSessionStatus.mockResolvedValue(null)
     sessionStatusMocks.saveNovelSessionStatus.mockReset()
     sessionStatusMocks.saveNovelSessionStatus.mockResolvedValue(undefined)
+    sessionStatusMocks.updateNovelSessionStatus.mockReset()
+    sessionStatusMocks.updateNovelSessionStatus.mockImplementation(sessionStatusMocks.defaultUpdateImpl)
   })
 
   it("routeShellMode=route：route() 裁定摘要经 statusMerger 落盘（step_digest 可见）", async () => {
@@ -4752,5 +4881,925 @@ describe("覆盖增补：route 壳与 snapshotWriter 注入", () => {
     expect(result.decisionGates.overall).toBe("manual_review")
     // 无调度 → flush 空转（不写盘），交接结果照常返回
     expect(snapshotWriter).not.toHaveBeenCalled()
+  })
+})
+
+describe("W1-02 阶段7.6 终稿一致性复核与自动回滚", () => {
+  it("1) 阶段7改文且阶段7.6通过完整语义复核：交付改后正文、签发 finalConsistencyReviewed 且账本一致", async () => {
+    const draft = chapterText("初稿正文内容", 3000)
+    const polished = chapterText("阶段七去AI味改写后正文", 3000)
+    const stage76Warning: NovelReviewResult = {
+      severity: "warning",
+      type: "pacing",
+      message: "终稿复核轻微节奏提示",
+      evidence: "片段",
+      relatedMemory: "",
+      suggestion: "可微调",
+    }
+    const recordedEvents: Array<{ gate: string; status: string; findingsCount: number }> = []
+    const reviewChapter = vi.fn(async (_pp, content, _ch, options) => {
+      options?.onSemanticReviewCompleted?.()
+      return content === polished ? [stage76Warning] : []
+    })
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(polished)
+        } else if (prompt.includes("正文")) {
+          callbacks.onToken(draft)
+        } else {
+          callbacks.onToken("写作任务书内容")
+        }
+        callbacks.onDone()
+      }),
+      gateEvidence: {
+        appendEvents: async (_storeDeps, _pp, events) => {
+          for (const ev of events) {
+            const payload = ev.payload as { gate: string; status: string; findingsCount: number }
+            recordedEvents.push({
+              gate: payload.gate,
+              status: payload.status,
+              findingsCount: payload.findingsCount,
+            })
+          }
+          return { schemaVersion: "run-event-ledger/1.0" as const, events: [] }
+        },
+      },
+    }
+    const onFinalContent = vi.fn()
+    const thinking: string[] = []
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onThinking: (c) => thinking.push(c), onFinalContent },
+      deps,
+    )
+
+    expect(reviewChapter).toHaveBeenCalledTimes(2)
+    expect(reviewChapter.mock.calls[1][1]).toBe(polished)
+    expect(result.finalContent).toBe(polished)
+    expect(result.finalConsistencyReviewed).toBe(true)
+    expect(result.decisionGates.overall).toBe("warning")
+    expect(result.reviewResults).toContainEqual(stage76Warning)
+    expect(onFinalContent).toHaveBeenCalledWith(polished)
+    expect(thinking.join("\n")).toContain("阶段7.6：终稿一致性复核通过")
+    // 证据落账反映阶段7.6更新后的三门结果（quality 门含 1 条 warning）
+    expect(recordedEvents).toEqual([
+      { gate: "consistency", status: "pass", findingsCount: 0 },
+      { gate: "anti_ai", status: "pass", findingsCount: 0 },
+      { gate: "quality", status: "pass", findingsCount: 1 },
+    ])
+  })
+
+  it("2) 阶段7未改动正文：零额外复核调用，仍保持 finalConsistencyReviewed=true", async () => {
+    const draft = chapterText("初稿原样保留正文", 3000)
+    const reviewChapter = vi.fn(async (_pp, _content, _ch, options) => {
+      options?.onSemanticReviewCompleted?.()
+      return []
+    })
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          // 返回与初稿逐字节一致的正文
+          callbacks.onToken(draft)
+        } else if (prompt.includes("正文")) {
+          callbacks.onToken(draft)
+        } else {
+          callbacks.onToken("写作任务书内容")
+        }
+        callbacks.onDone()
+      }),
+    }
+    const thinking: string[] = []
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onThinking: (c) => thinking.push(c) },
+      deps,
+    )
+
+    expect(reviewChapter).toHaveBeenCalledTimes(1)
+    expect(result.finalContent).toBe(draft)
+    expect(result.finalConsistencyReviewed).toBe(true)
+    expect(thinking.join("\n")).not.toContain("阶段7.6")
+  })
+
+  it("3) 阶段7改文引入阻断或阶段7.6抛 ReviewParseError/非取消异常：完整回滚至阶段4-5已审正文；用户取消则上抛", async () => {
+    const draft = chapterText("阶段四已审安全正文", 3000)
+    const brokenPolish = chapterText("阶段七引入设定矛盾的正文", 3000)
+    const blockingErr: NovelReviewResult = {
+      severity: "error",
+      type: "consistency",
+      message: "阶段7润色改坏了核心时间线",
+      evidence: "片段",
+      relatedMemory: "",
+      suggestion: "回退",
+    }
+
+    const makeScenarioDeps = (stage76Behavior: "blocking" | "parse_error" | "runtime_error" | "abort") => {
+      let calls = 0
+      const recordedEvents: Array<{ gate: string; status: string }> = []
+      const reviewChapter = vi.fn(async (_pp, _content, _ch, options) => {
+        calls += 1
+        if (calls === 1) {
+          options?.onSemanticReviewCompleted?.()
+          return []
+        }
+        if (stage76Behavior === "blocking") {
+          options?.onSemanticReviewCompleted?.()
+          return [blockingErr]
+        }
+        if (stage76Behavior === "parse_error") {
+          throw new ReviewParseError("broken-json", "unexpected token")
+        }
+        if (stage76Behavior === "abort") {
+          throw new Error("已停止生成")
+        }
+        throw new Error("upstream 503")
+      })
+      const deps: DeepChapterGenerationDeps = {
+        buildContextPack: vi.fn(async () => contextPack),
+        contextPackToPrompt: vi.fn(() => "上下文包内容"),
+        reviewChapter,
+        streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+          const prompt = messagesPromptText(messages)
+          if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+            callbacks.onToken(brokenPolish)
+          } else if (prompt.includes("正文")) {
+            callbacks.onToken(draft)
+          } else {
+            callbacks.onToken("写作任务书内容")
+          }
+          callbacks.onDone()
+        }),
+        gateEvidence: {
+          appendEvents: async (_storeDeps, _pp, events) => {
+            for (const ev of events) {
+              const payload = ev.payload as { gate: string; status: string }
+              recordedEvents.push({ gate: payload.gate, status: payload.status })
+            }
+            return { schemaVersion: "run-event-ledger/1.0" as const, events: [] }
+          },
+        },
+      }
+      return { deps, reviewChapter, recordedEvents }
+    }
+
+    for (const mode of ["blocking", "parse_error", "runtime_error"] as const) {
+      const { deps, reviewChapter, recordedEvents } = makeScenarioDeps(mode)
+      const onFinalContent = vi.fn()
+      const thinking: string[] = []
+      const result = await runDeepChapterGeneration(
+        { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+        { onThinking: (c) => thinking.push(c), onFinalContent },
+        deps,
+      )
+      expect(reviewChapter).toHaveBeenCalledTimes(2)
+      expect(result.finalContent).toBe(draft)
+      expect(onFinalContent).toHaveBeenCalledWith(draft)
+      expect(result.decisionGates.overall).toBe("pass")
+      expect(result.reviewResults.some((r) => r.severity === "error")).toBe(false)
+      expect(result.finalConsistencyReviewed).toBe(true)
+      expect(thinking.join("\n")).toContain("阶段7.6：终稿复核回滚")
+      expect(recordedEvents).toEqual([
+        { gate: "consistency", status: "pass" },
+        { gate: "anti_ai", status: "pass" },
+        { gate: "quality", status: "pass" },
+      ])
+    }
+
+    // 用户取消异常必须继续上抛，不可吞掉回滚
+    const { deps: abortDeps } = makeScenarioDeps("abort")
+    await expect(
+      runDeepChapterGeneration(
+        { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+        {},
+        abortDeps,
+      ),
+    ).rejects.toThrow("已停止生成")
+  })
+
+  it("4) 阶段4已审 + 阶段7.6未完成语义复核回调：防反降级强制回滚保留原已审稿与 pass 门控", async () => {
+    const draft = chapterText("初稿已审正文", 3000)
+    const polished = chapterText("阶段七改写正文", 3000)
+    let calls = 0
+    const recordedEvents: Array<{ gate: string; status: string }> = []
+    const reviewChapter = vi.fn(async (_pp, _content, _ch, options) => {
+      calls += 1
+      if (calls === 1) {
+        options?.onSemanticReviewCompleted?.()
+      }
+      // 第2次（阶段7.6）不触发 onSemanticReviewCompleted（例如截断/未完成全量语义审查）
+      return []
+    })
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(polished)
+        } else if (prompt.includes("正文")) {
+          callbacks.onToken(draft)
+        } else {
+          callbacks.onToken("写作任务书内容")
+        }
+        callbacks.onDone()
+      }),
+      gateEvidence: {
+        appendEvents: async (_storeDeps, _pp, events) => {
+          for (const ev of events) {
+            const payload = ev.payload as { gate: string; status: string }
+            recordedEvents.push({ gate: payload.gate, status: payload.status })
+          }
+          return { schemaVersion: "run-event-ledger/1.0" as const, events: [] }
+        },
+      },
+    }
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      {},
+      deps,
+    )
+
+    expect(reviewChapter).toHaveBeenCalledTimes(2)
+    expect(result.finalContent).toBe(draft)
+    expect(result.finalConsistencyReviewed).toBe(true)
+    expect(result.decisionGates.overall).toBe("pass")
+    expect(recordedEvents).toEqual([
+      { gate: "consistency", status: "pass" },
+      { gate: "anti_ai", status: "pass" },
+      { gate: "quality", status: "pass" },
+    ])
+  })
+
+  it("4b) 对照：阶段4本身未完成语义复核时，阶段7改写后不触发7.6回滚，按 pending 交付", async () => {
+    const draft = chapterText("初稿未审正文", 3000)
+    const polished = chapterText("阶段七改写正文", 3000)
+    const reviewChapter = vi.fn(async () => [])
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(polished)
+        } else if (prompt.includes("正文")) {
+          callbacks.onToken(draft)
+        } else {
+          callbacks.onToken("写作任务书内容")
+        }
+        callbacks.onDone()
+      }),
+    }
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      {},
+      deps,
+    )
+
+    expect(reviewChapter).toHaveBeenCalledTimes(1)
+    expect(result.finalContent).toBe(polished)
+    expect(result.finalConsistencyReviewed).toBeUndefined()
+    expect(result.decisionGates.overall).toBe("pending")
+  })
+
+  it("5) BLK-01: stage5 reviewParseFailed 落盘门控三门 pending、账本记 skipped 且恢复不可静默放行", async () => {
+    const draft = chapterText("初稿正文内容", 3000)
+    const revised = chapterText("返修正文内容", 3000)
+    const blockingErr: NovelReviewResult = {
+      severity: "error",
+      type: "consistency",
+      message: "角色认知越界",
+      evidence: "片段",
+      relatedMemory: "",
+      suggestion: "删除越界",
+    }
+    const checkpoints: DeepChapterGenerationResumeCheckpoint[] = []
+    const recordedEvents: Array<{ gate: string; status: string }> = []
+    let calls = 0
+    const reviewChapter = vi.fn(async (_pp, _content, _ch, options) => {
+      calls += 1
+      if (calls === 1) {
+        options?.onSemanticReviewCompleted?.()
+        return [blockingErr]
+      }
+      throw new ReviewParseError("bad-stage5", "unexpected token")
+    })
+    const makeDepsWithLedger = (reviewFn: DeepChapterGenerationDeps["reviewChapter"]): DeepChapterGenerationDeps => ({
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: reviewFn,
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("返修")) {
+          callbacks.onToken(revised)
+        } else if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(chapterText("不该执行到阶段7的正文", 3000))
+        } else if (prompt.includes("正文")) {
+          callbacks.onToken(draft)
+        } else {
+          callbacks.onToken("写作任务书内容")
+        }
+        callbacks.onDone()
+      }),
+      gateEvidence: {
+        appendEvents: async (_storeDeps, _pp, events) => {
+          for (const ev of events) {
+            const payload = ev.payload as { gate: string; status: string }
+            recordedEvents.push({ gate: payload.gate, status: payload.status })
+          }
+          return { schemaVersion: "run-event-ledger/1.0" as const, events: [] }
+        },
+      },
+    })
+
+    const first = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onCheckpoint: async (cp) => { checkpoints.push(cp) } },
+      makeDepsWithLedger(reviewChapter),
+    )
+
+    expect(first.manualReviewRequired).toBe(true)
+    expect(first.decisionGates.consistency.status).toBe("pending")
+    expect(first.decisionGates.anti_ai.status).toBe("pending")
+    expect(first.decisionGates.quality.status).toBe("pending")
+    expect(first.decisionGates.overall).toBe("pending")
+    expect(first.finalConsistencyReviewed).toBeUndefined()
+    // 证据账本记 skipped，绝不伪落 pass
+    expect(recordedEvents).toEqual([
+      { gate: "consistency", status: "skipped" },
+      { gate: "anti_ai", status: "skipped" },
+      { gate: "quality", status: "skipped" },
+    ])
+
+    // 从该 checkpoint 恢复且复审仍解析失败 → 不可静默放行，不进入阶段7，账本继续 skipped
+    const failedCheckpoint = checkpoints[checkpoints.length - 1]
+    expect(failedCheckpoint.revisionReviewPending).toBe(true)
+    expect(failedCheckpoint.manualReviewRequired).toBe(true)
+    recordedEvents.length = 0
+    const resumedReview = vi.fn(async () => {
+      throw new ReviewParseError("still-bad", "unexpected token")
+    })
+    const resumed = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        novelConfig,
+        resumeCheckpoint: failedCheckpoint,
+      },
+      {},
+      makeDepsWithLedger(resumedReview),
+    )
+
+    expect(resumedReview).toHaveBeenCalledTimes(1)
+    expect(resumed.manualReviewRequired).toBe(true)
+    expect(resumed.decisionGates.overall).toBe("pending")
+    expect(resumed.finalConsistencyReviewed).toBeUndefined()
+    expect(resumed.finalContent).toBe(revised)
+    expect(recordedEvents).toEqual([
+      { gate: "consistency", status: "skipped" },
+      { gate: "anti_ai", status: "skipped" },
+      { gate: "quality", status: "skipped" },
+    ])
+  })
+
+  it("6) BLK-02 & R2-REV-001: 阶段7.6 无 signal 抛中文 AbortError 直接上抛；纯 Quality warning 升级保留去AI味/标题成果，真实 error 严格回滚", async () => {
+    const draft = chapterText("阶段四已审安全正文", 3000)
+    const polished = chapterText("阶段七润色后正文", 3000)
+
+    // BLK-02：无 signal、中文消息且 name === "AbortError" → 直接上抛，不可吞错回滚
+    let abortCalls = 0
+    const abortDeps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async (_pp, _content, _ch, options) => {
+        abortCalls += 1
+        if (abortCalls === 1) {
+          options?.onSemanticReviewCompleted?.()
+          return []
+        }
+        throw new DOMException("已取消", "AbortError")
+      }),
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) callbacks.onToken(polished)
+        else if (prompt.includes("正文")) callbacks.onToken(draft)
+        else callbacks.onToken("写作任务书内容")
+        callbacks.onDone()
+      }),
+    }
+    await expect(
+      runDeepChapterGeneration(
+        { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+        {},
+        abortDeps,
+      ),
+    ).rejects.toMatchObject({ name: "AbortError", message: "已取消" })
+
+    // R2-REV-001：mystery 题材（normalizeAuditGenre→"悬疑"）下 P0/P1 全绿 + 0 条 error + 3 条纯 Quality warning
+    // 触发 upgradedToFail（overall="fail"）→ 与 decideDraftAdoptionGate 同源豁免，保留阶段7 去 AI 味与标题成果
+    let upgradeCalls = 0
+    const qualityWarnings: NovelReviewResult[] = [1, 2, 3].map((idx) => ({
+      severity: "warning",
+      type: "quality",
+      message: `节奏问题-${idx}`,
+      evidence: "片段",
+      relatedMemory: "",
+      suggestion: "调整",
+    }))
+    titleGeneratorStub.impl = async () => "第三章 雨夜来客"
+    try {
+      const upgradeDeps: DeepChapterGenerationDeps = {
+        buildContextPack: vi.fn(async () => contextPack),
+        contextPackToPrompt: vi.fn(() => "上下文包内容"),
+        reviewChapter: vi.fn(async (_pp, _content, _ch, options) => {
+          upgradeCalls += 1
+          options?.onSemanticReviewCompleted?.()
+          return upgradeCalls === 1 ? [] : qualityWarnings
+        }),
+        streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+          const prompt = messagesPromptText(messages)
+          if (prompt.includes("简单审查") || prompt.includes("去AI味")) callbacks.onToken(polished)
+          else if (prompt.includes("正文")) callbacks.onToken(draft)
+          else callbacks.onToken("写作任务书内容")
+          callbacks.onDone()
+        }),
+      }
+      const thinking: string[] = []
+      const preserved = await runDeepChapterGeneration(
+        {
+          projectPath: "E:/Novel",
+          userRequest: "生成第3章",
+          chapterNumber: 3,
+          genre: "mystery",
+          llmConfig,
+          novelConfig: { ...novelConfig, autoGenerateChapterTitle: true },
+        },
+        { onThinking: (c) => thinking.push(c) },
+        upgradeDeps,
+      )
+      expect(preserved.finalContent).toContain("第三章 雨夜来客")
+      expect(preserved.finalContent).toContain(polished)
+      expect(preserved.decisionGates.consistency.status).toBe("passed")
+      expect(preserved.decisionGates.anti_ai.status).toBe("passed")
+      expect(preserved.decisionGates.quality.status).toBe("failed")
+      expect(preserved.decisionGates.overall).toBe("fail")
+      expect(decideDraftAdoptionGate(preserved.decisionGates, { reviewed: true })).toBe("passed")
+      expect(preserved.finalConsistencyReviewed).toBe(true)
+      expect(thinking.join("\n")).not.toContain("阶段7.6：终稿复核回滚")
+      expect(thinking.join("\n")).toContain("阶段7.6：终稿一致性复核通过")
+    } finally {
+      titleGeneratorStub.impl = undefined
+    }
+
+    // R2-REV-001 反例：同题材下 Stage 7.6 引入 P0 consistency / P1 anti_ai / P2 quality error → 严格回滚
+    for (const errType of ["consistency", "anti_ai", "quality"] as const) {
+      let errCalls = 0
+      const errorDeps: DeepChapterGenerationDeps = {
+        buildContextPack: vi.fn(async () => contextPack),
+        contextPackToPrompt: vi.fn(() => "上下文包内容"),
+        reviewChapter: vi.fn(async (_pp, _content, _ch, options) => {
+          errCalls += 1
+          options?.onSemanticReviewCompleted?.()
+          if (errCalls === 1) return []
+          return [{
+            severity: "error" as const,
+            type: errType,
+            message: `终稿阻断错误-${errType}`,
+            evidence: "片段",
+            relatedMemory: "",
+            suggestion: "回滚修复",
+          }]
+        }),
+        streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+          const prompt = messagesPromptText(messages)
+          if (prompt.includes("简单审查") || prompt.includes("去AI味")) callbacks.onToken(polished)
+          else if (prompt.includes("正文")) callbacks.onToken(draft)
+          else callbacks.onToken("写作任务书内容")
+          callbacks.onDone()
+        }),
+      }
+      const rollbackThinking: string[] = []
+      const rolled = await runDeepChapterGeneration(
+        { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, genre: "mystery", llmConfig, novelConfig },
+        { onThinking: (c) => rollbackThinking.push(c) },
+        errorDeps,
+      )
+      expect(rolled.finalContent).toBe(draft)
+      expect(rolled.decisionGates.overall).toBe("pass")
+      expect(rolled.finalConsistencyReviewed).toBe(true)
+      expect(rollbackThinking.join("\n")).toContain("阶段7.6：终稿复核回滚")
+    }
+  })
+
+  it("7) N-2v2: 阶段7超时返回部分正文（partialState.reason !== null）即使改文也跳过阶段7.6复核", async () => {
+    const draft = chapterText("阶段四已审完整正文", 3000)
+    const partialPolished = chapterText("阶段七润色一半后超时的部分正文", 1500)
+    const inactivityError = new Error(
+      "Claude Code CLI produced no additional stream output within 30 seconds.",
+    )
+    const reviewChapter = vi.fn(async (_pp, _content, _ch, options) => {
+      options?.onSemanticReviewCompleted?.()
+      return []
+    })
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(partialPolished)
+          callbacks.onError(inactivityError)
+          return
+        }
+        if (prompt.includes("正文")) {
+          callbacks.onToken(draft)
+        } else {
+          callbacks.onToken("写作任务书内容")
+        }
+        callbacks.onDone()
+      }),
+    }
+    const thinking: string[] = []
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onThinking: (c) => thinking.push(c) },
+      deps,
+    )
+
+    expect(result.partial).toBe(true)
+    expect(result.partialReason).toContain("produced no additional stream output")
+    expect(result.finalContent).toBe(partialPolished)
+    expect(result.finalContent).not.toBe(draft)
+    expect(reviewChapter).toHaveBeenCalledTimes(1)
+    expect(result.finalConsistencyReviewed).toBeUndefined()
+    expect(thinking.join("\n")).not.toContain("阶段7.6")
+  })
+
+  it("8) N-2v2: 阶段7规范化后交付正文为空（deliveredContent.trim().length === 0）即使改文也跳过阶段7.6复核", async () => {
+    const draft = chapterText("阶段四已审完整正文", 3000)
+    // "值得注意的是" 命中 DELETE_ON_SIGHT：finalPolishChapter 非空透传，经 formatNormalize 删除后交付正文为空串
+    const polishOnlyDeleteOnSight = "值得注意的是"
+    const reviewChapter = vi.fn(async (_pp, _content, _ch, options) => {
+      options?.onSemanticReviewCompleted?.()
+      return []
+    })
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(polishOnlyDeleteOnSight)
+        } else if (prompt.includes("正文")) {
+          callbacks.onToken(draft)
+        } else {
+          callbacks.onToken("写作任务书内容")
+        }
+        callbacks.onDone()
+      }),
+    }
+    const thinking: string[] = []
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onThinking: (c) => thinking.push(c) },
+      deps,
+    )
+
+    expect(result.partial).toBe(false)
+    expect(result.finalContent.trim()).toBe("")
+    expect(reviewChapter).toHaveBeenCalledTimes(1)
+    expect(result.finalConsistencyReviewed).toBeUndefined()
+    expect(thinking.join("\n")).not.toContain("阶段7.6")
+  })
+})
+
+describe("R2-W05 & R2-W03：StateDelta 真阻断 / 容错损坏 JSON / Stage 6.6 按章号定位替换 / 阶段7.6 genre 透传", () => {
+  it("stateDeltaBlocksTrackA=true 遇已故角色活跃：落 P0 consistency 门真实阻断并触发返修", async () => {
+    mockStoreFile("character-states.json", {
+      characters: [{
+        characterName: "老周",
+        isAlive: false,
+        deathChapter: 1,
+        status: "已故",
+        currentLocation: "旧宅",
+        equipment: [],
+        abilities: [],
+        relationships: {},
+        lastUpdatedChapter: 1,
+        lastUpdatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+    })
+    const draftWithDeadChar = chapterText("老周推开木门走进雨夜里，神色平静。", 2600)
+    const repairedDraft = chapterText("沈鸢独自推开木门走进雨夜里，神色平静。", 2600)
+    const reviewChapter = vi.fn(async (_pp, _content, _ch, options) => {
+      options?.onSemanticReviewCompleted?.()
+      return []
+    })
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(repairedDraft)
+        } else if (prompt.includes("[REVISION_STAGE_MARKER]") || prompt.includes("请根据审稿问题返修")) {
+          callbacks.onToken(repairedDraft)
+        } else if (prompt.includes("正文")) {
+          callbacks.onToken(draftWithDeadChar)
+        } else {
+          callbacks.onToken("写作任务书内容")
+        }
+        callbacks.onDone()
+      }),
+    }
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "写第3章",
+        chapterNumber: 3,
+        genre: "mystery",
+        llmConfig,
+        novelConfig: { ...novelConfig, stateDeltaBlocksTrackA: true, stateDeltaLightCheckEnabled: true },
+      },
+      {},
+      deps,
+    )
+
+    expect(result.revised).toBe(true)
+    expect(result.retryCount).toBe(1)
+    expect(result.decisionGates.consistency.status).toBe("passed")
+    expect(result.finalContent).not.toContain("老周")
+  })
+
+  it("损坏的嵌入式 state-delta JSON 块不崩掉轻检，优雅回退 heuristic 并仍产出告警", async () => {
+    mockStoreFile("character-states.json", {
+      characters: [{
+        characterName: "老周",
+        isAlive: false,
+        deathChapter: 1,
+        status: "已故",
+        currentLocation: "旧宅",
+        equipment: [],
+        abilities: [],
+        relationships: {},
+        lastUpdatedChapter: 1,
+        lastUpdatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+    })
+    const draftWithBrokenJson = `${chapterText("老周推开木门走进院子。", 2600)}\n\`\`\`json state-delta\n{ "activeMentions": ["老周", }\n\`\`\`\n`
+    const deps = createDeps()
+    vi.mocked(deps.streamChat).mockImplementation(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+      const prompt = messagesPromptText(messages)
+      if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+        callbacks.onToken(chapterText("终稿正文", 2600))
+      } else if (prompt.includes("正文")) {
+        callbacks.onToken(draftWithBrokenJson)
+      } else {
+        callbacks.onToken("写作任务书内容")
+      }
+      callbacks.onDone()
+    })
+    const thinking: string[] = []
+    const result = await runDeepChapterGeneration(
+      residualBaseInput({ novelConfig: { ...novelConfig, stateDeltaBlocksTrackA: false, stateDeltaLightCheckEnabled: true } }),
+      { onThinking: (c) => thinking.push(c) },
+      deps,
+    )
+    expect(thinking.join("\n")).toContain("阶段3.7：StateDelta 轻检")
+    expect(thinking.join("\n")).toContain("启发式")
+    expect(result.reviewResults.some((r) => r.type === "state_delta_light_check" && r.message.includes("老周"))).toBe(true)
+  })
+
+  it("Stage 6.6 重写中间章（第2章）按 chapterNumber 精准替换第2章而不覆写末章（第3章），且阶段7.6 透传 genre", async () => {
+    vi.mocked(fsListMock).mockResolvedValue([
+      { name: "1", path: "/proj/.novel/chapters/1", is_dir: true, children: [] },
+      { name: "2", path: "/proj/.novel/chapters/2", is_dir: true, children: [] },
+      { name: "3", path: "/proj/.novel/chapters/3", is_dir: true, children: [] },
+    ])
+    fsReadFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("/1/draft.md")) return "第1章：他身上有3把剑。"
+      if (path.endsWith("/2/draft.md")) return "第2章旧稿：他身上有99把剑。"
+      // 第3章与新写第2章数值矛盾（第3章有7把剑 vs 新第2章有3把剑）；若错误覆写第3章则会漏检第3章！
+      if (path.endsWith("/3/draft.md")) return "第3章：他身上有7把剑。"
+      const err: NodeJS.ErrnoException = new Error("ENOENT")
+      err.code = "ENOENT"
+      throw err
+    })
+    const draft = chapterText("第2章初稿：他身上有3把剑。", 2600)
+    const polished = chapterText("第2章终稿：他身上有3把剑。", 2600)
+    const reviewGenres: Array<string | undefined> = []
+    const reviewChapter = vi.fn(async (_pp, _content, _ch, options) => {
+      reviewGenres.push(options?.genre)
+      options?.onSemanticReviewCompleted?.()
+      return []
+    })
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter,
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(polished)
+        } else if (prompt.includes("正文")) {
+          callbacks.onToken(draft)
+        } else {
+          callbacks.onToken("写作任务书内容")
+        }
+        callbacks.onDone()
+      }),
+    }
+    const thinking: string[] = []
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "重写第2章", chapterNumber: 2, genre: "mystery", llmConfig, novelConfig },
+      { onThinking: (c) => thinking.push(c) },
+      deps,
+    )
+    // 阶段4 与 阶段7.6 均透传 genre="mystery"
+    expect(reviewGenres).toEqual(["mystery", "mystery"])
+    // 第3章（7把剑）未被覆写，故与新第2章（3把剑）比对命中数值一致性提示，且不再包含旧第2章的 99
+    const numericMsg = thinking.find((t) => t.includes("数值一致性检查")) ?? ""
+    expect(numericMsg).toContain("数值一致性检查")
+    expect(numericMsg).not.toContain("99")
+  })
+
+  it("R2-W09 IC-02: buildContextPack 失败降级空包时强制 manualReviewRequired=true、阻断 consistency/overall 绿灯且不签发 finalConsistencyReviewed", async () => {
+    const draft = chapterText("空上下文降级初稿正文内容", 2600)
+    const reviewChapter = vi.fn(async (_pp, _content, _ch, options) => {
+      options?.onSemanticReviewCompleted?.()
+      return []
+    })
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => {
+        throw new Error("storage offline")
+      }),
+      contextPackToPrompt: vi.fn(() => ""),
+      reviewChapter,
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(draft)
+        } else if (prompt.includes("正文")) {
+          callbacks.onToken(draft)
+        } else {
+          callbacks.onToken("写作任务书内容")
+        }
+        callbacks.onDone()
+      }),
+    }
+    const thinking: string[] = []
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onThinking: (c) => thinking.push(c) },
+      deps,
+    )
+
+    expect(result.manualReviewRequired).toBe(true)
+    expect(result.decisionGates.consistency.status).toBe("pending")
+    expect(result.decisionGates.consistency.verdict).toBe("pending")
+    expect(result.decisionGates.consistency.manual_review_required).toBe(true)
+    expect(result.decisionGates.overall).toBe("pending")
+    expect(result.finalConsistencyReviewed).toBeUndefined()
+    expect(thinking.join("\n")).toContain("上下文包构建失败")
+  })
+
+  it("R2: Stage 6.6 优先读取 wiki/chapters/ 正式章（忽略草稿后缀，解析 frontmatter chapter_number）", async () => {
+    vi.mocked(fsListMock).mockImplementation(async (dir?: string) => {
+      if (String(dir).endsWith("/wiki/chapters")) {
+        return [
+          { name: "chapter-001.md", path: "E:/Novel/wiki/chapters/chapter-001.md", is_dir: false },
+          { name: "chapter-002-去AI味稿.md", path: "E:/Novel/wiki/chapters/chapter-002-去AI味稿.md", is_dir: false },
+          { name: "custom-name.md", path: "E:/Novel/wiki/chapters/custom-name.md", is_dir: false },
+        ]
+      }
+      return []
+    })
+    fsReadFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("chapter-001.md")) return "---\nchapter_number: 1\n---\n第1章：他身上有3把剑。"
+      if (path.endsWith("custom-name.md")) return "---\nchapter_number: 3\n---\n第3章：他身上有8把剑。"
+      const err: NodeJS.ErrnoException = new Error("ENOENT")
+      err.code = "ENOENT"
+      throw err
+    })
+
+    const draft = chapterText("第2章正文：他身上有3把剑。", 2600)
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async (_pp, _c, _ch, opts) => {
+        opts?.onSemanticReviewCompleted?.()
+        return []
+      }),
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) callbacks.onToken(draft)
+        else if (prompt.includes("正文")) callbacks.onToken(draft)
+        else callbacks.onToken("写作任务书内容")
+        callbacks.onDone()
+      }),
+    }
+    const thinking: string[] = []
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "写第2章", chapterNumber: 2, llmConfig, novelConfig },
+      { onThinking: (c) => thinking.push(c) },
+      deps,
+    )
+
+    const numericMsg = thinking.find((t) => t.includes("数值一致性检查")) ?? ""
+    expect(numericMsg).toContain("数值一致性检查")
+    expect(numericMsg).toContain("8")
+
+    // 异常降级：wiki/chapters 列表抛错且 .novel/chapters 也为空时非致命不阻断，单章读错跳过继续
+    vi.mocked(fsListMock).mockImplementationOnce(async () => {
+      throw new Error("wiki chapters io down")
+    }).mockResolvedValueOnce([])
+    const fallbackRes = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "写第2章", chapterNumber: 2, llmConfig, novelConfig },
+      {},
+      deps,
+    )
+    expect(fallbackRes.finalContent).toContain("第2章正文")
+  })
+
+  it("R2-W06: sceneBreakdownEnabled=true 时阶段1.5场景拆解蓝图注入阶段2任务书与阶段3初稿提示词", async () => {
+    const { runSceneBreakdown } = await import("./scene-breakdown")
+    vi.mocked(runSceneBreakdown).mockResolvedValueOnce({
+      scenes: [
+        {
+          sceneId: "S1",
+          sceneTitle: "祠堂对峙",
+          location: "沈家祠堂",
+          characters: ["沈鸢", "管事"],
+          goal: "逼问旧账本下落",
+          tension: "门外雷声大作",
+          beat: "中段反转",
+        },
+      ],
+    })
+    const draft = chapterText("祠堂对峙正文内容。", 2600)
+    const capturedStagePrompts: string[] = []
+    let callIdx = 0
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async (_pp, _c, _ch, opts) => {
+        opts?.onSemanticReviewCompleted?.()
+        return []
+      }),
+      streamChat: vi.fn(async (_c: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        capturedStagePrompts.push(prompt)
+        callIdx += 1
+        if (callIdx === 1) {
+          callbacks.onToken("写作任务书内容")
+        } else {
+          callbacks.onToken(draft)
+        }
+        callbacks.onDone()
+      }),
+    }
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        novelConfig: { ...novelConfig, sceneBreakdownEnabled: true },
+      },
+      {},
+      deps,
+    )
+
+    // 第 1 次 streamChat 为阶段2任务书，第 2 次为阶段3初稿：两处提示词均注入场景拆解蓝图
+    expect(capturedStagePrompts.length).toBeGreaterThanOrEqual(2)
+    expect(capturedStagePrompts[0]).toContain("## 阶段1.5：场景拆解蓝图")
+    expect(capturedStagePrompts[0]).toContain("祠堂对峙")
+    expect(capturedStagePrompts[1]).toContain("## 阶段1.5：场景拆解蓝图")
+    expect(capturedStagePrompts[1]).toContain("逼问旧账本下落")
   })
 })

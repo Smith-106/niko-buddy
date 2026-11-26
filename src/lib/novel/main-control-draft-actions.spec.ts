@@ -81,6 +81,11 @@ describe("resolveMainControlDraftTarget", () => {
     expect(resolveMainControlDraftTarget("/proj", "第3章", "/proj/wiki/chapters/第9章.md")).toBe(
       "/proj/wiki/chapters/第3章.md",
     )
+    // R2-W01 BLOCKING-7：同步签名保留，支持 gated=true 规范路径解析
+    expect(resolveMainControlDraftTarget("/proj", "第3章", null, true)).toBe("/proj/wiki/chapters/chapter-003.md")
+    expect(resolveMainControlDraftTarget("/proj", "第3章", "/proj/QM/chapters/chapter-003.md", true)).toBe(
+      "/proj/QM/chapters/chapter-003.md",
+    )
   })
 })
 
@@ -137,5 +142,33 @@ describe("adoptMainControlDraft", () => {
 
     expect(writeFileAtomic).not.toHaveBeenCalled()
     expect(writeFile).not.toHaveBeenCalled()
+  })
+
+  it("R2-W01：未显式传 formalChapterPath 的 gated 草稿异步经 resolveChapterDraftAdoptionTarget 解析落点", async () => {
+    const resolveTarget = vi.fn(async () => "/proj/QM/chapters/chapter-003.md")
+    acceptChapterDraft.mockResolvedValue({ formalChapterPath: "/proj/QM/chapters/chapter-003.md" })
+
+    const out = await adoptMainControlDraft(
+      {
+        projectPath: "/proj",
+        draftId: "draft_gated_1",
+        chapterName: "第3章",
+        confirmed: true,
+        adoptionGate: { status: "passed", bodySha256: "a".repeat(64) },
+        novelConfig: novelConfig(),
+        llmConfig,
+      },
+      { resolveTarget },
+    )
+
+    expect(resolveTarget).toHaveBeenCalledWith(
+      "/proj",
+      { chapterName: "第3章", adoptionGate: { status: "passed", bodySha256: "a".repeat(64) } },
+      null,
+    )
+    expect(acceptChapterDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ formalChapterPath: "/proj/QM/chapters/chapter-003.md", confirmed: true }),
+    )
+    expect(out.formalChapterPath).toBe("/proj/QM/chapters/chapter-003.md")
   })
 })

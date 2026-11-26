@@ -313,7 +313,7 @@ export type ClosureProjectionLoader = (projectPath: string) => Promise<ClosurePr
  */
 export const loadClosureProjection: ClosureProjectionLoader = async (projectPath) => {
   const pp = normalizePath(projectPath).replace(/\/+$/, "")
-  /* v8 ignore start -- 台账 closure-projection.ts L317-318：两个加载器都不会 reject —— loadNarrativeState 的 atomic store 三项默认全宽松（onMissing/onCorrupt="empty"、isMissingError=()=>true），loadTimeline 自带 try/catch 恒返回空 TimelineFile */
+  /* v8 ignore start -- 台账 closure-projection.ts L317-318：两个加载器都不会 reject —— loadNarrativeState 的 atomic store 三项默认全宽松（onMissing/onCorrupt="empty"、isMissingError=()=>true），loadTimeline 现在可对损坏文档抛错（.catch 兜住） */
   const [narrativeState, timeline] = await Promise.all([
     loadNarrativeState(pp).catch(() => null),
     loadTimeline(pp).catch(() => null),

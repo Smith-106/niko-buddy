@@ -6,6 +6,10 @@
  *
  * @license MIT © Niko Buddy
  */
+import { spawnSync } from "node:child_process"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   CURATION_DEBT_CAP,
@@ -18,7 +22,7 @@ import {
   type CurationBatch,
 } from "./curation-gate"
 import kbRoutingView from "./kb/kb-routing-view.generated.json"
-import kbContentView from "./__fixtures__/reference-kb-view.content-1c755328f06c75ca.json"
+import kbContentView from "./__fixtures__/reference-kb-view.content-9e1928e35f2c89ac.json"
 
 const LONG_SUMMARY = "这是一段足够长的策展摘要，用于验证摘要长度阈值：".repeat(2) + "完。"
 
@@ -205,7 +209,7 @@ describe("R1-d 真实产物面（生成器管线门禁）", () => {
   }
   const score = scoreCurationBatch({
     schemaVersion: 1,
-    source: `reference-kb-view.content-1c755328f06c75ca.json@${content.builtFrom ?? "unknown"}`,
+    source: `reference-kb-view.content-9e1928e35f2c89ac.json@${content.builtFrom ?? "unknown"}`,
     expectThemes: [
       { theme: "克苏鲁", collections: ["world_ref"] },
       { theme: "修仙", collections: ["world_ref", "lexicon"] },
@@ -222,7 +226,7 @@ describe("R1-d 真实产物面（生成器管线门禁）", () => {
     expect(score.totalDebt).toBe(0)
     expect(score.withinCap).toBe(true)
     expect(score.findings).toEqual([])
-    expect(content.builtFrom).toBe("sha256:1c755328f06c75ca")
+    expect(content.builtFrom).toBe("sha256:9e1928e35f2c89ac")
     // 2026-11-08 参考池再重建（经批准）：四写作面 7+14+53+27=101
     expect(content.entryCount).toBe(101)
     expect(score.entryCount).toBeGreaterThan(70)
@@ -287,5 +291,95 @@ describe("R1-d 真实产物面（生成器管线门禁）", () => {
     })
     expect(dirty.byReason.theme_vacant).toBe(CURATION_DEBT_WEIGHTS.theme_vacant)
     expect(() => assertCurationDebtWithinCap(dirty)).toThrow(/theme_vacant\+3\] 修仙@world_ref/)
+  })
+})
+
+type CheckCurationDebtModule = {
+  resolveFixtureSnapshot: (fixturesDir: string, expectedBuiltFrom: string) => string
+}
+
+const CHECK_CURATION_DEBT_MODULE_URL = new URL(
+  "../../../scripts/check-curation-debt.mjs",
+  import.meta.url,
+).href
+
+async function loadCheckCurationDebt(): Promise<CheckCurationDebtModule> {
+  // eslint-disable-next-line no-unsanitized/method -- 测试固定仓内脚本 URL，无外部不可信输入
+  return (await import(/* @vite-ignore */ CHECK_CURATION_DEBT_MODULE_URL)) as CheckCurationDebtModule
+}
+
+describe("K-3 check-curation-debt.mjs 快照精准匹配与 CLI 门禁", () => {
+  const EXPECTED_BUILT_FROM = "sha256:9e1928e35f2c89ac"
+  const EXPECTED_FILE = "reference-kb-view.content-9e1928e35f2c89ac.json"
+  const STALE_FILE = "reference-kb-view.content-5466c2b048642703.json"
+
+  it("resolveFixtureSnapshot：唯一精确匹配时返回目标快照路径", async () => {
+    const { resolveFixtureSnapshot } = await loadCheckCurationDebt()
+    const dir = mkdtempSync(join(tmpdir(), "curation-snap-ok-"))
+    try {
+      writeFileSync(join(dir, EXPECTED_FILE), "{}", "utf8")
+      // 混入无关 fixture 文件不应干扰匹配
+      writeFileSync(join(dir, "golden-queries.json"), "{}", "utf8")
+      expect(resolveFixtureSnapshot(dir, EXPECTED_BUILT_FROM)).toBe(join(dir, EXPECTED_FILE))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("resolveFixtureSnapshot：缺失或仅存旧 sha 快照时 fail-loud 抛错", async () => {
+    const { resolveFixtureSnapshot } = await loadCheckCurationDebt()
+    const staleDir = mkdtempSync(join(tmpdir(), "curation-snap-stale-"))
+    const emptyDir = mkdtempSync(join(tmpdir(), "curation-snap-empty-"))
+    try {
+      writeFileSync(join(staleDir, STALE_FILE), "{}", "utf8")
+      const expectedEscaped = EXPECTED_FILE.replace(/\./g, "\\.")
+      const staleEscaped = STALE_FILE.replace(/\./g, "\\.")
+      expect(() => resolveFixtureSnapshot(staleDir, EXPECTED_BUILT_FROM)).toThrow(
+        new RegExp(`${expectedEscaped}.*${staleEscaped}`),
+      )
+      expect(() => resolveFixtureSnapshot(emptyDir, EXPECTED_BUILT_FROM)).toThrow(
+        new RegExp(expectedEscaped),
+      )
+    } finally {
+      rmSync(staleDir, { recursive: true, force: true })
+      rmSync(emptyDir, { recursive: true, force: true })
+    }
+  })
+
+  it("resolveFixtureSnapshot：存在多份内容快照文件冲突时抛错", async () => {
+    const { resolveFixtureSnapshot } = await loadCheckCurationDebt()
+    const dir = mkdtempSync(join(tmpdir(), "curation-snap-conflict-"))
+    try {
+      writeFileSync(join(dir, EXPECTED_FILE), "{}", "utf8")
+      writeFileSync(join(dir, STALE_FILE), "{}", "utf8")
+      expect(() => resolveFixtureSnapshot(dir, EXPECTED_BUILT_FROM)).toThrow(/conflict|multiple/i)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("resolveFixtureSnapshot：非法 builtFrom 格式抛错", async () => {
+    const { resolveFixtureSnapshot } = await loadCheckCurationDebt()
+    const dir = mkdtempSync(join(tmpdir(), "curation-snap-bad-"))
+    try {
+      writeFileSync(join(dir, EXPECTED_FILE), "{}", "utf8")
+      expect(() => resolveFixtureSnapshot(dir, "")).toThrow(/expectedBuiltFrom/i)
+      expect(() => resolveFixtureSnapshot(dir, "md5:9e1928e35f2c89ac")).toThrow(/expectedBuiltFrom/i)
+      expect(() => resolveFixtureSnapshot(dir, "sha256:not-hex!")).toThrow(/expectedBuiltFrom/i)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("CLI 门禁 smoke：node scripts/check-curation-debt.mjs 真实子进程返回 status === 0", () => {
+    const repoRoot = resolve(__dirname, "..", "..", "..")
+    const scriptPath = resolve(repoRoot, "scripts", "check-curation-debt.mjs")
+    const result = spawnSync(process.execPath, [scriptPath], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.status, `stderr: ${result.stderr}\nstdout: ${result.stdout}`).toBe(0)
+    expect(result.stdout).toContain("[curation-debt] PASS")
   })
 })

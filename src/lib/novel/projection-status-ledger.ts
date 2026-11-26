@@ -1,7 +1,9 @@
-import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { copyFile, createDirectory, readFile, readFileAsBase64, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
-import { logger, toErrorMessage } from "@/lib/utils"
+import { isMissingFile } from "./chapter-ingest-snapshot-io"
 import { withProjectLock } from "./novel-locks"
+import { computeCheckpointDigest } from "./checkpoint-digest"
+import { toErrorMessage } from "@/lib/utils"
 import type { NameAliasMap } from "./book-analysis/types"
 import type { ChapterSnapshot } from "./chapter-ingest"
 
@@ -146,6 +148,8 @@ export interface ProjectionStatusEntry {
   updated_at: string
   /** Error message when status === "failed"; empty otherwise. */
   last_error: string
+  /** Opaque attempt identity for deferred pending cells (additive; legacy cells lack it). */
+  attemptId?: string
 }
 
 // ============================================================================
@@ -165,9 +169,8 @@ export interface ProjectionStatusEntry {
 // ({projections, chapters}) ignore the extra key.
 // Growth note (OQ-3): the trail grows unbounded (~12 events/chapter); a
 // rolling-window policy is deferred past v2.6 baseline.
-// C5 (2026-08-23): rolling window landed — AUDIT_TRAIL_MAX_ENTRIES caps the
-// trail at both append sites (recordProjectionAudit / appendProjectionAuditEntry)
-// and on load (legacy files are trimmed once). Tail-kept (most recent N).
+// C5 (2026-08-23)：追加、增量合并及加载时通过 AUDIT_TRAIL_MAX_ENTRIES
+// 保留最近 N 条审计事件。
 // ============================================================================
 
 /** C5: rolling-window cap for the append-only audit trail (tail-kept). */
@@ -330,6 +333,13 @@ export interface ProjectionRegistryEntry {
 export const PROJECTION_REGISTRY: Record<string, ProjectionRegistryEntry> = {}
 
 /**
+ * 同一项目的确定性派生存储读写串行；不包模型调用或账本写入。
+ */
+export function withProjectionStoreWriteLock<T>(projectPath: string, write: () => Promise<T>): Promise<T> {
+  return withProjectLock(`projection-store:${normalizePath(projectPath).replace(/\/+$/, "")}`, write)
+}
+
+/**
  * 批量注册投影条目（幂等保护：重复注册抛错）。注册即校验，任何不一致
  * 立即抛（cognee fail-loud），绝不静默接受分叉的类别/键集。
  */
@@ -429,84 +439,126 @@ function ledgerPath(projectPath: string): string {
 }
 
 export async function loadProjectionStatusLedger(projectPath: string): Promise<ProjectionStatusLedger> {
-  // A5: keep the raw bytes across the read/parse boundary so that on a JSON
-  // parse failure we can preserve the original file to a .corrupt-* sibling
-  // instead of silently zeroing history on the next save.
-  let raw: string | undefined
-  let parsed: Partial<ProjectionStatusLedger> | undefined
-  try {
-    raw = await readFile(ledgerPath(projectPath))
-    const candidate = JSON.parse(raw) as Partial<ProjectionStatusLedger>
-    if (!candidate || typeof candidate !== "object" || !candidate.chapters) {
-      return emptyLedger()
-    }
-    parsed = candidate
-  } catch (err) {
-    // A5: a thrown read (ENOENT) or a JSON.parse failure (corrupt file) must
-    // NOT silently reset the ledger. When we actually held file contents that
-    // failed to parse, copy them to a .corrupt-<timestamp> sibling in the same
-    // directory and warn — then still return emptyLedger() to stay available.
-    // ISS-20260709-025 PAT-IM2: 记诊断（读失败 vs 解析失败可区分），控制流不变。
-    logger.warn("Projection Ledger", "load ledger failed, degrade to empty (non-fatal)", { error: toErrorMessage(err) })
-    if (raw !== undefined) {
-      try {
-        await preserveCorruptLedger(projectPath, raw)
-      } catch (preserveErr) {
-        // Preserving the original is best-effort; never let it break the load.
-        // ISS-20260709-050: 脱敏 — 只记名与 message，禁原文/密钥外泄。
-        logger.error("Projection Ledger", "failed to preserve corrupt ledger file", { error: toErrorMessage(preserveErr) })
-      }
-    }
-    return emptyLedger()
-  }
-  // 未知新版 schemaVersion 不在 corrupt 语义内：fail-loud（拒绝静默降级），
-  // 抛给调用方决策——绝不能像解析失败那样吞掉降级。
-  if (parsed.schemaVersion !== undefined && parsed.schemaVersion !== LEDGER_SCHEMA_VERSION) {
-    throw new Error(
-      `[projection-status-ledger] unsupported ledger schemaVersion "${parsed.schemaVersion}" (expected "${LEDGER_SCHEMA_VERSION}") — fail-loud, refusing silent downgrade`,
-    )
-  }
-  // Merge with canonical categories so new projections added in code are
-  // reflected even in ledgers written by older versions.
-  const chapters = parsed.chapters as Record<string, Record<string, ProjectionStatusEntry>>
+  // 只读路径：读、解析、归一化；真缺失才回空，坏文档一律抛——绝不在读侧
+  // 写备份或静默降级（写侧护栏见 readLedgerDocument / saveProjectionStatusLedger）。
+  const doc = await readLedgerDocument(projectPath)
   return {
-      // #4: v1 legacy files lack schemaVersion — lazy migrate to "2" on load
-      // (next save writes it back); v2 files keep their version.
-      schemaVersion: LEDGER_SCHEMA_VERSION,
-      projections: { ...PROJECTION_CATEGORIES, ...(parsed.projections ?? {}) },
-      chapters,
-      // F-005: preserve the append-only trail across loads (legacy files → []).
-      // C5: legacy files may exceed the cap — trim once on load.
-      auditTrail: Array.isArray(parsed.auditTrail) ? trimAuditTrail(parsed.auditTrail) : [],
-    }
+    // #4: v1 legacy files lack schemaVersion — lazy migrate to "2" on load
+    // (next save writes it back); v2 files keep their version.
+    schemaVersion: LEDGER_SCHEMA_VERSION,
+    projections: { ...PROJECTION_CATEGORIES, ...doc.projections },
+    chapters: doc.chapters ?? {},
+    // F-005: preserve the append-only trail across loads (legacy files → []).
+    // C5: legacy files may exceed the cap — trim once on load.
+    auditTrail: trimAuditTrail(doc.auditTrail ?? []),
+  }
+}
+
+/** 账本结构校验守卫（坏文档经 readLedgerDocument 保全后直接 throw 拒写，绝不从空文档起步）。 */
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+const isNonEmptyString = (value: unknown): value is string => typeof value === "string" && value.length > 0
+const isProjectionCategory = (value: unknown): value is ProjectionCategory =>
+  value === "single_snapshot_idempotent" || value === "fold_rebuildable" || value === "mutates_existing_non_rebuildable"
+
+function isProjectionCell(projection: string, value: unknown): boolean {
+  return isRecord(value) && projection.length > 0 && value.projection === projection
+    && isProjectionCategory(value.category)
+    && (value.status === "pending" || value.status === "committed" || value.status === "failed")
+    && isNonEmptyString(value.updated_at) && typeof value.last_error === "string"
+    && (value.attemptId === undefined || isNonEmptyString(value.attemptId))
+}
+
+function isProjectionAuditEvent(value: unknown): boolean {
+  if (!isRecord(value) || !isNonEmptyString(value.projection)) return false
+  if (value.status === "ok") {
+    // 兼容 v1 的存量审计；升版时原样保留。
+    return isNonEmptyString(value.ts) && isNonEmptyString(value.id) && typeof value.message === "string"
+  }
+  return (value.status === "committed" || value.status === "rebuild" || value.status === "failed")
+    && typeof value.chapter === "number" && Number.isSafeInteger(value.chapter) && value.chapter > 0
+    && typeof value.durationMs === "number" && Number.isFinite(value.durationMs)
+    && isNonEmptyString(value.timestamp) && (value.error === undefined || typeof value.error === "string")
+}
+
+/** 坏文档原生字节备份：每份坏内容只存一份（指纹命名），绝不覆盖原文件或既有备份。 */
+async function preserveCorruptLedger(path: string): Promise<void> {
+  const { base64 } = await readFileAsBase64(path)
+  const fingerprint = await computeCheckpointDigest(base64)
+  const backup = path.replace(/\.json$/, `.corrupt-${fingerprint}.json`)
+  await copyFile(path, backup, { exclusive: true })
+  const saved = await readFileAsBase64(backup)
+  if (saved.base64 !== base64) {
+    throw new Error("[projection-status-ledger] corrupt ledger backup verification failed; original left unchanged")
+  }
 }
 
 /**
- * A5: copy the raw (corrupt) ledger contents to a `.corrupt-<ISO timestamp>`
- * sibling in the same directory so the history is not silently lost when the
- * next saveProjectionStatusLedger overwrites projection-status.json. Uses the
- * project's existing IO primitives (readFile + writeFileAtomic); no rename
- * primitive is exposed, so this is an explicit read+write copy.
+ * 读/写共用读取器：只允许真缺失从空文档起步；坏文档（JSON 解析失败、形状非法）
+ * 与未知 schema 一律 fail-loud，绝不降级覆盖。preserveCorrupt 由写侧调用方传 true
+ * （仍在项目锁内）：坏字节先原子备份再拒写；读侧默认 false，纯读零写入。
+ * 未知 schemaVersion 与 EACCES 不算损坏——直接抛，不备份。
  */
-async function preserveCorruptLedger(projectPath: string, raw: string): Promise<void> {
-  const pp = normalizePath(projectPath)
-  // ISO timestamps contain ':' / '.' which are legal on most filesystems but
-  // awkward; normalize them so the suffix stays filename-friendly.
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-  const corruptPath = `${pp}/.novel/projection-status.corrupt-${stamp}.json`
-  await writeFileAtomic(corruptPath, raw)
-  // ISS-20260709-050: 脱敏 — 路径可记（本地路径非密钥），不记原文/错误对象明细。
-  logger.error("Projection Ledger", "corrupted ledger detected, original preserved", { ledger: ledgerPath(projectPath), preservedTo: corruptPath })
+async function readLedgerDocument(projectPath: string, preserveCorrupt = false): Promise<Partial<ProjectionStatusLedger>> {
+  const path = ledgerPath(projectPath)
+  let raw: string
+  try {
+    raw = await readFile(path, { exactUtf8: true })
+  } catch (err) {
+    if (await isMissingFile(path, err)) return {}
+    if (preserveCorrupt && toErrorMessage(err).startsWith("INVALID_UTF8:")) {
+      await preserveCorruptLedger(path)
+    }
+    throw err
+  }
+
+  const invalidLedger = async (): Promise<never> => {
+    if (preserveCorrupt) await preserveCorruptLedger(path)
+    throw new Error("[projection-status-ledger] invalid ledger document")
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw.replace(/^\uFEFF/, ""))
+  } catch (err) {
+    if (preserveCorrupt) await preserveCorruptLedger(path)
+    throw Object.assign(new Error("[projection-status-ledger] corrupt JSON; original ledger left unchanged"), { cause: err })
+  }
+  if (!isRecord(parsed)) await invalidLedger()
+
+  const doc = parsed as Partial<ProjectionStatusLedger>
+  if (doc.schemaVersion !== undefined && doc.schemaVersion !== LEDGER_SCHEMA_VERSION) {
+    throw new Error(
+      `[projection-status-ledger] unsupported ledger schemaVersion "${doc.schemaVersion}" (expected "${LEDGER_SCHEMA_VERSION}") — fail-loud, refusing silent downgrade`,
+    )
+  }
+  // 结构性校验：v2 或带 chapters 的文档必须是「章号 → 投影 → 单元」两层记录。
+  if ((doc.schemaVersion === LEDGER_SCHEMA_VERSION || doc.chapters !== undefined)
+    && (!isRecord(doc.chapters)
+      || !Object.entries(doc.chapters).every(([number, chapter]) =>
+        /^[1-9]\d*$/.test(number) && Number.isSafeInteger(Number(number)) && isRecord(chapter)
+        && Object.entries(chapter).every(([projection, cell]) => isProjectionCell(projection, cell))))) {
+    await invalidLedger()
+  }
+  if (doc.projections !== undefined
+    && (!isRecord(doc.projections) || !Object.values(doc.projections).every(isProjectionCategory))) {
+    await invalidLedger()
+  }
+  if (doc.auditTrail !== undefined
+    && (!Array.isArray(doc.auditTrail) || !doc.auditTrail.every(isProjectionAuditEvent))) {
+    await invalidLedger()
+  }
+  return doc
 }
 
 export async function saveProjectionStatusLedger(
   projectPath: string,
   ledger: ProjectionStatusLedger,
 ): Promise<void> {
-  // Phase4 锁族：与 appendProjectionAuditEntry 共用同一把项目级锁，保证
-  // end-of-loop save 与 per-event flush 不会交错丢写。
+  // 兼容显式整文件替换，与追加及合并共用项目锁；实时写入应使用增量合并。
   await withProjectLock(`ledger:${normalizePath(projectPath)}`, async () => {
     const pp = normalizePath(projectPath)
+    await readLedgerDocument(pp, true)
     await createDirectory(`${pp}/.novel`)
     // F-002: atomic write (fs.rs:1190 temp+fsync+rename) — the ledger itself
     // must not be corrupted by a crash mid-write, or it would defeat its
@@ -515,12 +567,7 @@ export async function saveProjectionStatusLedger(
   })
 }
 
-/**
- * F-005: append one audit event to the in-memory ledger's trail (pure).
- * Pairs with appendProjectionAuditEntry — the in-memory copy must stay in sync
- * so the end-of-loop saveProjectionStatusLedger cannot clobber the per-event
- * durable flushes back off disk.
- */
+/** F-005：纯函数，向内存账本的审计序列追加一条事件。 */
 export function recordProjectionAudit(
   ledger: ProjectionStatusLedger,
   entry: ProjectionAuditEntry,
@@ -534,35 +581,142 @@ export function recordProjectionAudit(
  * Read-modify-write that spreads ALL existing top-level fields through
  * (projections / chapters / version / anything else) and only replaces the
  * auditTrail array — strictly additive, never drops legacy or unknown fields.
- * Tolerant of missing/corrupt files (starts a fresh document). Callers treat
- * failure as non-fatal: audit must never break the projection loop.
+ * 仅文件真缺失时从空文档起步；坏文档先保全原字节后直接抛错拒写（绝不从空文档
+ * 起步覆盖），其他读取失败或未知版本直接抛错，由调用方按非致命失败处理。
+ * 不在追加时迁移旧版账本。
  */
 export async function appendProjectionAuditEntry(
   projectPath: string,
   entry: ProjectionAuditEntry,
 ): Promise<void> {
-  // Phase4 锁族（A8 补遗）：RMW 临界区加项目级互斥——community rebuild
-  // （fire-and-forget）与下章摄取并发 append 时无锁会丢写。
-  await withProjectLock(`ledger:${normalizePath(projectPath)}`, async () => {
-    const pp = normalizePath(projectPath)
+  const pp = normalizePath(projectPath)
+  // 与章状态合并共用 RMW 临界区，防止并发追加或合并覆盖已落盘事件。
+  await withProjectLock(`ledger:${pp}`, async () => {
+    const doc = await readLedgerDocument(pp, true)
+    const existing = Array.isArray(doc.auditTrail) ? doc.auditTrail : []
     await createDirectory(`${pp}/.novel`)
-    let doc: Record<string, unknown> = {}
-    try {
-      const parsed: unknown = JSON.parse(await readFile(ledgerPath(pp)))
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        doc = parsed as Record<string, unknown>
-      }
-    } catch (err) {
-      // Missing or corrupt file → start a fresh document; the spread below
-      // keeps whatever fields were recoverable (none) without failing the caller.
-      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
-      logger.warn("Projection Ledger", "read ledger for audit append failed, start fresh (non-fatal)", { error: toErrorMessage(err) })
-    }
-    const existing = Array.isArray(doc.auditTrail) ? (doc.auditTrail as ProjectionAuditEntry[]) : []
     await writeFileAtomic(
       ledgerPath(pp),
       JSON.stringify({ ...doc, auditTrail: trimAuditTrail([...existing, entry]) }, null, 2),
     )
+  })
+}
+
+/** 仅记账：失败的终态落盘或应用中断后，下一次摄取标出失主的社区摘要。 */
+export async function resettleInterruptedCommunitySummaries(
+  projectPath: string,
+  activeAttemptIds: ReadonlySet<string>,
+): Promise<void> {
+  const pp = normalizePath(projectPath)
+  await withProjectLock(`ledger:${pp}`, async () => {
+    const doc = await readLedgerDocument(pp, true)
+    const events: ProjectionAuditEntry[] = []
+    const error = "Community summary attempt interrupted or final status retry budget exhausted; retry by ingesting explicitly."
+    for (const [chapter, cells] of Object.entries(doc.chapters ?? {})) {
+      const cell = cells.community_summary
+      if (cell?.status !== "pending" || (cell.attemptId !== undefined && activeAttemptIds.has(cell.attemptId))) continue
+
+      const timestamp = new Date().toISOString()
+      cells.community_summary = { ...cell, status: "failed", last_error: error, updated_at: timestamp }
+      events.push({ projection: "community_summary", chapter: Number(chapter), status: "failed", durationMs: 0, error, timestamp })
+    }
+    if (!events.length) return
+
+    await writeFileAtomic(ledgerPath(pp), JSON.stringify({
+      ...doc,
+      auditTrail: trimAuditTrail([...(doc.auditTrail ?? []), ...events]),
+    }, null, 2))
+  })
+}
+
+/**
+ * 在项目锁内将本次状态及补写审计合并到最新账本。自愈传入发现时的
+ * 状态，只更新尚未变化的 cell，并以原始增量条目返回实际应用的更新。
+ */
+export async function mergeProjectionLedgerDelta(
+  projectPath: string,
+  delta: Pick<ProjectionStatusLedger, "chapters" | "auditTrail">,
+  expected?: ProjectionStatusLedger["chapters"],
+): Promise<Set<ProjectionStatusEntry>> {
+  const pp = normalizePath(projectPath)
+  return withProjectLock(`ledger:${pp}`, async () => {
+    const current = await readLedgerDocument(pp, true)
+    const chapters = { ...current.chapters }
+    const applied = new Set<ProjectionStatusEntry>()
+    for (const [chapter, updates] of Object.entries(delta.chapters)) {
+      const entries = { ...(chapters[chapter] ?? {}) }
+      for (const [projection, update] of Object.entries(updates)) {
+        if (expected !== undefined) {
+          const before = expected[chapter]?.[projection]
+          const now = entries[projection]
+          if (!before || !now
+            || before.status !== now.status
+            || before.updated_at !== now.updated_at
+            || before.last_error !== now.last_error
+            || before.category !== now.category
+            || before.attemptId !== now.attemptId) continue
+        }
+        entries[projection] = update
+        applied.add(update)
+      }
+      if (Object.keys(entries).length > 0) chapters[chapter] = entries
+    }
+
+    const trail = Array.isArray(current.auditTrail) ? current.auditTrail : []
+    // CAS 分支里被 expected 挡掉的 cell 不补 terminal audit——否则会把未生效的
+    // 过期终态事件追加进 log，误导后续重建/核对（stale-attempt 回归）。
+    const acceptedAudit = (delta.auditTrail ?? []).filter(event => expected === undefined
+      || (event.chapter !== undefined && applied.has(delta.chapters[String(event.chapter)]?.[event.projection] as ProjectionStatusEntry)))
+    const missing = acceptedAudit.filter(event => !trail.some(prior => JSON.stringify(prior) === JSON.stringify(event)))
+    if (expected !== undefined && applied.size === 0 && missing.length === 0) return applied
+    await createDirectory(`${pp}/.novel`)
+    await writeFileAtomic(
+      ledgerPath(pp),
+      JSON.stringify({
+        ...current,
+        schemaVersion: LEDGER_SCHEMA_VERSION,
+        projections: { ...PROJECTION_CATEGORIES, ...current.projections },
+        chapters,
+        auditTrail: trimAuditTrail([...trail, ...missing]),
+      }, null, 2),
+    )
+    return applied
+  })
+}
+
+/**
+ * 在项目锁内删除指定章节的状态单元（短锁 RMW，供删章联动清理）。
+ * 仅在存在该章记录时原子落盘并返回 true；文件缺失或无该章记录时零写盘返回 false；
+ * 坏账本先保全原字节再 fail-loud 拒写，绝不覆盖原文件。
+ */
+export async function removeChapterFromProjectionLedger(
+  projectPath: string,
+  chapterNumber: number,
+): Promise<boolean> {
+  const pp = normalizePath(projectPath)
+  const chapterKey = String(chapterNumber)
+  return withProjectLock(`ledger:${pp}`, async () => {
+    const current = await readLedgerDocument(pp, true)
+    const chapters = { ...(current.chapters ?? {}) }
+    if (!Object.prototype.hasOwnProperty.call(chapters, chapterKey)) {
+      return false
+    }
+    delete chapters[chapterKey]
+    await createDirectory(`${pp}/.novel`)
+    await writeFileAtomic(
+      ledgerPath(pp),
+      JSON.stringify(
+        {
+          ...current,
+          schemaVersion: LEDGER_SCHEMA_VERSION,
+          projections: { ...PROJECTION_CATEGORIES, ...current.projections },
+          chapters,
+        },
+        null,
+        2,
+      ),
+    )
+    return true
   })
 }
 
@@ -596,14 +750,11 @@ export function recordProjectionStatus(
 // ============================================================================
 // R4（真相库失败投影账本可见与入口自愈收敛加固，方案 a）：finally 落盘纯函数重试辅助
 // ============================================================================
-// 硬约束：本文件仅允许新增纯函数重试辅助 —— 不改写路径签名/锁/审计 RMW /
-// schemaVersion / 类别表（PROJECTION_CATEGORIES）/ 注册表门槛。以下两个新增均为
-// 纯函数（无 IO、无时钟、无全局状态），供 chapter-ingest.ts finally 经
-// saveProjectionLedgerWithSingleRetry 调用（首次失败 attempt=0，可再试 1 次）。
+// 以下策略不依赖 IO、时钟或全局状态，由 finally 的增量合并重试复用。
 
 /**
  * R4（方案 a）：finally 落盘允许的最大重试次数（首次失败后恰好再试 1 次，
- * 全链至多 2 次写盘）。落盘内容为同一 ledger 文档的全量覆写，重试天然幂等，
+ * 至多 2 次合并尝试）。每次都将同一份增量合并到项目锁内重新读取的账本，
  * 不收窄提交边界、不引入跨文件事务。
  */
 export const LEDGER_SAVE_MAX_RETRIES = 1 as const

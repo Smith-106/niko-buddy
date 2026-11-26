@@ -68,10 +68,10 @@ describe("contextPackToPrompt — CJK 预算裁剪口径必须与估算器一致
     const text = "状".repeat(1000)
     const pack = packWithText(text)
     const trimmed = contextPackToPrompt(pack, budget)
-    expect(trimmed).toContain("上下文已按Token预算裁剪")
-    // 旧口径 targetChars=400 → 估算 ≈267 token；新口径 targetChars=150 → ≈110（含裁剪标记）
+    expect(trimmed).toContain("已按Token预算截断")
+    // 严格遵守 CJK 加权预算（含中文头与截断标记）
     expect(trimmed.length).toBeLessThanOrEqual(200)
-    expect(estimateTokens(trimmed)).toBeLessThanOrEqual(budget * 1.2)
+    expect(estimateTokens(trimmed)).toBeLessThanOrEqual(budget)
     expect(estimateTokens(trimmed)).toBeLessThan(estimateTokens(contextPackToPrompt(pack)) / 3)
   })
 
@@ -79,10 +79,10 @@ describe("contextPackToPrompt — CJK 预算裁剪口径必须与估算器一致
     const budget = 100
     const pack = packWithText("H".repeat(3000) + "T".repeat(3000))
     const trimmed = contextPackToPrompt(pack, budget)
-    expect(trimmed).toContain("上下文已按Token预算裁剪")
-    // ASCII 为主 ⇒ 混合比≈0 ⇒ charsPerToken≈4，不应按 1.5 过度裁剪
-    expect(trimmed.length).toBeGreaterThan(4 * budget * 0.9)
-    expect(estimateTokens(trimmed)).toBeLessThanOrEqual(budget * 1.2)
+    expect(trimmed).toContain("已按Token预算截断")
+    // ASCII 为主 ⇒ 扣除中文头/标记 token 后剩余预算按 ~4 字符/token 分配，明显高于纯 CJK 的 ~1.5 字符/token
+    expect(trimmed.length).toBeGreaterThan(280)
+    expect(estimateTokens(trimmed)).toBeLessThanOrEqual(budget)
   })
 })
 

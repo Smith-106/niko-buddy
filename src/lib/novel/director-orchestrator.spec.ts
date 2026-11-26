@@ -18,6 +18,12 @@ import { listEntityFiles } from "./entity-subdir-resolver"
 import { listSnapshots } from "./chapter-ingest"
 import { listDirectory } from "@/commands/fs"
 import { loadWorldBlueprint } from "./world-blueprint"
+import { listChapterDrafts } from "./draft-manager"
+
+vi.mock("./draft-manager", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./draft-manager")>()
+  return { ...actual, listChapterDrafts: vi.fn(async () => []) }
+})
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
@@ -49,6 +55,7 @@ const mockListEntityFiles = vi.mocked(listEntityFiles)
 const mockListSnapshots = vi.mocked(listSnapshots)
 const mockListDirectory = vi.mocked(listDirectory)
 const mockLoadWorldBlueprint = vi.mocked(loadWorldBlueprint)
+const mockListChapterDrafts = vi.mocked(listChapterDrafts)
 
 const FULL_SNAPSHOT: DirectorSnapshot = {
   idea: { title: "雾都侦探", genre: "悬疑", coreConflict: "连环失踪案与旧案关联" },
@@ -187,10 +194,12 @@ describe("director-orchestrator · 项目快照采集与异步推进（MIG-001 �
     mockListSnapshots.mockReset()
     mockListDirectory.mockReset()
     mockLoadWorldBlueprint.mockReset()
+    mockListChapterDrafts.mockReset()
     mockListEntityFiles.mockResolvedValue([])
     mockListSnapshots.mockResolvedValue([])
     mockListDirectory.mockResolvedValue([])
     mockLoadWorldBlueprint.mockResolvedValue(null)
+    mockListChapterDrafts.mockResolvedValue([])
   })
 
   it("collectProjectSnapshot 全绿：角色/大纲/快照/world 逐项采真值", async () => {
@@ -342,5 +351,90 @@ describe("director-orchestrator 收尾补齐（战役收尾轮）", () => {
     expect(out.state.currentPhase).toBe("world")
     expect(out.advanced).toBe(true)
     mockLoadWorldBlueprint.mockResolvedValue(null)
+  })
+
+  it("R2-W02：firstChapterReady 兼容非空非 partial 草稿与 wiki/chapters 正式章，listChapterDrafts 异常 warn 降级 false", async () => {
+    mockListEntityFiles.mockResolvedValue([])
+    mockListSnapshots.mockResolvedValue([])
+    mockListDirectory.mockResolvedValue([])
+    mockLoadWorldBlueprint.mockResolvedValue(null)
+
+    // 1) 非空非 partial 草稿 → firstChapterReady = true（Draft-first 兼容）
+    mockListChapterDrafts.mockResolvedValueOnce([
+      { id: "d1", chapterName: "第1章", content: "正文内容", createdAt: 1, status: "draft" },
+    ])
+    expect((await collectProjectSnapshot("/proj", IDEA2)).firstChapterReady).toBe(true)
+
+    // 2) partial / 空内容 / failed 草稿均不算就绪
+    mockListChapterDrafts.mockResolvedValueOnce([
+      { id: "d2", chapterName: "第1章", content: "截断", createdAt: 1, status: "draft", partial: true },
+      { id: "d3", chapterName: "第1章", content: "   ", createdAt: 1, status: "draft" },
+      { id: "d4", chapterName: "第1章", content: "废弃正文", createdAt: 1, status: "failed" },
+    ])
+    expect((await collectProjectSnapshot("/proj", IDEA2)).firstChapterReady).toBe(false)
+
+    // 3) listChapterDrafts 抛错 → warn 降级 false
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      mockListChapterDrafts.mockRejectedValueOnce(new Error("draft io error"))
+      expect((await collectProjectSnapshot("/proj", IDEA2)).firstChapterReady).toBe(false)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("listChapterDrafts failed"))
+    } finally {
+      warnSpy.mockRestore()
+    }
+
+    // 4) wiki/chapters 下非草稿 .md（兼容反斜杠路径）→ firstChapterReady = true；草稿后缀不触发
+    mockListChapterDrafts.mockResolvedValue([])
+    mockListDirectory.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { name: "chapter-001-去AI味稿.md", path: "p\\wiki\\chapters\\chapter-001-去AI味稿.md", is_dir: false },
+    ])
+    expect((await collectProjectSnapshot("/proj", IDEA2)).firstChapterReady).toBe(false)
+
+    mockListDirectory.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { name: "chapter-001.md", path: "p\\wiki\\chapters\\chapter-001.md", is_dir: false },
+    ])
+    expect((await collectProjectSnapshot("/proj", IDEA2)).firstChapterReady).toBe(true)
+  })
+
+  it("R2：collectProjectSnapshot 兼容 QM/chapters 正式章、与 wiki/chapters 按路径去重且单目录异常优雅降级", async () => {
+    mockListEntityFiles.mockResolvedValue([])
+    mockListSnapshots.mockResolvedValue([])
+    mockLoadWorldBlueprint.mockResolvedValue(null)
+    mockListChapterDrafts.mockResolvedValue([])
+    mockListDirectory.mockReset()
+    mockListDirectory.mockResolvedValue([])
+
+    // 1) wiki/chapters 为空，QM/chapters 有正式章 → firstChapterReady = true
+    mockListDirectory
+      .mockResolvedValueOnce([]) // outlines
+      .mockResolvedValueOnce([]) // wiki/chapters
+      .mockResolvedValueOnce([
+        { name: "chapter-001.md", path: "/proj/QM/chapters/chapter-001.md", is_dir: false },
+      ]) // QM/chapters
+    expect((await collectProjectSnapshot("/proj", IDEA2)).firstChapterReady).toBe(true)
+
+    // 2) QM/chapters 仅有草稿后缀 → firstChapterReady = false
+    mockListDirectory
+      .mockResolvedValueOnce([]) // outlines
+      .mockResolvedValueOnce([]) // wiki/chapters
+      .mockResolvedValueOnce([
+        { name: "chapter-001-去AI味稿.md", path: "/proj/QM/chapters/chapter-001-去AI味稿.md", is_dir: false },
+      ])
+    expect((await collectProjectSnapshot("/proj", IDEA2)).firstChapterReady).toBe(false)
+
+    // 3) QM/chapters 列表抛错 → warn 降级，不影响 wiki/chapters 正式章命中
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      mockListDirectory
+        .mockResolvedValueOnce([]) // outlines
+        .mockResolvedValueOnce([
+          { name: "chapter-002.md", path: "/proj/wiki/chapters/chapter-002.md", is_dir: false },
+        ])
+        .mockRejectedValueOnce(new Error("QM dir missing"))
+      expect((await collectProjectSnapshot("/proj", IDEA2)).firstChapterReady).toBe(true)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("listDirectory(QM/chapters) failed"))
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })

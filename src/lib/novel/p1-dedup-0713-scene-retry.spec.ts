@@ -86,7 +86,7 @@ describe("ISS-20260713-009 scene breakdown retry", () => {
     mocks.runSceneBreakdown.mockRejectedValue(new Error("down"))
     await expect(
       runSceneBreakdownStage(input, novelConfigOn, undefined, contextPack, callbacks, undefined, () => {}),
-    ).resolves.toBeUndefined()
+    ).resolves.toBeNull()
     expect(mocks.runSceneBreakdown).toHaveBeenCalledTimes(2)
     expect(mocks.persistDraft).not.toHaveBeenCalled()
   })

@@ -94,20 +94,20 @@ export const OUTLINE_SECTION_GENERATION_CONFIGS: OutlineSectionGenerationConfig[
   },
 ]
 
-function useEnglishOutlineNames(): boolean {
+function shouldUseEnglishOutlineNames(): boolean {
   return getOutputLanguage() === "English"
 }
 
 function getOutlineSectionTitle(config: OutlineSectionGenerationConfig): string {
-  return useEnglishOutlineNames() ? config.englishTitle : config.title
+  return shouldUseEnglishOutlineNames() ? config.englishTitle : config.title
 }
 
 function getOutlineSectionFileName(config: OutlineSectionGenerationConfig): string {
-  return useEnglishOutlineNames() ? config.englishFileName : `${config.title}.md`
+  return shouldUseEnglishOutlineNames() ? config.englishFileName : `${config.title}.md`
 }
 
 function getStoryOutlineFileName(): string {
-  return useEnglishOutlineNames() ? "story-outline.md" : "总大纲.md"
+  return shouldUseEnglishOutlineNames() ? "story-outline.md" : "总大纲.md"
 }
 
 function outlinePageMarkdown(title: string, content: string, genre?: string): string {
@@ -306,7 +306,16 @@ async function writeOutlineSectionFile(
 
   if (options.mode === "appendCurrent" && options.targetPath) {
     const targetPath = normalizePath(options.targetPath)
-    const existing = await readFile(targetPath).catch(() => "")
+    let existing = ""
+    try {
+      existing = await readFile(targetPath)
+    } catch (err) {
+      // ISS-20260709-025 PAT-IM2: append 读取已有大纲失败记诊断，控制流不变（降级空串后写入）。
+      logger.warn("Outline Generation", "read target outline before append failed, degrade to empty (non-fatal)", {
+        path: targetPath,
+        error: toErrorMessage(err),
+      })
+    }
     // 55 号设计 W2-1: append 模式追加的分节内容同样过 body-only 规范化
     const normalizedSection = normalizeMarkdownBody(sectionContent)
     const appended = [
@@ -440,7 +449,7 @@ export async function generateOutlineFile(
   const pp = normalizePath(projectPath)
   const outlinesDir = `${pp}/wiki/outlines`
   await createDirectory(outlinesDir)
-  const outlineTitle = useEnglishOutlineNames() ? "Story Outline" : "总大纲"
+  const outlineTitle = shouldUseEnglishOutlineNames() ? "Story Outline" : "总大纲"
   // 55 号设计 W2-1: 总大纲主路径同样过 body-only 规范化 (frontmatter 逐字节保留)
   const fullContent = normalizeMarkdownBody(outlinePageMarkdown(outlineTitle, content))
   const outlinePath = `${outlinesDir}/${getStoryOutlineFileName()}`
@@ -504,17 +513,18 @@ export async function runOutlineGenerationTask(
       message: "大纲生成完成",
     })
   } catch (err) {
-    const message = toErrorMessage(err)
+    const cancelled = abortController.signal.aborted
+    const message = cancelled ? "已取消大纲生成" : toErrorMessage(err)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "error",
-      error: message,
+      error: cancelled ? null : message,
       message,
     })
-    useImportProgressStore.getState().finishTask(progressTaskId, "error", {
+    useImportProgressStore.getState().finishTask(progressTaskId, cancelled ? "cancelled" : "error", {
       completed: 0,
       total: 100,
       currentTitle: "",
-      message: `大纲生成失败: ${message}`,
+      message: cancelled ? "已取消大纲生成" : `大纲生成失败: ${message}`,
     })
   }
 }
@@ -585,17 +595,18 @@ export async function runOutlineRefinementTask(taskId: string, llmConfig: LlmCon
       message: task.displayTitle ? `${task.displayTitle} 细化完成` : "细化生成完成",
     })
   } catch (err) {
-    const message = toErrorMessage(err)
+    const cancelled = abortController.signal.aborted
+    const message = cancelled ? "已取消细化生成" : toErrorMessage(err)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "error",
-      error: message,
+      error: cancelled ? null : message,
       message,
     })
-    useImportProgressStore.getState().finishTask(progressTaskId, "error", {
+    useImportProgressStore.getState().finishTask(progressTaskId, cancelled ? "cancelled" : "error", {
       completed: 0,
       total: 100,
       currentTitle: "",
-      message: `细化生成失败: ${message}`,
+      message: cancelled ? "已取消细化生成" : `细化生成失败: ${message}`,
     })
   }
 }
@@ -719,9 +730,8 @@ export async function runBulkOutlineIngest(projectPath: string): Promise<{
 
   for (const outlinePath of outlinePaths) {
     const taskId = createOutlineIngestTask(pp, outlinePath)
-    await runOutlineIngestTask(taskId)
-    const task = useOutlineGenerationStore.getState().tasks.find((item) => item.id === taskId)
-    if (task?.status === "done") succeeded += 1
+    const outcome = await runOutlineIngestTask(taskId)
+    if (outcome.ok) succeeded += 1
     else failed += 1
   }
 
@@ -735,28 +745,76 @@ export async function runBulkOutlineIngest(projectPath: string): Promise<{
   }
 }
 
-export async function runOutlineIngestTask(taskId: string): Promise<void> {
+export interface RunOutlineIngestTaskOptions {
+  signal?: AbortSignal
+  reuseParentTask?: boolean
+}
+
+export interface RunOutlineIngestTaskResult {
+  ok: boolean
+  cancelled: boolean
+}
+
+export async function runOutlineIngestTask(
+  taskId: string,
+  options?: RunOutlineIngestTaskOptions,
+): Promise<RunOutlineIngestTaskResult> {
   const task = useOutlineGenerationStore.getState().tasks.find((item) => item.id === taskId)
-  if (!task?.outlinePath) return
+  if (!task?.outlinePath) {
+    return { ok: false, cancelled: Boolean(options?.signal?.aborted) }
+  }
 
   const outlineFileName = task.outlinePath.split("/").pop()?.replace(".md", "") || "大纲"
   const abortController = new AbortController()
-  const progressTaskId = useImportProgressStore.getState().startTask({
-    projectPath: task.projectPath,
-    kind: "outline",
-    total: 1,
-    currentTitle: outlineFileName,
-    message: "正在提取大纲记忆",
-    abortController,
-  })
+  const externalSignal = options?.signal
+  const onExternalAbort = () => abortController.abort()
+  if (externalSignal) {
+    if (externalSignal.aborted) abortController.abort()
+    else externalSignal.addEventListener("abort", onExternalAbort, { once: true })
+  }
+  const reuseParentTask = Boolean(options?.reuseParentTask)
+  const progressTaskId = reuseParentTask
+    ? null
+    : useImportProgressStore.getState().startTask({
+      projectPath: task.projectPath,
+      kind: "outline",
+      total: 1,
+      currentTitle: outlineFileName,
+      message: "正在提取大纲记忆",
+      abortController,
+    })
+
+  const isAborted = () => abortController.signal.aborted || Boolean(externalSignal?.aborted)
+  const finishAsCancelled = (): RunOutlineIngestTaskResult => {
+    useOutlineGenerationStore.getState().updateTask(taskId, {
+      status: "error",
+      message: "已取消大纲记忆提取",
+      error: null,
+    })
+    if (progressTaskId) {
+      useImportProgressStore.getState().finishTask(progressTaskId, "cancelled", {
+        completed: 0,
+        total: 1,
+        currentTitle: "",
+        message: `${outlineFileName} 已取消`,
+      })
+    }
+    return { ok: false, cancelled: true }
+  }
 
   try {
+    if (isAborted()) {
+      return finishAsCancelled()
+    }
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "ingesting",
       message: i18n.t("novel.outlineGenerator.ingestingNotification"),
       error: null,
     })
     const snapshot = await ingestOutline(task.projectPath, task.outlinePath, abortController.signal)
+    if (isAborted()) {
+      return finishAsCancelled()
+    }
     if (snapshot) {
       await refreshProjectState(task.projectPath)
     }
@@ -767,25 +825,36 @@ export async function runOutlineIngestTask(taskId: string): Promise<void> {
         : i18n.t("novel.outlineGenerator.ingestFailedNotification"),
       error: snapshot ? null : i18n.t("novel.outlineGenerator.ingestFailedNotification"),
     })
-    useImportProgressStore.getState().finishTask(progressTaskId, snapshot ? "done" : "error", {
-      completed: snapshot ? 1 : 0,
-      total: 1,
-      currentTitle: "",
-      message: snapshot ? `${outlineFileName} 提取完成` : `${outlineFileName} 提取失败`,
-    })
+    if (progressTaskId) {
+      useImportProgressStore.getState().finishTask(progressTaskId, snapshot ? "done" : "error", {
+        completed: snapshot ? 1 : 0,
+        total: 1,
+        currentTitle: "",
+        message: snapshot ? `${outlineFileName} 提取完成` : `${outlineFileName} 提取失败`,
+      })
+    }
+    return { ok: Boolean(snapshot), cancelled: false }
   } catch (err) {
+    if (isAborted()) {
+      return finishAsCancelled()
+    }
     const message = toErrorMessage(err)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "error",
       message,
       error: message,
     })
-    useImportProgressStore.getState().finishTask(progressTaskId, "error", {
-      completed: 0,
-      total: 1,
-      currentTitle: "",
-      message: `${outlineFileName} 提取失败`,
-    })
+    if (progressTaskId) {
+      useImportProgressStore.getState().finishTask(progressTaskId, "error", {
+        completed: 0,
+        total: 1,
+        currentTitle: "",
+        message: `${outlineFileName} 提取失败`,
+      })
+    }
+    return { ok: false, cancelled: false }
+  } finally {
+    externalSignal?.removeEventListener("abort", onExternalAbort)
   }
 }
 
@@ -862,7 +931,7 @@ export async function generateOutlineFileMultiAgent(
   const pp = normalizePath(projectPath)
   const outlinesDir = `${pp}/wiki/outlines`
   await createDirectory(outlinesDir)
-  const outlineTitle = useEnglishOutlineNames() ? "Story Outline" : "总大纲"
+  const outlineTitle = shouldUseEnglishOutlineNames() ? "Story Outline" : "总大纲"
   // 55 号设计 W2-1: 多智能体总大纲路径同样过 body-only 规范化
   const fullContent = normalizeMarkdownBody(outlinePageMarkdown(outlineTitle, content))
   const outlinePath = `${outlinesDir}/${getStoryOutlineFileName()}`

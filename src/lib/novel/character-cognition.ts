@@ -1,5 +1,7 @@
 import { createAtomicJsonStore } from "./projection-store"
+import { withProjectionStoreWriteLock } from "./projection-status-ledger"
 import { normalizePath } from "@/lib/path-utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { readFile } from "@/commands/fs"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import { matchesAnyAlias } from "./book-analysis/alias-resolver"
@@ -168,6 +170,9 @@ export function mergeCognitionFromSnapshot(
     characters: current.characters.map(c => ({ ...c, knows: [...c.knows], doesNotKnow: [...c.doesNotKnow] })),
     readerKnows: [...current.readerKnows],
     lastUpdatedChapter: Math.max(current.lastUpdatedChapter, snapshot.chapterNumber),
+    ...(current.routingROIBuckets !== undefined ? { routingROIBuckets: [...current.routingROIBuckets] } : {}),
+    ...(current.exemplarABuckets !== undefined ? { exemplarABuckets: [...current.exemplarABuckets] } : {}),
+    ...(current.rewriteRateABuckets !== undefined ? { rewriteRateABuckets: [...current.rewriteRateABuckets] } : {}),
   }
 
   for (const change of snapshot.knowledgeChanges) {
@@ -239,6 +244,46 @@ export async function saveCognitionState(projectPath: string, state: CognitionSt
   await store.save(projectPath, state)
 }
 
+/**
+ * 写盘 fold 重放/增量结果时保留磁盘上已有的三个非快照遥测桶
+ * （routingROIBuckets / exemplarABuckets / rewriteRateABuckets），
+ * 防止 rebuild / self-heal / sync 覆写擦除已采集的 ROI 埋点。
+ * 调用方（PROJECTION_REGISTRY.cognition.save）已持 withProjectionStoreWriteLock，本函数不重入取锁。
+ */
+export async function saveCognitionFoldPreservingTelemetry(
+  projectPath: string,
+  state: CognitionState,
+): Promise<void> {
+  let existing: CognitionState | null = null
+  try {
+    existing = await loadCognitionState(projectPath)
+  } catch (err) {
+    // 坏 JSON 或读错不阻断重建修复写盘，降级按无历史遥测处理
+    logger.warn("Character Cognition", "Failed to read existing telemetry buckets before fold save (non-fatal)", {
+      error: toErrorMessage(err),
+    })
+  }
+  const merged: CognitionState = {
+    ...state,
+    ...(state.routingROIBuckets !== undefined
+      ? { routingROIBuckets: [...state.routingROIBuckets] }
+      : existing?.routingROIBuckets !== undefined
+        ? { routingROIBuckets: [...existing.routingROIBuckets] }
+        : {}),
+    ...(state.exemplarABuckets !== undefined
+      ? { exemplarABuckets: [...state.exemplarABuckets] }
+      : existing?.exemplarABuckets !== undefined
+        ? { exemplarABuckets: [...existing.exemplarABuckets] }
+        : {}),
+    ...(state.rewriteRateABuckets !== undefined
+      ? { rewriteRateABuckets: [...state.rewriteRateABuckets] }
+      : existing?.rewriteRateABuckets !== undefined
+        ? { rewriteRateABuckets: [...existing.rewriteRateABuckets] }
+        : {}),
+  }
+  await saveCognitionState(projectPath, merged)
+}
+
 export async function loadCognitionState(projectPath: string): Promise<CognitionState | null> {
   return store.load(projectPath)
 }
@@ -260,26 +305,31 @@ export async function appendRoutingROISample(
 ): Promise<void> {
   const pp = normalizePath(projectPath)
   try {
-    const existing = await loadCognitionState(pp)
-    const state: CognitionState = existing ?? {
-      characters: [],
-      readerKnows: [],
-      lastUpdatedChapter: 0,
-    }
-    const buckets = Array.isArray(state.routingROIBuckets)
-      ? state.routingROIBuckets
-      : []
-    // 上限保护：单项目跨章节累积样本封顶，避免无界增长（LRU-ish 弹最旧）。
-    // 1024 条足够 A/B 统计置信度，单条 ~120B → ~120KB 上限可接受。
-    const ROI_BUCKETS_MAX = 1024
-    const next = [...buckets, sample]
-    while (next.length > ROI_BUCKETS_MAX) {
-      next.shift()
-    }
-    state.routingROIBuckets = next
-    await saveCognitionState(pp, state)
-  } catch {
+    await withProjectionStoreWriteLock(pp, async () => {
+      const existing = await loadCognitionState(pp)
+      const state: CognitionState = existing ?? {
+        characters: [],
+        readerKnows: [],
+        lastUpdatedChapter: 0,
+      }
+      const buckets = Array.isArray(state.routingROIBuckets)
+        ? state.routingROIBuckets
+        : []
+      // 上限保护：单项目跨章节累积样本封顶，避免无界增长（LRU-ish 弹最旧）。
+      // 1024 条足够 A/B 统计置信度，单条 ~120B → ~120KB 上限可接受。
+      const ROI_BUCKETS_MAX = 1024
+      const next = [...buckets, sample]
+      while (next.length > ROI_BUCKETS_MAX) {
+        next.shift()
+      }
+      state.routingROIBuckets = next
+      await saveCognitionState(pp, state)
+    })
+  } catch (err) {
     // non-fatal — ROI 采集失败不影响主链
+    logger.warn("Character Cognition", "appendRoutingROISample failed (non-fatal)", {
+      error: toErrorMessage(err),
+    })
   }
 }
 
@@ -300,25 +350,30 @@ export async function appendExemplarABSample(
 ): Promise<void> {
   const pp = normalizePath(projectPath)
   try {
-    const existing = await loadCognitionState(pp)
-    const state: CognitionState = existing ?? {
-      characters: [],
-      readerKnows: [],
-      lastUpdatedChapter: 0,
-    }
-    const buckets = Array.isArray(state.exemplarABuckets)
-      ? state.exemplarABuckets
-      : []
-    // 上限保护：单项目跨章节累积样本封顶（与 routingROIBuckets 一致，1024 条）。
-    const AB_BUCKETS_MAX = 1024
-    const next = [...buckets, sample]
-    while (next.length > AB_BUCKETS_MAX) {
-      next.shift()
-    }
-    state.exemplarABuckets = next
-    await saveCognitionState(pp, state)
-  } catch {
+    await withProjectionStoreWriteLock(pp, async () => {
+      const existing = await loadCognitionState(pp)
+      const state: CognitionState = existing ?? {
+        characters: [],
+        readerKnows: [],
+        lastUpdatedChapter: 0,
+      }
+      const buckets = Array.isArray(state.exemplarABuckets)
+        ? state.exemplarABuckets
+        : []
+      // 上限保护：单项目跨章节累积样本封顶（与 routingROIBuckets 一致，1024 条）。
+      const AB_BUCKETS_MAX = 1024
+      const next = [...buckets, sample]
+      while (next.length > AB_BUCKETS_MAX) {
+        next.shift()
+      }
+      state.exemplarABuckets = next
+      await saveCognitionState(pp, state)
+    })
+  } catch (err) {
     // non-fatal — ROI 采集失败不影响主链
+    logger.warn("Character Cognition", "appendExemplarABSample failed (non-fatal)", {
+      error: toErrorMessage(err),
+    })
   }
 }
 
@@ -364,26 +419,31 @@ export async function appendRewriteRateASample(
 ): Promise<void> {
   const pp = normalizePath(projectPath)
   try {
-    const existing = await loadCognitionState(pp)
-    const state: CognitionState = existing ?? {
-      characters: [],
-      readerKnows: [],
-      lastUpdatedChapter: 0,
-    }
-    const buckets = Array.isArray(state.rewriteRateABuckets)
-      ? state.rewriteRateABuckets
-      : []
-    // 上限保护：单项目跨章节累积样本封顶（与 routingROIBuckets/exemplarABuckets
-    // 一致，1024 条）。
-    const AB_BUCKETS_MAX = 1024
-    const next = [...buckets, sample]
-    while (next.length > AB_BUCKETS_MAX) {
-      next.shift()
-    }
-    state.rewriteRateABuckets = next
-    await saveCognitionState(pp, state)
-  } catch {
+    await withProjectionStoreWriteLock(pp, async () => {
+      const existing = await loadCognitionState(pp)
+      const state: CognitionState = existing ?? {
+        characters: [],
+        readerKnows: [],
+        lastUpdatedChapter: 0,
+      }
+      const buckets = Array.isArray(state.rewriteRateABuckets)
+        ? state.rewriteRateABuckets
+        : []
+      // 上限保护：单项目跨章节累积样本封顶（与 routingROIBuckets/exemplarABuckets
+      // 一致，1024 条）。
+      const AB_BUCKETS_MAX = 1024
+      const next = [...buckets, sample]
+      while (next.length > AB_BUCKETS_MAX) {
+        next.shift()
+      }
+      state.rewriteRateABuckets = next
+      await saveCognitionState(pp, state)
+    })
+  } catch (err) {
     // non-fatal — ROI 采集失败不影响主链
+    logger.warn("Character Cognition", "appendRewriteRateASample failed (non-fatal)", {
+      error: toErrorMessage(err),
+    })
   }
 }
 

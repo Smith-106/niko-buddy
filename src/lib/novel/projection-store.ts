@@ -90,6 +90,77 @@ export interface AtomicJsonStoreOptions {
 }
 
 /**
+ * M2-07：无界增长护栏纯函数——按 caps 对 store 顶层数组字段截尾保最近 N 条。
+ * 不原地修改入参；仅在存在字段超限时浅拷贝克隆顶层对象并 `.slice(-cap)`，
+ * 供 `createAtomicJsonStore.save` 与 drift 重放路径同源复用。
+ */
+export function applyArrayFieldCaps<T>(
+  store: T,
+  caps?: Readonly<Record<string, number>>,
+): T {
+  if (!caps || !store || typeof store !== "object" || Array.isArray(store)) {
+    return store
+  }
+  const source = store as Record<string, unknown>
+  let clone: Record<string, unknown> | undefined
+  for (const [field, cap] of Object.entries(caps)) {
+    if (!Number.isFinite(cap) || cap < 0) continue
+    const arr = source[field]
+    if (Array.isArray(arr) && arr.length > cap) {
+      if (!clone) clone = { ...source }
+      clone[field] = cap === 0 ? [] : arr.slice(-cap)
+    }
+  }
+  return (clone ?? store) as T
+}
+
+const registeredArrayFieldCaps = new Map<string, Readonly<Record<string, number>>>()
+
+/** 读取指定投影文件声明的 `arrayFieldCaps`（由 `createAtomicJsonStore` 自动登记）。 */
+export function getStoreArrayFieldCaps(
+  relativePath: string,
+): Readonly<Record<string, number>> | undefined {
+  return registeredArrayFieldCaps.get(relativePath)
+}
+
+/** 按指定投影文件登记的 `arrayFieldCaps` 截尾 store（未登记则原样返回）。 */
+export function applyStoreArrayFieldCaps<T>(
+  relativePath: string,
+  store: T,
+): T {
+  return applyArrayFieldCaps(store, registeredArrayFieldCaps.get(relativePath))
+}
+
+const NON_MISSING_FILE_ERROR_RE =
+  /\b(EACCES|EPERM|EBUSY|EMFILE|ENFILE|EIO|EISDIR|ENOSPC|EROFS|INVALID_UTF8)\b|permission denied|access is denied|corrupt|invalid json|malformed json|json parse|failed to parse|unexpected token|unexpected end of json|syntaxerror/i
+const MISSING_FILE_ERROR_RE =
+  /\bENOENT\b|\bos error [23]\b|not found|no such file|does not exist|cannot find the (?:file|path)|找不到|\bmissing\b/i
+
+/**
+ * 默认严格缺失文件错误分类谓词（R2-M11）：
+ * 显式拒 SyntaxError / EACCES / EPERM / EBUSY / EMFILE / EIO / JSON / corrupt，
+ * 显式认 ENOENT / not found / no such file / 找不到 / missing；其余一律 fail-closed 返回 false。
+ */
+export function isDefaultMissingFileError(err: unknown): boolean {
+  if (err instanceof SyntaxError) return false
+  const code =
+    typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : ""
+  if (code) {
+    if (/^(EACCES|EPERM|EBUSY|EMFILE|ENFILE|EIO|EISDIR|ENOSPC|EROFS)$/i.test(code)) {
+      return false
+    }
+    if (/^ENOENT$/i.test(code)) {
+      return true
+    }
+  }
+  const message = toErrorMessage(err)
+  if (NON_MISSING_FILE_ERROR_RE.test(message)) return false
+  return MISSING_FILE_ERROR_RE.test(message)
+}
+
+/**
  * 创建一个 .novel/<relativePath> JSON 投影存储。
  *
  * @param relativePath 相对 .novel/ 的文件名 (如 "emotional-arcs.json")
@@ -105,7 +176,14 @@ export function createAtomicJsonStore<T>(
   const migrations = [...(options.migrations ?? [])].sort((a, b) => a.to - b.to)
   const onMissing = options.onMissing ?? "empty"
   const onCorrupt = options.onCorrupt ?? "empty"
-  const isMissingError = options.isMissingError ?? (() => true)
+  const isMissingError = options.isMissingError ?? isDefaultMissingFileError
+  const arrayFieldCaps = options.arrayFieldCaps ? { ...options.arrayFieldCaps } : undefined
+
+  if (arrayFieldCaps) {
+    registeredArrayFieldCaps.set(relativePath, arrayFieldCaps)
+  } else {
+    registeredArrayFieldCaps.delete(relativePath)
+  }
 
   return {
     async save(projectPath: string, store: T): Promise<void> {
@@ -115,18 +193,8 @@ export function createAtomicJsonStore<T>(
       // projection .json would break ingest on next load. fold_rebuildable
       // via the committed snapshot sequence, but atomicity protects the
       // rebuild path itself.
-      let toSave = store
-      // 无界增长护栏：save 时截尾数组字段（arch-risk W2）
-      if (options.arrayFieldCaps && store && typeof store === "object") {
-        const clone = { ...(store as Record<string, unknown>) }
-        for (const [field, cap] of Object.entries(options.arrayFieldCaps)) {
-          const arr = clone[field]
-          if (Array.isArray(arr) && arr.length > cap) {
-            clone[field] = arr.slice(-cap)
-          }
-        }
-        toSave = clone as T
-      }
+      // 无界增长护栏：save 时截尾数组字段（arch-risk W2 / M2-07 同源纯函数）
+      const toSave = applyArrayFieldCaps(store, arrayFieldCaps)
       const payload = currentVersion > 1
         ? { ...(toSave as Record<string, unknown>), fileVersion: currentVersion }
         : toSave
@@ -258,9 +326,17 @@ export function canonicalizeForHash<T>(value: T): T {
   return value
 }
 
-/** 易变元数据键: lastUpdated / fileVersion / 墙钟后缀 (At$ 结尾且非认识论字段)。 */
+/** 易变元数据键与非快照遥测桶: lastUpdated / fileVersion / 3 个遥测桶 / 墙钟后缀 (At$ 结尾且非认识论字段)。 */
 function isVolatileKey(key: string): boolean {
-  if (key === "lastUpdated" || key === "fileVersion") return true
+  if (
+    key === "lastUpdated" ||
+    key === "fileVersion" ||
+    key === "routingROIBuckets" ||
+    key === "exemplarABuckets" ||
+    key === "rewriteRateABuckets"
+  ) {
+    return true
+  }
   // 认识论字段 (validAt/invalidAt/revealedAt) 是数据, 不剔除。
   if (key === "validAt" || key === "invalidAt" || key === "revealedAt") return false
   return /At$/.test(key)

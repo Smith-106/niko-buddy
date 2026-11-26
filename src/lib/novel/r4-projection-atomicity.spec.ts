@@ -156,12 +156,13 @@ vi.mock("@/lib/embedding", async (importOriginal) => {
 
 import {
   ingestChapter,
+  rebuildDerivedMemoryFromSnapshots,
   replayFailedProjectionsFromLedger,
   saveProjectionLedgerWithSingleRetry,
   selfHealFailedProjections,
   type ChapterSnapshot,
 } from "./chapter-ingest"
-import { emptyLedger, LEDGER_SAVE_MAX_RETRIES, shouldRetryLedgerSave } from "./projection-status-ledger"
+import { emptyLedger, LEDGER_SAVE_MAX_RETRIES, shouldRetryLedgerSave, withProjectionStoreWriteLock } from "./projection-status-ledger"
 import { canonicalizeForHash, truthStoreHash } from "./projection-store"
 import { emptyCognitionState, mergeCognitionFromSnapshot } from "./character-cognition"
 import { createEmptyCharacterStateStore } from "./character-state"
@@ -172,7 +173,7 @@ import { createEmptyParticleLedgerStore, foldParticleEntries, appendParticleEntr
 import { createEmptyEmotionalArcStore } from "./emotional-arcs"
 import { createEmptyResourceLedgerStore } from "./resource-ledger"
 import { createEmptySubplotBoardStore } from "./subplot-board"
-import { applyCharacterStateChangesToStore } from "./chapter-ingest"
+import { applyCharacterStateChangesToStore, rebuildRegistryProjections } from "./chapter-ingest"
 import { applyForeshadowingChangesToStore } from "./chapter-ingest"
 import { applyEmotionalArcsToStore } from "./chapter-ingest"
 import { applyResourceLedgerToStore } from "./chapter-ingest"
@@ -445,6 +446,143 @@ describe("R4 UC2 薄包装收敛（replayFailedProjectionsFromLedger 委托 + �
     expect(second.healed).toEqual([])
     expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
   })
+
+  it("includes a snapshot committed while the deterministic rebuild waits for the project writer", async () => {
+    const files = makeFileMap()
+    installFs(files)
+    let release!: () => void
+    const writerGate = new Promise<void>(resolve => { release = resolve })
+    let start!: () => void
+    const writerStarted = new Promise<void>(resolve => { start = resolve })
+    const writer = withProjectionStoreWriteLock(`${PROJECT}/`, async () => {
+      start()
+      await writerGate
+      files.set(`${PROJECT}/.novel/snapshots/001.snapshot.json`, JSON.stringify({
+        ...SNAPSHOT1, knowledgeChanges: ["甲得知最新密道"],
+      }))
+      files.set(`${PROJECT}/.novel/snapshots/002.snapshot.json`, JSON.stringify({
+        ...SNAPSHOT1, chapterId: "ch-2", chapterNumber: 2, knowledgeChanges: ["甲得知新线索"],
+      }))
+    })
+    await writerStarted
+    const rebuilding = rebuildRegistryProjections(PROJECT, { now: NOW }, new Set(["cognition"]), SNAPSHOT1)
+    try {
+      await Promise.resolve()
+      expect(fsMocks.listDirectory).not.toHaveBeenCalled()
+    } finally {
+      release()
+      await writer
+    }
+    const result = await rebuilding
+    expect(result.rebuilt).toEqual(["cognition"])
+    expect(result.snapshots.map(snapshot => snapshot.chapterNumber)).toEqual([1, 2])
+    expect(files.get(`${PROJECT}/.novel/cognition-state.json`)).toContain("新线索")
+    expect(files.get(`${PROJECT}/.novel/cognition-state.json`)).toContain("最新密道")
+  })
+
+
+  it("does not release the project writer while a failed export still has writes in flight", async () => {
+    const files = makeFileMap()
+    installFs(files)
+    let signalSlow!: () => void
+    const slowStarted = new Promise<void>(resolve => { signalSlow = resolve })
+    let releaseSlow!: () => void
+    const slowWrite = new Promise<void>(resolve => { releaseSlow = resolve })
+    const write = fsMocks.writeFileAtomic.getMockImplementation()!
+    const order: string[] = []
+    fsMocks.writeFileAtomic.mockImplementation(async (path: string, raw: string) => {
+      if (path.endsWith("/wiki/memory/timeline.md")) throw new Error("synthetic memory write failure")
+      if (path.endsWith("/wiki/memory/canon-facts.md")) {
+        signalSlow()
+        await slowWrite
+        order.push("last-write")
+      }
+      return write(path, raw)
+    })
+    const rebuild = rebuildRegistryProjections(PROJECT, { now: NOW }, new Set(["summary_structured_memory"]))
+    const failed = expect(rebuild).rejects.toThrow("synthetic memory write failure")
+    await slowStarted
+    const follower = withProjectionStoreWriteLock(PROJECT, async () => { order.push("next-writer") })
+    try {
+      // Let already settled promise reactions drain without releasing the IO gate.
+      await new Promise<void>(resolve => setTimeout(resolve, 0))
+      expect(order).toEqual([])
+    } finally {
+      releaseSlow()
+      await Promise.all([failed, follower])
+    }
+    expect(order).toEqual(["last-write", "next-writer"])
+  })
+
+  it("does not audit an obsolete repair as committed when its cell changed", async () => {
+    const files = makeFileMap()
+    seedLedger(files, { "1": { cognition: { status: "failed", category: "fold_rebuildable", error: "initial failure" } } })
+    installFs(files)
+    const write = fsMocks.writeFileAtomic.getMockImplementation()!
+    fsMocks.writeFileAtomic.mockImplementation(async (path: string, raw: string) => {
+      if (path.endsWith("/cognition-state.json")) {
+        seedLedger(files, { "1": { cognition: { status: "failed", category: "fold_rebuildable", error: "newer failure" } } })
+      }
+      return write(path, raw)
+    })
+    await expect(replayFailedProjectionsFromLedger(PROJECT)).resolves.toEqual({ attempted: true, healed: [] })
+    const ledger = readLedger(files)
+    expect(ledger.chapters["1"].cognition.last_error).toBe("newer failure")
+    expect(ledger.auditTrail).toEqual([])
+  })
+
+  it.each([
+    ["malformed JSON", "{"],
+    ["empty envelope", "{}"],
+    ["mismatched chapter", JSON.stringify({ ...SNAPSHOT1, chapterNumber: 2 })],
+  ])("preserves memory and keeps the ledger failed on %s", async (_kind, raw) => {
+    const files = makeFileMap()
+    files.set(`${PROJECT}/.novel/snapshots/001.snapshot.json`, raw)
+    seedLedger(files, { "1": { cognition: { status: "failed", category: "fold_rebuildable", error: "boom" } } })
+    installFs(files)
+    const before = [...files]
+
+    await expect(rebuildDerivedMemoryFromSnapshots(PROJECT)).rejects.toThrow("Cannot rebuild memory from chapter 1")
+    const recovery = await selfHealFailedProjections(PROJECT)
+    expect(recovery).toMatchObject({ attempted: true, healed: [], error: expect.stringContaining("Cannot rebuild memory from chapter 1") })
+    expect(readLedger(files).chapters["1"]!.cognition!.status).toBe("failed")
+    expect([...files]).toEqual(before)
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(fsMocks.writeFilesAtomic).not.toHaveBeenCalled()
+  })
+
+  it.each(["directory permission", "chapter permission", "chapter disappeared"])("does not rebuild from an incomplete chapter inventory: %s", async (fault) => {
+    const files = makeFileMap()
+    const chaptersDir = `${PROJECT}/wiki/chapters`
+    const laterChapter = `${chaptersDir}/chapter-012.md`
+    files.set(`${chaptersDir}/chapter-001.md`, chapterContent(1))
+    files.set(laterChapter, chapterContent(12))
+    files.set(`${PROJECT}/.novel/snapshots/012.snapshot.json`, JSON.stringify({ ...SNAPSHOT1, chapterId: "chapter-12", chapterNumber: 12 }))
+    seedLedger(files, { "12": { cognition: { status: "failed", category: "fold_rebuildable", error: "initial failure" } } })
+    installFs(files)
+    const list = fsMocks.listDirectory.getMockImplementation()!
+    const read = fsMocks.readFile.getMockImplementation()!
+    fsMocks.listDirectory.mockImplementation(async (path: string) => {
+      if (fault === "directory permission" && path === chaptersDir) throw new Error("EACCES: chapter directory")
+      return list(path)
+    })
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (fault !== "directory permission" && path === laterChapter) {
+        throw new Error(fault === "chapter permission" ? "EACCES: chapter source" : "ENOENT: chapter disappeared after listing")
+      }
+      return read(path)
+    })
+    const before = [...files]
+    const message = fault === "directory permission" ? "Cannot list chapter sources" : "Cannot read chapter source"
+    await expect(rebuildDerivedMemoryFromSnapshots(PROJECT)).rejects.toThrow(message)
+    await expect(selfHealFailedProjections(PROJECT)).resolves.toMatchObject({
+      attempted: true, healed: [], error: expect.stringContaining(message),
+    })
+    expect([...files]).toEqual(before)
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(fsMocks.writeFilesAtomic).not.toHaveBeenCalled()
+  })
+
 
   it("非 rebuildable 失败（graph_entity_pages）→ 不重建且保留 failed 可见", async () => {
     const files = makeFileMap()

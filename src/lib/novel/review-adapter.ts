@@ -48,6 +48,7 @@ import { listSnapshots, loadSnapshot } from "./chapter-ingest"
 // 已剥至 ./review-prompt-assembly（零 IO 零 LLM，无新依赖）；splitChapterForReview
 // 供内部 reviewChapter 复用，re-export 保对外 import 面（符号名与签名不变）。
 import { buildReviewPrompt, splitChapterForReview } from "./review-prompt-assembly"
+import { sliceChapterForReview } from "./chapter-window"
 export {
   CORR108_LEGACY_ANTI_AI_REVIEW_TYPES,
   CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES,
@@ -136,6 +137,10 @@ export interface NovelReviewCallbacks {
 
 export interface ReviewChapterOptions extends NovelReviewCallbacks {
   /**
+   * Reports completion only for a successful semantic review covering the full body.
+   */
+  onSemanticReviewCompleted?: () => void
+  /**
    * 复用调用方已构建好的上下文包，避免审稿内部重复 buildContextPack
    * （含一次重复的检索 / 向量 / 图谱计算）。深度章节生成会把阶段1建好的
    * contextPack 传进来。未提供时回退到内部自行构建。
@@ -160,6 +165,11 @@ export interface ReviewChapterOptions extends NovelReviewCallbacks {
   llmConfig?: LlmConfig
   novelConfig?: NovelConfig
   novelMode?: boolean
+  /**
+   * R2-W08：可选传入当前书目角色名列表供机械行为重复检测归因；
+   * 缺省时自动从 `loadCharacterStates(projectPath)` 读取（失败降级 `[]`）。
+   */
+  characterNames?: readonly string[]
   /**
    * ISS-20260719-002 (option C1 真接线): 调用方已先行跑过
    * runContinuityMechanicalPreflight 拿到的结果 (用于 runFullReviewWithSixDim
@@ -424,10 +434,10 @@ export async function runContinuityMechanicalPreflight(
     // suppression (重叠 load 是性能优化项非 bug), 是合理工程决策。后续若审查变热点再重构。
     const [foreshadowingStore, subplotBoard, characterStateStore, snapshotNumbers] =
       await Promise.all([
-        loadForeshadowingTracker(projectPath),
-        loadSubplotBoard(projectPath),
-        loadCharacterStates(projectPath),
-        listSnapshots(projectPath),
+        Promise.resolve().then(() => loadForeshadowingTracker(projectPath)),
+        Promise.resolve().then(() => loadSubplotBoard(projectPath)),
+        Promise.resolve().then(() => loadCharacterStates(projectPath)),
+        Promise.resolve().then(() => listSnapshots(projectPath)),
       ])
     // snapshots 引擎用于 subplot lastSeenChapter fold 反推, 只 load 引擎实际需要的
     // (writehook 增量更新落盘值后引擎直接读, fold 是 fallback)。全 load 避免遗漏。
@@ -567,25 +577,48 @@ export async function reviewChapter(
   const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
   if (!novelMode) return []
 
-  // A19 机械层零 LLM 前置门控: 先跑 slop + 再跑角色行为模式检测
+  // W1-03 门控优先级守恒（Consistency P0 > Anti-AI P1 > Quality P2）：
+  // 先跑 P0 确定性连续性引擎 + 过程库三口诀机械预检（传入正文触发在场实体提取），
+  // 再跑 P1 机械 slop 与角色行为模式检测；当 P0 存在 error 或 P1 slop 阻断时短路 LLM，
+  // 且始终以 [...continuityResults, ...slopBlocking, ...behaviorReview] 返回，
+  // 保证 P0 发现恒前置、绝不被 P1 短路遮蔽。
+  const continuityResults = options.injectedContinuityResults
+    ?? await runContinuityMechanicalPreflight(projectPath, chapterNumber, { chapterText: chapterContent })
+
+  // A19 机械层零 LLM 前置门控: P1 slop + 角色行为模式检测
   // slop 与行为模式同属 Anti-AI(P1) — slop 归 slop_mechanical, 行为模式 raw type
   // character_behavior 归 T22 规范维 behavioral_repetition (detectionMethod mechanical),
   // 两者都经 resolveReviewGateKey 落 anti_ai 门; 不覆盖 Consistency(P0)。
   const slopReport = slopScore(chapterContent)
-  if (classifySlop(slopReport) === "block") {
-    return [{
-      severity: "error" as const,
-      type: "anti_ai",
-      message: `机械 slop 阻断: ${slopReportToText(slopReport)}`,
-      evidence: `penalty ${slopReport.slopPenalty.toFixed(1)}/10 (机械正则检测, 零 LLM)`,
-      relatedMemory: "",
-      suggestion: "降低 AI 味: 删总结腔/解释腔, 打破机械句式, 具体化情绪替代概述",
-    }]
-  }
+  const slopBlocking: NovelReviewResult[] = classifySlop(slopReport) === "block"
+    ? [{
+        severity: "error" as const,
+        type: "anti_ai",
+        message: `机械 slop 阻断: ${slopReportToText(slopReport)}`,
+        evidence: `penalty ${slopReport.slopPenalty.toFixed(1)}/10 (机械正则检测, 零 LLM)`,
+        relatedMemory: "",
+        suggestion: "降低 AI 味: 删总结腔/解释腔, 打破机械句式, 具体化情绪替代概述",
+      }]
+    : []
 
   // P1: 角色行为模式检测 (角色-动作绑定, 零 LLM) — 规范维 behavioral_repetition (anti_ai)
   // raw type 保留 character_behavior, 门归属由 resolveReviewGateKey 归一后取 GATE_MAPPING。
-  const actionHits = detectCharacterActions(chapterContent)
+  // R2-W08：传入当前书目角色名单（优先使用调用方透传，否则读 character-states.json，失败 warn 降级 []）。
+  let behaviorCharacterNames: readonly string[]
+  if (options.characterNames !== undefined) {
+    behaviorCharacterNames = options.characterNames
+  } else {
+    try {
+      const charStore = await loadCharacterStates(projectPath)
+      behaviorCharacterNames = (charStore.characters ?? [])
+        .map((c) => c.characterName)
+        .filter((name) => name.trim().length > 0)
+    } catch (err) {
+      logger.warn("Novel Review", `loadCharacterStates for behavior detection degraded: ${toErrorMessage(err)}`)
+      behaviorCharacterNames = []
+    }
+  }
+  const actionHits = detectCharacterActions(chapterContent, behaviorCharacterNames)
   const actionText = characterActionsToText(actionHits)
   const behaviorReview: NovelReviewResult[] = actionText
     ? [{
@@ -598,30 +631,22 @@ export async function reviewChapter(
       }]
     : []
 
-  // TASK-008 (GRL-011 Decision 4.3): 确定性连续性引擎 — 机械层零 LLM 纯函数,
-  // 与 slopScore 同层机械预门 (机械先于语义, 三层叠加 runFactCheck→引擎→slop→LLM)。
-  // 引擎检累积态异常 (休眠/缺席/逾期/死亡活跃), 产 consistency_mechanical type;
-  // runFactCheck 产 timeline/setting/character_consistency — 不同 type 不双写同进
-  // consistency gate (Decision 4.3 正交叠加)。critical (死亡角色活跃/逾期伏笔) 映射
-  // severity:'error' 经 collectBlockingIssues 阻断 approve (守门控优先级 P0)。
-  // critical 存在时短路 LLM 审查 (同 slopScore penalty>=8 block 跳 LLM 模式, 省 token);
-  // 否则把机械 findings 前置到 reviewResults 与 LLM 结果合并 (high/warning 提醒不阻断,
-  // data_gap info 可见)。引擎异常 catch 产 engine_error warning 不阻断 (Decision 7.3 +
-  // fold_rebuildable 派生观测层失败不回滚正文)。logger 双参 scope='continuity-engine'
-  // (memory a19-emotion-ledger 坑: 单参 logger 调用会丢 scope)。CWE-532: message 用
-  // finding.message 模板化字段, 不引用章节正文。
-  const continuityResults = options.injectedContinuityResults
-    ?? await runContinuityMechanicalPreflight(projectPath, chapterNumber, { chapterText: chapterContent })
-  if (continuityResults.some(r => r.severity === "error")) {
-    // critical 机械 finding 阻断 approve, 短路 LLM 审查 (Consistency P0 先于 Anti-AI/Quality)
-    return [...continuityResults, ...behaviorReview]
+  const hasContinuityError = continuityResults.some(r => r.severity === "error")
+  if (hasContinuityError || slopBlocking.length > 0) {
+    // P0/P1 阻断均短路 LLM 审查，且 P0 发现恒前置
+    return [...continuityResults, ...slopBlocking, ...behaviorReview]
   }
 
-  // 复用调用方已构建的 contextPack；没有才自行构建。
+  // 复用调用方已构建的 contextPack；没有才自行构建（R2-W09：补全 DI 透传）。
   const baseContextPack = options.contextPack ?? await buildContextPack(
     projectPath,
     `审稿第${chapterNumber || "?"}章`,
     chapterNumber,
+    {
+      novelConfig: options.novelConfig,
+      llmConfig: options.llmConfig,
+      novelMode: options.novelMode ?? true,
+    },
   )
 
   // 审查前用初稿正文重新匹配角色光环，补齐初稿中新出现的角色。
@@ -672,6 +697,7 @@ ${langReminder}`
       const chunkContent = chunks.length > 1
         ? `【第${i + 1}段/共${chunks.length}段】\n${chunk}`
         : chunk
+      const fullChunk = sliceChapterForReview(chunkContent) === chunkContent
       const userPrompt = buildReviewPrompt(contextPack, chunkContent, options.characterOnly, options.genre, options.novelConfig?.hardInjectEnabled)
       const stageTitle = chunks.length > 1
         ? (options.characterOnly ? `角色一致性审查（第${i + 1}/${chunks.length}段）` : `深度审查（第${i + 1}/${chunks.length}段）`)
@@ -703,20 +729,24 @@ ${langReminder}`
       // ISS-20260711-001: parse now happens inside runReviewStage (with retry),
       // so `parsed` is already a raw findings array. `ReviewParseError`
       // (F-003) still propagates from a SyntaxError after retries exhaust.
-      return (parsed as Record<string, unknown>[]).map((item) => ({
-        severity: validateSeverity(item.severity),
-        type: String(item.type || "unknown"),
-        message: String(item.message || ""),
-        evidence: String(item.evidence || ""),
-        relatedMemory: String(item.relatedMemory || ""),
-        suggestion: String(item.suggestion || ""),
-      }))
+      return {
+        findings: (parsed as Record<string, unknown>[]).map((item) => ({
+          severity: validateSeverity(item.severity),
+          type: String(item.type || "unknown"),
+          message: String(item.message || ""),
+          evidence: String(item.evidence || ""),
+          relatedMemory: String(item.relatedMemory || ""),
+          suggestion: String(item.suggestion || ""),
+        })),
+        fullChunk: fullChunk && (parsed as Record<string, unknown>[]).every(item => (item.severity === "error" || item.severity === "warning" || item.severity === "info") && typeof item.type === "string" && item.type.trim().length > 0),
+      }
     }))
 
     // TASK-008: 把机械连续性 findings (high/warning/data_gap, 非阻断) 前置到 LLM
     // 审查结果之前 — critical 已在上面短路返回, 这里只剩提醒级。合并后经
     // collectBlockingIssues 收集 (只有 severity:'error' 阻断, warning/info 可见)。
-    return [...continuityResults, ...behaviorReview, ...chunkResults.flat()]
+    if (chapterContent.trim() && chunks.join("") === chapterContent && chunkResults.every((chunk) => chunk.fullChunk)) options.onSemanticReviewCompleted?.()
+    return [...continuityResults, ...behaviorReview, ...chunkResults.flatMap((chunk) => chunk.findings)]
   } catch (err) {
     // F-16 (CWE-532): message-only; the full error is still propagated via
     // toError(err) for the caller, so the stderr log only needs the message.
@@ -744,9 +774,7 @@ ${langReminder}`
 function parseReviewChunkResult(result: string, chunkIndex: number): unknown[] {
   const jsonMatch = extractJsonArray(result)
   if (!jsonMatch) {
-    throw new Error(
-      `[Novel Review] Chunk ${chunkIndex + 1} did not return a JSON array. Output preview: ${result.slice(0, 200)}`,
-    )
+    throw new ReviewParseError(result, `Chunk ${chunkIndex + 1} did not return a JSON array.`)
   }
   let parsed: unknown
   try {
@@ -762,7 +790,10 @@ function parseReviewChunkResult(result: string, chunkIndex: number): unknown[] {
   }
   /* v8 ignore next */
   if (!Array.isArray(parsed)) {
-    throw new Error(`[Novel Review] Chunk ${chunkIndex + 1} returned a non-array JSON payload.`)
+    throw new ReviewParseError(result, `Chunk ${chunkIndex + 1} returned a non-array JSON payload.`)
+  }
+  if (parsed.some(item => item === null || typeof item !== "object" || Array.isArray(item))) {
+    throw new ReviewParseError(result, `Chunk ${chunkIndex + 1} returned a non-object finding.`)
   }
   return parsed
 }

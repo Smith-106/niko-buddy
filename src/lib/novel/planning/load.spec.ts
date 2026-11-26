@@ -129,12 +129,24 @@ describe("buildChapterPlan (IO 编排)", () => {
     expect(view.characters.items).toEqual([])
   })
 
-  it("字符源抛错 → 该维 degraded，其余维度按引擎 fail-open 语义降级为空（绝不整体失败）", async () => {
+  it("磁盘 IO 异常 → 核心三维均可见 degraded 且空条目（R2-M11 非缺失错误不伪报 ok，且绝不整体失败）", async () => {
     fsMocks.readFile.mockRejectedValue(new Error("disk error"))
     const view = await buildChapterPlan("/proj", 8)
-    // character-states 损坏/IO 错误会 rethrow → degraded
+    // R2-M11：非缺失 IO 错误经 createAtomicJsonStore rethrow → aggregate 逐维捕获并可见标 degraded
     expect(view.characters.status).toBe("degraded")
-    // foreshadowing/subplot 引擎语义：缺失 → 空 store（ok + 空数据）
+    expect(view.characters.items).toEqual([])
+    expect(view.foreshadowing.status).toBe("degraded")
+    expect(view.foreshadowing.report!.items).toEqual([])
+    expect(view.threads.status).toBe("degraded")
+    expect(view.threads.items).toEqual([])
+    expect(view.summary.openThreads).toBe(0)
+  })
+
+  it("文件缺失（ENOENT）→ 核心三维返回 ok + 空数据（区分缺失与 IO 错误）", async () => {
+    fsMocks.readFile.mockRejectedValue(new Error("ENOENT: not found"))
+    const view = await buildChapterPlan("/proj", 8)
+    expect(view.characters.status).toBe("ok")
+    expect(view.characters.items).toEqual([])
     expect(view.foreshadowing.status).toBe("ok")
     expect(view.foreshadowing.report!.items).toEqual([])
     expect(view.threads.status).toBe("ok")

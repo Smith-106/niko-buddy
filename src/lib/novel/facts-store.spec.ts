@@ -7,6 +7,7 @@ import {
   isFactActive,
   loadFactsFile,
   recordEpisode,
+  removeChapterFacts,
   saveFactsFile,
   supersedeFact,
   projectToTemporalFacts,
@@ -57,15 +58,20 @@ describe("S1d facts 表 (graphiti 时间窗 schema, 文件真源)", () => {
     expect(closedAgain.facts.find((f) => f.id === oldId)!.invalid_at).toBe(5)
   })
 
-  it("expireFact 软删除 (过期后不可见, 记录保留)", () => {
+  it("expireFact 全局软删除 (任何章节均不可见且 projectToTemporalFacts 不复活, 记录保留)", () => {
     let s = seedState()
     const id = s.facts[1]!.id // 苏未晞重伤 valid_at=3
     s = expireFact(s, id, 6)
-    expect(getFactsAt(5, "苏未晞", s)).toHaveLength(1)
+    // R2-M09: expired_at !== undefined 为全局软删，第 5 章与第 6 章均不可见
+    expect(getFactsAt(5, "苏未晞", s)).toHaveLength(0)
     expect(getFactsAt(6, "苏未晞", s)).toHaveLength(0)
     expect(s.facts.find((f) => f.id === id)!.expired_at).toBe(6)
-    expect(isFactActive(s.facts[1]!, 5)).toBe(true)
+    expect(isFactActive(s.facts[1]!, 5)).toBe(false)
     expect(isFactActive(s.facts[1]!, 6)).toBe(false)
+    // projectToTemporalFacts 同样过滤已软删除事实
+    const projected = projectToTemporalFacts(s)
+    expect(projected.some((f) => f.id === id)).toBe(false)
+    expect(projected).toHaveLength(1)
   })
 
   it("recordEpisode 溯源去重合并", () => {
@@ -182,5 +188,26 @@ describe("S1d facts 表 (graphiti 时间窗 schema, 文件真源)", () => {
     const ep = s.episodes.find((e) => e.chapter === 3)!
     expect(ep.fact_ids).toEqual(["fact-1", "fact-2"])
     expect(ep.snapshot_ref).toBe("snap-3")
+  })
+
+  it("R2-M03 removeChapterFacts 移除该章事实与 episode，保留跨章事实并撤销该章 supersede 闭合", () => {
+    let s = emptyFactsFile()
+    s = addFact(s, { subject: "白砚", predicate: "持有", object: "轩辕剑", valid_at: 1, episodes: [1, 5], source: "test" })
+    const oldId = s.facts[0]!.id
+    s = supersedeFact(s, oldId, { subject: "白砚", predicate: "持有", object: "断水剑", valid_at: 5, source: "test" }, 5)
+    const newId = s.facts[1]!.id
+    s = recordEpisode(s, 1, [oldId])
+    s = recordEpisode(s, 5, [oldId, newId])
+
+    const cleaned = removeChapterFacts(s, 5)
+    expect(cleaned.facts).toHaveLength(1)
+    expect(cleaned.facts[0]!.id).toBe(oldId)
+    expect(cleaned.facts[0]!.episodes).toEqual([1])
+    expect(cleaned.facts[0]!.invalid_at).toBeUndefined()
+    expect(cleaned.episodes.map((e) => e.chapter)).toEqual([1])
+    // next_id 单调递增不回退
+    expect(cleaned.next_id).toBe(s.next_id)
+    // 删除不存在章节返回原引用
+    expect(removeChapterFacts(cleaned, 99)).toBe(cleaned)
   })
 })

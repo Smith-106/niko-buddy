@@ -925,11 +925,44 @@ describe("outline ingest task helpers", () => {
     mocks.outlineStore.tasks.push({ id: "t1", projectPath: "E:/N", outlinePath: "E:/N/wiki/outlines/卷二.md" })
     mocks.ingestOutline.mockRejectedValue("boom-string")
 
-    await runOutlineIngestTask("t1")
+    const outcome = await runOutlineIngestTask("t1")
 
+    expect(outcome).toEqual({ ok: false, cancelled: false })
     const task = mocks.outlineStore.tasks.find((t) => t.id === "t1")!
     expect(task.status).toBe("error")
     expect(task.error).toBe("boom-string")
+  })
+
+  it("runOutlineIngestTask honors external AbortSignal and reuseParentTask without creating duplicate progress task", async () => {
+    mocks.outlineStore.tasks.push({ id: "t-reuse", projectPath: "E:/N", outlinePath: "E:/N/wiki/outlines/卷三.md" })
+    mocks.ingestOutline.mockResolvedValue({ id: "snap" })
+    const ac = new AbortController()
+
+    const okOutcome = await runOutlineIngestTask("t-reuse", { signal: ac.signal, reuseParentTask: true })
+    expect(okOutcome).toEqual({ ok: true, cancelled: false })
+    expect(mocks.progress.startTask).not.toHaveBeenCalled()
+    expect(mocks.progress.finishTask).not.toHaveBeenCalled()
+
+    // 外部信号预先中止 -> 立即返回 cancelled 且不调 ingestOutline
+    mocks.outlineStore.tasks.push({ id: "t-pre-abort", projectPath: "E:/N", outlinePath: "E:/N/wiki/outlines/卷四.md" })
+    ac.abort()
+    mocks.ingestOutline.mockClear()
+    const preAbortOutcome = await runOutlineIngestTask("t-pre-abort", { signal: ac.signal })
+    expect(preAbortOutcome).toEqual({ ok: false, cancelled: true })
+    expect(mocks.ingestOutline).not.toHaveBeenCalled()
+    expect(mocks.progress.finishTask).toHaveBeenCalledWith("import-progress-1", "cancelled", expect.anything())
+
+    // ingestOutline 期间外部信号中止并抛错 -> 标 cancelled
+    mocks.outlineStore.tasks.push({ id: "t-mid-abort", projectPath: "E:/N", outlinePath: "E:/N/wiki/outlines/卷五.md" })
+    const acMid = new AbortController()
+    mocks.ingestOutline.mockImplementationOnce(async (_pp: string, _op: string, signal?: AbortSignal) => {
+      acMid.abort()
+      expect(signal?.aborted).toBe(true)
+      throw new Error("aborted")
+    })
+    const midAbortOutcome = await runOutlineIngestTask("t-mid-abort", { signal: acMid.signal })
+    expect(midAbortOutcome).toEqual({ ok: false, cancelled: true })
+    expect(mocks.progress.finishTask).toHaveBeenLastCalledWith("import-progress-1", "cancelled", expect.anything())
   })
 })
 

@@ -37,6 +37,12 @@ const mocks = vi.hoisted(() => ({
   novelModeValue: true,
   registerNovelSkillHookMock: vi.fn(),
   runNovelSkillHooksMock: vi.fn(),
+  createCedSoftReportHookMock: vi.fn((_opts?: unknown) => ({
+    id: "ced-soft",
+    track: "B",
+    stages: ["pre_six_dim_review"],
+    run: async () => {},
+  })),
   resolveConsensusModelsMock: vi.fn<(models: string[]) => Array<{ model?: string }>>((models) =>
     models.map((m) => ({ model: m })),
   ),
@@ -164,7 +170,7 @@ vi.mock("./novel-skill-hooks", () => ({
     run: async () => { void promptHint },
   }),
   createAvoidAiMechanicalSlopHook: () => ({ id: "avoid-ai-m", track: "B", stages: ["pre_six_dim_review"], run: async () => {} }),
-  createCedSoftReportHook: () => ({ id: "ced-soft", track: "B", stages: ["pre_six_dim_review"], run: async () => {} }),
+  createCedSoftReportHook: (...args: unknown[]) => mocks.createCedSoftReportHookMock(...args),
   createDeAiDualPassHook: () => ({ id: "deai-dual", track: "B", stages: ["pre_six_dim_review"], run: async () => {} }),
   createStatisticalAiSignatureHook: () => ({ id: "ai-sig", track: "B", stages: ["pre_six_dim_review"], run: async () => {} }),
   registerNovelSkillHook: (...args: unknown[]) => mocks.registerNovelSkillHookMock(...args),
@@ -859,7 +865,16 @@ describe("six-dimension review adapter", () => {
       dimensionKeys: ["pacing"],
     })
     expect(results.pacing?.status).toBe("pass")
-    expect(buildContextPackMock).toHaveBeenCalledWith("E:/Novel", "六维审查第?章", undefined)
+    expect(buildContextPackMock).toHaveBeenCalledWith(
+      "E:/Novel",
+      "六维审查第?章",
+      undefined,
+      expect.objectContaining({
+        novelMode: true,
+        novelConfig: expect.any(Object),
+        llmConfig: expect.any(Object),
+      }),
+    )
   })
 
   it("uses 'unknown' model label when model is empty", async () => {
@@ -1556,10 +1571,7 @@ describe("runSixDimensionReview 软链路降级（hook/指纹/共识）", () => 
     })
   })
 
-  it("hook 注册竞争与外层软失败均只记 warn、不阻断六维", async () => {
-    mocks.registerNovelSkillHookMock.mockImplementation(() => {
-      throw new Error("duplicate hook id")
-    })
+  it("使用调用作用域 extraHooks 取代全局 registerNovelSkillHook，外层软失败仅记 warn 不阻断六维", async () => {
     mocks.runNovelSkillHooksMock.mockRejectedValueOnce(new Error("hook stage down"))
     const results = await runSixDimensionReview({
       projectPath: "E:/Novel",
@@ -1568,17 +1580,24 @@ describe("runSixDimensionReview 软链路降级（hook/指纹/共识）", () => 
       dimensionKeys: ["thrill"],
     })
     expect(results.thrill?.score).toBe(9)
+    // R2-W04：严禁写入全局 activeRegistry，消除并发审稿竞态
+    expect(mocks.registerNovelSkillHookMock).not.toHaveBeenCalled()
+    expect(mocks.runNovelSkillHooksMock).toHaveBeenCalledWith(
+      "pre_six_dim_review",
+      expect.objectContaining({
+        projectPath: "E:/Novel",
+        chapterNumber: 8,
+        extraHooks: expect.arrayContaining([
+          expect.objectContaining({ id: "gold-readiness" }),
+          expect.objectContaining({ id: "avoid-ai-m" }),
+          expect.objectContaining({ id: "ced-soft" }),
+          expect.objectContaining({ id: "deai-dual" }),
+          expect.objectContaining({ id: "ai-sig" }),
+        ]),
+      }),
+    )
     const warned = mocks.loggerWarnMock.mock.calls.map((c) => String(c[1]))
-    for (const msg of [
-      "gold readiness hook register skipped (non-fatal)",
-      "avoid-ai slop hook register skipped (non-fatal)",
-      "ced soft hook register skipped (non-fatal)",
-      "de-ai dualpass hook register skipped (non-fatal)",
-      "statistical-ai-signature hook register skipped (non-fatal)",
-      "gold scale / skill hooks soft-failed",
-    ]) {
-      expect(warned.some((w) => w.includes(msg))).toBe(true)
-    }
+    expect(warned.some((w) => w.includes("gold scale / skill hooks soft-failed"))).toBe(true)
   })
 
   it("共识旁路：配置共识模型组 → 走 runDimensionConsensus 并打 consensus 标签", async () => {
@@ -1685,5 +1704,427 @@ describe("runSixDimensionReview 软链路降级（hook/指纹/共识）", () => 
     expect(mocks.runDimensionConsensusMock).toHaveBeenCalledTimes(1)
     expect(results.thrill?.model).toBe("consensus:m1")
     expect(results.pull?.model).toBe("test-review-model")
+  })
+})
+
+describe("W1-04 continuity 机械短路守卫：排除 engine_error / audit_error / data_gap 并回退 LLM", () => {
+  beforeEach(() => {
+    streamChatMock.mockReset()
+    streamChatMock.mockImplementation(async (
+      _c: unknown,
+      messages: Array<{ role: string; content: string }>,
+      callbacks: { onToken: (t: string) => void; onDone: () => void },
+    ) => {
+      const prompt = messages.map((m) => m.content).join("\n")
+      if (!prompt.includes("最终 JSON")) {
+        callbacks.onToken("阶段分析：已执行 LLM continuity 兜底审查。")
+        callbacks.onDone()
+        return
+      }
+      callbacks.onToken(JSON.stringify({
+        score: 7.5,
+        status: "medium",
+        summary: "LLM continuity 兜底完成",
+        issues: [],
+      }))
+      callbacks.onDone()
+    })
+  })
+
+  it("1) engine_error 降级条目禁止短路 → 回退 LLM continuity 审查", async () => {
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["continuity"],
+      priorReviewResults: [{
+        severity: "warning",
+        type: "consistency_mechanical",
+        message: "连续性引擎执行异常, 降级到 LLM continuity 维度兜底",
+        evidence: "engine_error",
+        relatedMemory: "",
+        suggestion: "检查 store",
+      }],
+    })
+
+    expect(streamChatMock).toHaveBeenCalledTimes(2)
+    expect(results.continuity?.model).toBe("test-review-model")
+    expect(results.continuity?.model).not.toBe(MECHANICAL_SCORER_LABEL)
+    expect(results.continuity?.score).toBe(7.5)
+  })
+
+  it("2) audit_error 降级条目禁止短路 → 回退 LLM continuity 审查", async () => {
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["continuity"],
+      priorReviewResults: [{
+        severity: "warning",
+        type: "consistency_mechanical",
+        message: "过程库审计执行异常, 审计未完成",
+        evidence: "audit_error",
+        relatedMemory: "",
+        suggestion: "检查真相文件",
+      }],
+    })
+
+    expect(streamChatMock).toHaveBeenCalledTimes(2)
+    expect(results.continuity?.model).toBe("test-review-model")
+    expect(results.continuity?.model).not.toBe(MECHANICAL_SCORER_LABEL)
+  })
+
+  it("3) 有效条目与 engine_error/audit_error 混杂时仍视为降级禁止短路 → 回退 LLM", async () => {
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["continuity"],
+      priorReviewResults: [
+        {
+          severity: "warning",
+          type: "consistency_mechanical",
+          message: "休眠伏笔提醒",
+          evidence: "",
+          relatedMemory: "",
+          suggestion: "回收伏笔",
+          continuityMeta: { subtype: "consistency_mechanical", ref: "subplot:S1", chapter: 8 },
+        },
+        {
+          severity: "warning",
+          type: "consistency_mechanical",
+          message: "过程库审计执行异常, 审计未完成",
+          evidence: "audit_error",
+          relatedMemory: "",
+          suggestion: "检查真相文件",
+        },
+      ],
+    })
+
+    expect(streamChatMock).toHaveBeenCalledTimes(2)
+    expect(results.continuity?.model).toBe("test-review-model")
+    expect(results.continuity?.model).not.toBe(MECHANICAL_SCORER_LABEL)
+  })
+
+  it("4) 仅含 data_gap（continuityMeta.subtype 或 evidence）禁止短路 → 回退 LLM", async () => {
+    const metaGapResults = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["continuity"],
+      priorReviewResults: [{
+        severity: "info",
+        type: "consistency_mechanical",
+        message: "缺少埋设章号",
+        evidence: "",
+        relatedMemory: "",
+        suggestion: "",
+        continuityMeta: { subtype: "data_gap", ref: "foreshadowing:F1", chapter: 8, missingField: "plantedChapter" },
+      }],
+    })
+
+    expect(streamChatMock).toHaveBeenCalledTimes(2)
+    expect(metaGapResults.continuity?.model).toBe("test-review-model")
+
+    streamChatMock.mockClear()
+    const evidenceGapResults = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["continuity"],
+      priorReviewResults: [{
+        severity: "info",
+        type: "consistency_mechanical",
+        message: "数据缺口",
+        evidence: "data_gap",
+        relatedMemory: "",
+        suggestion: "",
+      }],
+    })
+
+    expect(streamChatMock).toHaveBeenCalledTimes(2)
+    expect(evidenceGapResults.continuity?.model).toBe("test-review-model")
+  })
+})
+
+describe("R2-W04 执行失败非阻断 / goldAnchors 与 skillHookPromptFragments 并存 / streamError 抛出", () => {
+  it("executionFailed=true 的失败维度发非阻断 warning 不进 score-floor error；真实 score=0 仍发 score-floor error", async () => {
+    streamChatMock.mockRejectedValueOnce(new Error("timeout 504"))
+    const failedMap = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文内容。",
+      chapterNumber: 8,
+      dimensionKeys: ["pacing"],
+    })
+    expect(failedMap.pacing?.status).toBe("error")
+    expect(failedMap.pacing?.score).toBe(0)
+    expect(failedMap.pacing?.executionFailed).toBe(true)
+
+    const collapsed = dimensionResultsToReviewResults(failedMap, "章节正文内容。")
+    expect(collapsed).toHaveLength(1)
+    expect(collapsed[0]!.severity).toBe("warning")
+    expect(collapsed[0]!.relatedMemory).toBe("dimension-execution-failed")
+    expect(collapsed.some((r) => r.severity === "error" || r.relatedMemory === "score-floor")).toBe(false)
+
+    // 真实评分 0 分（非 executionFailed）仍必须触发 score-floor error
+    const realZero = dimensionResultsToReviewResults(
+      {
+        pacing: {
+          dimensionKey: "pacing",
+          score: 0,
+          status: "error",
+          summary: "全章严重偏题崩坏",
+          thinking: "t",
+          issues: [],
+        },
+      },
+      "章节正文内容。",
+    )
+    expect(realZero.some((r) => r.severity === "error" && r.relatedMemory === "score-floor")).toBe(true)
+  })
+
+  it("goldAnchors 与 skillHookPromptFragments 并存，不因金标样本存在而丢失 Anti-AI 软提示", () => {
+    const prompt = buildDimensionReviewPrompt(contextPack, "章节正文", SIX_REVIEW_DIMENSIONS.thrill, {
+      goldAnchors: [{
+        id: "g1",
+        dimension: "thrill",
+        targetScore: 9,
+        text: "金标样本A：他把门闩推死，屋里的火盆发出噼啪轻响。",
+        status: "human_confirmed",
+      }],
+      skillHookPromptFragments: [
+        "【Track B · 机械去AI味软提示（非产品硬门）】\nslopVerdict=warn penalty=6.2",
+      ],
+    })
+    expect(prompt).toContain("金标样本A")
+    expect(prompt).toContain("机械去AI味软提示")
+    expect(prompt).toContain("slopVerdict=warn")
+  })
+
+  it("runDimensionStage 在 onError 被回调时即使前有合法 JSON token 仍显式抛出 streamError", async () => {
+    streamChatMock.mockImplementationOnce(async (_c: unknown, _m: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onToken(JSON.stringify({ score: 9.0, status: "pass", summary: "残片", issues: [] }))
+      callbacks.onError(new Error("upstream socket hangup"))
+      callbacks.onDone()
+    })
+    await expect(
+      reviewChapterDimension({
+        llmConfig,
+        contextPack,
+        chapterContent: "正文",
+        dimension: SIX_REVIEW_DIMENSIONS.thrill,
+      }),
+    ).rejects.toThrow("upstream socket hangup")
+    expect(mocks.loggerErrorMock).toHaveBeenCalledWith(
+      "Dimension Review",
+      "thrill stream error",
+      expect.objectContaining({ error: "upstream socket hangup" }),
+    )
+  })
+})
+
+describe("R2-W09 & R2-REV-004: continuity 机械短路严重度分级 / CED 真实 findings / 共识 Hook 透传", () => {
+  beforeEach(() => {
+    streamChatMock.mockReset()
+    mocks.runDimensionConsensusMock.mockClear()
+    mocks.runNovelSkillHooksMock.mockReset()
+    mocks.runNovelSkillHooksMock.mockResolvedValue({
+      projectPath: "E:/Novel",
+      chapterNumber: 8,
+      stage: "pre_six_dim_review",
+      bag: { promptFragments: [], notes: [] },
+    })
+  })
+
+  it("continuity 机械短路遇阻断 error → score<=4、status='error'、携带 issues 且不调 LLM", async () => {
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["continuity"],
+      priorReviewResults: [
+        {
+          severity: "error",
+          type: "consistency_mechanical",
+          message: "已故角色再次现身",
+          evidence: "老周推门而入",
+          relatedMemory: "character:老周",
+          suggestion: "移除已故角色出场",
+          continuityMeta: { subtype: "dead_character_active", ref: "character:老周", chapter: 8 },
+        },
+        {
+          severity: "warning",
+          type: "consistency_mechanical",
+          message: "伏笔休眠超期",
+          evidence: "铜钥匙",
+          relatedMemory: "foreshadowing:F1",
+          suggestion: "补提线索",
+          continuityMeta: { subtype: "dormant_thread", ref: "foreshadowing:F1", chapter: 8 },
+        },
+      ],
+    })
+    expect(streamChatMock).not.toHaveBeenCalled()
+    expect(results.continuity?.model).toBe(MECHANICAL_SCORER_LABEL)
+    expect(results.continuity?.status).toBe("error")
+    expect(results.continuity?.score).toBe(4)
+    expect(results.continuity?.issues).toHaveLength(2)
+    expect(validateDimensionScoreBand("continuity", results.continuity!.score, results.continuity!.status)).toBeNull()
+  })
+
+  it("continuity 机械短路仅有 warning → 按条扣分并映射至合法档位（1条→8.5/low，2条→7/medium，多条保底5/medium）", async () => {
+    const oneWarn = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["continuity"],
+      priorReviewResults: [{
+        severity: "warning",
+        type: "consistency_mechanical",
+        message: "暗线休眠 5 章",
+        evidence: "暗线",
+        relatedMemory: "",
+        suggestion: "推进暗线",
+      }],
+    })
+    expect(streamChatMock).not.toHaveBeenCalled()
+    expect(oneWarn.continuity?.score).toBe(8.5)
+    expect(oneWarn.continuity?.status).toBe("low")
+    expect(oneWarn.continuity?.issues).toHaveLength(1)
+    expect(validateDimensionScoreBand("continuity", oneWarn.continuity!.score, oneWarn.continuity!.status)).toBeNull()
+
+    const twoWarns = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["continuity"],
+      priorReviewResults: [
+        { severity: "warning", type: "consistency_mechanical", message: "告警1", evidence: "e1", relatedMemory: "", suggestion: "" },
+        { severity: "warning", type: "consistency_mechanical", message: "告警2", evidence: "e2", relatedMemory: "", suggestion: "" },
+      ],
+    })
+    expect(twoWarns.continuity?.score).toBe(7)
+    expect(twoWarns.continuity?.status).toBe("medium")
+    expect(twoWarns.continuity?.issues).toHaveLength(2)
+    expect(validateDimensionScoreBand("continuity", twoWarns.continuity!.score, twoWarns.continuity!.status)).toBeNull()
+  })
+
+  it("continuity 机械短路仅含 info 时仍记 10/pass 且空 issues", async () => {
+    const infoOnly = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["continuity"],
+      priorReviewResults: [{
+        severity: "info",
+        type: "consistency_mechanical",
+        message: "机械预检通过提示",
+        evidence: "ok",
+        relatedMemory: "",
+        suggestion: "",
+      }],
+    })
+    expect(streamChatMock).not.toHaveBeenCalled()
+    expect(infoOnly.continuity?.score).toBe(10)
+    expect(infoOnly.continuity?.status).toBe("pass")
+    expect(infoOnly.continuity?.issues).toEqual([])
+  })
+
+  it("createCedSoftReportHook 接收真实 priorReviewResults 映射的 ContinuityFinding（排除 engine_error/audit_error）", async () => {
+    mocks.createCedSoftReportHookMock.mockClear()
+
+    await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文".repeat(100),
+      chapterNumber: 8,
+      dimensionKeys: [],
+      priorReviewResults: [
+        {
+          severity: "error",
+          type: "consistency_mechanical",
+          message: "死亡角色活跃",
+          evidence: "老周",
+          relatedMemory: "character:老周",
+          suggestion: "",
+          continuityMeta: { subtype: "dead_character_active", ref: "character:老周", chapter: 8 },
+        },
+        {
+          severity: "warning",
+          type: "consistency_mechanical",
+          message: "伏笔逾期",
+          evidence: "铜铃",
+          relatedMemory: "",
+          suggestion: "",
+        },
+        {
+          severity: "info",
+          type: "consistency_mechanical",
+          message: "数据缺口",
+          evidence: "data_gap",
+          relatedMemory: "",
+          suggestion: "",
+        },
+        {
+          severity: "warning",
+          type: "consistency_mechanical",
+          message: "引擎故障应过滤",
+          evidence: "engine_error",
+          relatedMemory: "",
+          suggestion: "",
+        },
+      ],
+    })
+
+    expect(mocks.createCedSoftReportHookMock).toHaveBeenCalledTimes(1)
+    const cedArg = mocks.createCedSoftReportHookMock.mock.calls[0]![0] as {
+      findings: Array<{ severity: string; message: string; ref: string; chapter?: number }>
+    }
+    expect(cedArg.findings).toHaveLength(3)
+    expect(cedArg.findings[0]).toMatchObject({ severity: "critical", message: "死亡角色活跃", ref: "character:老周", chapter: 8 })
+    expect(cedArg.findings[1]).toMatchObject({ severity: "warning", message: "伏笔逾期" })
+    expect(cedArg.findings[2]).toMatchObject({ type: "data_gap", subtype: "data_gap", severity: "info", message: "数据缺口" })
+    expect(cedArg.findings.some((f) => f.message.includes("引擎故障应过滤"))).toBe(false)
+
+    // PAT-IM2: 单 hook 构造抛错记 warn 跳过，不阻断其余钩子
+    mocks.createCedSoftReportHookMock.mockImplementationOnce(() => {
+      throw new Error("ced factory boom")
+    })
+    await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: [],
+    })
+    expect(mocks.loggerWarnMock).toHaveBeenCalledWith(
+      "SixDim",
+      "ced soft hook build skipped (non-fatal)",
+      expect.objectContaining({ error: "ced factory boom" }),
+    )
+  })
+
+  it("R2-REV-004: 共识审稿路径透传 skillHookPromptFragments 到 runDimensionConsensus", async () => {
+    mocks.runNovelSkillHooksMock.mockResolvedValueOnce({
+      projectPath: "E:/Novel",
+      chapterNumber: 8,
+      stage: "pre_six_dim_review",
+      bag: { promptFragments: ["Anti-AI 软提示片段", "CED 密度提示"], notes: [] },
+    })
+
+    await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["thrill"],
+      novelConfig: {
+        consensusEnabled: true,
+        consensusReviewModels: { thrill: ["m1", "m2"] },
+        consensusDebateRounds: 1,
+      } as never,
+    })
+
+    expect(mocks.runDimensionConsensusMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillHookPromptFragments: ["Anti-AI 软提示片段", "CED 密度提示"],
+      }),
+    )
   })
 })

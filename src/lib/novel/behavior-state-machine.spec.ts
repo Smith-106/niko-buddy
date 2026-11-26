@@ -42,10 +42,13 @@ describe("behavior-state-machine", () => {
     fsMocks.readFileSync.mockImplementation((_p: string) => {
       return chapterText("白鹭", "低下头", 1)
     })
-    const report = analyzeBehaviorStateMachine([
-      { num: 1, path: "c1.md" },
-      { num: 2, path: "c2.md" },
-    ])
+    const report = analyzeBehaviorStateMachine(
+      [
+        { num: 1, path: "c1.md" },
+        { num: 2, path: "c2.md" },
+      ],
+      ["白鹭"],
+    )
     expect(report.anomalies).toEqual([])
     expect(report.consistencyScores["白鹭"]).toBe(10)
     expect(report.evolutionTraces["白鹭"]).toBeUndefined()
@@ -106,11 +109,14 @@ describe("behavior-state-machine", () => {
 
   it("skips characters without profile and short spans", () => {
     fsMocks.readFileSync.mockImplementation(() => chapterText("白鹭", "低下头", 1))
-    const report = analyzeBehaviorStateMachine([
-      { num: 1, path: "c1.md" },
-      { num: 2, path: "c2.md" },
-      { num: 3, path: "c3.md" },
-    ])
+    const report = analyzeBehaviorStateMachine(
+      [
+        { num: 1, path: "c1.md" },
+        { num: 2, path: "c2.md" },
+        { num: 3, path: "c3.md" },
+      ],
+      ["白鹭"],
+    )
     // 白鹭 has no profile -> anomalies skipped; 3 records -> consistency computed
     expect(report.anomalies).toEqual([])
     expect(report.consistencyScores["白鹭"]).toBe(10)

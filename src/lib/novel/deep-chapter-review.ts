@@ -7,6 +7,7 @@
  */
 
 import { combineAbortSignals } from "@/lib/llm-client"
+import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { formatStageThinking } from "./chapter-utils"
 import type { ContextPack } from "./context-engine"
 import { runContinuityMechanicalPreflight, isReviewParseError, type NovelReviewResult } from "./review-adapter"
@@ -33,47 +34,34 @@ export async function runFullReviewWithSixDim(
   signal: AbortSignal | undefined,
   contextPack: ContextPack,
   callbacks: DeepChapterGenerationCallbacks,
+  genre?: string,
+  runtimeConfig?: { novelConfig?: NovelConfig; llmConfig?: LlmConfig },
 ): Promise<{
   reviewResults: NovelReviewResult[]
   dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
   /** 48号报告 §六-⑥: 审查输出不可解析且重试耗尽 ⇒ 禁止 LLM 自动修订正文, 转人工。 */
   reviewParseFailed?: boolean
+  /** A01: 仅当语义审查在输入内容上实际跑过回调标记时为 true。 */
+  semanticReviewCompleted?: boolean
 }> {
   // (a) reviewChapter — signal-aware ternary (both branches must stay or
   // non-signal callers break). Matches the original stage-4 call shape.
   let reviewResults: NovelReviewResult[]
-  // PERF-NEW-06: reviewChapter and runSixDimensionReview have NO data
-  // dependency between them — launch both concurrently. reviewChapter keeps
-  // its rethrow-on-failure semantics (await it first so its error surfaces
-  // before the non-blocking 6-dim result is merged), while runSixDim runs
-  // in parallel and is merged only after reviewChapter resolves.
   const runSixDim = deps.runSixDimensionReview
-  // ISS-20260709-049: own a local AbortController for the 6-dim review so a
-  // reviewChapter throw can cascade-abort the orphan 6-dim LLM stream instead
-  // of letting it run to its 120s timeout. The external `signal` (caller-side
-  // cancel / user abort) is merged in via combineAbortSignals so it propagates
-  // to 6-dim too — but we cannot abort the external signal ourselves, so the
-  // local controller is the only handle we hold for orphan cancellation.
   const sixDimController = new AbortController()
   const sixDimSignal = combineAbortSignals(signal, sixDimController.signal)
-  // ISS-20260719-002 (option C1 真接线): 启动 6-dim 前先串行跑一次机械连续性预检,
-  // 结果同时注入 (a) sixDimP 的 priorReviewResults 激活 continuity 维度短路跳 LLM,
-  // (b) reviewChapter 的 injectedContinuityResults 跳过内部重跑。串行插入的仅是
-  // 机械 IO (4-store load + 纯函数 checkContinuity), 不取消任何 LLM 并发 —
-  // PERF-NEW-06 的 invariant 是 reviewChapter 的 LLM 审查与 6-dim 的 LLM 审查并发,
-  // 机械预检非 LLM 不在 invariant 范围。净成本 0 (现状 reviewChapter 内也要跑这步),
-  // 净收益 = 省 1 轮 continuity LLM (短路命中时)。守 S-20260718-ito3 (复用已加载 store
-  // 不独立 reload): injectedContinuityResults 消除重复 load, 总 preflight 调用次数 = 1。
-  const preflightContinuity = await runContinuityMechanicalPreflight(projectPath, chapterNumber)
-  // ISS-20260709-049: 类型化状态对象（成功/失败显式分支，调用方穷尽处理）。
-  // 旧 __sixDimError 哨兵对象系 union type 反模式（"__sixDimError" in 收窄
-  // 脆弱、调用方易漏分支）；现改为显式判别联合 SixDimOutcome，coalesce 处
-  // switch 穷尽（default 走 assertNever 编译期兜底）。行为等价：success 透传
-  // 结果集、failure 捕获原始 error（非阻塞）、skipped 对应 runSixDim 缺失。
+  const preflightContinuity = await runContinuityMechanicalPreflight(projectPath, chapterNumber, { chapterText: content })
   const sixDimP: Promise<SixDimOutcome> = runSixDim
-    // ISS-20260713-002: 透传本函数入参已持有的 contextPack，适配器侧复用、跳过整包重建
-    // （reviewChapter 同包只读消费；六维同样只读，无事实依赖冲突）。
-    ? runSixDim({ projectPath, chapterContent: content, chapterNumber, signal: sixDimSignal, priorReviewResults: preflightContinuity, contextPack })
+    ? runSixDim({
+        projectPath,
+        chapterContent: content,
+        chapterNumber,
+        signal: sixDimSignal,
+        priorReviewResults: preflightContinuity,
+        contextPack,
+        ...(runtimeConfig?.novelConfig ? { novelConfig: runtimeConfig.novelConfig } : {}),
+        ...(runtimeConfig?.llmConfig ? { llmConfig: runtimeConfig.llmConfig } : {}),
+      })
         .then((res) => ({
           kind: "success" as const,
           results: res as Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>,
@@ -84,10 +72,20 @@ export async function runFullReviewWithSixDim(
           return { kind: "failure" as const, error: err }
         })
     : Promise.resolve({ kind: "skipped" as const })
+  let semanticReviewCompleted = false
+  const reviewOptions = {
+    onThinking: callbacks.onThinking,
+    contextPack,
+    injectedContinuityResults: preflightContinuity,
+    ...(genre ? { genre } : {}),
+    ...(runtimeConfig?.novelConfig ? { novelConfig: runtimeConfig.novelConfig } : {}),
+    ...(runtimeConfig?.llmConfig ? { llmConfig: runtimeConfig.llmConfig } : {}),
+    onSemanticReviewCompleted: () => { semanticReviewCompleted = true },
+  }
   try {
     reviewResults = signal
-      ? await deps.reviewChapter(projectPath, content, chapterNumber, { onThinking: callbacks.onThinking, contextPack, injectedContinuityResults: preflightContinuity }, signal)
-      : await deps.reviewChapter(projectPath, content, chapterNumber, { onThinking: callbacks.onThinking, contextPack, injectedContinuityResults: preflightContinuity })
+      ? await deps.reviewChapter(projectPath, content, chapterNumber, reviewOptions, signal)
+      : await deps.reviewChapter(projectPath, content, chapterNumber, reviewOptions)
   } catch (err) {
     // (b) log + rethrow (matches the original stage-4 ~1042-1044 pattern).
     // The 3 call sites previously each had their own try/catch with slightly
@@ -112,7 +110,7 @@ export async function runFullReviewWithSixDim(
     // local controller, so the caller's cancel semantics are untouched.
     if (runSixDim) {
       sixDimController.abort()
-      void sixDimP.catch(() => {})
+      await sixDimP
       logger.warn("Deep Chapter", "6-dimension review aborted after reviewChapter failure (ISS-20260709-049 cascade-cancel).")
     }
     // 48号报告 §六-⑥ parseFailed 防误修订: 审查输出不可解析 (ReviewParseError,
@@ -121,10 +119,6 @@ export async function runFullReviewWithSixDim(
     // 触发 watchdog paused, 而是返回 warning finding + reviewParseFailed=true
     // 让编排层走 manualHandoff 转人工。守 IC-02 "从不静默降级" 纪律。
     if (isReviewParseError(err)) {
-      if (runSixDim) {
-        sixDimController.abort()
-        void sixDimP.catch(() => {})
-      }
       callbacks.onThinking?.(formatStageThinking(
         "阶段4：审稿解析失败保护",
         "重试耗尽，审查输出不可解析。禁止基于不可信审计自动返修正文，转人工处理。",
@@ -140,6 +134,7 @@ export async function runFullReviewWithSixDim(
         }],
         dimensionResults: {},
         reviewParseFailed: true,
+        semanticReviewCompleted: false,
       }
     }
     throw err
@@ -223,5 +218,5 @@ export async function runFullReviewWithSixDim(
   void recordAntiAiShadowTelemetry(content, chapterNumber).catch(() => {
     /* 非致命：遥测失败绝不影响章节生成 */
   })
-  return { reviewResults, dimensionResults }
+  return { reviewResults, dimensionResults, semanticReviewCompleted }
 }

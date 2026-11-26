@@ -657,6 +657,7 @@ function mergeExistingPage(existing: string, incoming: string, today: string): s
 export async function writeSnapshotToWiki(
   projectPath: string,
   snapshot: ChapterSnapshot,
+  onFailure?: (error: unknown) => void,
 ): Promise<string[]> {
   const pp = normalizePath(projectPath)
   const canonicalSnapshot = canonicalizeSnapshotCharacters(snapshot)
@@ -748,6 +749,7 @@ export async function writeSnapshotToWiki(
         return { filePath, newContent, nodeId: node.id }
       } catch (err) {
         logger.warn("Graph Adapter", `Failed to prepare entity page for node ${node.id}`, { error: toErrorMessage(err) })
+        onFailure?.(err)
         return null
       }
     }),
@@ -776,6 +778,7 @@ export async function writeSnapshotToWiki(
       writtenPaths.push(item.filePath)
     } catch (err) {
       logger.warn("Graph Adapter", `Failed to write entity page for node ${item.nodeId}`, { error: toErrorMessage(err) })
+      onFailure?.(err)
     }
   }
 
@@ -923,6 +926,7 @@ function appendChapterInfo(existing: string, sectionMd: string, today: string): 
 export async function writePatchFieldsToWiki(
   projectPath: string,
   patch: WikiUpdatePatch,
+  onFailure?: (error: unknown) => void,
 ): Promise<string[]> {
   const pp = normalizePath(projectPath)
   const entitiesDir = `${pp}/wiki/entities`
@@ -949,6 +953,7 @@ export async function writePatchFieldsToWiki(
         return { filePath, title: entry.title, tag, sectionMd, aliases, entryId: entry.entryId }
       } catch (err) {
         logger.warn("Graph Adapter", `Failed to prepare patch fields for entry ${entry.entryId}`, { error: toErrorMessage(err) })
+        onFailure?.(err)
         return null
       }
     }),
@@ -975,6 +980,7 @@ export async function writePatchFieldsToWiki(
       writtenPaths.push(item.filePath)
     } catch (err) {
       logger.warn("Graph Adapter", `Failed to write patch fields for entry ${item.entryId}`, { error: toErrorMessage(err) })
+      onFailure?.(err)
     }
   }
 

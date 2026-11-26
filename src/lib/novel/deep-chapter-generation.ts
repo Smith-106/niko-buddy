@@ -1,12 +1,17 @@
 import type { LlmConfig } from "@/stores/wiki-store"
-import { streamChat, setMetricsFilePath, setMetricsTraceId, flushMetrics, setContinuityMetricsFilePath, flushContinuityMetrics, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { streamChat, isRequestCancelledError, setMetricsFilePath, setMetricsTraceId, flushMetrics, setContinuityMetricsFilePath, flushContinuityMetrics, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { logger, setLogTraceId, toErrorMessage } from "@/lib/utils"
 import { resolveTaskExtraPrompt } from "./task-customization"
 import { useWikiStore } from "@/stores/wiki-store"
-import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
+import {
+  buildContextPack,
+  contextPackToPrompt,
+  hasContextPackLoadFailure,
+  type ContextPack,
+} from "./context-engine"
 import {  } from "./voiceprint-alignment"
 import {  } from "./adversarial/author-fingerprint"
-import { reviewChapter, type NovelReviewResult } from "./review-adapter"
+import { reviewChapter, isReviewParseError, type NovelReviewResult } from "./review-adapter"
 import {
   runSixDimensionReview,
   type SixReviewDimensionKey,
@@ -28,6 +33,7 @@ import {
 import {  } from "@/lib/user-memory/session"
 import type { UserMemoryStore } from "@/lib/user-memory/types"
 import {
+  updateNovelSessionStatus,
   type RouteShellMode,
   type AntiAiMode,
 } from "./novel-session-status"
@@ -42,7 +48,6 @@ import {
   runStateDeltaLightCheckOnDraft,
   markStateDegraded,
   resolveStateSettlement,
-  type StateDelta,
 } from "./state-delta-light-check"
 import {
   formatThrillSoftGateThinkingWithAck,
@@ -161,6 +166,8 @@ export interface DeepChapterGenerationResult {
   decisionGates: DeepChapterDecisionGates
   manualReviewRequired: boolean
   retryCount: number
+  /** A01: 仅在最后一次实跑语义审查送审正文逐字节等于最终产出时为 true；不表示门禁通过。 */
+  finalConsistencyReviewed?: boolean
   /**
    * True when any collectModelText stage took the transport-inactivity
    * partial-preserve branch — i.e. finalContent was truncated mid-generation by
@@ -224,9 +231,12 @@ export interface DeepChapterGenerationResumeCheckpoint {
    */
   dimensionResults?: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
   currentContent?: string
+  revisionReviewPending?: boolean
   decisionGates?: DeepChapterDecisionGates
   retryCount?: number
   manualReviewRequired?: boolean
+  /** W1-01: 最后一次完成完整语义审查时对应的正文（仅在已审检查点持久化，用于断点恢复透传）。 */
+  semanticallyReviewedContent?: string
 }
 
 export interface DeepChapterGenerationDeps {
@@ -328,6 +338,10 @@ export {
   resolveGoldenThreeThinkingHints,
 } from "./deep-chapter-utils"
 
+import {
+  buildDecisionGates,
+  collectBlockingIssues,
+} from "./deep-chapter-decision-gates"
 export {
   buildDecisionGates,
   collectBlockingIssues,
@@ -360,6 +374,7 @@ import {
 // 对外 API 不变：以下符号仍从本模块 re-export（spec/调用方零改动）。
 import {
   USER_ABORT_MESSAGE,
+  applyChapterContractCheck,
   collectModelText,
   createPartialState,
   notePartialState,
@@ -374,11 +389,44 @@ export {
 } from "./deep-chapter-runtime-support"
 import {
   assembleContext,
+  formatSceneBreakdownForPrompt,
   generateDraft,
   generateTaskBrief,
   runSceneBreakdownStage,
 } from "./deep-chapter-context-assembly"
 import { runReviewAndRepair } from "./deep-chapter-review-repair"
+
+/**
+ * R2-W09 IC-02 门控守卫：当上下文包因整包构建失败降级为空包时，阻断绿灯自动采纳
+ * （consistency 门不得为 passed，overall 不得为 pass/warning）。
+ */
+function applyContextPackFailureGateGuard(
+  gates: DeepChapterDecisionGates,
+  contextPackLoadFailed: boolean,
+): DeepChapterDecisionGates {
+  if (!contextPackLoadFailed) return gates
+  const consistency =
+    gates.consistency.status === "passed"
+      ? {
+          ...gates.consistency,
+          status: "pending" as const,
+          verdict: "pending" as const,
+          manual_review_required: true,
+        }
+      : {
+          ...gates.consistency,
+          manual_review_required: true,
+        }
+  const overall =
+    gates.overall === "pass" || gates.overall === "warning"
+      ? ("pending" as const)
+      : gates.overall
+  return {
+    ...gates,
+    consistency,
+    overall,
+  }
+}
 
 export async function runDeepChapterGeneration(
   input: DeepChapterGenerationInput,
@@ -497,6 +545,11 @@ export async function runDeepChapterGeneration(
     deps, input, callbacks, resumeCheckpoint, signal, previousChaptersAnalysis, loadSmartDeAiSkill,
   )
   const { contextPack, customDeAiSkill, userMemoryStore, outlinePrompt, contextPrompt: rawContextPrompt, cachePrefix } = ctx1
+  const contextPackLoadFailed = hasContextPackLoadFailure(contextPack)
+  const manualReviewReasons: string[] = []
+  if (contextPackLoadFailed) {
+    manualReviewReasons.push("上下文包构建失败（IC-02 降级空包），禁止自动采纳")
+  }
   assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
@@ -524,10 +577,16 @@ export async function runDeepChapterGeneration(
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
-  // 阶段1.5：场景拆解
-  await runSceneBreakdownStage(
+  // 阶段1.5：场景拆解（R2-W06 闭环接线：sceneBreakdownEnabled=true 且拆解非空时注入下游任务书与初稿）
+  const sceneBreakdownResult = await runSceneBreakdownStage(
     input, novelConfig, resumeCheckpoint, contextPack, callbacks, signal, notePartial,
   )
+  const sceneBreakdownPrompt = novelConfig.sceneBreakdownEnabled
+    ? formatSceneBreakdownForPrompt(sceneBreakdownResult)
+    : ""
+  const stageContextPrompt = sceneBreakdownPrompt
+    ? [contextPrompt, sceneBreakdownPrompt].filter(Boolean).join("\n\n")
+    : contextPrompt
   assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
@@ -535,7 +594,7 @@ export async function runDeepChapterGeneration(
   // 阶段2 + 2.5：任务书生成 + 纠偏
   const taskBrief = await generateTaskBrief(
     input, writingConfig, deps, signal, callbacks,
-    outlinePrompt, contextPrompt, lengthSpec, resumeCheckpoint, contextPack, cachePrefix,
+    outlinePrompt, stageContextPrompt, lengthSpec, resumeCheckpoint, contextPack, cachePrefix,
     watchdog,
   )
   assertNotAborted(signal, USER_ABORT_MESSAGE)
@@ -543,17 +602,12 @@ export async function runDeepChapterGeneration(
   await statusMerger?.drain()
 
   // 阶段3 + 3.5：正文初稿 + 草稿纠偏（CORR-107：first-wins + 成功清除）
-  // draft 阶段内任何 partial 经 draftNotePartial 进入 partialReason（首因保留）；
-  // 仅当整阶段零 partial 且草稿验证完整（非空、达 minChars、非 meta）时，才在编排层补清早期 scene 残留。
-  // 降级/兜底（fallback taskBrief、空 polish 回退、repeat 截断、resume 短路复用旧草稿）不满足“完整”谓词，绝不 clear。
-  // generateDraft 内部初稿/纠偏/扩写完整成功已 via onCompleteClearPartial 清除，此处为幂等补清（clear null 安全）。
-  // ISS-20260709-045: draft 污染标记收拢进 partialState（单源；读位直读状态对象）。
   const draftNotePartial = (reason: string) => {
     noteDraftPartialState(partialState, reason)
   }
   const rawDraftContent = await generateDraft(
     input, writingConfig, deps, signal, callbacks,
-    outlinePrompt, contextPrompt, taskBrief, lengthSpec, resumeCheckpoint, cachePrefix,
+    outlinePrompt, stageContextPrompt, taskBrief, lengthSpec, resumeCheckpoint, cachePrefix,
     draftNotePartial, clearPartial, watchdog,
     // F07: 用户确认的章节计划原文（原样透传；缺省 undefined → 提示词逐字节不变）。
     input.planBlueprint,
@@ -599,36 +653,43 @@ export async function runDeepChapterGeneration(
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
-  // 阶段4-5：AI 审稿 + 返修循环
+  const effectiveGenre = input.genre ?? novelConfig.genre
+  // 阶段4-5：AI 审稿 + 返修循环（R2-W05：注入初稿 StateDelta 轻检 findings 与返修重检回调，纳入 P0 consistency 门）
+  const recheckStateDelta = (content: string) =>
+    runPostDraftStateDeltaLightCheck(input.projectPath, content, input.chapterNumber, novelConfig, callbacks)
   const stage45 = await runReviewAndRepair(
     input, novelConfig, deps, signal, callbacks,
     contextPack, draftContent, resumeCheckpoint,
     writingConfig, outlinePrompt, contextPrompt, taskBrief, lengthSpec, cachePrefix, notePartial,
     watchdog,
+    stateDeltaReviewResults,
+    recheckStateDelta,
   )
   // MAX_GATE_RETRY 转人工：原内联此处 callbacks.onFinalContent + 完整 return。
   // 提取后在编排器层构造 result（能访问 partialReason，partial 语义绝对正确）。
+  const includeInitialStateDelta =
+    !stage45.revised && !stage45.reviewResults.some((item) => item.type === "state_delta_light_check")
   const mergedReviewResults = [
     ...thrilSoftGateReviewResults,
-    ...stateDeltaReviewResults,
+    ...(includeInitialStateDelta ? stateDeltaReviewResults : []),
     ...stage45.reviewResults,
   ]
-  // 三门证据落账（write/continue/rewrite/polish/resume 共用同一路径）：
-  // 不落证据 → 首页证据看板恒「未评估」，且「续写是否与从头写同一套门」无从审计。
-  // recordChapterGateEvidence 自身非致命（IO 失败只回 error，不抛）。
-  await recordChapterGateEvidence(
-    {
-      projectPath: input.projectPath,
-      decisionGates: stage45.decisionGates,
-      retryCount: stage45.retryCount,
-      chapterNumber: input.chapterNumber,
-      modelId: writingConfig.model,
-      llmMediated: Boolean((novelConfig as { deepChapterReview?: boolean }).deepChapterReview),
-      intent: input.resumeCheckpoint ? "resume" : undefined,
-    },
-    deps.gateEvidence,
-  )
   if (stage45.manualHandoff) {
+    const guardedHandoffGates = applyContextPackFailureGateGuard(stage45.decisionGates, contextPackLoadFailed)
+    // 三门证据落账（manualHandoff 路径）：确保账本与最终返回值一致。
+    // recordChapterGateEvidence 自身非致命（IO 失败只回 error，不抛）。
+    await recordChapterGateEvidence(
+      {
+        projectPath: input.projectPath,
+        decisionGates: guardedHandoffGates,
+        retryCount: stage45.retryCount,
+        chapterNumber: input.chapterNumber,
+        modelId: writingConfig.model,
+        llmMediated: Boolean((novelConfig as { deepChapterReview?: boolean }).deepChapterReview),
+        intent: input.resumeCheckpoint ? "resume" : undefined,
+      },
+      deps.gateEvidence,
+    )
     callbacks.onFinalContent?.(stage45.currentContent)
     // DEBT-20260822-t34-wiring: run-end flush of pending status writes.
     // R1-F2：flush 失败不再裸吞，记 warn 留痕（仍不阻断 run 返回）。
@@ -644,7 +705,7 @@ export async function runDeepChapterGeneration(
       draftContent,
       reviewResults: mergedReviewResults,
       revised: stage45.revised,
-      decisionGates: stage45.decisionGates,
+      decisionGates: guardedHandoffGates,
       manualReviewRequired: true,
       retryCount: stage45.retryCount,
       partial: partialState.reason !== null,
@@ -722,38 +783,171 @@ export async function runDeepChapterGeneration(
     ))
   }
   const finalContentNorm = titleOutcome.content
-  callbacks.onFinalContent?.(finalContentNorm)
+  let deliveredContent = finalContentNorm
+  let finalDecisionGates = stage45.decisionGates
+  let finalReviewResults = mergedReviewResults
+  let finalSemanticallyReviewedContent = stage45.semanticallyReviewedContent
+
+  // W1-02 / N-2v2 阶段7.6：终稿一致性复核
+  // 当阶段7润色/终稿规范化/章节标题处理改动了已通过语义审查的正文时，在交付前补做一致性复核；
+  // 若已处于部分超时截断状态（partialState.reason !== null）或最终交付正文为空，则跳过复核；
+  // 若复核引入阻断错误或抛出解析/非取消异常，则完整回滚至阶段4-5已审查版本（用户取消异常继续上抛）。
+  if (
+    novelConfig.deepChapterReview
+    && !stage45.manualReviewRequired
+    && stage45.semanticallyReviewedContent !== undefined
+    && stage45.semanticallyReviewedContent !== deliveredContent
+    && partialState.reason === null
+    && deliveredContent.trim().length > 0
+  ) {
+    assertNotAborted(signal, USER_ABORT_MESSAGE)
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段7.6：终稿一致性复核",
+      "检测到阶段7润色/规范化/标题处理改动了正文，正在对最终交付稿执行一致性复核。",
+    ))
+    let postSemanticCompleted = false
+    const postReviewOptions = {
+      onThinking: callbacks.onThinking,
+      contextPack,
+      novelConfig,
+      llmConfig: input.llmConfig,
+      ...(effectiveGenre ? { genre: effectiveGenre } : {}),
+      onSemanticReviewCompleted: () => { postSemanticCompleted = true },
+    }
+    try {
+      const postRaw = signal
+        ? await deps.reviewChapter(input.projectPath, deliveredContent, input.chapterNumber, postReviewOptions, signal)
+        : await deps.reviewChapter(input.projectPath, deliveredContent, input.chapterNumber, postReviewOptions)
+      assertNotAborted(signal, USER_ABORT_MESSAGE)
+      const postStateDelta = await recheckStateDelta(deliveredContent)
+      const postReviewResults = [
+        ...postStateDelta,
+        ...applyChapterContractCheck(taskBrief, deliveredContent, postRaw || []),
+      ]
+      const postDecisionGates = buildDecisionGates(
+        postReviewResults,
+        stage45.retryCount,
+        undefined,
+        effectiveGenre,
+        postSemanticCompleted,
+      )
+      const postBlockingIssues = collectBlockingIssues(postDecisionGates)
+      // R2-REV-001：collectBlockingIssues 强制执行 Consistency(P0) > Anti-AI(P1) > Quality(P2)
+      // 仅 error 阻断语义，自动豁免纯 Quality warning 题材阈值升级（isNonBlockingQualityUpgrade），
+      // 与 decideDraftAdoptionGate 保持同源语义，避免误回滚去 AI 味/标题成果。
+      if (postBlockingIssues.length > 0) {
+        logger.warn("Deep Chapter", "Stage 7.6 final review detected blocking issues; rolling back to stage 4-5 reviewed content", {
+          blockingCount: postBlockingIssues.length,
+          overall: postDecisionGates.overall,
+        })
+        callbacks.onThinking?.(formatStageThinking(
+          "阶段7.6：终稿复核回滚",
+          `阶段7修改引入 ${postBlockingIssues.length} 个阻断问题，已自动回滚至阶段4-5已审查正文。`,
+        ))
+        deliveredContent = stage45.currentContent
+        finalDecisionGates = stage45.decisionGates
+        finalReviewResults = mergedReviewResults
+        finalSemanticallyReviewedContent = stage45.semanticallyReviewedContent
+      } else if (!postSemanticCompleted && stage45.semanticallyReviewedContent === stage45.currentContent) {
+        // R2-W09 防反降级回滚：阶段4-5原稿已完成语义一致性复核，但阶段7.6润色后复检未完成语义核验时，
+        // 禁止用未经语义核验的润色稿覆盖已审原稿，强制回滚保留已审原稿与原门控。
+        logger.warn("Deep Chapter", "Stage 7.6 final review did not complete semantic check; rolling back to stage 4-5 reviewed content")
+        callbacks.onThinking?.(formatStageThinking(
+          "阶段7.6：终稿复核回滚",
+          "润色后语义复核未完成，已回滚保留原已审稿。",
+        ))
+        deliveredContent = stage45.currentContent
+        finalDecisionGates = stage45.decisionGates
+        finalReviewResults = mergedReviewResults
+        finalSemanticallyReviewedContent = stage45.semanticallyReviewedContent
+      } else {
+        finalDecisionGates = postDecisionGates
+        finalReviewResults = [
+          ...thrilSoftGateReviewResults,
+          ...postReviewResults,
+        ]
+        finalSemanticallyReviewedContent = postSemanticCompleted ? deliveredContent : undefined
+        callbacks.onThinking?.(formatStageThinking(
+          "阶段7.6：终稿一致性复核通过",
+          postSemanticCompleted
+            ? "终稿复核未发现阻断问题，最终正文已通过完整语义审查。"
+            : "终稿复核未发现阻断问题，但未完成全量语义审查回调（按 fail-closed 不签发 finalConsistencyReviewed）。",
+        ))
+      }
+    } catch (err) {
+      const isAbortError = typeof err === "object" && err !== null && (err as { name?: unknown }).name === "AbortError"
+      if (
+        signal?.aborted
+        || isAbortError
+        || (err instanceof Error && (err.message === USER_ABORT_MESSAGE || isRequestCancelledError(err)))
+      ) {
+        throw err
+      }
+      logger.warn("Deep Chapter", "Stage 7.6 final review failed; rolling back to stage 4-5 reviewed content", {
+        error: toErrorMessage(err),
+        parseError: isReviewParseError(err),
+      })
+      callbacks.onThinking?.(formatStageThinking(
+        "阶段7.6：终稿复核回滚",
+        `终稿复核失败（${toErrorMessage(err)}），已自动回滚至阶段4-5已审查正文。`,
+      ))
+      deliveredContent = stage45.currentContent
+      finalDecisionGates = stage45.decisionGates
+      finalReviewResults = mergedReviewResults
+      finalSemanticallyReviewedContent = stage45.semanticallyReviewedContent
+    }
+  }
+
+  // R2-W09 IC-02：上下文包整包构建失败时强制转人工且阻断绿灯自动采纳
+  finalDecisionGates = applyContextPackFailureGateGuard(finalDecisionGates, contextPackLoadFailed)
+  const finalManualReviewRequired = stage45.manualReviewRequired || contextPackLoadFailed
+  if (manualReviewReasons.length > 0) {
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段7.6：人工复核约束",
+      manualReviewReasons.join("\n"),
+    ))
+  }
+
+  // 三门证据落账（阶段7.6落定后）：确保账本与最终返回值完全一致。
+  // recordChapterGateEvidence 自身非致命（IO 失败只回 error，不抛）。
+  await recordChapterGateEvidence(
+    {
+      projectPath: input.projectPath,
+      decisionGates: finalDecisionGates,
+      retryCount: stage45.retryCount,
+      chapterNumber: input.chapterNumber,
+      modelId: writingConfig.model,
+      llmMediated: Boolean((novelConfig as { deepChapterReview?: boolean }).deepChapterReview),
+      intent: input.resumeCheckpoint ? "resume" : undefined,
+    },
+    deps.gateEvidence,
+  )
+
+  callbacks.onFinalContent?.(deliveredContent)
   // 54 号设计 ⑨: avoid-ai 审计 (51 type 目录吸收, 审计型只读)。
   // final 产出后跑声纹审计, 结果经 onThinking 提示 + 日志留痕;
   // Track B soft (english-heavy 引擎对中文网文仅参考), 不设产品硬门。
   try {
     const { analyzeAvoidAiPatterns, formatAvoidAiPatternsSummary } = await import("./avoid-ai-patterns")
-    const audit = analyzeAvoidAiPatterns(finalContentNorm)
+    const audit = analyzeAvoidAiPatterns(deliveredContent)
     callbacks.onThinking?.(formatStageThinking(
       "阶段6.5：avoid-ai 审计",
       formatAvoidAiPatternsSummary(audit),
     ))
-    // 55 号设计 W2-4 (54⑨ 收尾): 审计摘要持久化 (additive-optional, 仅计数/类型枚举)。
-    // 写入走 saveNovelSessionStatus 唯一真源; 失败仅 warn 不阻塞。
+    // 55 号设计 W2-4 (54⑨ 收尾) / N-5a: 审计摘要持久化 (additive-optional, 仅计数/类型枚举)。
+    // 写入走 updateNovelSessionStatus 锁内原子事务（收进 session-status 锁避免锁外 RMW 覆写）；失败仅 warn 不阻塞。
     try {
-      const { loadNovelSessionStatus, saveNovelSessionStatus } = await import("./novel-session-status")
-      const status = await loadNovelSessionStatus(input.projectPath)
-      if (status) {
-        const issueTypes = [...new Set(audit.issues.map((i) => i.type))]
-        const next = {
-          ...status,
-          avoid_ai_summary: {
-            score: audit.score,
-            label: audit.label,
-            issueCount: audit.issues.length,
-            issueTypes,
-            updatedAt: new Date().toISOString(),
-          },
-        }
-        // R4 共识（deepseek+glm）: next 是新建对象，next !== status 对新对象恒为 true（死守卫），
-        // 原行为即「总是落盘」。去除恒真判断，行为不变、意图显式。
-        await saveNovelSessionStatus(input.projectPath, next)
+      const issueTypes = [...new Set(audit.issues.map((i) => i.type))]
+      const summary = {
+        score: audit.score,
+        label: audit.label,
+        issueCount: audit.issues.length,
+        issueTypes,
+        updatedAt: new Date().toISOString(),
       }
+      await updateNovelSessionStatus(input.projectPath, (status) => (
+        status ? { ...status, avoid_ai_summary: summary } : null
+      ))
     } catch (err) {
       callbacks.onThinking?.(formatStageThinking(
         "avoid-ai 审计持久化",
@@ -766,29 +960,78 @@ export async function runDeepChapterGeneration(
       `审计跳过 (非致命): ${toErrorMessage(err)}`,
     ))
   }
-  // 55 号设计 W2-5 (B-01): 数值事实检查 (warn-only, 不硬短路)。
-  // 对最终交付物跑跨章数值一致性检查, 结果经 onThinking 提示 (Consistency 轴软信号)。
-  // 正式章节正文位于 .novel/chapters/{n}/draft.md (context-data-sources.ts:67)。
+  // 55 号设计 W2-5 (B-01) + R2：数值事实检查 (warn-only, 不硬短路)。
+  // 优先读取 wiki/chapters/ 下已按章号排序的正式章节（过滤草稿后缀）；
+  // 仅当 wiki/chapters/ 不存在或无可读 .md 正式章时平滑回退读取历史 .novel/chapters/{n}/draft.md。
   try {
     const { runNumericFactCheck } = await import("./numeric-fact-checker")
-    const { readFile } = await import("@/commands/fs")
-    const { listDirectory } = await import("@/commands/fs")
+    const { readFile, listDirectory } = await import("@/commands/fs")
     const { normalizePath } = await import("@/lib/path-utils")
-    const chaptersDir = `${normalizePath(input.projectPath)}/.novel/chapters`
-    const dirs = await listDirectory(chaptersDir).catch(() => [])
-    const chapterDirs = dirs
-      .filter((d) => d.is_dir && /^\d+$/.test(d.name))
-      .map((d) => ({ chapter: Number(d.name), dir: d.name }))
-      .sort((a, b) => a.chapter - b.chapter)
+    const { parseFrontmatter } = await import("@/lib/frontmatter")
+    const { extractChapterNumber, flattenMdFiles, isDraftChapterFile } = await import("./chapter-utils")
+    const { parseChapterNumber } = await import("./chapter-meta")
+
+    const root = normalizePath(input.projectPath).replace(/\/+$/, "")
     const chapters: { chapter: number; text: string }[] = []
-    for (const { chapter, dir } of chapterDirs) {
-      const text = await readFile(`${chaptersDir}/${dir}/draft.md`).catch(() => "")
-      if (text) chapters.push({ chapter, text })
+
+    const wikiChaptersDir = `${root}/wiki/chapters`
+    const wikiNodes = await listDirectory(wikiChaptersDir).catch((err: unknown) => {
+      logger.warn("DeepChapter", `Stage 6.6 list wiki/chapters failed (non-fatal): ${toErrorMessage(err)}`)
+      return []
+    })
+    const formalFiles = flattenMdFiles(wikiNodes).filter((f) => !isDraftChapterFile(f.name))
+    const formalByChapter = new Map<number, string>()
+    for (const file of formalFiles) {
+      const raw = await readFile(file.path).catch((err: unknown) => {
+        logger.warn("DeepChapter", `Stage 6.6 read formal chapter ${file.name} failed (non-fatal): ${toErrorMessage(err)}`)
+        return ""
+      })
+      if (!raw) continue
+      const parsed = parseFrontmatter(raw)
+      const fmNum = parseChapterNumber(parsed.frontmatter?.chapter_number)
+      const chNum = fmNum ?? extractChapterNumber(file.name.replace(/\.md$/i, ""))
+      const body = parsed.body.trim()
+      if (chNum !== null && Number.isSafeInteger(chNum) && chNum > 0 && body) {
+        formalByChapter.set(chNum, body)
+      }
     }
+    for (const [chapter, text] of [...formalByChapter.entries()].sort((a, b) => a[0] - b[0])) {
+      chapters.push({ chapter, text })
+    }
+
+    if (chapters.length === 0) {
+      const chaptersDir = `${root}/.novel/chapters`
+      const dirs = await listDirectory(chaptersDir).catch((err: unknown) => {
+        logger.warn("DeepChapter", `Stage 6.6 list chapters dir failed (non-fatal): ${toErrorMessage(err)}`)
+        return []
+      })
+      const chapterDirs = dirs
+        .filter((d) => d.is_dir && /^\d+$/.test(d.name))
+        .map((d) => ({ chapter: Number(d.name), dir: d.name }))
+        .sort((a, b) => a.chapter - b.chapter)
+      for (const { chapter, dir } of chapterDirs) {
+        const text = await readFile(`${chaptersDir}/${dir}/draft.md`).catch((err: unknown) => {
+          logger.warn("DeepChapter", `Stage 6.6 read chapter ${chapter} failed (non-fatal): ${toErrorMessage(err)}`)
+          return ""
+        })
+        if (text) chapters.push({ chapter, text })
+      }
+    }
+
     if (chapters.length > 0) {
-      // 末章 (当前生成章) 替换为最终交付物, 保证审计对象 = 交付物
-      const last = chapters[chapters.length - 1]
-      last.text = finalContentNorm
+      // R2-W05：按目标 chapterNumber 精准定位替换（存在同号则替换，不存在则追加），
+      // 再按 chapterNumber 升序排序，禁止盲目覆写 chapters[last]。
+      const targetChapterNumber =
+        input.chapterNumber !== undefined && Number.isSafeInteger(input.chapterNumber) && input.chapterNumber > 0
+          ? input.chapterNumber
+          : chapters[chapters.length - 1]!.chapter + 1
+      const existingIdx = chapters.findIndex((item) => item.chapter === targetChapterNumber)
+      if (existingIdx >= 0) {
+        chapters[existingIdx] = { chapter: targetChapterNumber, text: deliveredContent }
+      } else {
+        chapters.push({ chapter: targetChapterNumber, text: deliveredContent })
+        chapters.sort((a, b) => a.chapter - b.chapter)
+      }
       const numericFindings = runNumericFactCheck(chapters)
       if (numericFindings.length > 0) {
         callbacks.onThinking?.(formatStageThinking(
@@ -797,41 +1040,11 @@ export async function runDeepChapterGeneration(
         ))
       }
     }
-  } catch {
-    // 非致命: 数值检查失败不影响生成
-  }
-  // 54 号设计 ④: chase_debt 记账人接线 (webnovel-writer ChaseDebtMeta 吸收)。
-  // 章节提交时: 结尾钩子含承诺型悬念 → 创建追读债务; 既有未偿债务计息。
-  // additive: status.json 无 chase_debt 字段或写入失败 → 仅 warn 不阻塞。
-  try {
-    const { loadNovelSessionStatus, saveNovelSessionStatus, createChaseDebtFromHook, accrueAllChaseDebtInterest } = await import("./novel-session-status")
-    const status = await loadNovelSessionStatus(input.projectPath)
-    if (status) {
-      const chapter = input.chapterNumber ?? 0
-      const endingHook = finalContentNorm.slice(-200)
-      const withDebt = accrueAllChaseDebtInterest(createChaseDebtFromHook(status, chapter, endingHook), chapter)
-      if (withDebt !== status) {
-        await saveNovelSessionStatus(input.projectPath, withDebt)
-      }
-    }
   } catch (err) {
-    callbacks.onThinking?.(formatStageThinking(
-      "追读债务记账",
-      `chase_debt 记账跳过 (非致命): ${toErrorMessage(err)}`,
-    ))
+    logger.warn("DeepChapter", `Stage 6.6 numeric fact check failed (non-fatal): ${toErrorMessage(err)}`)
   }
-  // ISS-20260714-002: explicit run-end flush of buffered LLM metrics. Fire-
-  // and-forget (void) — the run is done, metrics persist async after return.
-  // Abort/throw paths rely on the collectLLMMetric auto-flush safety valve
-  // (buffer≥500) since this line is unreachable on a throw.
   void flushMetrics()
-  // ISS-20260719-CE-001: explicit run-end flush of buffered continuity metrics.
-  // Fire-and-forget (void) — same pattern as flushMetrics above. flushContinuityMetrics
-  // internally re-buffers on write failure (llm-client.ts :229) so a flush error
-  // never breaks the run return; no-op when the buffer is empty (:209).
   void flushContinuityMetrics()
-  // DEBT-20260822-t34-wiring: run-end flush of pending status writes.
-  // R1-F2：同上，失败记 warn 留痕。
   if (statusMerger) {
     await statusMerger.flush().catch((err: unknown) => {
       /* v8 ignore next -- 台账 deep-chapter-generation.ts L834-838：同上（run-end 侧） */
@@ -839,17 +1052,18 @@ export async function runDeepChapterGeneration(
     })
   }
   return {
-    finalContent: finalContentNorm,
+    finalContent: deliveredContent,
     taskBrief,
     draftContent,
-    reviewResults: mergedReviewResults,
+    reviewResults: finalReviewResults,
     revised: stage45.revised,
-    decisionGates: stage45.decisionGates,
-    manualReviewRequired: false,
+    decisionGates: finalDecisionGates,
+    manualReviewRequired: finalManualReviewRequired,
     retryCount: stage45.retryCount,
     partial: partialState.reason !== null,
     partialReason: partialState.reason,
     contextUsage: contextPack.contextUsage,
+    ...(finalSemanticallyReviewedContent === deliveredContent && !finalManualReviewRequired ? { finalConsistencyReviewed: true } : {}),
   }
 }
 
@@ -912,7 +1126,7 @@ async function runPostDraftStateDeltaLightCheck(
     const chapter = chapterNumber ?? 0
     // Structured extract: optional JSON block in draft (```json state-delta ...```) or none → heuristic.
     const structuredRaw = extractEmbeddedStateDeltaJson(draftContent)
-    const { issues, reviewResults, source } = runStateDeltaLightCheckOnDraft(
+    const { delta, issues, reviewResults, source } = runStateDeltaLightCheckOnDraft(
       draftContent,
       store.characters ?? [],
       chapter,
@@ -926,9 +1140,7 @@ async function runPostDraftStateDeltaLightCheck(
     // 不改变 reviewResults 流: REPAIR → 触发一次重结算 (不重写正文),
     // markStateDegraded 判定重结算后是否仍 degraded; FAIL → 提示阻断语义
     // (实际阻断仍由 stateDeltaBlocksTrackA 开关控制, 现状保留)。
-    const delta = structuredRaw
-      ? (JSON.parse(structuredRaw) as StateDelta)
-      : ({} as StateDelta)
+    // R2-W05：直接复用 runStateDeltaLightCheckOnDraft 已安全解析/降级的 delta，移除裸 JSON.parse。
     let settlement = resolveStateSettlement(delta, issues, source)
     const settlementLines: string[] = [`结算三态：${settlement.outcome}（${settlement.reason}）`]
     if (settlement.outcome === "REPAIR") {
@@ -940,7 +1152,7 @@ async function runPostDraftStateDeltaLightCheck(
         { blocksTrackA: novelConfig.stateDeltaBlocksTrackA === true, structuredRaw },
       )
       const reSettled = resolveStateSettlement(
-        structuredRaw ? (JSON.parse(structuredRaw) as StateDelta) : ({} as StateDelta),
+        reRun.delta,
         reRun.issues,
         reRun.source,
       )
@@ -1056,7 +1268,7 @@ async function finalPolishChapter(
         customDeAiSkill,
         userMemoryStore,
         // 55 号设计 W1-1: 入口统一解析 (英文码 → 中文流派名; undefined/未知码 → 默认基线)。
-        resolveDeAiGenre(input.genre),
+        resolveDeAiGenre(input.genre ?? input.novelConfig.genre),
         writingTaskExtra,
         input.novelConfig.autoGenerateChapterTitle,
       ),

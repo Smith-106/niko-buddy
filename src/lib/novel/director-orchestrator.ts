@@ -14,9 +14,14 @@
 import { createDirectorPipeline, advanceDirectorPhase, retryDirectorPhase, type DirectorPipelineState, type PhaseGateInput, type DirectorPhase } from "./director-pipeline"
 import { validateWorldBlueprint, loadWorldBlueprint, type WorldBlueprint } from "./world-blueprint"
 import { readFile, listDirectory } from "@/commands/fs"
+import { normalizePath } from "@/lib/path-utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { recordModuleHit } from "./module-heat"
 import { listSnapshots } from "./chapter-ingest"
+import { isDraftChapterFile } from "./chapter-utils"
+import { listChapterDrafts } from "./draft-manager"
 import { listEntityFiles } from "./entity-subdir-resolver"
+import type { ChapterDraft } from "./lifecycle-types"
 
 const DIRECTOR_STATE_FILE = "director-pipeline.json"
 
@@ -50,11 +55,23 @@ export async function collectProjectSnapshot(
   projectPath: string,
   idea: { title: string; genre: string; coreConflict: string },
 ): Promise<DirectorSnapshot> {
-  const [blueprint, entityFiles, outlineFiles, snapshotNumbers] = await Promise.all([
+  const [blueprint, entityFiles, outlineFiles, wikiChapterFiles, qmChapterFiles, snapshotNumbers, drafts] = await Promise.all([
     loadWorldBlueprint(projectPath).catch(() => null),
     listEntityFiles(projectPath).catch(() => [] as Array<{ name: string; path: string }>),
     listDirectory(`${projectPath}/wiki/outlines`).catch(() => [] as Array<{ name: string; path: string; is_dir: boolean }>),
+    listDirectory(`${projectPath}/wiki/chapters`).catch((err: unknown) => {
+      logger.warn("Director", `listDirectory(wiki/chapters) failed; degrading to empty: ${toErrorMessage(err)}`)
+      return [] as Array<{ name: string; path: string; is_dir: boolean }>
+    }),
+    listDirectory(`${projectPath}/QM/chapters`).catch((err: unknown) => {
+      logger.warn("Director", `listDirectory(QM/chapters) failed; degrading to empty: ${toErrorMessage(err)}`)
+      return [] as Array<{ name: string; path: string; is_dir: boolean }>
+    }),
     listSnapshots(projectPath).catch(() => [] as number[]),
+    listChapterDrafts(projectPath).catch((err: unknown) => {
+      logger.warn("Director", `listChapterDrafts failed; degrading to empty: ${toErrorMessage(err)}`)
+      return [] as ChapterDraft[]
+    }),
   ])
 
   // world：持久化 blueprint 完备即过
@@ -72,8 +89,36 @@ export async function collectProjectSnapshot(
   const frameworkChosen = outlineDocs.length >= 1
   const volumesPlanned = outlineDocs.length >= 2
 
-  // chapters：有正章快照（排除 outline 负号）
-  const firstChapterReady = snapshotNumbers.some((n) => n > 0)
+  // R2-W02：兼容 Draft-first —— 首章就绪接受以下任一真实产物：
+  // 1) .novel/snapshots 有正章快照（n > 0，排除负号大纲快照）；
+  // 2) .qm-drafts 存在未标废、非 partial 且正文非空的章节草稿；
+  // 3) wiki/chapters 或 QM/chapters 下存在非草稿后缀的 .md 正式章节文件（按路径去重合并，防目录 mock 串台）。
+  const hasChapterSnapshot = snapshotNumbers.some((n) => n > 0)
+  const hasReadyDraft = drafts.some(
+    (d) =>
+      d.status !== "failed"
+      && d.partial !== true
+      && d.adoptionGate?.status !== "partial"
+      && d.content.trim().length > 0,
+  )
+  const seenChapterPaths = new Set<string>()
+  const mergedChapterFiles = [...wikiChapterFiles, ...qmChapterFiles].filter((f) => {
+    const normalized = normalizePath(f.path)
+    if (seenChapterPaths.has(normalized)) return false
+    seenChapterPaths.add(normalized)
+    return true
+  })
+  const hasChapterFile = mergedChapterFiles.some((f) => {
+    if (f.is_dir || !f.name.endsWith(".md") || isDraftChapterFile(f.name)) return false
+    const normalized = normalizePath(f.path)
+    return (
+      normalized.includes("/wiki/chapters/")
+      || normalized.startsWith("wiki/chapters/")
+      || normalized.includes("/QM/chapters/")
+      || normalized.startsWith("QM/chapters/")
+    )
+  })
+  const firstChapterReady = hasChapterSnapshot || hasReadyDraft || hasChapterFile
 
   return {
     idea,

@@ -182,13 +182,16 @@ describeOrSkip("#44 真实Provider联合补证(配置→健康→生成→门控
     expect(cp.decision_gates.overall).toBe("pass")
     expect(cp.draft.draft_status).toBe("pending")
     // 完成 → ready
+    const finalContent = "雾中灯塔一豆火，归人影影绰绰。"
     const done = await completeDeepChapterSession({
       projectPath: PROJECT,
       conversationId: "conv-p44",
       userRequest: "P44补证生成",
       chapterNumber: 1,
       sessionId: s.session_id,
-      finalContent: "雾中灯塔一豆火，归人影影绰绰。",
+      finalContent,
+      decisionGates: gates,
+      finalConsistencyReviewed: true,
     })
     expect(done.status).toBe("completed")
     expect(done.draft.draft_status).toBe("ready")
@@ -199,6 +202,14 @@ describeOrSkip("#44 真实Provider联合补证(配置→健康→生成→门控
       userRequest: "P44补证生成",
       chapterNumber: 1,
       sessionId: s.session_id,
+      formalChapterPath: `${PROJECT}/wiki/chapters/chapter-001.md`,
+      finalChapterContent: `---
+type: chapter
+chapter_number: 1
+chapter_status: final
+---
+${finalContent}`,
+      writeVerifiedChapter: async () => async () => undefined,
     })
     expect(acc.draft.draft_status).toBe("accepted")
     // 重启读回一致性

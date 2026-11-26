@@ -2,7 +2,7 @@
  * internal-eval-set.spec.ts — B1 内部非同源一致性集判定核（批准计划 r3 §T3）。
  *
  * 输入绑定（真实产物，非构造）：
- *   - qrels ← src/lib/novel/kb/internal-eval-set.generated.json（规则导出；N=343 / 6 流派）
+ *   - qrels ← src/lib/novel/kb/internal-eval-set.generated.json（规则导出；由 kb-routing-view.generated.json 派生，N≥200 / 6 流派，与 builtFrom 同步）
  *   - 路由矩阵 ← kb-routing-view.generated.json routing.agent（T2 后的最终矩阵）
  *   - 判定链 ← routeByQueryIntent（search-adapter.ts:730）+ tokensForKbMatch（:843）+ rankByBm25（bm25-ranking.ts:60）
  *   - 统计 ← wilsonScoreInterval（same-scale-harness.ts:96），裁决看 CI 下界
@@ -25,6 +25,7 @@ import { describe, expect, it } from "vitest"
 import { rankByBm25 } from "./bm25-ranking"
 import { routeByQueryIntent, tokensForKbMatch } from "./search-adapter"
 import { wilsonScoreInterval } from "./same-scale-harness"
+import internalEvalQueries from "./kb/internal-eval-queries.json"
 import internalEvalSet from "./kb/internal-eval-set.generated.json"
 import kbRoutingView from "./kb/kb-routing-view.generated.json"
 
@@ -167,6 +168,12 @@ describe("B1 内部非同源一致性集（口径 + 结构）", () => {
     expect(SET.notThirdParty).toBe(true)
     expect(SET.notRealGateAnchor).toBe(true)
     expect(SET.source).not.toBe("real")
+  })
+
+  it("三方 builtFrom 一致：kb-routing-view / internal-eval-set / internal-eval-queries 同源", () => {
+    expect(VIEW.builtFrom).toMatch(/^sha256:[0-9a-f]+$/i)
+    expect(SET.builtFrom).toBe(VIEW.builtFrom)
+    expect((internalEvalQueries as { builtFrom?: string }).builtFrom).toBe(VIEW.builtFrom)
   })
 
   it("规模与流派：N≥200（治理口径）、流派≥4", () => {

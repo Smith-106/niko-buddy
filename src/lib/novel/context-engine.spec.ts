@@ -2381,12 +2381,14 @@ describe("buildContextPack 集成", () => {
   })
 
   it("gap recorder：build 期内数据源截断 → pack.gaps 携带 truncated", async () => {
-    hoisted.loadAllImpl = async () => {
+    hoisted.loadAllImpl = async (ctx) => {
       const ce = await import("./context-engine")
+      const session = (ctx as { buildSession?: import("./context-engine").ContextBuildSession }).buildSession
       // 内容 > maxPageSize（maxCtx=5000 → pageBudget=2500 → maxPageSize=2500）→ 截断 + 记 gap
       ce.pickChapterOutlineByNumber(
         [{ path: "o.md", content: "第3章" + "x".repeat(9000) }],
         3,
+        session,
       )
       return fixtureRawData()
     }
@@ -2395,12 +2397,45 @@ describe("buildContextPack 集成", () => {
     expect(truncGap).toBeDefined()
     expect(truncGap!.reason).toBe("budget_exceeded")
     expect(truncGap!.retainedLength).toBe(2500)
-    // build 结束后 active 标志已清：build 外直接截断不再记 gap
+    // build 结束后直接截断走默认 6000 上限且不污染任何全局状态
     const direct = pickChapterOutlineByNumber(
       [{ path: "o.md", content: "第3章" + "x".repeat(9000) }],
       3,
     )
     expect(direct.length).toBe(6000)
+  })
+
+  it("R2-W06 per-build 隔离：双并发 buildContextPack 交错运行，gaps 与 budget 互不串包", async () => {
+    hoisted.loadAllImpl = async (ctx) => {
+      const c = ctx as {
+        task: string
+        recordGap?: (ref: string, reason?: "datasource_error") => void
+        buildSession?: import("./context-engine").ContextBuildSession
+      }
+      const ce = await import("./context-engine")
+      if (c.task === "并发任务A") {
+        await new Promise((r) => setTimeout(r, 15))
+        c.recordGap?.("gap-A", "datasource_error")
+        ce.pickChapterOutlineByNumber(
+          [{ path: "a.md", content: "第3章" + "A".repeat(9000) }],
+          3,
+          c.buildSession,
+        )
+      } else {
+        await new Promise((r) => setTimeout(r, 5))
+        c.recordGap?.("gap-B", "datasource_error")
+      }
+      return fixtureRawData()
+    }
+    const [packA, packB] = await Promise.all([
+      buildContextPack("/p", "并发任务A", 3, { llmConfig: mkLlmConfig(5000) }),
+      buildContextPack("/p", "并发任务B", 4, { llmConfig: mkLlmConfig(120000) }),
+    ])
+    expect(packA.gaps?.some((g) => g.ref === "gap-A")).toBe(true)
+    expect(packA.gaps?.some((g) => g.ref === "gap-B")).toBe(false)
+    expect(packA.gaps?.find((g) => g.ref === "chapter-outline:3:heading")?.retainedLength).toBe(2500)
+    expect(packB.gaps?.some((g) => g.ref === "gap-B")).toBe(true)
+    expect(packB.gaps?.some((g) => g.ref === "gap-A")).toBe(false)
   })
 
   it("recordGap 回调（DC-8）：数据源 load 失败显式记 load_failed gap", async () => {
@@ -2568,26 +2603,84 @@ describe("contextPackToPrompt 补充分支", () => {
     expect(prompt).not.toContain("上下文已按Token预算裁剪")
   })
 
-  it("tokenBudget：超预算且估算超 → 头尾裁剪", () => {
-    const head = "H".repeat(300)
-    const tail = "T".repeat(300)
-    const pack: ContextPack = { ...basePack, characterStates: head + tail }
+  it("tokenBudget：超预算且估算超 → 按优先级整段降级裁剪（低优段先丢，P0 canonRules/outline 完整留存）", () => {
+    const pack: ContextPack = {
+      ...basePack,
+      outline: "核心大纲规则必须保留",
+      canonRules: "正史铁律：主角不可瞬移",
+      characterStates: "C".repeat(600),
+      relatedChapters: "R".repeat(600),
+    }
     const full = contextPackToPrompt(pack)
-    const trimmed = contextPackToPrompt(pack, 100)
-    expect(trimmed).toContain("[...上下文已按Token预算裁剪...]")
-    // R4 口径修正（deepseek+glm 共识命中 context-engine.ts:2696）：
-    // 旧断言把 targetChars 固定写成 tokenBudget*4，与同函数上方的 CJK 加权估算
-    // （≈1.5 字符/token）自相矛盾；现已改为与估算器同源的混合比换算。
-    // 因此改为断言**行为不变量**（真的落回预算、头尾保留、中间被舍弃），
-    // 而不再锁定具体字符偏移。
+    const trimmed = contextPackToPrompt(pack, 140)
+    expect(trimmed).toContain("[...上下文已按优先级裁剪低优分段:")
+    // P0 保护段完整保留，低优非保护段被整段剔除
+    expect(trimmed).toContain("核心大纲规则必须保留")
+    expect(trimmed).toContain("正史铁律：主角不可瞬移")
+    expect(trimmed).not.toContain("R".repeat(200))
+    expect(trimmed).not.toContain("C".repeat(200))
     const est = (t: string) => {
       const cjk = (t.match(/[一-鿿]/g) ?? []).length
       return Math.ceil((t.length - cjk) / 4 + cjk / 1.5)
     }
-    expect(est(trimmed)).toBeLessThanOrEqual(100 * 1.2)
+    expect(est(trimmed)).toBeLessThanOrEqual(140)
     expect(trimmed.length).toBeLessThan(full.length)
-    expect(trimmed.startsWith(full.slice(0, 50))).toBe(true)
-    expect(trimmed.endsWith(full.slice(-50))).toBe(true)
+  })
+
+  it("tokenBudget：极端超长保护段 → 非保护段全清后对最长保护段尾段截断且保留 P0 前缀", () => {
+    const pack: ContextPack = {
+      ...basePack,
+      canonRules: "P0_PREFIX_KEEP_" + "X".repeat(1200),
+      characterStates: "Y".repeat(400),
+    }
+    const trimmed = contextPackToPrompt(pack, 80)
+    expect(trimmed).toContain("P0_PREFIX_KEEP_")
+    expect(trimmed).toContain("已按Token预算截断")
+    expect(trimmed).not.toContain("Y".repeat(100))
+  })
+
+  it("R2-W06：voiceStyleGuide 缺 i18n 键时走安全兜底标题，绝不裸露 key", () => {
+    const existsSpy = vi.spyOn(i18n, "exists").mockReturnValue(false)
+    try {
+      const prompt = contextPackToPrompt({
+        ...basePack,
+        voiceStyleGuide: "对白采用中文直角引号，保持克制短句。",
+      })
+      expect(prompt).toContain("## 声音与风格指南")
+      expect(prompt).toContain("对白采用中文直角引号")
+      expect(prompt).not.toContain("novel.contextPack.voiceStyleGuide")
+    } finally {
+      existsSpy.mockRestore()
+    }
+  })
+
+  it("R2-W06：splitCanonRules / canonRulesDelta 处理 CRLF 并强制行边界防半行撕裂", async () => {
+    const { splitCanonRules, canonRulesDelta } = await import("./context-engine")
+    // CRLF 正常切分
+    expect(
+      splitCanonRules({
+        ...basePack,
+        canonRulesBase: "规则A\r\n",
+        canonRules: "规则A\r\n\r\n第3章时序事实",
+      }),
+    ).toEqual({ stable: "规则A", delta: "第3章时序事实" })
+    // 完全相等
+    expect(
+      splitCanonRules({
+        ...basePack,
+        canonRulesBase: "规则A",
+        canonRules: "规则A",
+      }),
+    ).toEqual({ stable: "规则A", delta: "" })
+    // 非行边界前缀（"规则A" vs "规则A补充"）安全退化，不半行撕裂
+    expect(
+      splitCanonRules({
+        ...basePack,
+        canonRulesBase: "规则A",
+        canonRules: "规则A补充\n其他规则",
+      }),
+    ).toEqual({ stable: "", delta: "规则A补充\n其他规则" })
+    expect(canonRulesDelta("规则A补充\n其他", "规则A")).toBe("规则A补充\n其他")
   })
 
   it("recentChapterContents 默认模式跳过（仅 full 渲染）", () => {
@@ -2618,11 +2711,13 @@ describe("searchRelevantContent 向量 probePath 分支（别名透传冒烟）"
 
 describe("buildContextPack 内 runVectorSearchForContext gap 记录（build 期 active）", () => {
   it("向量命中数 > 门控后数 → 记 tier_compressible gap", async () => {
-    hoisted.loadAllImpl = async () => {
+    hoisted.loadAllImpl = async (ctx) => {
       const ce = await import("./context-engine")
+      const session = (ctx as { buildSession?: import("./context-engine").ContextBuildSession }).buildSession
       await ce.searchRelevantContentUnified("/p", "任务", 3, 1, {
         embeddingConfig: mkEmbeddingConfig(true, "m"),
         novelConfig: mkNovelConfig(),
+        buildSession: session,
       })
       return fixtureRawData()
     }
@@ -2643,11 +2738,13 @@ describe("buildContextPack 内 runVectorSearchForContext gap 记录（build 期 
   })
 
   it("门控后无差异（build 期）→ 不记 gap", async () => {
-    hoisted.loadAllImpl = async () => {
+    hoisted.loadAllImpl = async (ctx) => {
       const ce = await import("./context-engine")
+      const session = (ctx as { buildSession?: import("./context-engine").ContextBuildSession }).buildSession
       await ce.searchRelevantContentUnified("/p", "任务", 3, 1, {
         embeddingConfig: mkEmbeddingConfig(true, "m"),
         novelConfig: mkNovelConfig(),
+        buildSession: session,
       })
       return fixtureRawData()
     }
@@ -3327,7 +3424,7 @@ describe("T25 三源真并行 + canon 事实块注入", () => {
 // 1037 实体聚合抛错降级空 / 1093 sidecar 加载器抛错兜底回退文本匹配。
 // ════════════════════════════════════════════════════════════════════════════
 describe("第四轮补齐：references 源三态记账", () => {
-  it("buildReferenceContext 抛错 → catch 降级：references 空串且无 references 缺口", async () => {
+  it("buildReferenceContext 抛错 → catch 降级：references 空串且记录 IC-02 datasource_error 缺口", async () => {
     buildReferenceContextStub.impl = async () => {
       throw new Error("reference source down")
     }
@@ -3335,7 +3432,38 @@ describe("第四轮补齐：references 源三态记账", () => {
       novelConfig: mkNovelConfig({ referenceEnabled: true }),
     })
     expect(pack.references).toBe("")
-    expect((pack.gaps ?? []).filter((g) => g.ref === "references")).toEqual([])
+    expect((pack.gaps ?? []).filter((g) => g.ref === "references")).toEqual([
+      {
+        type: "load_failed",
+        ref: "references",
+        reason: "datasource_error",
+        originalLength: 0,
+        retainedLength: 0,
+      },
+    ])
+  })
+
+  it("R2-W09 契约 3：createEmptyContextPackWithGap 与 hasContextPackLoadFailure 正确识别整包降级失败", async () => {
+    const { createEmptyContextPackWithGap, hasContextPackLoadFailure } = await import("./context-engine")
+    const failedPack = createEmptyContextPackWithGap("写第3章", "context_pack_build", "datasource_error")
+    expect(hasContextPackLoadFailure(failedPack)).toBe(true)
+    expect(failedPack.gaps).toEqual([
+      {
+        type: "load_failed",
+        ref: "context_pack_build",
+        reason: "datasource_error",
+        originalLength: 0,
+        retainedLength: 0,
+      },
+    ])
+    const chatFailed = createEmptyContextPackWithGap("聊天", "chat_context_pack", "datasource_error")
+    expect(hasContextPackLoadFailure(chatFailed)).toBe(true)
+    const partialGap = createEmptyContextPackWithGap("局部", "references", "datasource_error")
+    expect(hasContextPackLoadFailure(partialGap)).toBe(false)
+    const unavailableGap = createEmptyContextPackWithGap("时序", "context_pack_build", "temporal_history_unavailable")
+    expect(unavailableGap.gaps?.[0]?.type).toBe("unavailable")
+    expect(hasContextPackLoadFailure(unavailableGap)).toBe(false)
+    expect(hasContextPackLoadFailure(null)).toBe(false)
   })
 
   it("truncated=true → truncated 缺口记账（originalLength=文本长+1）", async () => {
@@ -3498,5 +3626,156 @@ describe("第四轮补齐：实体选择降级路径", () => {
       sceneCharacters: "",
     })
     expect(entities.map((e) => e.name)).toEqual(["林晚秋"])
+  })
+
+  it("K-6: selectActiveEntities 40 实体文件分批读取并发水位 maxInFlight <= 16 且严格保序", async () => {
+    const files = Array.from({ length: 40 }, (_, i) => ({
+      name: `ent-${String(i).padStart(2, "0")}.md`,
+      path: `/p/wiki/entities/ent-${String(i).padStart(2, "0")}.md`,
+      is_dir: false,
+    }))
+    hoisted.listDirectory.mockResolvedValue(files)
+
+    let inFlight = 0
+    let maxInFlight = 0
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      try {
+        // 制造批内不同步延迟（序号靠前反而更慢），验证 Promise.all 分批内保序
+        const match = p.match(/ent-(\d+)\.md$/)
+        const idx = match ? Number(match[1]) : 0
+        await new Promise((r) => setTimeout(r, (16 - (idx % 16)) * 1))
+        if (idx === 5) throw new Error("read err")
+        return `---\ntitle: 角色_${String(idx).padStart(2, "0")}\ntype: character\n---\n`
+      } finally {
+        inFlight -= 1
+      }
+    })
+
+    const entities = await selectActiveEntities("/p", {
+      outline: "无直接命中触发全量保序返回",
+      sceneCharacters: "",
+    })
+
+    expect(maxInFlight).toBeLessThanOrEqual(16)
+    expect(maxInFlight).toBeGreaterThan(1)
+    expect(entities).toHaveLength(39)
+    expect(entities.map((e) => e.name)).toEqual(
+      Array.from({ length: 40 }, (_, i) => `角色_${String(i).padStart(2, "0")}`).filter((_, i) => i !== 5),
+    )
+  })
+})
+
+describe("R2-W06 & R2-W09 覆盖率收口：legacy gaps API / excludeCanonRulesBase / 极端预算 / aura & retrieval 缺口", () => {
+  it("legacy resetContextGaps / recordDatasourceLoadFailure / tieredSlice(无 session) / collectContextGaps 兼容路径", async () => {
+    const {
+      resetContextGaps,
+      collectContextGaps,
+      recordDatasourceLoadFailure,
+      tieredSlice,
+    } = await import("./context-engine-gaps")
+
+    // 非激活状态下 recordDatasourceLoadFailure 静默 no-op
+    collectContextGaps()
+    recordDatasourceLoadFailure("ignored_when_inactive")
+    expect(collectContextGaps()).toEqual([])
+
+    // 激活状态：覆盖 load_failed / unavailable / truncated 三类缺口
+    resetContextGaps()
+    recordDatasourceLoadFailure("outline", "datasource_error")
+    recordDatasourceLoadFailure("timeline", "temporal_history_unavailable")
+    expect(tieredSlice("", "protected", 10, "empty")).toBe("")
+    expect(tieredSlice("short", "protected", 10, "ok")).toBe("short")
+    expect(tieredSlice("0123456789ABCDEF", "protected", 6, "long_ref")).toBe("012345")
+    expect(tieredSlice("0123456789ABCDEF", "compressible", 4, "comp_ref")).toBe("0123")
+    const collected = collectContextGaps()
+    expect(collected).toEqual([
+      { type: "load_failed", ref: "outline", reason: "datasource_error", originalLength: 0, retainedLength: 0 },
+      { type: "unavailable", ref: "timeline", reason: "temporal_history_unavailable", originalLength: 0, retainedLength: 0 },
+      { type: "truncated", ref: "long_ref", reason: "budget_exceeded", originalLength: 16, retainedLength: 6 },
+      { type: "truncated", ref: "comp_ref", reason: "tier_compressible", originalLength: 16, retainedLength: 4 },
+    ])
+  })
+
+  it("contextPackToPrompt：excludeCanonRulesBase=true 仅渲染增量并加后缀；极小 tokenBudget 触及最终硬切兜底", () => {
+    const pack: ContextPack = {
+      task: "写第3章",
+      chapterGoal: "推门入室",
+      outline: "",
+      recentSummaries: [],
+      previousChapterEnding: "",
+      characterStates: "",
+      soulDoc: "",
+      characterAuras: "",
+      cognitionStates: "",
+      foreshadowingStates: "",
+      timeline: "",
+      relatedSettings: "",
+      canonRulesBase: "规则A",
+      canonRules: "规则A\n\n增量规则B",
+      writingStyle: "",
+      searchResults: "",
+      graphSearchResults: "",
+      mustDo: "",
+      mustAvoid: "",
+      nextChapterAdvice: "",
+      revisionDirectives: "",
+    }
+    const deltaOnly = contextPackToPrompt(pack, undefined, { excludeCanonRulesBase: true })
+    expect(deltaOnly).toContain("增量规则B")
+    expect(deltaOnly).not.toContain("规则A")
+
+    // 极端极小预算（连标题+空提示都超限）→ 触发 L411 兜底 slice，不抛错且严格收敛
+    const micro = contextPackToPrompt(pack, 3)
+    expect(micro.length).toBeGreaterThan(0)
+    expect(micro.length).toBeLessThan(deltaOnly.length)
+  })
+
+  it("buildCharacterAuraContext 抛错时记录 characterAuras IC-02 datasource_error 缺口", async () => {
+    hoisted.buildCharacterAuraContext.mockRejectedValueOnce(new Error("aura io fail"))
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.characterAuras).toBe("")
+    expect(pack.gaps).toContainEqual({
+      type: "load_failed",
+      ref: "characterAuras",
+      reason: "datasource_error",
+      originalLength: 0,
+      retainedLength: 0,
+    })
+  })
+
+  it("searchRelevantContentUnified 与 searchGraphRelevantContent 失败路径经 buildSession 记录检索缺口", async () => {
+    const { createContextBuildSession } = await import("./context-engine-gaps")
+    const session = createContextBuildSession(null)
+
+    retrieveDualTrackStub.impl = async () => {
+      throw new Error("dual-track down")
+    }
+    hoisted.searchWiki.mockRejectedValueOnce(new Error("keyword down"))
+    hoisted.searchByEmbedding.mockRejectedValueOnce(new Error("vec down"))
+    const res = await searchRelevantContentUnified("/p", "搜索第3章线索", 3, 5, {
+      novelConfig: mkNovelConfig({ dualKbRoutingEnabled: true }),
+      embeddingConfig: { enabled: true, provider: "openai", apiKey: "k", model: "m", endpoint: "" } as unknown as EmbeddingConfig,
+      buildSession: session,
+    })
+    expect(res).toBe("")
+    expect(session.collectGaps().some((g) => g.ref === "searchResults:semantic")).toBe(true)
+    expect(session.collectGaps().some((g) => g.ref === "searchResults:keyword")).toBe(true)
+
+    // 图谱社区检索失败记录 graphSearchResults:community；整体图谱构建失败记录 graphSearchResults
+    const graphSession = createContextBuildSession(null)
+    hoisted.buildRetrievalGraph.mockResolvedValueOnce({
+      nodes: new Map([["n1", { id: "n1", title: "图谱查询", path: "/p/wiki/entities/n1.md", links: [] }]]),
+      edges: [],
+    })
+    hoisted.searchCommunitySummaries.mockRejectedValueOnce(new Error("community vec down"))
+    await searchGraphRelevantContent("/p", "图谱查询", 3, { buildSession: graphSession })
+    expect(graphSession.collectGaps().some((g) => g.ref === "graphSearchResults:community")).toBe(true)
+
+    const graphFailSession = createContextBuildSession(null)
+    hoisted.buildRetrievalGraph.mockRejectedValueOnce(new Error("graph corrupt"))
+    await searchGraphRelevantContent("/p", "图谱查询", 3, { buildSession: graphFailSession })
+    expect(graphFailSession.collectGaps().some((g) => g.ref === "graphSearchResults")).toBe(true)
   })
 })

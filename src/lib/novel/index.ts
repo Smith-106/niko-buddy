@@ -21,7 +21,7 @@ export type { FileEditResult } from "./agent-tools"
 export { shutdownAntiAiTelemetrySink } from "./anti-ai-telemetry-sink"
 export { applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, saveAntiAiTelemetryConsent } from "./anti-ai-telemetry-wiring"
 export type { BookRules } from "./book-rules"
-export { runAutonomousDraftCampaign, batchAcceptCampaignDrafts } from "./campaign-runner"
+export { runAutonomousDraftCampaign, batchAcceptCampaignDrafts, filterAcceptableChapters } from "./campaign-runner"
 export type { CampaignChapterResult, CampaignRunOptions, CampaignReport, BatchAcceptResult } from "./campaign-runner"
 export { runAutonomousNovelIncubator, runEndToEndAutonomousNovelProduction } from "./autonomous-incubator"
 export type { NovelIncubatorOptions, NovelIncubatorResult, IncubatedCharacter } from "./autonomous-incubator"
@@ -40,9 +40,11 @@ export { cleanGeneratedChapterContentForSave, cleanGeneratedChapterContentWithTi
 export type { CleanedChapterContent } from "./chapter-content-cleanup"
 export { normalizeChapterEditFile } from "./chapter-edit-file"
 export { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "./chapter-excerpts"
-export { CHAPTER_IMPORT_EXTENSIONS, collectChapterImportCandidatesFromFolder, importChapterFiles, runImportedChapterMemoryExtraction } from "./chapter-import"
-export type { ChapterImportCandidate, ImportedChapter, ImportedChapterMemoryProgress, ImportedChapterMemoryResult } from "./chapter-import"
+export { CHAPTER_IMPORT_EXTENSIONS, collectChapterImportCandidatesFromFolder, importChapterFiles, importWholeTxtNovel, previewWholeTxtChapters, runImportedChapterMemoryExtraction } from "./chapter-import"
+export type { ChapterImportCandidate, ImportedChapter, ImportedChapterMemoryProgress, ImportedChapterMemoryResult, WholeTxtChapterImportOptions, WholeTxtChapterImportResult, WholeTxtPreviewResult } from "./chapter-import"
 export { deleteChapterSnapshots, emitTruthFoldDriftAlarm, ingestChapter, listSnapshotHistory, listSnapshots, loadSnapshot, restoreSnapshotHistory, sampleTruthFoldDrift, syncSnapshotToMemory } from "./chapter-ingest"
+export { verifyRebuildOutcome } from "./rebuild"
+export type { RebuildSnapshotOutcome, VerifiedRebuildReceipt } from "./rebuild"
 export type { ChapterSnapshot, IngestChapterOptions, IngestResult, SnapshotHistoryEntry } from "./chapter-ingest"
 export { isChapterPage, isFinalChapter, normalizeChapterStatus, parseChapterMeta, updateChapterStatus } from "./chapter-meta"
 export type { ChapterStatus, OutlineType } from "./chapter-meta"
@@ -170,15 +172,39 @@ export { buildDismantlingAnalysisPrompt, buildDismantlingWebResearchPrompt, extr
 export type { DismantlingAnalysis, DismantlingChapter, DismantlingLibrary, DismantlingProject } from "./dismantling"
 export { formatDoctorReport, runProjectDoctor } from "./doctor"
 export type { DoctorFinding, DoctorReport, DoctorSeverity } from "./doctor"
-export { acceptChapterDraft, formalChapterPathForDraft, listChapterDrafts, writeDraft } from "./draft-manager"
-export type { ChapterDraft } from "./lifecycle-types"
+export { acceptChapterDraft, discardChapterDraft, draftNeedsGateReview, formalChapterPathForDraft, getDraftGateStatus, listChapterDrafts, resolveChapterDraftAdoptionTarget, writeDraft } from "./draft-manager"
+export type { ChapterDraft, DraftGateStatus } from "./lifecycle-types"
 export { DRAFTS_DIR } from "./lifecycle-types"
 export { calculateEmotionNetValue, evaluatePlayableEmotionPath, getCircuitBreakerStatus, getTopEmotionalDebt, loadEmotionLedger } from "./emotion-ledger"
 export type { EmotionLedgerEntry } from "./emotion-ledger"
 export { loadEmotionalArcs } from "./emotional-arcs"
 export { exportEvidenceChainForReview } from "./evidence-chain-export"
-export { countFinalChapters, exportInteractiveStory, exportNovelDocx, exportNovelEpub } from "./export"
-export type { DocxExportResult, EbookExportResult } from "./export"
+export {
+  countFinalChapters,
+  exportInteractiveStory,
+  exportNovelDocx,
+  exportNovelEpub,
+  exportNovelPdf,
+  exportNovelTxt,
+  exportProject,
+  finalizeManuscript,
+  inspectExportableChapters,
+  stripMarkdownForPlainText,
+} from "./export"
+export type {
+  DocxExportOptions,
+  DocxExportResult,
+  EbookExportMeta,
+  EbookExportOptions,
+  EbookExportResult,
+  ExportableChaptersInspection,
+  FinalizeManuscriptOptions,
+  FinalizeManuscriptResult,
+  ManuscriptExportOutcome,
+  ManuscriptExportScope,
+  PdfManuscriptExportOptions,
+  TxtExportOptions,
+} from "./export"
 export { runFactCheck } from "./fact-snapshot"
 export type { FactCheckReport, FactCheckResult } from "./fact-snapshot"
 export { loadFanficMergeProposal, proposeCanonMerge, saveFanficMergeProposal } from "./fanfic-canon-import"
@@ -187,7 +213,7 @@ export { analyzeForeshadowingDebt } from "./foreshadowing-debt"
 export type { ForeshadowingDebtReport } from "./foreshadowing-debt"
 export { getActiveForeshadowings, getForeshadowingWatermark, loadForeshadowingTracker } from "./foreshadowing-tracker"
 export type { Foreshadowing, ForeshadowingStore } from "./foreshadowing-tracker"
-export { commitAcceptedDeepChapterDraft } from "./formal-writeback"
+export { commitAcceptedDeepChapterDraft, buildManagedChapterDocument, readManagedChapterForWrite } from "./formal-writeback"
 export type { CommitAcceptedDeepChapterDraftInput } from "./formal-writeback"
 export { deleteGenerationHistoryEntry, listGenerationHistory, saveGenerationHistoryEntry } from "./generation-history"
 export type { GenerationHistoryEntry } from "./generation-history"
@@ -230,7 +256,7 @@ export type { ModelResolverStoreSnapshot, NovelTaskType } from "./model-resolver
 export { configureMonaco } from "./monaco-loader"
 export { testNovelModel } from "./novel-model-test"
 export type { TestableNovelModelTask } from "./novel-model-test"
-export { acceptFindingRewriteDraft, blockDeepChapterSession, buildLifecycleStatus, buildNextStatus, completeDeepChapterSession, computeChaseDebtState, createNovelSessionId, loadNovelSessionStatus, markSessionInterrupted, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, rejectFindingRewriteDraft, resolveInterruptedSessionResumeCheckpoint, resolveStatusResumeCheckpoint, saveNovelSessionStatus, startDeepChapterSession, subscribeStatusJson, updateChaseDebtStatus, writeFindingRewriteDraft, appendStageMetric } from "./novel-session-status"
+export { acceptFindingRewriteDraft, blockDeepChapterSession, buildLifecycleStatus, buildNextStatus, completeDeepChapterSession, computeChaseDebtState, createNovelSessionId, getManagedDraftAdoptionGate, loadNovelSessionStatus, markSessionInterrupted, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, rejectFindingRewriteDraft, requireManagedDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, resolveStatusResumeCheckpoint, saveNovelSessionStatus, startDeepChapterSession, subscribeStatusJson, updateChaseDebtStatus, writeFindingRewriteDraft, appendStageMetric } from "./novel-session-status"
 export type { ChaseDebt, ChaseDebtEvent, NovelSessionStatus, StageMetricEntry, RouteShellMode, AntiAiMode, CanonMigrationMode } from "./novel-session-status"
 export { OUTLINE_FIND_CHAPTER_INTENTS, buildOutlineFindProtocol, shouldIncludeOutlineFindProtocol, stripOutlineFindProtocol } from "./outline-find-protocol"
 export { OUTLINE_SECTION_GENERATION_CONFIGS, addOutlineTaskToSourceList, buildOutlineGenerationPrompt, createOutlineIngestTask, hasOutlineForRefinement, openGeneratedOutline, runBulkOutlineIngest, runOutlineGenerationTask, runOutlineIngestTask, runOutlineRefinementTask, startOutlineIngestTask } from "./outline-generation"
@@ -370,8 +396,8 @@ export { buildSignedWebhookRequest, dispatchNotify, verifyWebhookSignature } fro
 export type { NotifyEvent, NotifyEventType } from "./webhook-notifier"
 export { getEnabledWritingStyle, loadWritingStyleStore, setEnabledWritingStyle, upsertWritingStylePreset } from "./writing-style-store"
 export type { WritingStylePreset, WritingStyleStore } from "./writing-style-store"
-export { splitNovelIntoChapters } from "./book-analysis/analysis-engine"
-export type { SplitChaptersResult } from "./book-analysis/analysis-engine"
+export { splitNovelIntoChapters, splitNovelTextToChapters } from "./book-analysis/analysis-engine"
+export type { SplitChaptersResult, SplitNovelTextChapter } from "./book-analysis/analysis-engine"
 export { importBookAnalysisSkillsAsAuras } from "./book-analysis/aura-adapter"
 export type { ImportedBookAnalysisAura } from "./book-analysis/aura-adapter"
 export { loadBookLibrary } from "./book-analysis/library-store"
@@ -1539,7 +1565,7 @@ export { projectMainControlSettings, clampChapterTargetChars, MAIN_CONTROL_CHAPT
 export type { MainControlSettingsView, MainControlPreWriteGateMode } from "./main-control-settings"
 
 // ── 采纳+记忆回填组合（chat 与主控草稿面板共用）──
-export { acceptDraftAndIngest, buildIngestActivity } from "./accept-draft-with-ingest"
+export { acceptDraftAndIngest, buildIngestActivity, classifyMemoryIngest, formatMemoryIngest, readBackMemoryIngest } from "./accept-draft-with-ingest"
 export type { AcceptDraftAndIngestInput, AcceptDraftAndIngestResult, AcceptDraftIngestStatus } from "./accept-draft-with-ingest"
 
 // ── 章节门控重跑（薄编排，三门判定仍归 buildDecisionGates）──
@@ -1590,3 +1616,27 @@ export {
 export type { GateRunAuthorityOptions } from "./gate-run-authority"
 export { buildChapterGateRunEvents, readLatestGateRunGroup } from "./deep-chapter-gate-evidence"
 export type { GateRunEvidenceGroup, GateRunEvidenceRow } from "./deep-chapter-gate-evidence"
+
+// ── 摘要工具显式命名导出（供 app 侧走 barrel，禁止 export * 防与 asset-library.stableStringify 冲突）──
+export { computeCheckpointDigest } from "./checkpoint-digest"
+
+// ── P1-03 批量提取扫库/范围/预算（既在 novel-deferred，也在 barrel 显式命名导出）──
+export {
+  BATCH_EXTRACT_BUDGET_DEFAULT,
+  BATCH_EXTRACT_BUDGET_MAX,
+  applyDesktopBatchExtractBudget,
+  applyBatchExtractBudget,
+  resolveBatchExtractScope,
+  scanFinalChapterBackfill,
+  assertUniqueFinalChapterSource,
+} from "./snapshot-scanner"
+export type {
+  SnapshotScanResult,
+  BatchExtractScopeOptions,
+  BatchExtractScopeSelection,
+  BatchExtractBudgetPlan,
+} from "./snapshot-scanner"
+
+// ── R3-M01 晋升重试队列重放（显式命名导出）──
+export { replayPromotionRetryQueue, resolveNextPromotionRevision } from "./promotion-bridge"
+export type { PromotionRetryEntry, PromotionRetryReplayReport } from "./promotion-bridge"

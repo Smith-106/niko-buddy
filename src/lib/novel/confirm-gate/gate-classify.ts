@@ -141,7 +141,7 @@ export function effectiveDecision(
       reason: "target is a protected truth surface; not bypassable",
     };
   }
-  if (op.toLowerCase() === "runcommand" || actor === "cli") {
+  if (actor === "cli") {
     return {
       decision: "allowed",
       reason: "external process target is outside protected prefixes; audited",

@@ -40,11 +40,12 @@ import {
   createDeAiDualPassHook,
   createGoldScaleReadinessHook,
   createStatisticalAiSignatureHook,
-  registerNovelSkillHook,
   runNovelSkillHooks,
+  type NovelSkillHook,
 } from "./novel-skill-hooks"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import type { NovelReviewResult } from "./review-adapter"
+import type { ContinuityFinding, ContinuityFindingType } from "./deterministic-continuity-engine"
 import { sliceChapterForReview } from "./chapter-window"
 import type { EvidenceVerificationResult } from "./evidence-chain"
 
@@ -101,6 +102,11 @@ export interface DimensionReviewResult {
    * 可选：旧版本写入的历史结果没有该字段。
    */
   model?: string
+  /**
+   * R2-W04：执行层失败标记（网络中断/超时/模型 JSON 无法解析等非文学评分失败）。
+   * 为 true 时 `score: 0` 仅为占位值，门控折叠发非阻断 warning，禁止走 score-floor error 驱动伪修复。
+   */
+  executionFailed?: boolean
 }
 
 export interface DimensionReviewCallbacks {
@@ -352,6 +358,20 @@ export function dimensionResultsToReviewResults(
     const result = dimensionResults[key]
     if (!result) continue
     const reviewType = DIM_TO_GATE_TYPE[key]
+    // R2-W04：执行层失败（超时/流断/JSON 解析异常）发可见非阻断 warning，
+    // 不把占位 score=0 送入 score-floor 硬伤 error 触发伪修复；真实 score=0（executionFailed!==true）仍按硬伤阻断。
+    if (result.executionFailed === true) {
+      const detail = result.summary.trim() || `${SIX_REVIEW_DIMENSIONS[key].label}审查执行失败`
+      out.push({
+        severity: "warning",
+        type: reviewType,
+        message: `[6-dim 执行失败·非阻断] ${detail}`,
+        evidence: "",
+        relatedMemory: "dimension-execution-failed",
+        suggestion: result.issues[0]?.suggestion || "请检查模型设置后重新审查此维度。",
+      })
+      continue
+    }
     let droppedEvidenceCount = 0
     // §GAP-88-02 score 派生 error 下限：举证扣减后有效分落入硬伤档（≤4）时，
     // 该维按 error 处理 —— 模型只打分，是否阻断由系统按有效分裁定。
@@ -545,11 +565,17 @@ export function buildDimensionReviewPrompt(
     goldAnchors?: LiteraryGoldAnchor[]
     /** Precomputed readiness hint; if omitted and anchors provided, computed. */
     goldReadinessHint?: string
+    /** R2-W04：Track B skill hooks 软提示片段（与 goldAnchors 正交并存，不因金标存在被丢弃）。 */
+    skillHookPromptFragments?: readonly string[]
     /** P2-IMP-07: hardInject 渲染门穿参（缺省 undefined → flag 默认 false，零行为变化）。 */
     hardInjectEnabled?: boolean
   },
 ): string {
   const goldExtra = buildGoldScaleReviewBlock(dimension.key, options?.goldAnchors, options?.goldReadinessHint)
+  const hookFragments = (options?.skillHookPromptFragments ?? [])
+    .map((fragment) => fragment.trim())
+    .filter((fragment) => fragment.length > 0 && (!goldExtra || !goldExtra.includes(fragment)))
+  const skillHooksExtra = hookFragments.length > 0 ? `\n${hookFragments.join("\n")}` : ""
   return `${contextPackToPrompt(pack, undefined, { hardInjectEnabled: options?.hardInjectEnabled })}
 
 六维独立审查维度：${dimension.label}
@@ -574,7 +600,7 @@ ${REVIEW_INTEGRITY_BLOCK}
   - 9-10 分：可发表文学质量——检查项全部兑现且有出彩点（强画面感/叙事节奏/情绪冲击/主题升华），达到出版级参照水准。
 - 出口条款：若本维度所有检查项均通过、且 issues 中没有任何 error/warning 级问题，score 必须 ≥8.5；若打出 <8.5，summary 必须明确列出未兑现的检查项。
 - 举证条款（强制）：每个 issue 的 evidence 字段必须是从下方“章节正文”逐字摘出的原文片段（允许只去空白差异），不得编造、概括或转述；无原文可引的问题必须删除。evidence 为空或经系统校验与正文不匹配时，该 issue 将被忽略且本维度 score 按规则扣减——无举证不给高分。
-- 打分理由：summary 必须引用对应档位的行为定义，说明分数落在该档的原因。${buildStyleExemplarBlock(pack.styleExemplars)}${goldExtra}
+- 打分理由：summary 必须引用对应档位的行为定义，说明分数落在该档的原因。${buildStyleExemplarBlock(pack.styleExemplars)}${goldExtra}${skillHooksExtra}
 
 结构化结果格式：
 {
@@ -652,6 +678,7 @@ export async function reviewChapterDimension({
   novelConfig,
   goldAnchors,
   goldReadinessHint,
+  skillHookPromptFragments,
 }: {
   llmConfig: LlmConfig
   contextPack: ContextPack
@@ -666,11 +693,14 @@ export async function reviewChapterDimension({
   /** Track B gold anchors for thril/pull prompt injection. */
   goldAnchors?: LiteraryGoldAnchor[]
   goldReadinessHint?: string
+  /** Track B skill hook fragments (coexist with goldAnchors). */
+  skillHookPromptFragments?: readonly string[]
 }): Promise<DimensionReviewResult> {
   callbacks.onThinking?.(dimension.key, formatDimensionThinking(dimension, "正在读取上下文..."))
   const analysisPrompt = buildDimensionReviewPrompt(contextPack, chapterContent, dimension, {
     goldAnchors: goldAnchors,
     goldReadinessHint: goldReadinessHint,
+    skillHookPromptFragments: skillHookPromptFragments,
     // P2-IMP-07: hardInject 渲染门穿参（缺省 undefined → flag 默认 false，零行为变化）。
     hardInjectEnabled: novelConfig?.hardInjectEnabled,
   })
@@ -694,6 +724,64 @@ export async function reviewChapterDimension({
   ].join("\n")
   const finalText = await runDimensionStage(llmConfig, dimension, finalPrompt, callbacks, signal, novelConfig)
   return parseDimensionReviewResult(dimension, finalText, analysis)
+}
+
+const CED_CONTINUITY_TYPES: ReadonlySet<string> = new Set<ContinuityFindingType>([
+  "dormant_thread",
+  "absent_character",
+  "overdue_thread",
+  "unresolved_foreshadowing",
+  "dead_character_state",
+  "timeline_drift",
+  "data_gap",
+  "knowledge_boundary",
+  "lost_item",
+  "barrier_state",
+  "presence_path",
+  "container_state",
+  "set_count_drift",
+  "numeric_drift",
+])
+
+/** R2-W09：把前序审查结果映射为 CED 软报告所需的 ContinuityFinding[]，避免 createCedSoftReportHook 恒收空数组。 */
+function toCedContinuityFindings(
+  priorReviewResults: readonly NovelReviewResult[] | undefined,
+  chapterNumber: number | undefined,
+): ContinuityFinding[] {
+  if (!priorReviewResults || priorReviewResults.length === 0) return []
+  const out: ContinuityFinding[] = []
+  for (const item of priorReviewResults) {
+    if (item.evidence === "engine_error" || item.evidence === "audit_error") continue
+    const severity: ContinuityFinding["severity"] =
+      item.severity === "error" ? "critical" : item.severity === "warning" ? "warning" : "info"
+    const isDataGap = item.evidence === "data_gap" || item.continuityMeta?.subtype === "data_gap"
+    const base = {
+      severity,
+      ref: item.continuityMeta?.ref || item.relatedMemory || item.type || "continuity",
+      message: item.message,
+      chapter: item.continuityMeta?.chapter ?? chapterNumber ?? 0,
+      evidence: item.evidence || undefined,
+    }
+    if (isDataGap) {
+      out.push({
+        ...base,
+        type: "data_gap",
+        subtype: "data_gap",
+        missingField: item.continuityMeta?.missingField ?? "unknown",
+      })
+    } else {
+      const candidateType = item.continuityMeta?.subtype || item.type
+      const findingType: ContinuityFindingType = CED_CONTINUITY_TYPES.has(candidateType) && candidateType !== "data_gap"
+        ? (candidateType as ContinuityFindingType)
+        : "timeline_drift"
+      out.push({
+        ...base,
+        type: findingType,
+        subtype: "consistency_mechanical",
+      })
+    }
+  }
+  return out
 }
 
 export async function runSixDimensionReview({
@@ -722,39 +810,29 @@ export async function runSixDimensionReview({
   llmConfig?: LlmConfig
   novelConfig?: NovelConfig
   novelMode?: boolean
-  /**
-   * TASK-008 (GRL-011 Decision 4.2): 机械先于语义短路。调用方 (deep-chapter-
-   * generation.runFullReviewWithSixDim) 把 review-adapter.reviewChapter 已产出的
-   * findings 传入, continuity 维度读到含 consistency_mechanical subtype 时降级
-   * pass 跳 LLM 调用省 token。短路范围 ONLY 机械已检 subtype (休眠/缺席/逾期/
-   * 死亡活跃), LLM continuity 仍检机械覆盖外语义矛盾 (时间线逻辑矛盾非章号偏移)。
-   * 可选参数, 未传时六维全跑 LLM (向后兼容, 当前 runFullReviewWithSixDim 并行
-   * 调用未传 — 接线由后续 plan session 在 deep-chapter-generation.ts 调用点做,
-   * 本 TASK 不改 deep-chapter-generation.ts 出 scope)。
-   */
   priorReviewResults?: NovelReviewResult[]
-  /**
-   * ISS-20260713-002: 复用调用方已持有的 ContextPack（零重建）。
-   * runFullReviewWithSixDim 入参即持有 contextPack（并已传给 reviewChapter），
-   * 改前本函数无视该包、无条件再 `await buildContextPack` 一次（整包重建 ≈
-   * 数十次 wiki IO + rerank）。传入时直接复用（prompt/指纹/六维只读消费同一
-   * 包）；未传时回退原行为（UI 单文件重跑等无包路径不受影响）。
-   */
   contextPack?: ContextPack
 }): Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>> {
   const injectedNovelConfig = novelConfig ?? useWikiStore.getState().novelConfig
+  const resolvedBaseLlmConfig = llmConfig ?? useWikiStore.getState().llmConfig
   const llmConfigResolved = resolveNovelModel(
-    llmConfig ?? useWikiStore.getState().llmConfig,
+    resolvedBaseLlmConfig,
     injectedNovelConfig,
     "review",
   )
-  if (!hasUsableLlm(llmConfigResolved) || !(novelMode ?? useWikiStore.getState().novelMode)) return {}
+  const resolvedNovelMode = novelMode ?? useWikiStore.getState().novelMode
+  if (!hasUsableLlm(llmConfigResolved) || !resolvedNovelMode) return {}
 
-  // ISS-20260713-002: 调用方已传包时复用，跳过整包重建；未传时沿用原 build 路径。
+  // ISS-20260713-002 + R2-W09: 复用调用方已传包；缺省现场构建时补全 DI 透传。
   const contextPack = injectedContextPack ?? await buildContextPack(
     projectPath,
     `六维审查第${chapterNumber || "?"}章`,
     chapterNumber,
+    {
+      novelConfig: injectedNovelConfig,
+      llmConfig: resolvedBaseLlmConfig,
+      novelMode: novelMode ?? true,
+    },
   )
 
   // M0: attach measurement fingerprint for UI / logs (Track B instrument identity)
@@ -780,9 +858,10 @@ export async function runSixDimensionReview({
     logger.warn("SixDim", "measurement fingerprint failed (non-fatal)", { error: toErrorMessage(err) })
   }
 
-  // Track B: gold scale materials + skill hooks at pre_six_dim_review (soft).
+  // Track B: gold scale materials + local skill hooks at pre_six_dim_review (soft).
   let goldAnchors: LiteraryGoldAnchor[] = []
   let goldReadinessHint: string | undefined
+  let skillHookPromptFragments: string[] = []
   try {
     const materials = await loadGoldScaleMaterials(projectPath)
     goldAnchors = materials.merged
@@ -791,74 +870,41 @@ export async function runSixDimensionReview({
       exemplars: materials.exemplars,
     })
     goldReadinessHint = readiness.promptHint
-    try {
-      registerNovelSkillHook(createGoldScaleReadinessHook(readiness.promptHint))
-    } catch (err) {
-      // registry may already have same id — ignore
-      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
-      logger.warn("SixDim", "gold readiness hook register skipped (non-fatal)", { error: toErrorMessage(err) })
+    const localHooks: NovelSkillHook[] = []
+    const addLocalHook = (label: string, factory: () => NovelSkillHook) => {
+      try {
+        localHooks.push(factory())
+      } catch (err) {
+        // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+        logger.warn("SixDim", `${label} hook build skipped (non-fatal)`, { error: toErrorMessage(err) })
+      }
     }
-    try {
-      // Track B soft: mechanical avoid-ai / slop (zero-LLM). Not product hard gate.
-      registerNovelSkillHook(
-        createAvoidAiMechanicalSlopHook({
-          text: chapterContent,
-          stages: ["pre_six_dim_review"],
-        }),
-      )
-    } catch (err) {
-      // ignore registry race
-      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
-      logger.warn("SixDim", "avoid-ai slop hook register skipped (non-fatal)", { error: toErrorMessage(err) })
-    }
-    try {
-      // Wave A CED soft report (empty findings here; full CED logs in continuity preflight).
-      // Density uses chapter text; never product hard gate.
-      registerNovelSkillHook(
-        createCedSoftReportHook({
-          findings: [],
-          textForWordCount: chapterContent,
-          stages: ["pre_six_dim_review"],
-        }),
-      )
-    } catch (err) {
-      // ignore registry race
-      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
-      logger.warn("SixDim", "ced soft hook register skipped (non-fatal)", { error: toErrorMessage(err) })
-    }
-    try {
-      // Wave C: dual-pass de-AI notes (Track B soft; never product hard gate).
-      registerNovelSkillHook(
-        createDeAiDualPassHook({
-          text: chapterContent,
-          stages: ["pre_six_dim_review"],
-        }),
-      )
-    } catch (err) {
-      // ignore registry race
-      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
-      logger.warn("SixDim", "de-ai dualpass hook register skipped (non-fatal)", { error: toErrorMessage(err) })
-    }
-    try {
-      // Wave C: statistical AI signature proxy (experimental; soft only).
-      registerNovelSkillHook(
-        createStatisticalAiSignatureHook({
-          text: chapterContent,
-          stages: ["pre_six_dim_review"],
-        }),
-      )
-    } catch (err) {
-      // ignore registry race
-      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
-      logger.warn("SixDim", "statistical-ai-signature hook register skipped (non-fatal)", { error: toErrorMessage(err) })
-    }
+    addLocalHook("gold readiness", () => createGoldScaleReadinessHook(readiness.promptHint))
+    addLocalHook("avoid-ai slop", () => createAvoidAiMechanicalSlopHook({
+      text: chapterContent,
+      stages: ["pre_six_dim_review"],
+    }))
+    const cedFindings = toCedContinuityFindings(priorReviewResults, chapterNumber)
+    addLocalHook("ced soft", () => createCedSoftReportHook({
+      findings: cedFindings,
+      textForWordCount: chapterContent,
+      stages: ["pre_six_dim_review"],
+    }))
+    addLocalHook("de-ai dualpass", () => createDeAiDualPassHook({
+      text: chapterContent,
+      stages: ["pre_six_dim_review"],
+    }))
+    addLocalHook("statistical-ai-signature", () => createStatisticalAiSignatureHook({
+      text: chapterContent,
+      stages: ["pre_six_dim_review"],
+    }))
     const hookCtx = await runNovelSkillHooks("pre_six_dim_review", {
       projectPath,
       chapterNumber,
+      extraHooks: localHooks,
     })
     if (hookCtx.bag.promptFragments.length > 0) {
-      // gold readiness + optional avoid-ai soft fragments
-      goldReadinessHint = hookCtx.bag.promptFragments.join("\n")
+      skillHookPromptFragments = hookCtx.bag.promptFragments
     }
   } catch (err) {
     logger.warn("SixDimReview", "gold scale / skill hooks soft-failed", {
@@ -868,36 +914,59 @@ export async function runSixDimensionReview({
 
   const results: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {}
   const keys = dimensionKeys ?? SIX_REVIEW_DIMENSION_ORDER
-  // PERF-NEW-07: 6 维审查无相互依赖（每维独立 LLM 调用 + 独立 contextPack 只读消费 +
-  // results 按 key 独立存储），串行 for-await 每维 1 轮 LLM 往返共 6 轮。
-  // 改 Promise.all 并行 → 6 维并发，墙钟从 6×LLM 降到 1×LLM。
-  // 与 context-data-sources.ts PERF-NEW-03 / context-engine.ts runVectorSearch 同形孪生
-  // （PAT-G2：单点并行化须镜像同形 sibling，否则下次扫描漏改）。
-  // 逐项 try/catch 保留 F-003 DimParseError 区分（parse 失败 vs stream 错误），
-  // 失败维度走 buildFailedDimensionResult 不阻断其他维度。顺序由 keys 数组保序。
   callbacks.onDimensionProgress?.(keys[0], "六维审查并行启动")
-  // TASK-008 (GRL-011 Decision 4.2): 机械先于语义短路 — continuity 维度机械已检
-  // (priorReviewResults 含 consistency_mechanical subtype) 时跳 LLM 调用省 token。
-  // 短路范围 ONLY 机械已检 subtype (休眠/缺席/逾期/死亡活跃); LLM continuity 仍
-  // 检机械覆盖外语义矛盾 (时间线逻辑矛盾非章号偏移) — 故短路产 pass + 备注, 不
-  // 替代全量 LLM continuity 审查的语义覆盖。priorReviewResults 缺省 (undefined)
-  // 时六维全跑 LLM (向后兼容)。
-  const hasMechanicalContinuity = Boolean(
-    priorReviewResults && priorReviewResults.some(r => r.type === "consistency_mechanical"),
+  // W1-04 + R2-W09：机械先于语义短路 — 区分真实 error/warning/info 严重度，不再对真实错误记 10/pass。
+  const mechanicalContinuityEntries = priorReviewResults?.filter(
+    (r) => r.type === "consistency_mechanical",
+  ) ?? []
+  const hasMechanicalDegraded = mechanicalContinuityEntries.some(
+    (r) => r.evidence === "engine_error" || r.evidence === "audit_error",
   )
+  const validMechanicalEntries = mechanicalContinuityEntries.filter(
+    (r) =>
+      r.evidence !== "engine_error"
+      && r.evidence !== "audit_error"
+      && r.evidence !== "data_gap"
+      && r.continuityMeta?.subtype !== "data_gap",
+  )
+  const hasMechanicalContinuity = !hasMechanicalDegraded && validMechanicalEntries.length > 0
   const settled = await Promise.all(
     keys.map(async (key) => {
       const dimension = SIX_REVIEW_DIMENSIONS[key]
-      // continuity 维度机械短路 (Decision 4.2): 跳 LLM 调用, 产 pass 占位结果
+      // continuity 维度机械短路 (Decision 4.2 + R2-W09): 仅零 error/warning 时记 10/pass；
+      // 存在真实 error/warning 时按严重度扣分并携带完整 issues，触发 Track A P0 阻断/告警。
       if (key === "continuity" && hasMechanicalContinuity) {
+        const errorCount = validMechanicalEntries.filter((i) => i.severity === "error").length
+        const warnCount = validMechanicalEntries.filter((i) => i.severity === "warning").length
+        const mappedIssues: DimensionReviewIssue[] = validMechanicalEntries
+          .filter((i) => i.severity === "error" || i.severity === "warning")
+          .map((item) => ({
+            ...item,
+            dimensionKey: "continuity",
+          }))
+        let shortCircuitScore = 10
+        let shortCircuitStatus: DimensionReviewStatus = "pass"
+        let shortCircuitSummary =
+          "机械连续性引擎已前置检测 (consistency_mechanical), LLM continuity 维度短路省 token; 机械覆盖外语义矛盾仍需人工复核"
+        if (errorCount > 0) {
+          shortCircuitScore = Math.min(4, Math.max(0, 10 - errorCount * 3 - warnCount * 1))
+          shortCircuitStatus = "error"
+          shortCircuitSummary = `机械连续性引擎检出 ${errorCount} 处阻断级错误（另含 ${warnCount} 处警告），触发 Track A P0 阻断（score ${shortCircuitScore}）。`
+        } else if (warnCount > 0) {
+          shortCircuitScore = Math.max(5, Math.round((10 - warnCount * 1.5) * 10) / 10)
+          shortCircuitStatus = shortCircuitScore > 7 ? "low" : "medium"
+          shortCircuitSummary = `机械连续性引擎检出 ${warnCount} 处连续性警告，已按规则扣分（score ${shortCircuitScore}）。`
+        }
         const shortCircuitResult: DimensionReviewResult = {
           dimensionKey: "continuity",
-          // 0-10 量程（与 buildDimensionReviewPrompt / normalizeScore 对齐；禁止 0-100 遗留）
-          score: 10,
-          status: "pass",
-          summary: "机械连续性引擎已前置检测 (consistency_mechanical), LLM continuity 维度短路省 token; 机械覆盖外语义矛盾仍需人工复核",
-          thinking: formatDimensionThinking(dimension, "机械短路: 引擎已检休眠/缺席/逾期/死亡活跃 subtype"),
-          issues: [],
+          score: shortCircuitScore,
+          status: shortCircuitStatus,
+          summary: shortCircuitSummary,
+          thinking: formatDimensionThinking(
+            dimension,
+            `机械短路: 引擎已检休眠/缺席/逾期/死亡活跃 subtype（error=${errorCount}, warning=${warnCount}）`,
+          ),
+          issues: mappedIssues,
           model: MECHANICAL_SCORER_LABEL,
         }
         callbacks.onDimensionResult?.(key, shortCircuitResult)
@@ -924,6 +993,7 @@ export async function runSixDimensionReview({
             novelConfig: injectedNovelConfig,
             goldAnchors,
             goldReadinessHint,
+            skillHookPromptFragments,
           })
           callbacks.onDimensionThinking?.(key, outcome.result.thinking)
           const consensusLabel = `consensus:${consensusModels.map((m) => m.model || "unknown").join("+")}`
@@ -938,6 +1008,7 @@ export async function runSixDimensionReview({
           novelConfig: injectedNovelConfig,
           goldAnchors,
           goldReadinessHint,
+          skillHookPromptFragments,
           callbacks: {
             onThinking: (dimensionKey, thinking) => {
               callbacks.onDimensionThinking?.(dimensionKey, thinking)
@@ -997,6 +1068,7 @@ async function runDimensionStage(
     { role: "user", content: userPrompt },
   ]
   let result = ""
+  let streamError: Error | null = null
   const streamCallbacks: StreamCallbacks = {
     onToken: (token: string) => {
       result += token
@@ -1004,8 +1076,10 @@ async function runDimensionStage(
     },
     onDone: () => {},
     onError: (error: Error) => {
+      const errorMessage = toErrorMessage(error)
+      streamError = error instanceof Error ? error : new Error(errorMessage)
       // F-16 (CWE-532): message-only to avoid leaking provider request details.
-      logger.error("Dimension Review", `${dimension.key} stream error`, { error: toErrorMessage(error) })
+      logger.error("Dimension Review", `${dimension.key} stream error`, { error: errorMessage })
     },
   }
 
@@ -1024,5 +1098,7 @@ async function runDimensionStage(
     combineAbortSignals(signal, AbortSignal.timeout(120000)),
     { reasoning: { mode: (novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" } },
   )
+  // R2-W04：流式回调上报错误时必须显式抛出，禁止用截断残片继续解析或掩盖真实流错。
+  if (streamError) throw streamError
   return result.trim()
 }

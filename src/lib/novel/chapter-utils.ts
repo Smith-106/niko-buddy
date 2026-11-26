@@ -6,6 +6,8 @@
  */
 
 import { listDirectory, readFile } from "@/commands/fs"
+import { parseFrontmatter } from "@/lib/frontmatter"
+import { isFinalChapter } from "./chapter-meta"
 import type { NovelTaskIntent } from "./task-router"
 import type { FileNode } from "@/types/wiki"
 
@@ -145,6 +147,8 @@ interface ChapterIndexEntry {
   byFrontmatter: number | null
   /** title 提取的章节号（frontmatter 存在时保持 null） */
   byTitle: number | null
+  /** frontmatter 是否标记为正式终章（chapter_status === "final"） */
+  isFinal: boolean
 }
 
 /**
@@ -175,8 +179,13 @@ async function readChapterIndexEntry(file: { name: string; path: string }): Prom
   const byName = extractChapterNumber(file.name.replace(/\.md$/, ""))
   let byFrontmatter: number | null = null
   let byTitle: number | null = null
+  let isFinal = false
   try {
-    const content = await readFile(file.path)
+    const content = (await readFile(file.path)).replace(/^\uFEFF/, "")
+    const { frontmatter } = parseFrontmatter(content)
+    if (frontmatter) {
+      isFinal = isFinalChapter(frontmatter)
+    }
     const byFrontmatterMatch = content.match(/^chapter_number:\s*['"]?(\d+)['"]?\s*$/m)
     if (byFrontmatterMatch?.[1]) {
       byFrontmatter = Number.parseInt(byFrontmatterMatch[1], 10)
@@ -185,10 +194,11 @@ async function readChapterIndexEntry(file: { name: string; path: string }): Prom
       const extracted = titleMatch?.[1] ? extractChapterNumber(titleMatch[1]) : null
       byTitle = extracted
     }
-  } catch {
+  } catch (err) {
     // ignore unreadable chapter file
+    void err
   }
-  return { name: file.name, path: file.path, byName, byFrontmatter, byTitle }
+  return { name: file.name, path: file.path, byName, byFrontmatter, byTitle, isFinal }
 }
 
 /**
@@ -306,15 +316,19 @@ export async function findChapterFileByNumber(projectPath: string, chapterNumber
   let index: ChapterIndex
   try {
     index = await getChapterIndex(projectPath)
-  } catch {
+  } catch (err) {
     // chapter dir may not exist yet
+    void err
     index = { entries: [] }
   }
+  let fallbackPath: string | null = null
   for (const entry of index.entries) {
-    if (entry.byName === chapterNumber) return entry.path
-    if (entry.byFrontmatter === chapterNumber) return entry.path
+    const matched = entry.byName === chapterNumber || entry.byFrontmatter === chapterNumber
+    if (!matched) continue
+    if (entry.isFinal) return entry.path
+    if (fallbackPath === null) fallbackPath = entry.path
   }
-  return null
+  return fallbackPath
 }
 
 /**

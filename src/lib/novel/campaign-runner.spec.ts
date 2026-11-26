@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { Buffer } from "node:buffer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import {
@@ -9,7 +10,12 @@ import {
   type CampaignChapterResult,
 } from "./campaign-runner"
 import type { ArbitrationDirective, ArbitrationRequest } from "./cruise-arbitration"
+import type { IngestResult } from "./chapter-ingest"
 import { readFrontmatterTitle } from "./chapter-typography"
+import { computeCheckpointDigest } from "./checkpoint-digest"
+import { buildDecisionGates } from "./deep-chapter-decision-gates"
+import type { DeepChapterGenerationResult } from "./deep-chapter-generation"
+import type { NovelReviewResult } from "./review-adapter"
 
 const mockLlmConfig: LlmConfig = {
   provider: "openai",
@@ -21,12 +27,16 @@ const mockLlmConfig: LlmConfig = {
 }
 
 const mocks = vi.hoisted(() => ({
+  files: new Map<string, Buffer>(),
   runDeepChapterGeneration: vi.fn(),
   createDirectory: vi.fn(),
-  writeFileAtomic: vi.fn(),
-  commitAcceptedDeepChapterDraft: vi.fn(),
-  registerManagedCampaignDraft: vi.fn(),
-  ingestChapter: vi.fn(),
+  writeFileAtomic: vi.fn(async (path: string, content: string) => {
+    mocks.files.set(path, Buffer.from(content, "utf8"))
+  }),
+  findChapterFileByNumber: vi.fn(async (): Promise<string | null> => null),
+  commitAcceptedDeepChapterDraft: vi.fn<typeof import("./formal-writeback").commitAcceptedDeepChapterDraft>(),
+  registerManagedCampaignDraft: vi.fn<typeof import("./novel-session-status").registerManagedCampaignDraft>(),
+  ingestChapter: vi.fn<typeof import("./chapter-ingest").ingestChapter>(),
   defaultCanonDualWriteDeps: vi.fn(() => ({})),
   // 覆盖率战役增补（本轮）：补齐未覆盖分支的可观测 mock，默认值与真实
   // 防御语义一致（缺失→空/吞错→null），既有用例行为不变。
@@ -44,20 +54,53 @@ vi.mock("./deep-chapter-generation", () => ({
   runDeepChapterGeneration: mocks.runDeepChapterGeneration,
 }))
 
-vi.mock("@/commands/fs", () => ({
+vi.mock("@/commands/fs", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/commands/fs")>(),
   createDirectory: mocks.createDirectory,
   writeFileAtomic: mocks.writeFileAtomic,
+  fileExists: async (path: string) => mocks.files.has(path),
+  readFile: async (path: string) => {
+    const bytes = mocks.files.get(path)
+    if (!bytes) throw new Error(`ENOENT: ${path}`)
+    return bytes.toString("utf8")
+  },
+  readFileAsBase64: async (path: string) => {
+    const bytes = mocks.files.get(path)
+    if (!bytes) throw new Error(`ENOENT: ${path}`)
+    return { base64: bytes.toString("base64"), mimeType: "text/markdown" }
+  },
+  writeFilesAtomic: async (files: Array<[string, string]>) => {
+    for (const [path, content] of files) mocks.files.set(path, Buffer.from(content, "utf8"))
+  },
+  deleteFile: async (path: string) => { mocks.files.delete(path) },
 }))
 
-vi.mock("./formal-writeback", () => ({
+vi.mock("./chapter-utils", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./chapter-utils")>(),
+  findChapterFileByNumber: mocks.findChapterFileByNumber,
+}))
+
+vi.mock("./formal-writeback", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./formal-writeback")>(),
   commitAcceptedDeepChapterDraft: mocks.commitAcceptedDeepChapterDraft,
 }))
 
-vi.mock("./novel-session-status", () => ({
+vi.mock("./novel-session-status", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./novel-session-status")>(),
   registerManagedCampaignDraft: mocks.registerManagedCampaignDraft,
   appendStageMetric: mocks.appendStageMetric,
   updateNovelSessionStatus: mocks.updateNovelSessionStatus,
   buildNextStatus: mocks.buildNextStatus,
+}))
+
+vi.mock("./emotion-ledger", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./emotion-ledger")>(),
+  updateEmotionLedgerFromChapter: vi.fn(),
+}))
+
+vi.mock("./promotion-bridge", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./promotion-bridge")>(),
+  promote: vi.fn(),
 }))
 
 // 覆盖率战役增补（本轮）：F2 零成本约束读取与事件池注入 milieu mock。
@@ -83,6 +126,10 @@ vi.mock("./chapter-request-builder", async (importOriginal) => {
   }
 })
 
+vi.mock("./rebuild", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./rebuild")>()),
+  verifyRebuildOutcome: vi.fn(async () => {}),
+}))
 vi.mock("./chapter-ingest", () => ({
   ingestChapter: mocks.ingestChapter,
 }))
@@ -91,6 +138,94 @@ vi.mock("./canon-dual-write", () => ({
   defaultCanonDualWriteDeps: mocks.defaultCanonDualWriteDeps,
 }))
 
+const p0Findings: NovelReviewResult[] = [{
+  type: "consistency",
+  severity: "error",
+  message: "角色获知尚未揭露的事实",
+  evidence: "冲突段落",
+  suggestion: "保留角色认知边界",
+  relatedMemory: "",
+}]
+const previewGates = () => buildDecisionGates([], 0, false, undefined, false)
+
+function generatedBody(finalContent: string, changes: Partial<DeepChapterGenerationResult> = {}): DeepChapterGenerationResult {
+  return {
+    finalContent,
+    taskBrief: "任务书",
+    draftContent: finalContent,
+    reviewResults: [],
+    revised: false,
+    decisionGates: previewGates(),
+    manualReviewRequired: false,
+    retryCount: 0,
+    partial: false,
+    partialReason: null,
+    ...changes,
+  }
+}
+
+async function reviewedChapter(
+  chapterNumber: number,
+  content: string,
+  changes: Partial<CampaignChapterResult> = {},
+): Promise<CampaignChapterResult> {
+  return {
+    title: `第${chapterNumber}章`,
+    taskBrief: "b",
+    draftContent: "d",
+    reviewResults: [],
+    revised: false,
+    wordCount: content.length,
+    status: "ready",
+    decisionGates: buildDecisionGates([], 0),
+    ...changes,
+    chapterNumber,
+    content,
+    reviewedBodySha256: await computeCheckpointDigest(JSON.stringify([chapterNumber, content])),
+  }
+}
+
+function verifiedIngest(chapterNumber: number): IngestResult {
+  const chapterId = `chapter-${chapterNumber}`
+  const canonOutcome = { status: "skipped", reason: "no_facts" } as const
+  return {
+    snapshot: {
+      chapterId, chapterNumber, summary: "提取摘要",
+      characters: [], locations: [], organizations: [], items: [], events: [],
+      characterStateChanges: [], relationshipChanges: [], knowledgeChanges: [],
+      foreshadowingChanges: [], newCanonFacts: [], timelineEvents: [], conflicts: [],
+      endingHook: "", graphNodes: [], graphEdges: [],
+    },
+    ledgerSaveFailed: false,
+    factsStoreFailed: false,
+    failedProjections: [],
+    pendingProjections: [],
+    committedProjections: ["sync_snapshot_to_memory"],
+    canonOutcome,
+    receipt: {
+      readPath: `/mock/project/wiki/chapters/chapter-${String(chapterNumber).padStart(3, "0")}.md`,
+      chapterNumber,
+      bodySha256: "body-sha",
+      contentSha256: "document-sha",
+      snapshotIdAtExtractionCommit: `${chapterId}-r7`,
+      snapshotRevisionAtExtractionCommit: 7,
+      snapshotJsonSha256AtExtractionCommit: "json-sha-7",
+      canonOutcome,
+    },
+    projectionReceipt: {
+      extractionHistoryPath: `/mock/project/.novel/history/${chapterId}-r7.json`,
+      snapshotId: `${chapterId}-r8`,
+      revision: 8,
+      snapshotJsonSha256: "json-sha-8",
+    },
+  }
+}
+
+beforeEach(() => {
+  mocks.files.clear()
+  mocks.findChapterFileByNumber.mockReset()
+})
+
 describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -98,7 +233,6 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     mocks.createDirectory.mockReset()
     mocks.createDirectory.mockResolvedValue(undefined)
     mocks.writeFileAtomic.mockReset()
-    mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.commitAcceptedDeepChapterDraft.mockReset()
     mocks.commitAcceptedDeepChapterDraft.mockResolvedValue(undefined)
     mocks.registerManagedCampaignDraft.mockReset()
@@ -124,7 +258,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     mocks.enrichWithEventPool.mockReset()
     mocks.enrichWithEventPool.mockImplementation(async (input: { request: string }) => `${input.request}\n\n【mock事件池】`)
     mocks.ingestChapter.mockReset()
-    mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
+    mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "no_llm" })
   })
 
   it("连续调度多章批量生成，正确收集战役报告与前情传递", async () => {
@@ -137,7 +271,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: `初稿 ${input.chapterNumber}`,
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        decisionGates: previewGates(),
         manualReviewRequired: false,
         retryCount: 0,
         partial: false,
@@ -181,9 +315,9 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       finalContent: "第一章正文",
       taskBrief: "任务书1",
       draftContent: "初稿1",
-      reviewResults: [],
+      reviewResults: p0Findings,
       revised: false,
-      decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+      decisionGates: buildDecisionGates(p0Findings, 3, true),
       manualReviewRequired: true, // 阻断转人工
       retryCount: 3,
       partial: false,
@@ -218,29 +352,10 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
   })
 
   it("batchAcceptCampaignDrafts 批量验收晋升：将 Ready 草稿写入正式目录并触发事实摄取", async () => {
+    mocks.ingestChapter.mockResolvedValueOnce(verifiedIngest(1)).mockResolvedValueOnce(verifiedIngest(2))
     const mockResults: CampaignChapterResult[] = [
-      {
-        chapterNumber: 1,
-        title: "第一章 风起",
-        content: "这是第一章正式内容",
-        taskBrief: "brief-1",
-        draftContent: "draft-1",
-        reviewResults: [],
-        revised: false,
-        wordCount: 100,
-        status: "ready",
-      },
-      {
-        chapterNumber: 2,
-        title: "第二章 云涌",
-        content: "这是第二章正式内容",
-        taskBrief: "brief-2",
-        draftContent: "draft-2",
-        reviewResults: [],
-        revised: false,
-        wordCount: 100,
-        status: "ready",
-      },
+      await reviewedChapter(1, "这是第一章正式内容", { title: "第一章 风起", taskBrief: "brief-1" }),
+      await reviewedChapter(2, "这是第二章正式内容", { title: "第二章 云涌", taskBrief: "brief-2" }),
       {
         chapterNumber: 3,
         content: "",
@@ -274,54 +389,57 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     expect(commitOrders[0]).toBeLessThan(registerOrders[1])
     expect(registerOrders[1]).toBeLessThan(commitOrders[1])
     for (const index of [0, 1]) {
-      const registered = mocks.registerManagedCampaignDraft.mock.calls[index][0] as {
-        conversationId: string
-        chapterNumber: number
-        userRequest: string
-        finalContent: string
-      }
-      const committed = mocks.commitAcceptedDeepChapterDraft.mock.calls[index][0] as {
-        conversationId: string
-        chapterNumber: number
-        userRequest: string
-        finalChapterContent: string
-        decisionGates?: unknown
-        reviewResults?: unknown
-      }
+      const registered = mocks.registerManagedCampaignDraft.mock.calls[index][0]
+      const committed = mocks.commitAcceptedDeepChapterDraft.mock.calls[index][0]
       expect(registered.conversationId).toBe(committed.conversationId)
       expect(registered.chapterNumber).toBe(committed.chapterNumber)
       expect(registered.userRequest).toBe(committed.userRequest)
-      expect(registered.finalContent).toBe(committed.finalChapterContent)
-      expect(committed.finalChapterContent).toContain("chapter_status: final")
-      expect(committed.decisionGates).toBeUndefined()
-      expect(committed.reviewResults).toBeUndefined()
+      expect(registered.finalContent).toBe(mockResults[index].content)
+      expect(registered.decisionGates).toEqual(mockResults[index].decisionGates)
+      expect(registered.finalConsistencyReviewed).toBe(true)
+      expect(committed.finalChapterContent.split("\n---\n")[1]).toBe(registered.finalContent)
     }
 
-    // 验证正式通道入参：conversationId / overwriteExisting / taskBrief 透传
-    const firstCommitInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0] as {
-      projectPath: string
-      conversationId: string
-      userRequest: string
-      chapterNumber: number
-      chapterPath: string
-      finalChapterContent: string
-      overwriteExisting: boolean
-    }
+    const firstCommitInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0]
     expect(firstCommitInput.projectPath).toBe("/mock/project")
-    expect(firstCommitInput.conversationId).toBe("autonomous-campaign")
+    expect(firstCommitInput.conversationId).toMatch(/^autonomous-campaign-1-[\da-f-]{36}$/)
     expect(firstCommitInput.userRequest).toBe("brief-1")
     expect(firstCommitInput.chapterNumber).toBe(1)
     expect(firstCommitInput.chapterPath).toBe("/mock/project/wiki/chapters/chapter-001.md")
-    expect(firstCommitInput.overwriteExisting).toBe(true)
+    expect(firstCommitInput.overwriteExisting).toBeUndefined()
+    expect(firstCommitInput.expectedExistingContent).toBeNull()
 
     // 验证写入的内容被标记为 final 态
     const firstWriteContent: string = firstCommitInput.finalChapterContent
     expect(firstWriteContent).toContain("chapter_status: final")
-    expect(firstWriteContent).toContain("# 第一章 风起")
+    expect(readFrontmatterTitle(firstWriteContent)).toBe("第一章 风起")
 
     // 验证自动执行了 2 次 ingestChapter
     expect(mocks.ingestChapter).toHaveBeenCalledTimes(2)
     expect(acceptResult.ingestedCount).toBe(2)
+  })
+
+  it("batchAcceptCampaignDrafts 显式透传 awaitCommunitySummary: true，确保异步社区摘要模式下回读不误判 pending", async () => {
+    mocks.ingestChapter.mockResolvedValueOnce(verifiedIngest(1))
+    const asyncNovelConfig = { ...CRUISE_FULL_CONFIG, communitySummaryAsync: true }
+    const acceptResult = await batchAcceptCampaignDrafts(
+      "/mock/project",
+      [await reviewedChapter(1, "这是第一章正式内容", { title: "第一章 风起", taskBrief: "brief-1" })],
+      {
+        autoIngest: true,
+        llmConfig: mockLlmConfig,
+        novelConfig: asyncNovelConfig,
+      },
+    )
+
+    expect(acceptResult.acceptedCount).toBe(1)
+    expect(acceptResult.ingestedCount).toBe(1)
+    expect(mocks.ingestChapter).toHaveBeenCalledTimes(1)
+    expect(mocks.ingestChapter.mock.calls[0]?.[4]).toMatchObject({
+      llmConfig: mockLlmConfig,
+      novelConfig: asyncNovelConfig,
+      awaitCommunitySummary: true,
+    })
   })
 
   it("DF-1: 晋升通道失败不直写、不计入成功，后续章仍提交", async () => {
@@ -330,28 +448,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       .mockResolvedValue(undefined)
 
     const res = await batchAcceptCampaignDrafts("/mock/project", [
-      {
-        chapterNumber: 1,
-        title: "第一章",
-        content: "第一章失败内容",
-        taskBrief: "b1",
-        draftContent: "d1",
-        reviewResults: [],
-        revised: false,
-        wordCount: 100,
-        status: "ready",
-      },
-      {
-        chapterNumber: 2,
-        title: "第二章",
-        content: "第二章成功内容",
-        taskBrief: "b2",
-        draftContent: "d2",
-        reviewResults: [],
-        revised: false,
-        wordCount: 100,
-        status: "ready",
-      },
+      await reviewedChapter(1, "第一章失败内容", { taskBrief: "b1" }),
+      await reviewedChapter(2, "第二章成功内容", { taskBrief: "b2" }),
     ],
     {
       autoIngest: false,
@@ -368,13 +466,16 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
   })
 
   it("全自动巡航模式 (cruiseMode: true)：门控全绿时自动提交晋升与事实库双写", async () => {
+    const decisionGates = buildDecisionGates([], 0)
+    mocks.ingestChapter.mockResolvedValueOnce(verifiedIngest(1)).mockResolvedValueOnce(verifiedIngest(2))
     mocks.runDeepChapterGeneration.mockResolvedValue({
       finalContent: "巡航生成的正文内容",
       taskBrief: "brief",
       draftContent: "draft",
       reviewResults: [],
       revised: false,
-      decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+      decisionGates,
+      finalConsistencyReviewed: true,
       manualReviewRequired: false,
       retryCount: 0,
       partial: false,
@@ -394,18 +495,63 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     expect(report.completedChapters).toBe(2)
     expect(report.results[0].autoAccepted).toBe(true)
     expect(report.results[1].autoAccepted).toBe(true)
+    expect(report.results.every((chapter) => chapter.autoIngested === true)).toBe(true)
+    expect(report.summary.allPassed).toBe(true)
     // 验证触发了两次正式晋升通道落盘和两次事实摄取（收拢后不再直写）
     expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(2)
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(mocks.ingestChapter).toHaveBeenCalledTimes(2)
     expect(mocks.registerManagedCampaignDraft).toHaveBeenCalledTimes(2)
     for (const call of mocks.registerManagedCampaignDraft.mock.calls) {
-      expect(call[0].decisionGates).toEqual({
-        consistency: "passed",
-        antiAi: "passed",
-        quality: "passed",
-      })
+      expect(call[0].decisionGates).toEqual(decisionGates)
+      expect(call[0].finalConsistencyReviewed).toBe(true)
     }
+  })
+
+  it("counts only verified memory while separately reporting formally accepted cruise chapters", async () => {
+    const pending = { ...verifiedIngest(1), pendingProjections: ["rebuild_graph"] }
+    const receiptless = { ...verifiedIngest(2), projectionReceipt: undefined }
+    mocks.ingestChapter
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(receiptless)
+      .mockResolvedValueOnce(verifiedIngest(3))
+    mocks.runDeepChapterGeneration.mockResolvedValue(generatedBody("已复核的正文。", {
+      decisionGates: buildDecisionGates([], 0), finalConsistencyReviewed: true,
+    }))
+
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project", startChapter: 1, chapterCount: 3, llmConfig: mockLlmConfig, cruiseMode: true,
+    })
+
+    expect(report.results.map((chapter) => [chapter.autoAccepted, chapter.autoIngested])).toEqual([
+      [true, false], [true, false], [true, true],
+    ])
+    expect(report.summary.allPassed).toBe(true)
+  })
+
+  it.each([
+    { decisionGates: buildDecisionGates([], 0) },
+    { decisionGates: buildDecisionGates(p0Findings, 1), finalConsistencyReviewed: true, reviewResults: p0Findings },
+  ])("pauses ready cruise output with no valid adoption receipt: %o", async (gates) => {
+    mocks.runDeepChapterGeneration.mockResolvedValueOnce(generatedBody("预演正文。", gates))
+    const onProgress = vi.fn()
+    const arbitrationProvider = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project", startChapter: 1, chapterCount: 2, llmConfig: mockLlmConfig,
+      cruiseMode: true, onProgress, arbitrationProvider,
+    })
+
+    expect(mocks.runDeepChapterGeneration).toHaveBeenCalledOnce()
+    expect(report.results).toMatchObject([{ status: "ready", autoAccepted: false, autoIngested: false }])
+    expect(report.results[0].reviewedBodySha256).toBeUndefined()
+    expect(report.summary).toMatchObject({ readyCount: 1, allPassed: false })
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({
+      stage: "cruise-paused", message: expect.stringContaining("缺少与正文绑定的复核凭证"),
+    }))
+    expect(arbitrationProvider).not.toHaveBeenCalled()
+    expect(mocks.registerManagedCampaignDraft).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
   })
 
   it("全自动巡航模式安全挂起：某章出现 blocked 时停止后续连写并保留现场", async () => {
@@ -416,7 +562,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft1",
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        decisionGates: buildDecisionGates([], 0),
+        finalConsistencyReviewed: true,
         manualReviewRequired: false,
         retryCount: 0,
         partial: false,
@@ -426,9 +573,9 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         finalContent: "第二章出现严重冲突",
         taskBrief: "brief2",
         draftContent: "draft2",
-        reviewResults: [],
+        reviewResults: p0Findings,
         revised: false,
-        decisionGates: { consistency: "failed", antiAi: "passed", quality: "failed" },
+        decisionGates: buildDecisionGates(p0Findings, 3, true),
         manualReviewRequired: true,
         retryCount: 3,
         partial: false,
@@ -440,7 +587,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft3",
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        decisionGates: previewGates(),
         manualReviewRequired: false,
         retryCount: 0,
         partial: false,
@@ -479,7 +626,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft",
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        decisionGates: previewGates(),
         manualReviewRequired: false,
         retryCount: 0,
         partial: true,
@@ -519,7 +666,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft",
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        decisionGates: previewGates(),
         manualReviewRequired: false,
         retryCount: 0,
         partial: false,
@@ -567,7 +714,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       draftContent: "draft",
       reviewResults: [],
       revised: false,
-      decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+      decisionGates: buildDecisionGates([], 0),
+      finalConsistencyReviewed: true,
       manualReviewRequired: false,
       retryCount: 0,
       partial: false,
@@ -575,68 +723,41 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     })
     mocks.commitAcceptedDeepChapterDraft.mockRejectedValueOnce(new Error("status.json 不可用"))
 
+    const onProgress = vi.fn()
     const report = await runAutonomousDraftCampaign({
       projectPath: "/mock/project",
       startChapter: 1,
       chapterCount: 1,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      onProgress,
     })
 
-    expect(report.results[0].autoAccepted).toBe(false)
+    expect(report.results[0]).toMatchObject({ status: "ready", autoAccepted: false, autoIngested: false })
+    expect(report.summary.allPassed).toBe(false)
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({
+      stage: "cruise-paused", message: expect.stringContaining("正式正文未验收落盘"),
+    }))
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("batchAcceptCampaignDrafts 默认标题回退与过滤空白内容", async () => {
     const res = await batchAcceptCampaignDrafts("/mock/project", [
-      {
-        chapterNumber: 7,
-        content: "第七章内容",
-        taskBrief: "b",
-        draftContent: "d",
-        reviewResults: [],
-        revised: false,
-        wordCount: 50,
-        status: "ready",
-      },
-      {
-        chapterNumber: 8,
-        content: "   ",
-        taskBrief: "b",
-        draftContent: "d",
-        reviewResults: [],
-        revised: false,
-        wordCount: 0,
-        status: "ready",
-      },
+      await reviewedChapter(7, "第七章内容", { title: undefined }),
+      await reviewedChapter(8, "   "),
     ])
     expect(res.acceptedCount).toBe(1)
-    const committedInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0] as {
-      finalChapterContent: string
-    }
-    const written: string = committedInput.finalChapterContent
-    expect(written).toContain("# 第7章")
+    const written = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0].finalChapterContent
+    expect(readFrontmatterTitle(written)).toBe("第7章")
+    expect(written.split("\n---\n")[1]).toBe("第七章内容")
   })
 
   it("batchAcceptCampaignDrafts 裸标题 + 正文富 H1 → 落盘为单一 canonical 富标题（不产生双 H1）", async () => {
     const res = await batchAcceptCampaignDrafts("/mock/project", [
-      {
-        chapterNumber: 1,
-        title: "第1章",
-        content: "# 第1章 身体赎回倒计时\n\n白曦在门口站了两秒。",
-        taskBrief: "b",
-        draftContent: "d",
-        reviewResults: [],
-        revised: false,
-        wordCount: 50,
-        status: "ready",
-      },
+      await reviewedChapter(1, "# 第1章 身体赎回倒计时\n\n白曦在门口站了两秒。"),
     ])
     expect(res.acceptedCount).toBe(1)
-    const committedInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0] as {
-      finalChapterContent: string
-    }
-    const written: string = committedInput.finalChapterContent
+    const written = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0].finalChapterContent
     // frontmatter 标题已升级为富标题（引号形式由 yaml 序列化决定，只校验解析值）
     expect(readFrontmatterTitle(written)).toBe("第1章 身体赎回倒计时")
     // 单一 canonical H1：不再同时出现「# 第1章」与「# 第1章 身体赎回倒计时」两条标题行
@@ -644,31 +765,95 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     expect(h1Lines).toEqual(["# 第1章 身体赎回倒计时"])
   })
 
-  it("R6 格式回声：模型把正文包进代码围栏时，晋升剥除围栏不落进正式正文", async () => {
+  it("writes the exact reviewed body including fences and gives a later attempt its own draft", async () => {
+    const { registerManagedCampaignDraft, novelDraftArtifactPath, loadNovelDraftArtifact } = await vi.importActual<typeof import("./novel-session-status")>("./novel-session-status")
+    const { commitAcceptedDeepChapterDraft } = await vi.importActual<typeof import("./formal-writeback")>("./formal-writeback")
+    mocks.registerManagedCampaignDraft.mockImplementation(registerManagedCampaignDraft)
+    mocks.commitAcceptedDeepChapterDraft.mockImplementation(commitAcceptedDeepChapterDraft)
+    const body = "```markdown\n# 第1章 雨夜\n\n白曦推门而入。\n```\n"
+    const reviewed = await reviewedChapter(1, body)
     const res = await batchAcceptCampaignDrafts("/mock/project", [
-      {
-        chapterNumber: 1,
-        title: "第1章",
-        content: "```markdown\n# 第1章 雨夜\n\n白曦推门而入。\n```",
-        taskBrief: "b",
-        draftContent: "d",
-        reviewResults: [],
-        revised: false,
-        wordCount: 20,
-        status: "ready",
-      },
+      reviewed,
     ])
+
     expect(res.acceptedCount).toBe(1)
-    const committedInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0] as {
-      finalChapterContent: string
-    }
-    const written: string = committedInput.finalChapterContent
-    // 围栏字面量不得进入正式正文
-    expect(written).not.toContain("```")
-    expect(written).not.toContain("markdown")
-    // 正文实体保留
-    expect(written).toContain("白曦推门而入。")
-    expect(readFrontmatterTitle(written)).toBe("第1章 雨夜")
+    const [path] = res.chapterPaths
+    const written = mocks.files.get(path)?.toString("utf8") ?? ""
+    expect(written).toContain("chapter_status: final")
+    expect(written.split("\n---\n")[1]).toBe(body)
+    const firstId = mocks.registerManagedCampaignDraft.mock.calls[0][0].conversationId
+    const firstPath = novelDraftArtifactPath("/mock/project", firstId)
+    const firstDraftBytes = mocks.files.get(firstPath)
+    expect(await loadNovelDraftArtifact("/mock/project", firstId)).toMatchObject({
+      draft_status: "accepted",
+      chapter_number: 1,
+      content: body,
+      adoption_gate: { status: "passed", bodySha256: reviewed.reviewedBodySha256 },
+    })
+
+    // 删除正式文件后重试，新的受管草稿不能覆盖已采纳草稿。
+    mocks.files.delete(path)
+    const retry = await batchAcceptCampaignDrafts("/mock/project", [await reviewedChapter(1, "重新审查后的正文。")])
+    const retryId = mocks.registerManagedCampaignDraft.mock.calls[1][0].conversationId
+    expect(retry.acceptedCount).toBe(1)
+    expect(retryId).not.toBe(firstId)
+    expect(mocks.files.get(firstPath)).toEqual(firstDraftBytes)
+  })
+
+  it("does not register, write or ingest a mutated body, a receiptless draft, or P0-blocked content", async () => {
+    const changed = { ...await reviewedChapter(1, "original body"), content: "original body " }
+    const receiptless = { ...await reviewedChapter(2, "receiptless body"), reviewedBodySha256: undefined }
+    const blocked = await reviewedChapter(3, "blocked body", { decisionGates: buildDecisionGates(p0Findings, 1) })
+
+    await expect(batchAcceptCampaignDrafts("/mock/project", [changed, receiptless, blocked], {
+      autoIngest: true, llmConfig: mockLlmConfig,
+    })).resolves.toEqual({ acceptedCount: 0, ingestedCount: 0, chapterPaths: [] })
+
+    expect(mocks.registerManagedCampaignDraft).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
+  })
+
+  it("leaves a conflicting substantive target untouched instead of registering or accepting it", async () => {
+    const chapterPath = "/mock/project/wiki/chapters/chapter-004.md"
+    const existing = Buffer.from("---\ntype: chapter\nchapter_number: 4\nchapter_status: final\n---\n旧正文。", "utf8")
+    mocks.files.set(chapterPath, existing)
+    const chapter = await reviewedChapter(4, "新正文。")
+
+    await expect(batchAcceptCampaignDrafts("/mock/project", [chapter])).resolves.toEqual({
+      acceptedCount: 0, chapterPaths: [], ingestedCount: 0,
+    })
+    expect(mocks.registerManagedCampaignDraft).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.files.get(chapterPath)).toEqual(existing)
+  })
+
+  it("adopts only the unchanged skeleton handed off by the incubator", async () => {
+    const { unpackOutlineToChapterFiles } = await import("./outline-chapter-unpack")
+    const { registerManagedCampaignDraft } = await vi.importActual<typeof import("./novel-session-status")>("./novel-session-status")
+    const { commitAcceptedDeepChapterDraft } = await vi.importActual<typeof import("./formal-writeback")>("./formal-writeback")
+    mocks.registerManagedCampaignDraft.mockImplementation(registerManagedCampaignDraft)
+    mocks.commitAcceptedDeepChapterDraft.mockImplementation(commitAcceptedDeepChapterDraft)
+    const projectPath = "/mock/project"
+    const skeletons = await unpackOutlineToChapterFiles({
+      projectPath,
+      outlineContent: "## 第1章 风起\n第一章提纲。\n\n## 第2章 云涌\n第二章提纲。",
+    })
+    const [unchangedPath, changedPath] = skeletons.createdFiles
+    const changed = Buffer.from(`${mocks.files.get(changedPath)?.toString("utf8")}作者修改。`, "utf8")
+    mocks.files.set(changedPath, changed)
+    const body = "完整复核正文。"
+
+    const accepted = await batchAcceptCampaignDrafts(projectPath, [await reviewedChapter(1, body), await reviewedChapter(2, body)], {
+      incubationSkeletons: skeletons.createdSkeletons,
+    })
+
+    expect(accepted).toEqual({ acceptedCount: 1, chapterPaths: [unchangedPath], ingestedCount: 0 })
+    expect(mocks.files.get(unchangedPath)?.toString("utf8")).toContain("chapter_status: final")
+    expect(mocks.files.get(unchangedPath)?.toString("utf8").split("\n---\n")[1]).toBe(body)
+    expect(mocks.files.get(changedPath)).toEqual(changed)
   })
 
   it("batchAcceptCampaignDrafts 单章事实摄取失败时记录日志且不中断后续章节", async () => {
@@ -677,17 +862,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     const res = await batchAcceptCampaignDrafts(
       "/mock/project",
       [
-        {
-          chapterNumber: 10,
-          title: "第十章",
-          content: "第十章内容",
-          taskBrief: "b",
-          draftContent: "d",
-          reviewResults: [],
-          revised: false,
-          wordCount: 100,
-          status: "ready",
-        },
+        await reviewedChapter(10, "第十章内容"),
       ],
       {
         autoIngest: true,
@@ -722,17 +897,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     const res = await batchAcceptCampaignDrafts(
       "/mock/project",
       [
-        {
-          chapterNumber: 11,
-          title: "第十一章",
-          content: "第十一章内容",
-          taskBrief: "b",
-          draftContent: "d",
-          reviewResults: [],
-          revised: false,
-          wordCount: 100,
-          status: "ready",
-        },
+        await reviewedChapter(11, "第十一章内容"),
       ],
       {
         autoIngest: true,
@@ -753,17 +918,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     const resNoIngest = await batchAcceptCampaignDrafts(
       "/mock/project",
       [
-        {
-          chapterNumber: 12,
-          title: "第十二章",
-          content: "第十二章内容",
-          taskBrief: "b",
-          draftContent: "d",
-          reviewResults: [],
-          revised: false,
-          wordCount: 100,
-          status: "ready",
-        },
+        await reviewedChapter(12, "第十二章内容"),
       ],
       {
         autoIngest: false,
@@ -774,23 +929,12 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
   })
 
   it("batchAcceptCampaignDrafts 动态模块导入失败时捕获异常并记录日志", async () => {
+    const chapter = await reviewedChapter(13, "第十三章内容")
     const spy = vi.spyOn(Promise, "all").mockRejectedValueOnce(new Error("模块加载器崩溃"))
 
     const res = await batchAcceptCampaignDrafts(
       "/mock/project",
-      [
-        {
-          chapterNumber: 13,
-          title: "第十三章",
-          content: "第十三章内容",
-          taskBrief: "b",
-          draftContent: "d",
-          reviewResults: [],
-          revised: false,
-          wordCount: 100,
-          status: "ready",
-        },
-      ],
+      [chapter],
       {
         autoIngest: true,
         llmConfig: mockLlmConfig,
@@ -802,22 +946,14 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     spy.mockRestore()
   })
 
-  it("filterAcceptableChapters 仅保留ready且正文非空", () => {
-    const mk = (chapterNumber: number, status: CampaignChapterResult["status"], content: string): CampaignChapterResult => ({
-      chapterNumber,
-      content,
-      taskBrief: "b",
-      draftContent: "d",
-      reviewResults: [],
-      revised: false,
-      wordCount: content.length,
-      status,
-    })
+  it("filterAcceptableChapters 仅保留带复核凭证、未自动落盘且正文非空的就绪章节", async () => {
     const out = filterAcceptableChapters([
-      mk(1, "ready", "正文"),
-      mk(2, "blocked", "正文"),
-      mk(3, "ready", "   "),
-      mk(4, "partial", "正文"),
+      await reviewedChapter(1, "正文"),
+      await reviewedChapter(2, "正文", { status: "blocked" }),
+      await reviewedChapter(3, "   "),
+      await reviewedChapter(4, "正文", { status: "partial" }),
+      await reviewedChapter(5, "正文", { autoAccepted: true }),
+      { ...await reviewedChapter(6, "正文"), reviewedBodySha256: undefined },
     ])
     expect(out.map((c) => c.chapterNumber)).toEqual([1])
   })
@@ -830,7 +966,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft1",
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        decisionGates: buildDecisionGates([], 0),
+        finalConsistencyReviewed: true,
         manualReviewRequired: false,
         retryCount: 0,
         partial: false,
@@ -840,9 +977,9 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         finalContent: "第二章出现严重冲突",
         taskBrief: "brief2",
         draftContent: "draft2",
-        reviewResults: [],
+        reviewResults: p0Findings,
         revised: false,
-        decisionGates: { consistency: "failed", antiAi: "passed", quality: "failed" },
+        decisionGates: buildDecisionGates(p0Findings, 3, true),
         manualReviewRequired: true,
         retryCount: 3,
         partial: false,
@@ -880,7 +1017,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft1",
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "failed", antiAi: "passed", quality: "passed" },
+        decisionGates: buildDecisionGates(p0Findings, 3, true),
         manualReviewRequired: true,
         retryCount: 3,
         partial: false,
@@ -892,7 +1029,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft1-retry",
         reviewResults: [],
         revised: true,
-        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        decisionGates: buildDecisionGates([], 0),
+        finalConsistencyReviewed: true,
         manualReviewRequired: false,
         retryCount: 0,
         partial: false,
@@ -904,7 +1042,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft2",
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        decisionGates: buildDecisionGates([], 0),
+        finalConsistencyReviewed: true,
         manualReviewRequired: false,
         retryCount: 0,
         partial: false,
@@ -957,7 +1096,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft1",
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "failed", antiAi: "passed", quality: "passed" },
+        decisionGates: buildDecisionGates(p0Findings, 3, true),
         manualReviewRequired: true,
         retryCount: 3,
         partial: false,
@@ -969,7 +1108,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft1-retry",
         reviewResults: [],
         revised: true,
-        decisionGates: { consistency: "failed", antiAi: "passed", quality: "failed" },
+        decisionGates: buildDecisionGates(p0Findings, 3, true),
         manualReviewRequired: true,
         retryCount: 0,
         partial: false,
@@ -1008,6 +1147,29 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     )
   })
 
+  it("F3: a retry that is only ready without formal acceptance still pauses", async () => {
+    mocks.runDeepChapterGeneration
+      .mockResolvedValueOnce(generatedBody("首跑未通过。", {
+        decisionGates: buildDecisionGates(p0Findings, 1, true),
+        reviewResults: p0Findings,
+        manualReviewRequired: true,
+      }))
+      .mockResolvedValueOnce(generatedBody("重跑正文未获复核凭证。", { decisionGates: buildDecisionGates([], 0) }))
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project", startChapter: 1, chapterCount: 2, llmConfig: mockLlmConfig, cruiseMode: true,
+      arbitrationProvider: async () => ({ action: "retry-rebrief", reason: "测试修订", revisedBrief: "重写本章" }),
+      onProgress,
+    })
+
+    expect(report.results).toMatchObject([{ status: "ready", autoAccepted: false }])
+    expect(mocks.runDeepChapterGeneration).toHaveBeenCalledTimes(2)
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({
+      stage: "cruise-paused", message: expect.stringContaining("缺少与正文绑定的复核凭证"),
+    }))
+  })
+
   it("F3: skip 指令标记跳过并继续下一章", async () => {
     mocks.runDeepChapterGeneration
       .mockResolvedValueOnce({
@@ -1016,7 +1178,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft1",
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "failed", antiAi: "passed", quality: "failed" },
+        decisionGates: buildDecisionGates(p0Findings, 3, true),
         manualReviewRequired: true,
         retryCount: 3,
         partial: false,
@@ -1028,7 +1190,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         draftContent: "draft2",
         reviewResults: [],
         revised: false,
-        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        decisionGates: buildDecisionGates([], 0),
+        finalConsistencyReviewed: true,
         manualReviewRequired: false,
         retryCount: 0,
         partial: false,
@@ -1074,7 +1237,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       draftContent: "draft1",
       reviewResults: [],
       revised: false,
-      decisionGates: { consistency: "failed", antiAi: "passed", quality: "failed" },
+      decisionGates: buildDecisionGates(p0Findings, 3, true),
       manualReviewRequired: true,
       retryCount: 3,
       partial: false,
@@ -1113,7 +1276,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       draftContent: "draft",
       reviewResults: [],
       revised: false,
-      decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+      decisionGates: previewGates(),
       manualReviewRequired: false,
       retryCount: 0,
       partial: false,
@@ -1144,13 +1307,12 @@ describe("campaign-runner 覆盖率增补：F2 零成本约束/R3 遥测/仲裁�
     mocks.createDirectory.mockReset()
     mocks.createDirectory.mockResolvedValue(undefined)
     mocks.writeFileAtomic.mockReset()
-    mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.commitAcceptedDeepChapterDraft.mockReset()
     mocks.commitAcceptedDeepChapterDraft.mockResolvedValue(undefined)
     mocks.registerManagedCampaignDraft.mockReset()
     mocks.registerManagedCampaignDraft.mockResolvedValue("draft://autonomous-campaign")
     mocks.ingestChapter.mockReset()
-    mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
+    mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "no_llm" })
     mocks.appendStageMetric.mockReset()
     mocks.appendStageMetric.mockResolvedValue(undefined)
     mocks.updateNovelSessionStatus.mockReset()
@@ -1172,14 +1334,15 @@ describe("campaign-runner 覆盖率增补：F2 零成本约束/R3 遥测/仲裁�
     mocks.enrichWithEventPool.mockImplementation(async (input: { request: string }) => `${input.request}\n\n【mock事件池】`)
   })
 
-  function readyOnce(finalContent = "全绿正文内容，故事自然展开，情节完整。") {
+  function readyOnce(reviewed = false) {
     mocks.runDeepChapterGeneration.mockResolvedValueOnce({
-      finalContent,
+      finalContent: "正文内容，故事自然展开，情节完整。",
       taskBrief: "brief-x",
       draftContent: "draft-x",
       reviewResults: [],
       revised: false,
-      decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+      decisionGates: reviewed ? buildDecisionGates([], 0) : previewGates(),
+      finalConsistencyReviewed: reviewed,
       manualReviewRequired: false,
       retryCount: 0,
       partial: false,
@@ -1192,9 +1355,9 @@ describe("campaign-runner 覆盖率增补：F2 零成本约束/R3 遥测/仲裁�
       finalContent: "门控失败章节正文",
       taskBrief: "brief-bad",
       draftContent: "draft-bad",
-      reviewResults: [],
+      reviewResults: p0Findings,
       revised: false,
-      decisionGates: { consistency: "failed", antiAi: "passed", quality: "passed" },
+      decisionGates: buildDecisionGates(p0Findings, 3, true),
       manualReviewRequired: true,
       retryCount: 3,
       partial: false,
@@ -1339,7 +1502,7 @@ describe("campaign-runner 覆盖率增补：F2 零成本约束/R3 遥测/仲裁�
   })
 
   it("自动晋升通道抛错 → 警告且本章 autoAccepted 为 false（388）", async () => {
-    readyOnce()
+    readyOnce(true)
     mocks.createDirectory.mockRejectedValueOnce(new Error("mkdir down"))
     const report = await runAutonomousDraftCampaign({
       projectPath: "/mock/project",
@@ -1370,17 +1533,7 @@ describe("campaign-runner 覆盖率增补：F2 零成本约束/R3 遥测/仲裁�
     const res = await batchAcceptCampaignDrafts(
       "/mock/project",
       [
-        {
-          chapterNumber: 7,
-          title: "",
-          content: "正文内容足够长",
-          taskBrief: "",
-          draftContent: "d",
-          reviewResults: [],
-          revised: false,
-          wordCount: 7,
-          status: "ready",
-        },
+        await reviewedChapter(7, "正文内容足够长", { taskBrief: "", title: "" }),
       ],
       { autoIngest: false },
     )
@@ -1398,13 +1551,12 @@ describe("campaign-runner 覆盖率增补第二轮：绑定无视点回退", () 
     mocks.createDirectory.mockReset()
     mocks.createDirectory.mockResolvedValue(undefined)
     mocks.writeFileAtomic.mockReset()
-    mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.commitAcceptedDeepChapterDraft.mockReset()
     mocks.commitAcceptedDeepChapterDraft.mockResolvedValue(undefined)
     mocks.registerManagedCampaignDraft.mockReset()
     mocks.registerManagedCampaignDraft.mockResolvedValue("draft://autonomous-campaign")
     mocks.ingestChapter.mockReset()
-    mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
+    mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "no_llm" })
     mocks.appendStageMetric.mockReset()
     mocks.appendStageMetric.mockResolvedValue(undefined)
     mocks.updateNovelSessionStatus.mockReset()
@@ -1428,7 +1580,7 @@ describe("campaign-runner 覆盖率增补第二轮：绑定无视点回退", () 
       draftContent: "draft-x",
       reviewResults: [],
       revised: false,
-      decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+      decisionGates: previewGates(),
       manualReviewRequired: false,
       retryCount: 0,
       partial: false,
@@ -1443,5 +1595,107 @@ describe("campaign-runner 覆盖率增补第二轮：绑定无视点回退", () 
     expect(report.results[0].status).toBe("ready")
     const input = mocks.runDeepChapterGeneration.mock.calls[0][0]
     expect(String(input.userRequest)).not.toContain("寨主")
+  })
+
+  it("W1-02 联动：阶段7润色改文经阶段7.6完成语义复核后，巡航模式可基于最终交付正文自动验收落盘", async () => {
+    const actualDeepGen = await vi.importActual<typeof import("./deep-chapter-generation")>("./deep-chapter-generation")
+    const { DEFAULT_NOVEL_CONFIG } = await import("@/stores/wiki-store")
+    const makeUniqueProse = (seed: string) =>
+      Array.from(
+        { length: 40 },
+        (_, i) => `第${i + 1}段：${seed}，门缝漏出的微光映在潮湿石阶上，脚步停在走廊拐角处等待回应。`,
+      ).join("\n")
+    const draftBody = makeUniqueProse("初稿里苏砚沿着廊檐试探推门")
+    const polishedBody = makeUniqueProse("润色后暴雨砸在祠堂青瓦上苏砚收紧掌心锈钥匙")
+    const reviewChapter = vi.fn(async (_pp, _content, _ch, options) => {
+      options?.onSemanticReviewCompleted?.()
+      return []
+    })
+    const deps = {
+      buildContextPack: vi.fn(async () => ({
+        task: "写第1章",
+        chapterGoal: "推门查案",
+        outline: "第1章：雨夜推门",
+        recentSummaries: [],
+        previousChapterEnding: "",
+        characterStates: "",
+        soulDoc: "",
+        characterAuras: "",
+        cognitionStates: "",
+        foreshadowingStates: "",
+        timeline: "",
+        relatedSettings: "",
+        canonRules: "",
+        writingStyle: "",
+        searchResults: "",
+        graphSearchResults: "",
+        mustDo: "推门查案",
+        mustAvoid: "不越界剧透",
+        nextChapterAdvice: "留下门后黑影",
+        revisionDirectives: "",
+      })),
+      contextPackToPrompt: vi.fn(() => "上下文"),
+      reviewChapter,
+      streamChat: vi.fn(async (_cfg, messages, callbacks) => {
+        const prompt = messages
+          .map((m: { content: string | Array<{ type: string; text?: string }> }) =>
+            typeof m.content === "string"
+              ? m.content
+              : m.content.map((b) => (b.type === "text" ? (b.text ?? "") : "")).join(""),
+          )
+          .join("\n")
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(polishedBody)
+        } else if (prompt.includes("正文")) {
+          callbacks.onToken(draftBody)
+        } else {
+          callbacks.onToken("写作任务书：推门查案")
+        }
+        callbacks.onDone()
+      }),
+      gateEvidence: { appendEvents: vi.fn(async () => {}) },
+    }
+    mocks.ingestChapter.mockResolvedValueOnce(verifiedIngest(1))
+    mocks.runDeepChapterGeneration.mockImplementationOnce(async (input, callbacks, _deps, signal) =>
+      actualDeepGen.runDeepChapterGeneration(
+        {
+          ...input,
+          novelConfig: {
+            ...DEFAULT_NOVEL_CONFIG,
+            deepChapterReview: true,
+            autoGenerateChapterTitle: false,
+            sceneBreakdownEnabled: false,
+            outlineThrillSoftGateEnabled: false,
+            stateDeltaLightCheckEnabled: false,
+          },
+        },
+        callbacks,
+        deps as never,
+        signal,
+      ),
+    )
+
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+    })
+
+    // 阶段4审初稿 + 阶段7.6复核润色终稿
+    expect(reviewChapter).toHaveBeenCalledTimes(2)
+    expect(reviewChapter.mock.calls[1][1]).toBe(polishedBody)
+    expect(report.results[0].status).toBe("ready")
+    expect(report.results[0].content).toBe(polishedBody)
+    expect(report.results[0].autoAccepted).toBe(true)
+    expect(report.results[0].autoIngested).toBe(true)
+    expect(report.results[0].reviewedBodySha256).toBeTruthy()
+    expect(mocks.registerManagedCampaignDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        finalContent: polishedBody,
+        finalConsistencyReviewed: true,
+      }),
+    )
   })
 })

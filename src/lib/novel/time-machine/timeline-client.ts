@@ -46,6 +46,8 @@ export interface SnapshotDiff {
   status_diff: FieldDiff[];
   world_state_diffs: StateDiff[];
   projection_status_diff: FieldDiff[];
+  /** Rust `snapshot_preview_point` 签发的恢复确认令牌（可选，兼容旧版/mock）。 */
+  confirm_token?: string;
 }
 
 export interface CanonVerifyOutcome {

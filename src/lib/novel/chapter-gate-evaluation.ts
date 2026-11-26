@@ -43,7 +43,6 @@ import {
   type DeepChapterDecisionGates,
 } from "./deep-chapter-decision-gates"
 import { parseChapterContractSection } from "./deep-chapter-task-brief"
-import { resolveDeAiGenre } from "./genre-codes"
 import type { NovelReviewResult } from "./review-adapter"
 
 /** 三门顺序固定（Consistency P0 > Anti-AI P1 > Quality P2）。 */
@@ -78,6 +77,8 @@ export interface EvaluateChapterGatesResult {
   reviewResults: NovelReviewResult[]
   decisionGates: DeepChapterDecisionGates
   reviewParseFailed?: boolean
+  /** A01: 语义审查是否对输入正文实跑（回调标记），不含 6 维与机械门。 */
+  semanticReviewCompleted?: boolean
   /** AI 审稿是否真的参与（novelConfig.deepChapterReview === false 时为 false）。 */
   llmMediated: boolean
   /** 章节契约维度是否真的参与判定（taskBrief 含契约段才 true）。 */
@@ -119,8 +120,13 @@ export async function evaluateChapterGates(
     }
   }
 
+  const effectiveGenre = input.genre ?? input.novelConfig?.genre
   const contextPack =
-    input.contextPack ?? (await buildContextPack(input.projectPath, input.chapterContent.slice(0, 80), chapterNumber))
+    input.contextPack ?? (await buildContextPack(input.projectPath, input.chapterContent.slice(0, 80), chapterNumber, {
+      novelConfig: input.novelConfig,
+      llmConfig: input.llmConfig,
+      novelMode: true,
+    }))
 
   const stage = await runFullReviewWithSixDim(
     input.chapterContent,
@@ -130,6 +136,11 @@ export async function evaluateChapterGates(
     input.signal,
     contextPack,
     { onThinking: input.onThinking },
+    effectiveGenre,
+    {
+      novelConfig: input.novelConfig,
+      llmConfig: input.llmConfig,
+    },
   )
 
   // 审稿输出不可解析 ⇒ 三门没有任何依据（48 号报告 §六-⑥ 同一降级语义）：
@@ -146,16 +157,18 @@ export async function evaluateChapterGates(
     }
   }
 
+  const semanticReviewCompleted = stage.semanticReviewCompleted === true
   const reviewResults = applyChapterContractCheck(taskBrief, input.chapterContent, stage.reviewResults)
-  const decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, resolveDeAiGenre(input.genre))
+  const decisionGates = buildDecisionGates(reviewResults, retryCount, undefined, effectiveGenre, semanticReviewCompleted)
 
   return {
     reviewResults,
     decisionGates,
     reviewParseFailed: stage.reviewParseFailed,
+    semanticReviewCompleted,
     llmMediated,
     contractEvaluated,
-    unassessedGates: [],
-    unassessedDimensions,
+    unassessedGates: GATE_KEYS.filter(key => decisionGates[key].status === "pending"),
+    unassessedDimensions: semanticReviewCompleted ? unassessedDimensions : [...unassessedDimensions, UNASSESSED_DIMENSION_AI_REVIEW],
   }
 }
