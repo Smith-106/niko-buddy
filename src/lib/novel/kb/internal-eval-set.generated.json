@@ -4,7 +4,7 @@
   "adjudicationScope": "internal-non-same-source-consistency",
   "notThirdParty": true,
   "notRealGateAnchor": true,
-  "builtFrom": "sha256:5466c2b048642703",
+  "builtFrom": "sha256:9e1928e35f2c89ac",
   "provenance": {
     "view": "kb-routing-view.generated.json",
     "fixture": "internal-eval-queries.json",
@@ -18,9 +18,9 @@
     "minTop20Lower": 0.9
   },
   "counts": {
-    "total": 336,
+    "total": 343,
     "byGenre": {
-      "写作技巧": 38,
+      "写作技巧": 45,
       "克苏鲁": 34,
       "奇幻": 26,
       "科幻": 27,
@@ -30,21 +30,21 @@
     "byIntent": {
       "draft": 88,
       "plan": 38,
-      "revise": 81,
-      "lookup": 73,
-      "style": 56
+      "revise": 84,
+      "lookup": 76,
+      "style": 57
     },
     "byCollection": {
-      "craft": 38,
+      "craft": 45,
       "world_ref": 119,
       "lexicon": 179
     },
     "byDerivation": {
-      "domain-probe": 51,
+      "domain-probe": 52,
       "genre-domain-probe": 11,
-      "name-probe": 92,
-      "purpose-probe": 92,
-      "title-probe": 90
+      "name-probe": 94,
+      "purpose-probe": 94,
+      "title-probe": 92
     }
   },
   "queries": [
@@ -189,6 +189,14 @@
       "intent": "draft",
       "expectedCollection": "craft",
       "gold": "graphify-novel",
+      "genre": "写作技巧",
+      "derivation": "domain-probe"
+    },
+    {
+      "query": "一致性 设定",
+      "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "lore-weave",
       "genre": "写作技巧",
       "derivation": "domain-probe"
     },
@@ -729,8 +737,16 @@
       "derivation": "name-probe"
     },
     {
-      "query": "narrative consistency verifier 写作技巧",
+      "query": "lore weave 写作技巧",
       "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "lore-weave",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "narrative consistency verifier 写作技巧",
+      "intent": "plan",
       "expectedCollection": "craft",
       "gold": "narrative-consistency-verifier",
       "genre": "写作技巧",
@@ -738,7 +754,7 @@
     },
     {
       "query": "pagegod narrative scanner 写作技巧",
-      "intent": "plan",
+      "intent": "draft",
       "expectedCollection": "craft",
       "gold": "pagegod-narrative-scanner",
       "genre": "写作技巧",
@@ -794,9 +810,17 @@
     },
     {
       "query": "show me the story 写作技巧",
-      "intent": "draft",
+      "intent": "revise",
       "expectedCollection": "craft",
       "gold": "show-me-the-story",
+      "genre": "写作技巧",
+      "derivation": "name-probe"
+    },
+    {
+      "query": "story engine 写作技巧",
+      "intent": "lookup",
+      "expectedCollection": "craft",
+      "gold": "story-engine",
       "genre": "写作技巧",
       "derivation": "name-probe"
     },
@@ -1465,8 +1489,16 @@
       "derivation": "purpose-probe"
     },
     {
-      "query": "约束驱动验证长篇小说角色背景一致性 写作技巧",
+      "query": "小说知识图谱自动抽取+Canon-safe 写作 写作技巧",
       "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "lore-weave",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "约束驱动验证长篇小说角色背景一致性 写作技巧",
+      "intent": "plan",
       "expectedCollection": "craft",
       "gold": "narrative-consistency-verifier",
       "genre": "写作技巧",
@@ -1474,7 +1506,7 @@
     },
     {
       "query": "确定性引擎检测小说连续性错误——不使用 LLM，与 anti-LLM 检测轴直接对齐 写作技巧",
-      "intent": "plan",
+      "intent": "draft",
       "expectedCollection": "craft",
       "gold": "pagegod-narrative-scanner",
       "genre": "写作技巧",
@@ -1530,9 +1562,17 @@
     },
     {
       "query": "单二进制逐章自动连写+伏笔系统+全书优化 写作技巧",
-      "intent": "draft",
+      "intent": "revise",
       "expectedCollection": "craft",
       "gold": "show-me-the-story",
+      "genre": "写作技巧",
+      "derivation": "purpose-probe"
+    },
+    {
+      "query": "确定性故事生成引擎——因果逻辑审计保持角色与剧情一致 写作技巧",
+      "intent": "lookup",
+      "expectedCollection": "craft",
+      "gold": "story-engine",
       "genre": "写作技巧",
       "derivation": "purpose-probe"
     },
@@ -2185,8 +2225,16 @@
       "derivation": "title-probe"
     },
     {
-      "query": "声明分解+证据检索一致性核查 一致性",
+      "query": "Canon-safe 写作+设定图谱 一致性",
       "intent": "style",
+      "expectedCollection": "craft",
+      "gold": "lore-weave",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "声明分解+证据检索一致性核查 一致性",
+      "intent": "plan",
       "expectedCollection": "craft",
       "gold": "narrative-consistency-verifier",
       "genre": "写作技巧",
@@ -2194,7 +2242,7 @@
     },
     {
       "query": "确定性连续性错误检测 一致性",
-      "intent": "plan",
+      "intent": "draft",
       "expectedCollection": "craft",
       "gold": "pagegod-narrative-scanner",
       "genre": "写作技巧",
@@ -2250,9 +2298,17 @@
     },
     {
       "query": "逐章连写+伏笔系统 伏笔",
-      "intent": "draft",
+      "intent": "revise",
       "expectedCollection": "craft",
       "gold": "show-me-the-story",
+      "genre": "写作技巧",
+      "derivation": "title-probe"
+    },
+    {
+      "query": "确定性因果逻辑审计故事引擎 一致性",
+      "intent": "lookup",
+      "expectedCollection": "craft",
+      "gold": "story-engine",
       "genre": "写作技巧",
       "derivation": "title-probe"
     },
