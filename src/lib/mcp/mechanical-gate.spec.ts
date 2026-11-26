@@ -3,9 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createDefaultStore, type UserMemoryStore } from "@/lib/user-memory"
 import type { AntiAiAnalysisReport, NovelReviewResult } from "@/lib/novel"
 import {
+  COMPACT_MAX_PINPOINT_HITS,
+  MAX_PINPOINT_HITS,
+  buildMechanicalGateWorkflowHint,
   buildPinpointSnippet,
+  dedupeMechanicalIssues,
   runMechanicalGateForMcp,
+  type MechanicalGateCompactReport,
   type MechanicalGateDeps,
+  type MechanicalGateIssue,
+  type MechanicalGateReport,
+  type MechanicalGateSummary,
 } from "./mechanical-gate"
 
 /** 生成一段自然、干净、在默认字数规格区间（2200–3500 字）内且句长分布自然的中文正文。 */
@@ -419,5 +427,252 @@ describe("mechanical-gate (zero-LLM read-only facade)", () => {
       expect(report.metrics.bookRules.findings).toEqual([])
       expect(report.verdict).toBe("mechanical_pass_pending_semantic")
     }
+  })
+
+  // ── P1-B2: detailLevel("compact" | "full") / summary / dedupe / workflowHint ──
+
+  it("P1-B2(1): 缺省与显式 detailLevel=full 均保留全量结构，并附带 detailLevel/summary/workflowHint", async () => {
+    const clean = buildCleanChapterProse(46)
+    const defaultReport: MechanicalGateReport = await runMechanicalGateForMcp(
+      { projectPath: "/proj", text: clean, chapterNumber: 5 },
+      makeDeps(),
+    )
+    const explicitFull: MechanicalGateReport = await runMechanicalGateForMcp(
+      { projectPath: "/proj", text: clean, chapterNumber: 5, detailLevel: "full" },
+      makeDeps(),
+    )
+
+    expect(MAX_PINPOINT_HITS).toBe(200)
+    expect(COMPACT_MAX_PINPOINT_HITS).toBe(25)
+
+    for (const report of [defaultReport, explicitFull]) {
+      expect(report.detailLevel).toBe("full")
+      expect(report.summary).toEqual({
+        verdict: "mechanical_pass_pending_semantic",
+        blockingGate: null,
+        p0ErrorCount: 0,
+        p0WarningCount: 0,
+        p1ErrorCount: 0,
+        p1WarningCount: 0,
+        p2Status: "pending",
+        nextAction: "proceed_to_p2_semantic_review",
+      })
+      expect(report.workflowHint).toContain("pending")
+      expect(report.gates.quality.status).toBe("pending")
+      expect(report.decisionGates.overall).toBe("pending")
+      expect(report.metrics.slop.classification).toBe("clean")
+    }
+  })
+
+  it("P1-B2(2): detailLevel=compact 省略大对象（无 gates/decisionGates/metrics）、去重 P0>P1 issues 并按优先级截断 25 条 pinpoint", async () => {
+    const dupP0: NovelReviewResult = {
+      severity: "error",
+      type: "consistency_mechanical",
+      message: "已故角色在第8章重新活跃",
+      evidence: "character:林七",
+      relatedMemory: "",
+      suggestion: "删除已故角色的在场动作",
+    }
+    // 前 30 句为弱信号（1B/3），尾部放强信号 1A（毫无疑问），检验 compact 按优先级把 1A 排到前 25 条内！
+    const weakPrefix = Array.from({ length: 30 }, (_, i) => `第${i + 1}段中他稍微微微显得有些迟疑。`).join("\n")
+    const strongTail = "\n第31段毫无疑问是核心线索，这一切显然无可否认。"
+    const text = `${weakPrefix}${strongTail}`
+
+    const fullReport = await runMechanicalGateForMcp(
+      { projectPath: "/proj", text, chapterNumber: 8, detailLevel: "full" },
+      makeDeps({ runContinuityPreflight: async () => [dupP0, { ...dupP0 }] }),
+    )
+    const compactReport: MechanicalGateCompactReport = await runMechanicalGateForMcp(
+      { projectPath: "/proj", text, chapterNumber: 8, detailLevel: "compact" },
+      makeDeps({ runContinuityPreflight: async () => [dupP0, { ...dupP0 }] }),
+    )
+
+    expect(compactReport.detailLevel).toBe("compact")
+    expect("gates" in compactReport).toBe(false)
+    expect("decisionGates" in compactReport).toBe(false)
+    expect("metrics" in compactReport).toBe(false)
+
+    // 重复 P0 已去重且排在 P1 前面
+    expect(compactReport.issues.filter((i) => i.message === dupP0.message)).toHaveLength(1)
+    expect(compactReport.issues[0]?.priority).toBe("P0")
+    expect(compactReport.summary).toMatchObject({
+      verdict: "fail",
+      blockingGate: "consistency",
+      p0ErrorCount: 1,
+      p2Status: "pending",
+      nextAction: "fix_p0_consistency_then_recheck",
+    })
+
+    // compact pinpoint 严控 25 条且优先保留 1A/slop（末尾的「毫无疑问」必须跻身前 25 条）
+    expect(compactReport.pinpointTotalCount).toBeGreaterThan(25)
+    expect(compactReport.pinpointHits).toHaveLength(25)
+    expect(compactReport.pinpointTruncated).toBe(true)
+    expect(compactReport.pinpointHits.some((h) => h.term === "毫无疑问" && h.tier === "1A")).toBe(true)
+    expect(compactReport.pinpointHits[0]?.tier === "1A" || compactReport.pinpointHits[0]?.tier === "slop").toBe(true)
+
+    expect(compactReport.metricsSummary).toMatchObject({
+      bookRulesLoaded: false,
+      bookRulesVerdict: "comply",
+      bookRulesFindingCount: 0,
+    })
+    expect(compactReport.workflowHint).toContain("P0")
+    expect(compactReport.meta).toEqual({
+      llmCalls: 0,
+      diskWrites: 0,
+      note: expect.any(String),
+    })
+
+    // compact 序列化体积显著小于 full
+    expect(JSON.stringify(compactReport).length).toBeLessThan(JSON.stringify(fullReport).length)
+  })
+
+  it("P1-B2(3): dedupeMechanicalIssues 严格按 P0>P1 与 error>warning>info 排序去重并保留 continuityMeta", () => {
+    const raw: MechanicalGateIssue[] = [
+      {
+        priority: "P1",
+        gate: "anti_ai",
+        severity: "warning",
+        type: "style",
+        message: "字数偏少",
+        evidence: "len=500",
+        suggestion: "扩充细节",
+      },
+      {
+        priority: "P0",
+        gate: "consistency",
+        severity: "warning",
+        type: "consistency_mechanical",
+        message: "物品重复出现",
+        evidence: "item:玉佩",
+        suggestion: "核对归属",
+      },
+      {
+        priority: "P0",
+        gate: "consistency",
+        severity: "error",
+        type: "consistency_mechanical",
+        message: "物品重复出现",
+        evidence: "item:玉佩",
+        suggestion: "修正归属",
+      },
+      {
+        priority: "P0",
+        gate: "consistency",
+        severity: "error",
+        type: "consistency_mechanical",
+        message: "物品重复出现",
+        evidence: "item:玉佩",
+        suggestion: "修正归属",
+        continuityMeta: {
+          subtype: "item_dup",
+          ref: "item:玉佩",
+          chapter: 3,
+        },
+      },
+      {
+        priority: "P1",
+        gate: "anti_ai",
+        severity: "error",
+        type: "anti_ai",
+        message: "机械 slop 阻断",
+        evidence: "penalty 8.0/10",
+        suggestion: "改写",
+      },
+    ]
+
+    const deduped = dedupeMechanicalIssues(raw)
+    expect(deduped).toHaveLength(3)
+    expect(deduped.map((i) => `${i.priority}:${i.severity}:${i.message}`)).toEqual([
+      "P0:error:物品重复出现",
+      "P1:error:机械 slop 阻断",
+      "P1:warning:字数偏少",
+    ])
+    expect(deduped[0]?.continuityMeta).toEqual({
+      subtype: "item_dup",
+      ref: "item:玉佩",
+      chapter: 3,
+    })
+    // 不修改原始输入数组元素
+    expect(raw[2]?.continuityMeta).toBeUndefined()
+
+    // 防御性兼容运行时缺失的 message / evidence（不得因 undefined.trim() 崩溃）
+    const nullishDeduped = dedupeMechanicalIssues([
+      {
+        priority: "P1",
+        gate: "anti_ai",
+        severity: "warning",
+        type: "style",
+        message: undefined as unknown as string,
+        evidence: null as unknown as string,
+        suggestion: "检查",
+      },
+      {
+        priority: "P1",
+        gate: "anti_ai",
+        severity: "warning",
+        type: "style",
+        message: "",
+        evidence: "",
+        suggestion: "检查",
+      },
+    ])
+    expect(nullishDeduped).toHaveLength(1)
+  })
+
+  it("P1-B2(4): buildMechanicalGateWorkflowHint 覆盖全部四类门控状态并严守 P0>P1>P2 与 Draft-first", () => {
+    const p0Blocked: MechanicalGateSummary = {
+      verdict: "fail",
+      blockingGate: "consistency",
+      p0ErrorCount: 2,
+      p0WarningCount: 1,
+      p1ErrorCount: 1,
+      p1WarningCount: 0,
+      p2Status: "pending",
+      nextAction: "fix_p0_consistency_then_recheck",
+    }
+    const p1Blocked: MechanicalGateSummary = {
+      verdict: "fail",
+      blockingGate: "anti_ai",
+      p0ErrorCount: 0,
+      p0WarningCount: 0,
+      p1ErrorCount: 1,
+      p1WarningCount: 2,
+      p2Status: "pending",
+      nextAction: "fix_p1_anti_ai_then_recheck",
+    }
+    const warnOnly: MechanicalGateSummary = {
+      verdict: "warning",
+      blockingGate: null,
+      p0ErrorCount: 0,
+      p0WarningCount: 1,
+      p1ErrorCount: 0,
+      p1WarningCount: 2,
+      p2Status: "pending",
+      nextAction: "review_warnings_then_semantic_review",
+    }
+    const passPending: MechanicalGateSummary = {
+      verdict: "mechanical_pass_pending_semantic",
+      blockingGate: null,
+      p0ErrorCount: 0,
+      p0WarningCount: 0,
+      p1ErrorCount: 0,
+      p1WarningCount: 0,
+      p2Status: "pending",
+      nextAction: "proceed_to_p2_semantic_review",
+    }
+
+    expect(buildMechanicalGateWorkflowHint(p0Blocked)).toContain("P0")
+    expect(buildMechanicalGateWorkflowHint(p0Blocked)).toContain("chapter.write")
+    const p1Hint = buildMechanicalGateWorkflowHint(p1Blocked, {
+      detailLevel: "compact",
+      pinpointTruncated: true,
+      pinpointTotalCount: 42,
+    })
+    expect(p1Hint).toContain("P1")
+    expect(p1Hint).toContain("42")
+    expect(buildMechanicalGateWorkflowHint(warnOnly)).toContain("1 项 P0 警告")
+    expect(buildMechanicalGateWorkflowHint(warnOnly)).toContain("2 项 P1 警告")
+    expect(buildMechanicalGateWorkflowHint(passPending)).toContain("pending")
+    expect(buildMechanicalGateWorkflowHint(passPending)).toContain("context.prepare_write")
   })
 })

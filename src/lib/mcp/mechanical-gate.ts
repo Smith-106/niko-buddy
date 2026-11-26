@@ -61,10 +61,14 @@ import {
 } from "@/lib/user-memory"
 import { useWikiStore } from "@/stores/wiki-store"
 
-/** 单次机械报告返回 pinpoint 命中条目硬上限，防止超大草稿撑爆 MCP 响应。 */
-const MAX_PINPOINT_HITS = 200
+/** 单次机械报告（full 模式）返回 pinpoint 命中条目硬上限，防止超大草稿撑爆 MCP 响应。 */
+export const MAX_PINPOINT_HITS = 200
+/** compact 模式下返回 pinpoint 命中条目硬上限（按优先级排序取前 N 条）。 */
+export const COMPACT_MAX_PINPOINT_HITS = 25
 /** pinpoint 上下文片段左右各截取字符数。 */
 const PINPOINT_SNIPPET_RADIUS = 20
+
+export type MechanicalGateDetailLevel = "compact" | "full"
 
 export interface MechanicalGateInput {
   projectPath: string
@@ -78,6 +82,8 @@ export interface MechanicalGateInput {
   targetChars?: number
   /** 可选书目角色名单（缺省只读加载 character-states.json）。 */
   characterNames?: readonly string[]
+  /** 响应详略度：`"compact"` 返回高信号精简摘要；缺省或 `"full"` 返回完整机械报告。 */
+  detailLevel?: MechanicalGateDetailLevel
 }
 
 export interface MechanicalGateIssue {
@@ -123,13 +129,62 @@ export interface MechanicalQualityGateSummary {
   note: string
 }
 
-export interface MechanicalGateReport {
+export interface MechanicalGateSummary {
+  verdict: "fail" | "warning" | "mechanical_pass_pending_semantic"
+  blockingGate: "consistency" | "anti_ai" | null
+  p0ErrorCount: number
+  p0WarningCount: number
+  p1ErrorCount: number
+  p1WarningCount: number
+  p2Status: "pending"
+  nextAction: string
+}
+
+export interface MechanicalGateMetricsSummary {
+  slopPenalty: number
+  slopClassification: "clean" | "warn" | "block"
+  cavityPatternPenalty: number
+  humanizerCavityScore: number
+  overCorrectionFlagCount: number
+  repeatedActionCount: number
+  chorusHitCount: number
+  silentStretchCount: number
+  statisticalWarningCount: number
+  avoidWordHitCount: number
+  bookRulesLoaded: boolean
+  bookRulesVerdict: "comply" | "violate"
+  bookRulesFindingCount: number
+}
+
+export interface MechanicalGateCompactReport {
+  detailLevel: "compact"
   mechanicalOnly: true
   semanticReviewCompleted: false
   verdict: "fail" | "warning" | "mechanical_pass_pending_semantic"
   blockingGate: "consistency" | "anti_ai" | null
   chapterNumber: number | null
   genre: string | null
+  bodyStats: MechanicalGateReport["bodyStats"]
+  summary: MechanicalGateSummary
+  issues: MechanicalGateIssue[]
+  pinpointHits: MechanicalPinpointHit[]
+  pinpointTotalCount: number
+  pinpointTruncated: boolean
+  metricsSummary: MechanicalGateMetricsSummary
+  workflowHint: string
+  meta: MechanicalGateReport["meta"]
+}
+
+export interface MechanicalGateReport {
+  detailLevel: "full"
+  mechanicalOnly: true
+  semanticReviewCompleted: false
+  verdict: "fail" | "warning" | "mechanical_pass_pending_semantic"
+  blockingGate: "consistency" | "anti_ai" | null
+  chapterNumber: number | null
+  genre: string | null
+  summary: MechanicalGateSummary
+  workflowHint: string
   bodyStats: {
     rawChars: number
     bodyChars: number
@@ -194,6 +249,8 @@ export interface MechanicalGateReport {
     note: string
   }
 }
+
+export type MechanicalGateAnyReport = MechanicalGateReport | MechanicalGateCompactReport
 
 export interface MechanicalGateDeps {
   readFileText: (path: string) => Promise<string>
@@ -399,6 +456,77 @@ function severityRank(severity: "error" | "warning" | "info"): number {
   return 2
 }
 
+function priorityRank(priority: "P0" | "P1"): number {
+  return priority === "P0" ? 0 : 1
+}
+
+function pinpointTierRank(tier: MechanicalPinpointHit["tier"]): number {
+  if (tier === "1A") return 0
+  if (tier === "slop") return 1
+  if (tier === "1B") return 2
+  return 3
+}
+
+/**
+ * 按 `P0 > P1`、`error > warning > info` 稳定排序并去重机械问题列表。
+ *
+ * 相同 `(priority, gate, type, message, evidence)` 只保留严重度最高的一条，
+ * 若后续重复项带有 `continuityMeta` 而首条缺失则补齐，绝不修改原输入对象。
+ */
+export function dedupeMechanicalIssues(issues: readonly MechanicalGateIssue[]): MechanicalGateIssue[] {
+  const sorted = [...issues].sort(
+    (a, b) => priorityRank(a.priority) - priorityRank(b.priority) || severityRank(a.severity) - severityRank(b.severity),
+  )
+  const byKey = new Map<string, MechanicalGateIssue>()
+  const result: MechanicalGateIssue[] = []
+  for (const issue of sorted) {
+    const key = `${issue.priority}\0${issue.gate}\0${issue.type}\0${(issue.message ?? "").trim()}\0${(issue.evidence ?? "").trim()}`
+    const existing = byKey.get(key)
+    if (!existing) {
+      const cloned: MechanicalGateIssue = { ...issue }
+      byKey.set(key, cloned)
+      result.push(cloned)
+    } else if (!existing.continuityMeta && issue.continuityMeta) {
+      existing.continuityMeta = issue.continuityMeta
+    }
+  }
+  return result
+}
+
+function resolveMechanicalNextAction(
+  verdict: MechanicalGateSummary["verdict"],
+  blockingGate: MechanicalGateSummary["blockingGate"],
+): string {
+  if (blockingGate === "consistency") return "fix_p0_consistency_then_recheck"
+  if (blockingGate === "anti_ai") return "fix_p1_anti_ai_then_recheck"
+  if (verdict === "warning") return "review_warnings_then_semantic_review"
+  return "proceed_to_p2_semantic_review"
+}
+
+/** 构造面向 Agent 的精简下一步门控指引（严守 Consistency(P0) > Anti-AI(P1) > Quality(P2) 与 Draft-first）。 */
+export function buildMechanicalGateWorkflowHint(
+  summary: MechanicalGateSummary,
+  options?: {
+    detailLevel?: MechanicalGateDetailLevel
+    pinpointTruncated?: boolean
+    pinpointTotalCount?: number
+  },
+): string {
+  if (summary.blockingGate === "consistency") {
+    return `P0 连续性/书规门控阻断（${summary.p0ErrorCount} 项 error）：优先修复全部 P0 问题，修订后调用 chapter.write 更新草稿并重跑 gate.check_mechanical（严禁跳过 P0 直接做润色或采纳）。`
+  }
+  if (summary.blockingGate === "anti_ai") {
+    const truncNote = options?.pinpointTruncated
+      ? `，pinpoint 共 ${options.pinpointTotalCount ?? 0} 处已截断`
+      : ""
+    return `P1 反 AI 机械门控阻断（${summary.p1ErrorCount} 项 error${truncNote}）：按 pinpointHits 定点替换 AI 腔与机械句式，更新草稿后重跑 gate.check_mechanical。`
+  }
+  if (summary.verdict === "warning") {
+    return `机械预检无阻断项，但存在 ${summary.p0WarningCount} 项 P0 警告与 ${summary.p1WarningCount} 项 P1 警告；建议复核警告项后进入 P2 语义审读（context.prepare_write 传 draftId + dimension），严禁把机械警告通过等同于语义审查通过。`
+  }
+  return "零 LLM 机械预检无阻断/警告项（P2 语义门控仍为 pending）；下一步可调用 context.prepare_write（draftId + dimension）完成语义审读，或提示用户在应用内审阅并采纳草稿。"
+}
+
 function summarizeBucket(
   priority: "P0" | "P1",
   issues: MechanicalGateIssue[],
@@ -434,9 +562,21 @@ function summarizeBucket(
  * 执行零 LLM、零写盘的确定性机械门控检查（供 MCP `gate.check_mechanical` 调用）。
  */
 export async function runMechanicalGateForMcp(
+  input: MechanicalGateInput & { detailLevel: "compact" },
+  depsOverrides?: Partial<MechanicalGateDeps>,
+): Promise<MechanicalGateCompactReport>
+export async function runMechanicalGateForMcp(
+  input: MechanicalGateInput & { detailLevel?: "full" },
+  depsOverrides?: Partial<MechanicalGateDeps>,
+): Promise<MechanicalGateReport>
+export async function runMechanicalGateForMcp(
   input: MechanicalGateInput,
   depsOverrides?: Partial<MechanicalGateDeps>,
-): Promise<MechanicalGateReport> {
+): Promise<MechanicalGateReport | MechanicalGateCompactReport>
+export async function runMechanicalGateForMcp(
+  input: MechanicalGateInput,
+  depsOverrides?: Partial<MechanicalGateDeps>,
+): Promise<MechanicalGateReport | MechanicalGateCompactReport> {
   const deps: MechanicalGateDeps = { ...defaultDeps, ...depsOverrides }
   const rawText = input.text ?? ""
   const extracted = extractDeAiChapterBody(rawText)
@@ -532,27 +672,37 @@ export async function runMechanicalGateForMcp(
   }
 
   // 2) Pinpoint 静态定位命中（含 1-based 行列号 + 偏移 + 上下文片段）
+  const detailLevel: MechanicalGateDetailLevel = input.detailLevel === "compact" ? "compact" : "full"
   const deAiDetection = runDeAiDetection(body)
   const lineStarts = buildLineStartOffsets(body)
   const pinpointTotalCount = deAiDetection.hits.length
-  const pinpointTruncated = pinpointTotalCount > MAX_PINPOINT_HITS
-  const pinpointHits: MechanicalPinpointHit[] = deAiDetection.hits
-    .slice(0, MAX_PINPOINT_HITS)
-    .map((hit) => {
-      const { line, column } = offsetToLineColumn(lineStarts, hit.startIndex)
-      return {
-        id: hit.id,
-        term: hit.term,
-        category: hit.category,
-        tier: hit.tier,
-        line,
-        column,
-        startIndex: hit.startIndex,
-        endIndex: hit.endIndex,
-        snippet: buildPinpointSnippet(body, hit.startIndex, hit.endIndex),
-        suggestion: hit.suggestion,
-      }
-    })
+  const pinpointCap = detailLevel === "compact" ? COMPACT_MAX_PINPOINT_HITS : MAX_PINPOINT_HITS
+  const pinpointTruncated = pinpointTotalCount > pinpointCap
+  const selectedRawPinpointHits =
+    detailLevel === "compact"
+      ? [...deAiDetection.hits]
+          .sort(
+            (a, b) =>
+              pinpointTierRank(a.tier) - pinpointTierRank(b.tier)
+              || a.startIndex - b.startIndex,
+          )
+          .slice(0, COMPACT_MAX_PINPOINT_HITS)
+      : deAiDetection.hits.slice(0, MAX_PINPOINT_HITS)
+  const pinpointHits: MechanicalPinpointHit[] = selectedRawPinpointHits.map((hit) => {
+    const { line, column } = offsetToLineColumn(lineStarts, hit.startIndex)
+    return {
+      id: hit.id,
+      term: hit.term,
+      category: hit.category,
+      tier: hit.tier,
+      line,
+      column,
+      startIndex: hit.startIndex,
+      endIndex: hit.endIndex,
+      snippet: buildPinpointSnippet(body, hit.startIndex, hit.endIndex),
+      suggestion: hit.suggestion,
+    }
+  })
 
   // 3) 改写器腔检测 (humanizer cavity)
   const overCorrection = overCorrectionReport(body)
@@ -677,10 +827,6 @@ export async function runMechanicalGateForMcp(
     suggestion: r.suggestion,
   }))
 
-  // ── 生产三门归并（semanticReviewCompleted = false，严禁冒充语义通过）────────
-  const allReviewResults: NovelReviewResult[] = [...p0ReviewResults, ...p1ReviewResults]
-  const decisionGates = buildDecisionGates(allReviewResults, 0, false, effectiveGenre, false)
-
   const consistencyBucket = summarizeBucket("P0", p0Issues)
   const antiAiBucket = summarizeBucket("P1", p1Issues)
   const qualityGate: MechanicalQualityGateSummary = {
@@ -706,21 +852,87 @@ export async function runMechanicalGateForMcp(
         ? "warning"
         : "mechanical_pass_pending_semantic"
 
+  const dedupedIssues = dedupeMechanicalIssues([...consistencyBucket.issues, ...antiAiBucket.issues])
+  const summary: MechanicalGateSummary = {
+    verdict,
+    blockingGate,
+    p0ErrorCount: dedupedIssues.filter((i) => i.priority === "P0" && i.severity === "error").length,
+    p0WarningCount: dedupedIssues.filter((i) => i.priority === "P0" && i.severity === "warning").length,
+    p1ErrorCount: dedupedIssues.filter((i) => i.priority === "P1" && i.severity === "error").length,
+    p1WarningCount: dedupedIssues.filter((i) => i.priority === "P1" && i.severity === "warning").length,
+    p2Status: "pending",
+    nextAction: resolveMechanicalNextAction(verdict, blockingGate),
+  }
+  const workflowHint = buildMechanicalGateWorkflowHint(summary, {
+    detailLevel,
+    pinpointTruncated,
+    pinpointTotalCount,
+  })
+  const bodyStats: MechanicalGateReport["bodyStats"] = {
+    rawChars: rawText.length,
+    bodyChars: body.length,
+    nonWhitespaceChars,
+    lineCount,
+    lengthSpec,
+    lengthStatus,
+  }
+  const meta: MechanicalGateReport["meta"] = {
+    llmCalls: 0,
+    diskWrites: 0,
+    note: "本报告由零 LLM、零写盘的确定性机械预检生成，不等同于完整语义审查。",
+  }
+
+  if (detailLevel === "compact") {
+    const metricsSummary: MechanicalGateMetricsSummary = {
+      slopPenalty: slopReport.slopPenalty,
+      slopClassification: slopClass,
+      cavityPatternPenalty: cavityPatterns.penalty,
+      humanizerCavityScore: overCorrection.humanizerCavityScore,
+      overCorrectionFlagCount: overCorrection.flags.length,
+      repeatedActionCount: repeatedActions.length,
+      chorusHitCount: chorusHits.length,
+      silentStretchCount: silentStretches.length,
+      statisticalWarningCount: statReport?.warningCount ?? 0,
+      avoidWordHitCount: avoidWordHits.length,
+      bookRulesLoaded: bookRulesLoad.loaded,
+      bookRulesVerdict: bookRulesValidation.verdict,
+      bookRulesFindingCount: bookRulesValidation.findings.length,
+    }
+    return {
+      detailLevel: "compact",
+      mechanicalOnly: true,
+      semanticReviewCompleted: false,
+      verdict,
+      blockingGate,
+      chapterNumber: chapterNumber ?? null,
+      genre: effectiveGenre ?? null,
+      bodyStats,
+      summary,
+      issues: dedupedIssues,
+      pinpointHits,
+      pinpointTotalCount,
+      pinpointTruncated,
+      metricsSummary,
+      workflowHint,
+      meta,
+    }
+  }
+
+  // ── 生产三门归并（仅 full 模式需要；semanticReviewCompleted = false，严禁冒充语义通过）──
+  const allReviewResults: NovelReviewResult[] = [...p0ReviewResults, ...p1ReviewResults]
+  const decisionGates = buildDecisionGates(allReviewResults, 0, false, effectiveGenre, false)
+
   return {
+    detailLevel: "full",
     mechanicalOnly: true,
     semanticReviewCompleted: false,
     verdict,
     blockingGate,
     chapterNumber: chapterNumber ?? null,
     genre: effectiveGenre ?? null,
-    bodyStats: {
-      rawChars: rawText.length,
-      bodyChars: body.length,
-      nonWhitespaceChars,
-      lineCount,
-      lengthSpec,
-      lengthStatus,
-    },
+    summary,
+    workflowHint,
+    bodyStats,
     gates: {
       consistency: consistencyBucket,
       anti_ai: antiAiBucket,
@@ -771,10 +983,6 @@ export async function runMechanicalGateForMcp(
         findings: bookRulesValidation.findings,
       },
     },
-    meta: {
-      llmCalls: 0,
-      diskWrites: 0,
-      note: "本报告由零 LLM、零写盘的确定性机械预检生成，不等同于完整语义审查。",
-    },
+    meta,
   }
 }

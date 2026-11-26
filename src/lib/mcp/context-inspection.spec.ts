@@ -23,16 +23,19 @@ import {
   MAX_PROMPT_PAGE_CHARS,
   INSPECTION_CACHE_TTL_MS,
   MAX_INSPECTION_CACHE_ENTRIES,
+  PREPARE_RETRIEVAL_MODES,
   SIX_DIMENSION_KEYS,
   defaultInspectionTask,
   createContextInspectionCache,
   inspectContext,
   isSixReviewDimensionKey,
   runPrepareWriteContext,
+  runWithLocalOnlyRetrieval,
   type ContextInspectionDeps,
   type ContextInspectionResult,
   type ContextRuntimeConfig,
   type InspectedChapter,
+  type PrepareRetrievalMode,
   type PrepareWriteContextDeps,
 } from "./context-inspection"
 import {
@@ -53,7 +56,7 @@ import {
   type RoutingROISample,
 } from "@/lib/novel"
 import * as checkpointDigest from "@/lib/novel/checkpoint-digest"
-import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
+import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG, useWikiStore } from "@/stores/wiki-store"
 
 // ── 夹具 ────────────────────────────────────────────────────────────────────
 
@@ -1419,5 +1422,398 @@ describe("context.prepare (runPrepareWriteContext) — R2-B2", () => {
       /allowRetrievalNetwork/,
     )
     expect(netHarness.calls).toHaveLength(0)
+  })
+})
+
+// ── P1-B1: retrievalMode 零网络纯内存守卫、冲突拒绝与 workflowHint ──────────
+
+describe("context.prepare (runPrepareWriteContext) — P1-B1 retrievalMode & workflowHint", () => {
+  it("1) retrievalMode=local_only 同时包裹 buildContextPack 与 buildChapterPlan，传入禁网副本且不改原配置、不写 localStorage", async () => {
+    const setItemSpy = vi.fn()
+    const storageMap = new Map<string, string>()
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => (storageMap.has(key) ? storageMap.get(key)! : null),
+      setItem: (key: string, value: string) => {
+        setItemSpy(key, value)
+        storageMap.set(key, value)
+      },
+      removeItem: (key: string) => void storageMap.delete(key),
+    })
+
+    const prevOffline = useWikiStore.getState().offlineMode
+    useWikiStore.setState({ offlineMode: false })
+
+    try {
+      const config = makeConfig({
+        embeddingConfig: { ...makeConfig().embeddingConfig, enabled: true },
+        rerankConfig: { ...DEFAULT_RERANK_CONFIG, enabled: true },
+      })
+      const observedOffline: string[] = []
+      const h = makePrepareHarness({
+        config,
+        overrides: {
+          buildContextPack: async (projectPath, task, chapterNumber, buildOptions) => {
+            observedOffline.push(`pack:${String(useWikiStore.getState().offlineMode)}`)
+            h.calls.push({ projectPath, task, chapterNumber, options: buildOptions })
+            return { ...h.state.pack, task }
+          },
+          buildChapterPlan: async (_projectPath, chapterNumber) => {
+            observedOffline.push(`plan:${String(useWikiStore.getState().offlineMode)}`)
+            h.state.planCalls.push(chapterNumber)
+            return makePlanningView(chapterNumber)
+          },
+        },
+      })
+
+      const result = await runPrepareWriteContext("/proj", { retrievalMode: "local_only" }, h.deps)
+
+      expect(PREPARE_RETRIEVAL_MODES).toEqual(["local_only", "configured_network"])
+      expect(observedOffline).toEqual(["pack:true", "plan:true"])
+      // 退出后纯内存恢复，且零 localStorage 写入
+      expect(useWikiStore.getState().offlineMode).toBe(false)
+      expect(setItemSpy).not.toHaveBeenCalled()
+
+      // 传给 buildContextPack 的是禁网副本，绝不修改 configAtStart 原对象
+      expect(h.calls).toHaveLength(1)
+      expect(h.calls[0]?.options.embeddingConfig?.enabled).toBe(false)
+      expect(h.calls[0]?.options.rerankConfig?.enabled).toBe(false)
+      expect(h.calls[0]?.options.embeddingConfig).not.toBe(config.embeddingConfig)
+      expect(h.calls[0]?.options.rerankConfig).not.toBe(config.rerankConfig)
+      expect(config.embeddingConfig.enabled).toBe(true)
+      expect(config.rerankConfig.enabled).toBe(true)
+
+      expect(result.buildPolicy).toEqual({
+        telemetryDiscarded: true,
+        retrievalMode: "local_only",
+        retrievalNetworkAllowed: false,
+        effectiveNetworkEnabled: true,
+        networkRetrievalSkipped: true,
+        zeroIoClaimed: false,
+        llmCalls: 0,
+        diskWrites: 0,
+      })
+
+      // 异常路径同样在 finally 恢复 offlineMode 且零 localStorage 写入
+      const failHarness = makePrepareHarness({
+        config,
+        overrides: {
+          buildContextPack: async () => {
+            expect(useWikiStore.getState().offlineMode).toBe(true)
+            throw new Error("模拟构建中断")
+          },
+        },
+      })
+      await expect(
+        runPrepareWriteContext("/proj", { retrievalMode: "local_only" }, failHarness.deps),
+      ).rejects.toThrow("模拟构建中断")
+      expect(useWikiStore.getState().offlineMode).toBe(false)
+      expect(setItemSpy).not.toHaveBeenCalled()
+    } finally {
+      useWikiStore.setState({ offlineMode: prevOffline })
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("2) retrievalMode=configured_network 与兼容参数 allowRetrievalNetwork=true 保留真实配置且不触发离线守卫", async () => {
+    const prevOffline = useWikiStore.getState().offlineMode
+    useWikiStore.setState({ offlineMode: false })
+    try {
+      for (const params of [
+        { retrievalMode: "configured_network" as PrepareRetrievalMode },
+        { allowRetrievalNetwork: true },
+        { retrievalMode: "configured_network" as PrepareRetrievalMode, allowRetrievalNetwork: true },
+      ]) {
+        const config = makeConfig({
+          embeddingConfig: { ...makeConfig().embeddingConfig, enabled: true },
+          rerankConfig: { ...DEFAULT_RERANK_CONFIG, enabled: true },
+        })
+        let guardCalls = 0
+        const h = makePrepareHarness({
+          config,
+          overrides: {
+            runWithLocalOnlyRetrieval: async <T,>(fn: () => Promise<T>): Promise<T> => {
+              guardCalls += 1
+              return fn()
+            },
+          },
+        })
+
+        const result = await runPrepareWriteContext("/proj", params, h.deps)
+        expect(guardCalls).toBe(0)
+        expect(useWikiStore.getState().offlineMode).toBe(false)
+        expect(h.calls[0]?.options.embeddingConfig).toBe(config.embeddingConfig)
+        expect(h.calls[0]?.options.rerankConfig).toBe(config.rerankConfig)
+        expect(result.buildPolicy).toMatchObject({
+          retrievalMode: "configured_network",
+          retrievalNetworkAllowed: true,
+          effectiveNetworkEnabled: true,
+          networkRetrievalSkipped: false,
+        })
+      }
+    } finally {
+      useWikiStore.setState({ offlineMode: prevOffline })
+    }
+  })
+
+  it("3) 冲突组合、非法 retrievalMode 及双缺省网络启用场景一律 fail-closed 拒绝", async () => {
+    const conflicts: Array<Record<string, unknown>> = [
+      { retrievalMode: "local_only", allowRetrievalNetwork: true },
+      { retrievalMode: "configured_network", allowRetrievalNetwork: false },
+    ]
+    for (const params of conflicts) {
+      const h = makePrepareHarness()
+      await expect(runPrepareWriteContext("/proj", params, h.deps)).rejects.toThrow(/参数冲突/)
+      expect(h.calls).toHaveLength(0)
+    }
+
+    for (const bad of ["auto", "", null, 123, true]) {
+      const h = makePrepareHarness()
+      await expect(runPrepareWriteContext("/proj", { retrievalMode: bad }, h.deps)).rejects.toThrow(
+        /retrievalMode 非法/,
+      )
+      expect(h.calls).toHaveLength(0)
+    }
+
+    // 双缺省且 rerank 启用 -> 仍 fail-closed 拒绝
+    const rerankHarness = makePrepareHarness({
+      config: makeConfig({ rerankConfig: { ...DEFAULT_RERANK_CONFIG, enabled: true } }),
+    })
+    await expect(runPrepareWriteContext("/proj", {}, rerankHarness.deps)).rejects.toThrow(
+      /allowRetrievalNetwork/,
+    )
+    expect(rerankHarness.calls).toHaveLength(0)
+  })
+
+  it("4) runWithLocalOnlyRetrieval 并发引用计数与外部用户切换保护（不踩踏、不写 localStorage）", async () => {
+    const setItemSpy = vi.fn()
+    const storageMap = new Map<string, string>()
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => (storageMap.has(key) ? storageMap.get(key)! : null),
+      setItem: (key: string, value: string) => {
+        setItemSpy(key, value)
+        storageMap.set(key, value)
+      },
+      removeItem: (key: string) => void storageMap.delete(key),
+    })
+
+    const prevOffline = useWikiStore.getState().offlineMode
+    try {
+      // A. 并发重叠：先结束的任务不得过早恢复 offlineMode
+      useWikiStore.setState({ offlineMode: false })
+      let releaseA!: () => void
+      let releaseB!: () => void
+      const waitA = new Promise<void>((r) => { releaseA = r })
+      const waitB = new Promise<void>((r) => { releaseB = r })
+
+      const taskA = runWithLocalOnlyRetrieval(async () => {
+        expect(useWikiStore.getState().offlineMode).toBe(true)
+        await waitA
+        return "A"
+      })
+      const taskB = runWithLocalOnlyRetrieval(async () => {
+        expect(useWikiStore.getState().offlineMode).toBe(true)
+        await waitB
+        return "B"
+      })
+      releaseA()
+      expect(await taskA).toBe("A")
+      // B 仍在途，offlineMode 必须保持 true
+      expect(useWikiStore.getState().offlineMode).toBe(true)
+      releaseB()
+      expect(await taskB).toBe("B")
+      expect(useWikiStore.getState().offlineMode).toBe(false)
+      expect(setItemSpy).not.toHaveBeenCalled()
+
+      // B. 初始已为 offlineMode=true 时，退出后保持 true
+      useWikiStore.setState({ offlineMode: true })
+      await runWithLocalOnlyRetrieval(async () => {
+        expect(useWikiStore.getState().offlineMode).toBe(true)
+      })
+      expect(useWikiStore.getState().offlineMode).toBe(true)
+
+      // C. 初始 offlineMode=true，期间外部切换为 false -> 退出不得覆盖回 true
+      await runWithLocalOnlyRetrieval(async () => {
+        useWikiStore.setState({ offlineMode: false })
+      })
+      expect(useWikiStore.getState().offlineMode).toBe(false)
+
+      // D. 初始 offlineMode=false，期间用户调用 setOfflineMode(true) -> 退出不得覆盖回 false
+      storageMap.set("niko-buddy-offline-mode", "0")
+      useWikiStore.setState({ offlineMode: false })
+      await runWithLocalOnlyRetrieval(async () => {
+        useWikiStore.getState().setOfflineMode(true)
+      })
+      expect(useWikiStore.getState().offlineMode).toBe(true)
+      // 仅用户显式调用 setOfflineMode 写了一次 localStorage，守卫自身未额外写盘
+      expect(setItemSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      useWikiStore.setState({ offlineMode: prevOffline })
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("5) runPrepareWriteContext 直接产出精简 workflowHint（覆盖新书/续写分页/草稿审读/六维分维）", async () => {
+    const newBookH = makePrepareHarness({ chapters: [] })
+    const newBookRes = await runPrepareWriteContext("/proj", {}, newBookH.deps)
+    expect(newBookRes.workflowHint).toContain("第 1 章")
+    expect(newBookRes.workflowHint).toContain("chapter.write")
+    expect(newBookRes.workflowHint).toContain('detailLevel="compact"')
+
+    const pagedH = makePrepareHarness({
+      chapters: [{ name: "chapter-001.md", path: "/proj/wiki/chapters/chapter-001.md" }],
+      pack: makePack({ outline: "长章纲内容。".repeat(120) }),
+    })
+    const pagedRes = await runPrepareWriteContext("/proj", { limit: 120, includePlanningView: false }, pagedH.deps)
+    expect(pagedRes.prompt.hasMore).toBe(true)
+    expect(pagedRes.workflowHint).toContain(`offset=${pagedRes.prompt.nextOffset}`)
+
+    const draft: ChapterDraft = {
+      id: "draft_hint_3",
+      chapterName: "第3章-线索",
+      content: "草稿审读测试正文。".repeat(30),
+      createdAt: 1_700_000_000_000,
+      status: "draft",
+      sourceConversationId: "mcp:chapter.write",
+    }
+    const draftH = makePrepareHarness({ drafts: [draft] })
+    const draftRes = await runPrepareWriteContext("/proj", { draftId: "draft_hint_3" }, draftH.deps)
+    expect(draftRes.workflowHint).toContain("draft_hint_3")
+    expect(draftRes.workflowHint).toContain("gate.check_mechanical")
+
+    const dimRes = await runPrepareWriteContext(
+      "/proj",
+      { draftId: "draft_hint_3", dimension: "thrill", limit: 200 },
+      draftH.deps,
+    )
+    expect(dimRes.dimension?.hasMore).toBe(true)
+    expect(dimRes.workflowHint).toContain("draft_hint_3")
+    expect(dimRes.workflowHint).toContain(`offset=${dimRes.dimension?.nextOffset}`)
+  })
+
+  it("6) 并发重入 A+B 期间用户先 setOfflineMode(false) 再 setOfflineMode(true) -> 最终保留用户 true 与 storage='1'", async () => {
+    const storageMap = new Map<string, string>([["niko-buddy-offline-mode", "0"]])
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => (storageMap.has(key) ? storageMap.get(key)! : null),
+      setItem: (key: string, value: string) => void storageMap.set(key, value),
+      removeItem: (key: string) => void storageMap.delete(key),
+    })
+
+    const prevOffline = useWikiStore.getState().offlineMode
+    useWikiStore.setState({ offlineMode: false })
+    try {
+      let releaseA!: () => void
+      let releaseB!: () => void
+      const waitA = new Promise<void>((r) => { releaseA = r })
+      const waitB = new Promise<void>((r) => { releaseB = r })
+
+      const taskA = runWithLocalOnlyRetrieval(async () => {
+        expect(useWikiStore.getState().offlineMode).toBe(true)
+        await waitA
+        return "A"
+      })
+
+      // 用户在 A 期间将 offlineMode 切为 false（storage="0"，memory true->false）
+      useWikiStore.getState().setOfflineMode(false)
+      expect(useWikiStore.getState().offlineMode).toBe(false)
+
+      // 并发调用 B 进入并再次将内存 offlineMode 拉回 true
+      const taskB = runWithLocalOnlyRetrieval(async () => {
+        expect(useWikiStore.getState().offlineMode).toBe(true)
+        await waitB
+        return "B"
+      })
+
+      // 用户在 B 期间再次切换为 true（storage="1"，内存已是 true）
+      useWikiStore.getState().setOfflineMode(true)
+
+      releaseA()
+      releaseB()
+      expect(await Promise.all([taskA, taskB])).toEqual(["A", "B"])
+
+      // 两个并发守卫全部退出后，必须尊重用户最新的 true 意图
+      expect(useWikiStore.getState().offlineMode).toBe(true)
+      expect(storageMap.get("niko-buddy-offline-mode")).toBe("1")
+    } finally {
+      useWikiStore.setState({ offlineMode: prevOffline })
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("7) 并发重入 A+B 期间用户先 setOfflineMode(true) 再 setOfflineMode(false) -> 最终保留用户 false 与 storage='0'", async () => {
+    const storageMap = new Map<string, string>([["niko-buddy-offline-mode", "0"]])
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => (storageMap.has(key) ? storageMap.get(key)! : null),
+      setItem: (key: string, value: string) => void storageMap.set(key, value),
+      removeItem: (key: string) => void storageMap.delete(key),
+    })
+
+    const prevOffline = useWikiStore.getState().offlineMode
+    useWikiStore.setState({ offlineMode: false })
+    try {
+      let releaseA!: () => void
+      let releaseB!: () => void
+      const waitA = new Promise<void>((r) => { releaseA = r })
+      const waitB = new Promise<void>((r) => { releaseB = r })
+
+      const taskA = runWithLocalOnlyRetrieval(async () => {
+        expect(useWikiStore.getState().offlineMode).toBe(true)
+        await waitA
+        return "A"
+      })
+
+      // 用户先切为 true（storage="1"）
+      useWikiStore.getState().setOfflineMode(true)
+
+      const taskB = runWithLocalOnlyRetrieval(async () => {
+        expect(useWikiStore.getState().offlineMode).toBe(true)
+        await waitB
+        return "B"
+      })
+
+      // 用户再切回 false（storage="0"）
+      useWikiStore.getState().setOfflineMode(false)
+
+      releaseA()
+      releaseB()
+      expect(await Promise.all([taskA, taskB])).toEqual(["A", "B"])
+
+      expect(useWikiStore.getState().offlineMode).toBe(false)
+      expect(storageMap.get("niko-buddy-offline-mode")).toBe("0")
+    } finally {
+      useWikiStore.setState({ offlineMode: prevOffline })
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("8) 外部 Zustand 订阅器在 setOfflineModeInMemory(true) 同步抛错时，不泄漏 refCount 且后续调用仍能正常还原 offlineMode", async () => {
+    const prevOffline = useWikiStore.getState().offlineMode
+    useWikiStore.setState({ offlineMode: false })
+
+    let shouldThrowOnce = true
+    const unsubscribeFaulty = useWikiStore.subscribe((state, prevState) => {
+      if (shouldThrowOnce && state.offlineMode && !prevState.offlineMode) {
+        shouldThrowOnce = false
+        throw new Error("external subscriber boom")
+      }
+    })
+
+    try {
+      const fnSpy = vi.fn(async () => "never-reached")
+      await expect(runWithLocalOnlyRetrieval(fnSpy)).rejects.toThrow("external subscriber boom")
+      expect(fnSpy).not.toHaveBeenCalled()
+      // 同步抛错后 finally 必须归零 refCount 并把 offlineMode 还原回 false
+      expect(useWikiStore.getState().offlineMode).toBe(false)
+
+      // 后续正常调用不得卡在 true，退出后完整还原回 false
+      const nextVal = await runWithLocalOnlyRetrieval(async () => {
+        expect(useWikiStore.getState().offlineMode).toBe(true)
+        return "ok"
+      })
+      expect(nextVal).toBe("ok")
+      expect(useWikiStore.getState().offlineMode).toBe(false)
+    } finally {
+      unsubscribeFaulty()
+      useWikiStore.setState({ offlineMode: prevOffline })
+    }
   })
 })

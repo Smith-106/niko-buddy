@@ -123,7 +123,14 @@ import {
   type ContextInspectionRequest,
   type InspectedChapter,
 } from "./context-inspection"
-import { runMechanicalGateForMcp, type MechanicalGateInput, type MechanicalGateReport } from "./mechanical-gate"
+import {
+  buildMechanicalGateWorkflowHint,
+  runMechanicalGateForMcp,
+  type MechanicalGateAnyReport,
+  type MechanicalGateDetailLevel,
+  type MechanicalGateInput,
+  type MechanicalGateSummary,
+} from "./mechanical-gate"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
@@ -259,9 +266,13 @@ export interface StateBridgeDeps {
   /** 只读列出项目草稿（默认 `listChapterDrafts`）。 */
   listDrafts?: (projectPath: string) => Promise<ChapterDraft[]>
   /** 读取公开只读规则快照（未注入时默认走纯 `deps.readFileText` 零写盘聚合）。 */
-  readRulesSnapshot?: (projectPath: string, sections: readonly RulesSection[]) => Promise<unknown>
+  readRulesSnapshot?: (
+    projectPath: string,
+    sections: readonly RulesSection[],
+    options?: { compact?: boolean },
+  ) => Promise<unknown>
   /** 运行零 LLM 机械门控（未注入时默认调用 `runMechanicalGateForMcp`）。 */
-  runMechanicalGate?: (input: MechanicalGateInput) => Promise<MechanicalGateReport>
+  runMechanicalGate?: (input: MechanicalGateInput) => Promise<MechanicalGateAnyReport>
   /**
    * 把「章节名 / 记忆名」解析成正式文件的**虚拟路径**。
    *
@@ -710,7 +721,9 @@ async function collectRulesSnapshotReadOnly(
   projectPath: string,
   sections: readonly RulesSection[],
   readFileText: (path: string) => Promise<string>,
+  options?: { compact?: boolean },
 ): Promise<Record<string, unknown>> {
+  const compact = options?.compact === true
   const root = projectRoot(projectPath)
   const state = useWikiStore.getState()
   // 严格标量白名单：严禁 spread novelConfig / llmConfig / providerConfigs / 任何凭据字段。
@@ -729,37 +742,58 @@ async function collectRulesSnapshotReadOnly(
   }
 
   const wanted = new Set<RulesSection>(sections)
+  if (compact) {
+    out.compact = true
+    out.omittedAsProvidedByPrepareWrite = wanted.has("writingStyle")
+      ? ["soulDoc", "enabledPreset"]
+      : []
+  }
 
   if (wanted.has("writingStyle")) {
-    let soulDoc = ""
-    try {
-      soulDoc = await readFileText(`${root}/soul.md`)
-    } catch {
-      soulDoc = ""
-    }
-    let enabledPreset: WritingStylePreset | null = null
-    try {
-      const rawStyle = await readFileText(`${root}/.niko-buddy/writing-style.json`)
-      const parsedStyle = JSON.parse(rawStyle) as Partial<WritingStyleStore>
-      const enabledId = typeof parsedStyle.enabledStyleId === "string" ? parsedStyle.enabledStyleId : null
-      const styles = Array.isArray(parsedStyle.styles) ? parsedStyle.styles : []
-      enabledPreset = enabledId ? (styles.find((s) => s.id === enabledId) ?? null) : null
-    } catch {
-      enabledPreset = null
-    }
     const enabledWritingSkills = await readEnabledWritingSkillsReadOnly(projectPath, readFileText)
-    out.writingStyle = {
-      soulDoc,
-      enabledPreset,
-      genre,
-      genreBaseline: genre ? (getGenreBaseline(genre) ?? null) : null,
-      chapterLengthSpec,
-      typography: {
-        dialoguePunctuationStyle: publicNovelConfig.dialoguePunctuationStyle ?? null,
-        paragraphIndent: publicNovelConfig.paragraphIndent ?? null,
-        quoteConvention: publicNovelConfig.quoteConvention ?? null,
-      },
-      enabledWritingSkills,
+    if (compact) {
+      out.writingStyle = {
+        omittedAsProvidedByPrepareWrite: ["soulDoc", "enabledPreset"],
+        genre,
+        genreBaseline: genre ? (getGenreBaseline(genre) ?? null) : null,
+        chapterLengthSpec,
+        typography: {
+          dialoguePunctuationStyle: publicNovelConfig.dialoguePunctuationStyle ?? null,
+          paragraphIndent: publicNovelConfig.paragraphIndent ?? null,
+          quoteConvention: publicNovelConfig.quoteConvention ?? null,
+        },
+        enabledWritingSkills,
+      }
+    } else {
+      let soulDoc = ""
+      try {
+        soulDoc = await readFileText(`${root}/soul.md`)
+      } catch {
+        soulDoc = ""
+      }
+      let enabledPreset: WritingStylePreset | null = null
+      try {
+        const rawStyle = await readFileText(`${root}/.niko-buddy/writing-style.json`)
+        const parsedStyle = JSON.parse(rawStyle) as Partial<WritingStyleStore>
+        const enabledId = typeof parsedStyle.enabledStyleId === "string" ? parsedStyle.enabledStyleId : null
+        const styles = Array.isArray(parsedStyle.styles) ? parsedStyle.styles : []
+        enabledPreset = enabledId ? (styles.find((s) => s.id === enabledId) ?? null) : null
+      } catch {
+        enabledPreset = null
+      }
+      out.writingStyle = {
+        soulDoc,
+        enabledPreset,
+        genre,
+        genreBaseline: genre ? (getGenreBaseline(genre) ?? null) : null,
+        chapterLengthSpec,
+        typography: {
+          dialoguePunctuationStyle: publicNovelConfig.dialoguePunctuationStyle ?? null,
+          paragraphIndent: publicNovelConfig.paragraphIndent ?? null,
+          quoteConvention: publicNovelConfig.quoteConvention ?? null,
+        },
+        enabledWritingSkills,
+      }
     }
   }
 
@@ -769,7 +803,7 @@ async function collectRulesSnapshotReadOnly(
       readUserMemoryStoreReadOnly(projectPath, readFileText),
     ])
     const effectiveSkill = resolveEffectiveDeAiSkill(deAiLoad.config)
-    out.antiAi = {
+    const antiAiPayload: Record<string, unknown> = {
       effectiveSkill: effectiveSkill
         ? {
             id: effectiveSkill.id,
@@ -789,11 +823,14 @@ async function collectRulesSnapshotReadOnly(
       categories: [...DE_AI_CATEGORIES],
       severities: [...DE_AI_SEVERITIES],
       structuredRuleCount: DE_AI_STRUCTURED_RULES.length,
-      structuredRules: DE_AI_STRUCTURED_RULES,
       cavityGuard: HUMANIZER_CAVITY_GUARD,
       chineseNovelRules: CHINESE_NOVEL_DE_AI_RULES,
       avoidWords: getAvoidWords(userMemoryStore),
     }
+    if (!compact) {
+      antiAiPayload.structuredRules = DE_AI_STRUCTURED_RULES
+    }
+    out.antiAi = antiAiPayload
   }
 
   if (wanted.has("bookRules")) {
@@ -1136,6 +1173,46 @@ async function prepareContextInspect(
   return { projectPath, chapter, params, recheckChapter }
 }
 
+/** 为 `gate-check-mechanical` 兜底生成精简 `workflowHint`（真实门面已自带时原样保留）。 */
+function resolveMechanicalGateWorkflowHint(
+  report: MechanicalGateAnyReport,
+  detailLevel: MechanicalGateDetailLevel,
+): string {
+  if (typeof report.workflowHint === "string" && report.workflowHint.trim().length > 0) {
+    return report.workflowHint
+  }
+  const maybeSummary = (report as { summary?: MechanicalGateSummary }).summary
+  if (maybeSummary) {
+    return buildMechanicalGateWorkflowHint(maybeSummary, { detailLevel })
+  }
+  const maybeGates = (report as {
+    gates?: {
+      consistency?: { errorCount?: number; warningCount?: number }
+      anti_ai?: { errorCount?: number; warningCount?: number }
+    }
+  }).gates
+  const verdict = report.verdict
+  const blockingGate = report.blockingGate
+  const fallbackSummary: MechanicalGateSummary = {
+    verdict,
+    blockingGate,
+    p0ErrorCount: maybeGates?.consistency?.errorCount ?? (blockingGate === "consistency" ? 1 : 0),
+    p0WarningCount: maybeGates?.consistency?.warningCount ?? 0,
+    p1ErrorCount: maybeGates?.anti_ai?.errorCount ?? (blockingGate === "anti_ai" ? 1 : 0),
+    p1WarningCount: maybeGates?.anti_ai?.warningCount ?? 0,
+    p2Status: "pending",
+    nextAction:
+      blockingGate === "consistency"
+        ? "fix_p0_consistency_then_recheck"
+        : blockingGate === "anti_ai"
+          ? "fix_p1_anti_ai_then_recheck"
+          : verdict === "warning"
+            ? "review_warnings_then_semantic_review"
+            : "proceed_to_p2_semantic_review",
+  }
+  return buildMechanicalGateWorkflowHint(fallbackSummary, { detailLevel })
+}
+
 /**
  * 处理一条桥请求。除 `handleStateRequest` 的同步分支外全部只读。
  *
@@ -1342,6 +1419,23 @@ export async function handleStateRequest(
         const projectPath = requireProjectPath(deps)
         const result = await deps.writeChapterDraft(projectPath, payload.params ?? {})
         deps.onDraftWritten?.()
+        if (result && typeof result === "object" && !Array.isArray(result)) {
+          const record = result as Record<string, unknown>
+          const existingHint =
+            typeof record.workflowHint === "string" && record.workflowHint.trim().length > 0
+              ? record.workflowHint
+              : null
+          const draftId =
+            typeof record.draftId === "string" && record.draftId.trim().length > 0
+              ? record.draftId.trim()
+              : null
+          const workflowHint =
+            existingHint
+            ?? (draftId
+              ? `草稿 ${draftId} 已写入待审区（非正式章节）。下一步请调用 gate.check_mechanical（draftId="${draftId}", detailLevel="compact"）完成零 LLM 机械预检；需经用户在应用内审阅采纳才会回填正式正文与记忆。`
+              : '草稿已写入待审区（非正式章节）。下一步请调用 gate.check_mechanical（detailLevel="compact"）完成零 LLM 机械预检；需经用户在应用内审阅采纳才会回填正式正文与记忆。')
+          return { ok: true, value: { ...record, workflowHint } }
+        }
         return { ok: true, value: result }
       }
 
@@ -1416,9 +1510,15 @@ export async function handleStateRequest(
         const projectPath = requireProjectPath(deps)
         const params = payload.params ?? {}
         const sections = parseRulesSections(params.sections)
+        if (params.compact !== undefined && typeof params.compact !== "boolean") {
+          return { ok: false, error: "rules-get 的 params.compact 必须是 boolean" }
+        }
+        const compact = params.compact === true
         const value = deps.readRulesSnapshot
-          ? await deps.readRulesSnapshot(projectPath, sections)
-          : await collectRulesSnapshotReadOnly(projectPath, sections, deps.readFileText)
+          ? (compact
+              ? await deps.readRulesSnapshot(projectPath, sections, { compact: true })
+              : await deps.readRulesSnapshot(projectPath, sections))
+          : await collectRulesSnapshotReadOnly(projectPath, sections, deps.readFileText, { compact })
         return { ok: true, value }
       }
 
@@ -1434,6 +1534,14 @@ export async function handleStateRequest(
         }
         if (targetCount > 1) {
           return { ok: false, error: "gate-check-mechanical 的 draftId / chapter / text 只能提供其一（严格 1-of-3）" }
+        }
+
+        let detailLevel: MechanicalGateDetailLevel = "full"
+        if (params.detailLevel !== undefined && params.detailLevel !== null) {
+          if (params.detailLevel !== "compact" && params.detailLevel !== "full") {
+            return { ok: false, error: "gate-check-mechanical 的 detailLevel 只接受 compact | full" }
+          }
+          detailLevel = params.detailLevel
         }
 
         let explicitChapterNumber: number | undefined
@@ -1525,8 +1633,10 @@ export async function handleStateRequest(
           text: resolvedText,
           chapterNumber: resolvedChapterNumber,
           genre,
+          detailLevel,
         })
-        return { ok: true, value: { ...report, target } }
+        const workflowHint = resolveMechanicalGateWorkflowHint(report, detailLevel)
+        return { ok: true, value: { ...report, target, workflowHint } }
       }
 
       case "formal-path": {

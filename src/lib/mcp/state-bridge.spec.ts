@@ -2197,3 +2197,185 @@ describe("handleStateRequest — R2-B3（诚实草稿元数据 / context-prepare
     expect(onDraftWritten).toHaveBeenCalledTimes(4)
   })
 })
+
+describe("handleStateRequest — P1-B3（rules-get compact / gate-check-mechanical detailLevel / workflowHint / 零写导出守卫）", () => {
+  afterEach(() => {
+    useWikiStore.getState().setProject(null)
+    tauriInvoke.mockReset()
+  })
+
+  it("1) rules-get compact=true 跳过 soul.md 与 writing-style.json 读盘，省略 soulDoc/enabledPreset/structuredRules 并标注 omittedAsProvidedByPrepareWrite", async () => {
+    const readPaths: string[] = []
+    const files = new Map<string, string>([
+      ["/proj/soul.md", "# 不应被读取的灵魂文档"],
+      ["/proj/.niko-buddy/writing-style.json", JSON.stringify({ enabledStyleId: "s1", styles: [{ id: "s1", name: "冷硬" }] })],
+      ["/proj/.novel/book-rules.json", JSON.stringify({ version: "1.0", prohibitions: ["禁词"], allowedDeviations: [] })],
+    ])
+
+    const res = await handleStateRequest(
+      request({ op: "rules-get", params: { compact: true } }),
+      deps({
+        readFileText: async (path) => {
+          readPaths.push(path)
+          if (files.has(path)) return files.get(path)!
+          throw new Error(`ENOENT: ${path}`)
+        },
+      }),
+    )
+
+    expect(res.ok).toBe(true)
+    expect(tauriInvoke).not.toHaveBeenCalled()
+    expect(readPaths.some((p) => p.endsWith("/soul.md"))).toBe(false)
+    expect(readPaths.some((p) => p.endsWith("/.niko-buddy/writing-style.json"))).toBe(false)
+
+    const val = res.value as {
+      compact: boolean
+      omittedAsProvidedByPrepareWrite: string[]
+      writingStyle: Record<string, unknown>
+      antiAi: Record<string, unknown>
+      bookRules: { loaded: boolean; rules: { prohibitions: string[] } }
+      planning: Record<string, unknown>
+    }
+    expect(val.compact).toBe(true)
+    expect(val.omittedAsProvidedByPrepareWrite).toEqual(["soulDoc", "enabledPreset"])
+    expect(val.writingStyle.omittedAsProvidedByPrepareWrite).toEqual(["soulDoc", "enabledPreset"])
+    expect("soulDoc" in val.writingStyle).toBe(false)
+    expect("enabledPreset" in val.writingStyle).toBe(false)
+    expect("structuredRules" in val.antiAi).toBe(false)
+    expect(typeof val.antiAi.structuredRuleCount).toBe("number")
+    expect(val.bookRules.loaded).toBe(true)
+    expect(val.bookRules.rules.prohibitions).toEqual(["禁词"])
+    expect(val.planning).toBeDefined()
+
+    // 非 boolean 的 compact 参数显式拒绝
+    for (const badCompact of ["true", 1, null, {}]) {
+      const badRes = await handleStateRequest(
+        request({ op: "rules-get", params: { compact: badCompact } }),
+        deps(),
+      )
+      expect(badRes.ok).toBe(false)
+      expect(badRes.error).toContain("compact")
+    }
+  })
+
+  it("2) rules-get 缺省与 compact=false 保持既有完整结构（含 soulDoc/enabledPreset/structuredRules）", async () => {
+    const files = new Map<string, string>([
+      ["/proj/soul.md", "# 完整灵魂文档"],
+      [
+        "/proj/.niko-buddy/writing-style.json",
+        JSON.stringify({
+          enabledStyleId: "s1",
+          styles: [{ id: "s1", name: "冷硬叙事", description: "克制", rules: [] }],
+        }),
+      ],
+    ])
+    const readFileText = async (path: string) => {
+      if (files.has(path)) return files.get(path)!
+      throw new Error(`ENOENT: ${path}`)
+    }
+
+    for (const params of [{}, { compact: false }]) {
+      const res = await handleStateRequest(
+        request({ op: "rules-get", params }),
+        deps({ readFileText }),
+      )
+      expect(res.ok).toBe(true)
+      const val = res.value as {
+        writingStyle: { soulDoc: string; enabledPreset: { id: string } | null }
+        antiAi: { structuredRules: unknown[] }
+      }
+      expect(val.writingStyle.soulDoc).toBe("# 完整灵魂文档")
+      expect(val.writingStyle.enabledPreset?.id).toBe("s1")
+      expect(Array.isArray(val.antiAi.structuredRules)).toBe(true)
+      expect(val.antiAi.structuredRules.length).toBeGreaterThan(0)
+      expect("omittedAsProvidedByPrepareWrite" in (res.value as Record<string, unknown>)).toBe(false)
+    }
+  })
+
+  it("3) gate-check-mechanical 透传 detailLevel（默认 full / compact），拒绝非法值并恒定附带 workflowHint", async () => {
+    const badLevel = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { text: "测试正文", detailLevel: "brief" } }),
+      deps(),
+    )
+    expect(badLevel.ok).toBe(false)
+    expect(badLevel.error).toContain("detailLevel")
+
+    const seenLevels: unknown[] = []
+    const runMechanicalGate = vi.fn(async (input) => {
+      seenLevels.push(input.detailLevel)
+      return {
+        detailLevel: input.detailLevel ?? "full",
+        mechanicalOnly: true as const,
+        semanticReviewCompleted: false as const,
+        verdict: "mechanical_pass_pending_semantic" as const,
+        blockingGate: null,
+        chapterNumber: 1,
+        genre: null,
+      } as never
+    })
+
+    const defaultRes = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { text: "测试正文" } }),
+      deps({ runMechanicalGate }),
+    )
+    expect(defaultRes.ok).toBe(true)
+    expect(seenLevels[0]).toBe("full")
+    expect(typeof (defaultRes.value as { workflowHint?: unknown }).workflowHint).toBe("string")
+
+    const compactStubRes = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { text: "测试正文", detailLevel: "compact" } }),
+      deps({ runMechanicalGate }),
+    )
+    expect(compactStubRes.ok).toBe(true)
+    expect(seenLevels[1]).toBe("compact")
+    expect((compactStubRes.value as { workflowHint: string }).workflowHint).toContain("pending")
+
+    // 真实机械门面端到端 compact 路径：无 gates/decisionGates/metrics，含 summary 与 workflowHint
+    const realCompact = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { text: "这是一段包含毫无疑问的短草稿。", detailLevel: "compact" } }),
+      deps({ readFileText: async () => { throw new Error("ENOENT") } }),
+    )
+    expect(realCompact.ok).toBe(true)
+    const realVal = realCompact.value as Record<string, unknown>
+    expect(realVal.detailLevel).toBe("compact")
+    expect("gates" in realVal).toBe(false)
+    expect("decisionGates" in realVal).toBe(false)
+    expect("metrics" in realVal).toBe(false)
+    expect(realVal.summary).toBeDefined()
+    expect(typeof realVal.workflowHint).toBe("string")
+  })
+
+  it("4) draft-write 附带 Draft-first workflowHint（指向 draftId 与 gate.check_mechanical）", async () => {
+    const onDraftWritten = vi.fn()
+    const res = await handleStateRequest(
+      request({ op: "draft-write", params: { chapterName: "第5章", content: "草稿正文" } }),
+      deps({
+        onDraftWritten,
+        writeChapterDraft: async () => ({ draftId: "draft_wf_5", chapterName: "第5章", path: "/proj/.qm-drafts/draft_wf_5.md", chars: 4 }),
+      }),
+    )
+    expect(res.ok).toBe(true)
+    expect(onDraftWritten).toHaveBeenCalledTimes(1)
+    const val = res.value as { draftId: string; workflowHint: string }
+    expect(val.draftId).toBe("draft_wf_5")
+    expect(val.workflowHint).toContain("draft_wf_5")
+    expect(val.workflowHint).toContain("gate.check_mechanical")
+    expect(val.workflowHint).toContain('detailLevel="compact"')
+  })
+
+  it("5) context-prepare-start 同步拦截 retrievalMode 冲突且 context-prepare-poll 原样透传 entry.value（同时维持零写前缀导出）", async () => {
+    const conflictRes = await handleStateRequest(
+      request({
+        op: "context-prepare-start",
+        params: { retrievalMode: "local_only", allowRetrievalNetwork: true },
+      }),
+      deps(),
+    )
+    expect(conflictRes.ok).toBe(false)
+    expect(conflictRes.error).toContain("参数冲突")
+
+    // 再次断言模块导出面严守零写前缀门禁
+    const mod = await import("./state-bridge")
+    expect(Object.keys(mod).filter((name) => /^(set|write|remove|delete|update)/i.test(name))).toEqual([])
+  })
+})

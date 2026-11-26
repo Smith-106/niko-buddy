@@ -13,6 +13,61 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 
 export const ANTIGRAVITY_ACP_EVENT_TOPIC = "antigravity-acp:event"
 
+export const MCP_TOOL_PROFILES = [
+  "writer-sub",
+  "reviewer",
+  "architect",
+  "full-legacy",
+] as const
+export type McpToolProfile = (typeof MCP_TOOL_PROFILES)[number]
+
+export type WriterPluginProjectState = "synced" | "needs_update" | "not_synced"
+
+export interface WriterPluginStatus {
+  pluginName: string
+  pluginVersion: string
+  declarativeOnly: boolean
+  skillCount: number
+  agentCount: number
+  isolatedPluginPath: string
+  isolatedPluginUpToDate: boolean
+  projectPath: string | null
+  projectState: WriterPluginProjectState
+  projectVersion: string | null
+  projectHasClaudeMd: boolean
+  globalInstalled: boolean
+  globalEnabled: boolean
+  globalUpToDate: boolean
+  globalPath: string | null
+  parentCodeRepoWarning: string | null
+}
+
+export interface WriterPluginSyncResult {
+  ok: boolean
+  pluginName: string
+  pluginVersion: string
+  projectPath: string
+  includeClaudeMd: boolean
+  writtenFiles: string[]
+  unchangedFiles: string[]
+  agentsMdPreservedUserContent: boolean
+  parentCodeRepoWarning: string | null
+  status: WriterPluginStatus
+}
+
+export interface WriterPluginGlobalResult {
+  ok: boolean
+  pluginName: string
+  pluginVersion: string
+  installPath: string
+  enabled: boolean
+  disabled: boolean
+  writtenFiles: string[]
+  unchangedFiles: string[]
+  enableCommand: string
+  disableCommand: string
+}
+
 export interface AcpAuthMethod {
   id: string
   name: string
@@ -57,11 +112,13 @@ export interface AcpStatusSnapshot {
   httpMcpEnabled: boolean
   attachedLocalMcp?: boolean
   localMcpScope?: string | null
+  localMcpProfile?: McpToolProfile | null
   inFlightPrompt?: boolean
   supportsHttpMcp?: boolean
   supportsLoadSession?: boolean
   localMcpStale?: boolean
   localMcpStaleReason?: LocalMcpStaleReason | null
+  parentCodeRepoWarning?: string | null
 }
 
 export interface AcpSessionResult {
@@ -71,7 +128,9 @@ export interface AcpSessionResult {
   attachedLocalMcp: boolean
   rawResult: unknown
   localMcpScope?: string | null
+  localMcpProfile?: McpToolProfile | null
   localMcpSkipReason?: "http_mcp_disabled" | "agent_unsupported" | "mcp_server_not_running" | null
+  parentCodeRepoWarning?: string | null
 }
 
 export interface AcpPromptResult {
@@ -119,6 +178,38 @@ export type ParsedSessionUpdate =
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   return value as Record<string, unknown>
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string"
+}
+
+/** Runtime type guard for `WriterPluginStatus` (defends UI against legacy/partial mocks). */
+export function isWriterPluginStatus(raw: unknown): raw is WriterPluginStatus {
+  const rec = asRecord(raw)
+  if (!rec) return false
+  return (
+    typeof rec.pluginName === "string" &&
+    typeof rec.pluginVersion === "string" &&
+    typeof rec.declarativeOnly === "boolean" &&
+    typeof rec.skillCount === "number" &&
+    Number.isFinite(rec.skillCount) &&
+    typeof rec.agentCount === "number" &&
+    Number.isFinite(rec.agentCount) &&
+    typeof rec.isolatedPluginPath === "string" &&
+    typeof rec.isolatedPluginUpToDate === "boolean" &&
+    isNullableString(rec.projectPath) &&
+    (rec.projectState === "synced" ||
+      rec.projectState === "needs_update" ||
+      rec.projectState === "not_synced") &&
+    isNullableString(rec.projectVersion) &&
+    typeof rec.projectHasClaudeMd === "boolean" &&
+    typeof rec.globalInstalled === "boolean" &&
+    typeof rec.globalEnabled === "boolean" &&
+    typeof rec.globalUpToDate === "boolean" &&
+    isNullableString(rec.globalPath) &&
+    isNullableString(rec.parentCodeRepoWarning)
+  )
 }
 
 function flattenConfigChoices(rawOptions: unknown): AcpConfigChoice[] {
@@ -272,10 +363,44 @@ export async function authenticateAntigravityAcp(methodId: string): Promise<unkn
 export async function createAntigravityAcpSession(
   cwd: string,
   attachLocalMcp = false,
+  mcpProfile?: McpToolProfile | null,
 ): Promise<AcpSessionResult> {
+  if (mcpProfile !== undefined) {
+    return invoke<AcpSessionResult>("antigravity_acp_new_session", {
+      cwd,
+      attachLocalMcp,
+      mcpProfile,
+    })
+  }
   return invoke<AcpSessionResult>("antigravity_acp_new_session", {
     cwd,
     attachLocalMcp,
+  })
+}
+
+export async function getWriterPluginStatus(
+  projectPath?: string | null,
+): Promise<WriterPluginStatus> {
+  return invoke<WriterPluginStatus>("writer_plugin_status", {
+    projectPath: projectPath ?? null,
+  })
+}
+
+export async function syncProjectWriterPlugin(
+  projectPath: string,
+  includeClaudeMd?: boolean,
+): Promise<WriterPluginSyncResult> {
+  return invoke<WriterPluginSyncResult>("writer_plugin_sync_project", {
+    projectPath,
+    includeClaudeMd: includeClaudeMd ?? null,
+  })
+}
+
+export async function installGlobalWriterPlugin(
+  enable?: boolean,
+): Promise<WriterPluginGlobalResult> {
+  return invoke<WriterPluginGlobalResult>("writer_plugin_install_global", {
+    enable: enable ?? null,
   })
 }
 

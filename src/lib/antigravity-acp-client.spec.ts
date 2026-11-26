@@ -11,25 +11,34 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }))
 
 import {
   ANTIGRAVITY_ACP_EVENT_TOPIC,
+  MCP_TOOL_PROFILES,
   authenticateAntigravityAcp,
   cancelAntigravityAcpTurn,
   connectAntigravityAcp,
   createAntigravityAcpSession,
   disconnectAntigravityAcp,
   getAntigravityAcpStatus,
+  getWriterPluginStatus,
+  installGlobalWriterPlugin,
   isAcpAuthRequiredError,
+  isWriterPluginStatus,
   listenAntigravityAcpEvents,
   parseAcpConfigOptions,
   parseAcpSessionUpdate,
   respondAntigravityAcpPermission,
   sendAntigravityAcpPrompt,
   setAntigravityAcpConfigOption,
+  syncProjectWriterPlugin,
   type AcpEventPayload,
   type AcpPendingPermission,
   type AcpPromptResult,
   type AcpSessionResult,
   type AcpStatusSnapshot,
   type LocalMcpStaleReason,
+  type McpToolProfile,
+  type WriterPluginGlobalResult,
+  type WriterPluginStatus,
+  type WriterPluginSyncResult,
 } from "./antigravity-acp-client"
 
 describe("antigravity-acp-client", () => {
@@ -374,5 +383,179 @@ describe("antigravity-acp-client", () => {
     expect(events).toEqual([warningPayload])
     off()
     expect(unlisten).toHaveBeenCalledTimes(1)
+  })
+
+  // ── P1-B4: MCP tool profiles + Writer Plugin IPC wrappers + runtime guard ──
+
+  it("supports MCP_TOOL_PROFILES, dual-branch createAntigravityAcpSession, and additive profile/warning fields", async () => {
+    expect([...MCP_TOOL_PROFILES]).toEqual(["writer-sub", "reviewer", "architect", "full-legacy"])
+
+    invokeMock.mockResolvedValue({
+      sessionId: "sess-p1",
+      cwd: "/book",
+      configOptions: [],
+      attachedLocalMcp: true,
+      rawResult: {},
+      localMcpScope: "draft_write",
+      localMcpProfile: "writer-sub" as McpToolProfile,
+      parentCodeRepoWarning: null,
+    } satisfies AcpSessionResult)
+
+    // 省略 mcpProfile 时保持双字段静态对象（不携带 mcpProfile 键）
+    await createAntigravityAcpSession("/book", true)
+    expect(invokeMock).toHaveBeenLastCalledWith("antigravity_acp_new_session", {
+      cwd: "/book",
+      attachLocalMcp: true,
+    })
+
+    // 显式传入各个 profile 与 null 时走三字段静态分支
+    for (const profile of [...MCP_TOOL_PROFILES, null] as const) {
+      const session = await createAntigravityAcpSession("/book", true, profile)
+      expect(invokeMock).toHaveBeenLastCalledWith("antigravity_acp_new_session", {
+        cwd: "/book",
+        attachLocalMcp: true,
+        mcpProfile: profile,
+      })
+      expect(session.localMcpProfile).toBe("writer-sub")
+    }
+
+    const statusWithWarning: AcpStatusSnapshot = {
+      connected: true,
+      binaryPath: "agy",
+      agentName: "antigravity",
+      agentVersion: "2.1.0",
+      protocolVersion: 1,
+      authMethods: [],
+      activeSessionId: "sess-p1",
+      cwd: "/book",
+      configOptions: [],
+      pendingPermissions: [],
+      httpMcpEnabled: true,
+      localMcpProfile: "reviewer",
+      parentCodeRepoWarning: "Detected parent git code repository above project folder.",
+    }
+    invokeMock.mockResolvedValueOnce(statusWithWarning)
+    const st = await getAntigravityAcpStatus()
+    expect(st.localMcpProfile).toBe("reviewer")
+    expect(st.parentCodeRepoWarning).toContain("parent git code repository")
+  })
+
+  it("invokes all 3 Writer Plugin IPC commands with exact literal names and camelCase keys", async () => {
+    const sampleStatus: WriterPluginStatus = {
+      pluginName: "niko-buddy-writer",
+      pluginVersion: "1.0.0",
+      declarativeOnly: true,
+      skillCount: 6,
+      agentCount: 3,
+      isolatedPluginPath: "/app-data/plugins/niko-buddy-writer",
+      isolatedPluginUpToDate: true,
+      projectPath: "/book",
+      projectState: "synced",
+      projectVersion: "1.0.0",
+      projectHasClaudeMd: false,
+      globalInstalled: true,
+      globalEnabled: true,
+      globalUpToDate: true,
+      globalPath: "/home/.gemini/antigravity/plugins/niko-buddy-writer",
+      parentCodeRepoWarning: null,
+    }
+    const sampleSync: WriterPluginSyncResult = {
+      ok: true,
+      pluginName: "niko-buddy-writer",
+      pluginVersion: "1.0.0",
+      projectPath: "/book",
+      includeClaudeMd: true,
+      writtenFiles: ["AGENTS.md", "CLAUDE.md"],
+      unchangedFiles: [],
+      agentsMdPreservedUserContent: true,
+      parentCodeRepoWarning: null,
+      status: sampleStatus,
+    }
+    const sampleGlobal: WriterPluginGlobalResult = {
+      ok: true,
+      pluginName: "niko-buddy-writer",
+      pluginVersion: "1.0.0",
+      installPath: "/home/.gemini/antigravity/plugins/niko-buddy-writer",
+      enabled: true,
+      disabled: false,
+      writtenFiles: ["plugin.json"],
+      unchangedFiles: [],
+      enableCommand: "agy plugin enable niko-buddy-writer",
+      disableCommand: "agy plugin disable niko-buddy-writer",
+    }
+
+    invokeMock.mockResolvedValueOnce(sampleStatus)
+    expect(await getWriterPluginStatus()).toEqual(sampleStatus)
+    expect(invokeMock).toHaveBeenLastCalledWith("writer_plugin_status", { projectPath: null })
+
+    invokeMock.mockResolvedValueOnce(sampleStatus)
+    await getWriterPluginStatus("/book")
+    expect(invokeMock).toHaveBeenLastCalledWith("writer_plugin_status", { projectPath: "/book" })
+
+    invokeMock.mockResolvedValueOnce(sampleSync)
+    expect(await syncProjectWriterPlugin("/book")).toEqual(sampleSync)
+    expect(invokeMock).toHaveBeenLastCalledWith("writer_plugin_sync_project", {
+      projectPath: "/book",
+      includeClaudeMd: null,
+    })
+
+    invokeMock.mockResolvedValueOnce(sampleSync)
+    await syncProjectWriterPlugin("/book", true)
+    expect(invokeMock).toHaveBeenLastCalledWith("writer_plugin_sync_project", {
+      projectPath: "/book",
+      includeClaudeMd: true,
+    })
+
+    invokeMock.mockResolvedValueOnce(sampleGlobal)
+    expect(await installGlobalWriterPlugin()).toEqual(sampleGlobal)
+    expect(invokeMock).toHaveBeenLastCalledWith("writer_plugin_install_global", { enable: null })
+
+    invokeMock.mockResolvedValueOnce(sampleGlobal)
+    await installGlobalWriterPlugin(false)
+    expect(invokeMock).toHaveBeenLastCalledWith("writer_plugin_install_global", { enable: false })
+  })
+
+  it("isWriterPluginStatus validates full WriterPluginStatus shape and safely rejects legacy/malformed mocks", () => {
+    const valid: WriterPluginStatus = {
+      pluginName: "niko-buddy-writer",
+      pluginVersion: "1.0.0",
+      declarativeOnly: true,
+      skillCount: 6,
+      agentCount: 3,
+      isolatedPluginPath: "/isolated",
+      isolatedPluginUpToDate: true,
+      projectPath: null,
+      projectState: "not_synced",
+      projectVersion: null,
+      projectHasClaudeMd: false,
+      globalInstalled: false,
+      globalEnabled: false,
+      globalUpToDate: false,
+      globalPath: null,
+      parentCodeRepoWarning: null,
+    }
+
+    expect(isWriterPluginStatus(valid)).toBe(true)
+    expect(isWriterPluginStatus({ ...valid, projectState: "synced", projectPath: "/book", projectVersion: "1.0.0" })).toBe(true)
+    expect(isWriterPluginStatus({ ...valid, projectState: "needs_update", parentCodeRepoWarning: "warn" })).toBe(true)
+
+    const invalidCases: unknown[] = [
+      undefined,
+      null,
+      "string",
+      42,
+      [],
+      {},
+      { connected: true },
+      { ...valid, projectState: "unknown_state" },
+      { ...valid, skillCount: Number.NaN },
+      { ...valid, agentCount: "3" },
+      { ...valid, declarativeOnly: "true" },
+      { ...valid, projectPath: 123 },
+      { ...valid, parentCodeRepoWarning: false },
+    ]
+    for (const candidate of invalidCases) {
+      expect(isWriterPluginStatus(candidate)).toBe(false)
+    }
   })
 })

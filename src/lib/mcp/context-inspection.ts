@@ -60,6 +60,7 @@ import {
   type SixReviewDimensionKey,
 } from "@/lib/novel"
 import { TASK_PROMPT_KEYS, useWikiStore } from "@/stores/wiki-store"
+import { OFFLINE_MODE_KEY } from "@/stores/wiki-store-config"
 import type {
   EmbeddingConfig,
   LlmConfig,
@@ -1077,6 +1078,9 @@ async function buildDimensionPage(input: {
 
 const PREPARE_DRAFT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/
 
+export const PREPARE_RETRIEVAL_MODES = ["local_only", "configured_network"] as const
+export type PrepareRetrievalMode = (typeof PREPARE_RETRIEVAL_MODES)[number]
+
 const CONTEXT_PREPARE_PARAM_KEYS = new Set([
   "targetChapter",
   "draftId",
@@ -1085,10 +1089,99 @@ const CONTEXT_PREPARE_PARAM_KEYS = new Set([
   "includeDraft",
   "includePlanningView",
   "dimension",
+  "retrievalMode",
   "allowRetrievalNetwork",
   "offset",
   "limit",
 ])
+
+// 模块级引用计数内存离线守卫：仅操作 Zustand 内存态，严禁调用 setOfflineMode（避免写 localStorage）。
+let localOnlyGuardRefCount = 0
+let localOnlyGuardSavedOfflineMode: boolean | null = null
+let localOnlyGuardLastObservedStorage: string | null = null
+let localOnlyGuardExternalOverride: boolean | null = null
+let localOnlyGuardUnsubscribe: (() => void) | null = null
+let localOnlyGuardUpdatingStore = false
+
+function readOfflineModeStorageSafe(): string | null {
+  try {
+    if (typeof localStorage === "undefined") return null
+    return localStorage.getItem(OFFLINE_MODE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function setOfflineModeInMemory(value: boolean): void {
+  localOnlyGuardUpdatingStore = true
+  try {
+    useWikiStore.setState({ offlineMode: value })
+  } finally {
+    localOnlyGuardUpdatingStore = false
+  }
+}
+
+/**
+ * 在纯内存离线守卫内执行本地只读检索（零 `localStorage` 写入、支持并发引用计数与外部用户切换保护）。
+ */
+export async function runWithLocalOnlyRetrieval<T>(fn: () => Promise<T>): Promise<T> {
+  if (localOnlyGuardRefCount === 0) {
+    localOnlyGuardSavedOfflineMode = useWikiStore.getState().offlineMode
+    localOnlyGuardLastObservedStorage = readOfflineModeStorageSafe()
+    localOnlyGuardExternalOverride = null
+    localOnlyGuardUnsubscribe = useWikiStore.subscribe((state, prevState) => {
+      if (localOnlyGuardUpdatingStore) return
+      const currentStorage = readOfflineModeStorageSafe()
+      const storageChanged =
+        currentStorage !== localOnlyGuardLastObservedStorage
+        && (currentStorage === "1" || currentStorage === "0")
+      if (storageChanged) {
+        localOnlyGuardLastObservedStorage = currentStorage
+      }
+      if (state.offlineMode !== prevState.offlineMode) {
+        localOnlyGuardExternalOverride = state.offlineMode
+      } else if (storageChanged) {
+        localOnlyGuardExternalOverride = currentStorage === "1"
+      }
+    })
+  }
+  localOnlyGuardRefCount += 1
+
+  try {
+    if (!useWikiStore.getState().offlineMode) {
+      setOfflineModeInMemory(true)
+    }
+    return await fn()
+  } finally {
+    localOnlyGuardRefCount = Math.max(0, localOnlyGuardRefCount - 1)
+    if (localOnlyGuardRefCount === 0) {
+      const savedOffline = localOnlyGuardSavedOfflineMode ?? false
+      const lastObservedStorage = localOnlyGuardLastObservedStorage
+      const externalOverride = localOnlyGuardExternalOverride
+      const unsubscribe = localOnlyGuardUnsubscribe
+      localOnlyGuardSavedOfflineMode = null
+      localOnlyGuardLastObservedStorage = null
+      localOnlyGuardExternalOverride = null
+      localOnlyGuardUnsubscribe = null
+      unsubscribe?.()
+
+      const currentStorage = readOfflineModeStorageSafe()
+      let restoreTarget = savedOffline
+      if (
+        currentStorage !== lastObservedStorage
+        && (currentStorage === "1" || currentStorage === "0")
+      ) {
+        restoreTarget = currentStorage === "1"
+      } else if (externalOverride !== null) {
+        restoreTarget = externalOverride
+      }
+
+      if (useWikiStore.getState().offlineMode !== restoreTarget) {
+        setOfflineModeInMemory(restoreTarget)
+      }
+    }
+  }
+}
 
 export interface PrepareWriteContextParams {
   targetChapter?: number
@@ -1098,6 +1191,7 @@ export interface PrepareWriteContextParams {
   includeDraft?: boolean
   includePlanningView?: boolean
   dimension?: string
+  retrievalMode?: PrepareRetrievalMode
   allowRetrievalNetwork?: boolean
   offset?: number
   limit?: number
@@ -1111,7 +1205,9 @@ export interface NormalizedPrepareWriteContextParams {
   includeDraft: boolean
   includePlanningView: boolean
   dimension?: SixReviewDimensionKey
+  retrievalMode?: PrepareRetrievalMode
   allowRetrievalNetwork: boolean
+  allowRetrievalNetworkExplicit: boolean
   offset: number
   limit: number
 }
@@ -1130,6 +1226,8 @@ export interface PrepareWriteContextDeps {
   buildChapterPlan: (projectPath: string, chapterNumber: number) => Promise<ChapterPlanView>
   loadGoldMaterials: (projectPath: string) => Promise<GoldMaterials>
   assessGoldReadiness?: typeof assessGoldScaleReadiness
+  /** 纯内存本地只读检索守卫（默认使用模块级引用计数 `runWithLocalOnlyRetrieval`）。 */
+  runWithLocalOnlyRetrieval?: <T>(fn: () => Promise<T>) => Promise<T>
 }
 
 export interface PrepareWriteContextResult {
@@ -1146,8 +1244,10 @@ export interface PrepareWriteContextResult {
   effectiveConfig: Record<string, unknown>
   buildPolicy: {
     telemetryDiscarded: true
+    retrievalMode: PrepareRetrievalMode
     retrievalNetworkAllowed: boolean
     effectiveNetworkEnabled: boolean
+    networkRetrievalSkipped: boolean
     zeroIoClaimed: false
     llmCalls: 0
     diskWrites: 0
@@ -1209,6 +1309,8 @@ export interface PrepareWriteContextResult {
     pageSha256?: string
     offsetDomain?: "utf16-code-units"
   }
+  /** 面向调用方的精简下一步流程指引（直接由准备门面生成，桥不改写）。 */
+  workflowHint: string
   meta: {
     llmCalls: 0
     diskWrites: 0
@@ -1224,6 +1326,7 @@ const defaultPrepareDeps: PrepareWriteContextDeps = {
   buildChapterPlan: (projectPath, chapterNumber) => buildChapterPlanProduction(projectPath, chapterNumber),
   loadGoldMaterials: defaultDeps.loadGoldMaterials,
   assessGoldReadiness: assessGoldScaleReadiness,
+  runWithLocalOnlyRetrieval,
 }
 
 function prepareOptionalBoolean(
@@ -1304,6 +1407,31 @@ export function normalizePrepareWriteContextParams(
     dimension = params.dimension
   }
 
+  let retrievalMode: PrepareRetrievalMode | undefined
+  if (params.retrievalMode !== undefined) {
+    if (params.retrievalMode !== "local_only" && params.retrievalMode !== "configured_network") {
+      throw new Error(
+        `context.prepare_write 的 retrievalMode 非法：${String(params.retrievalMode)}。` +
+          `合法值：${PREPARE_RETRIEVAL_MODES.join(", ")}`,
+      )
+    }
+    retrievalMode = params.retrievalMode
+  }
+
+  const allowRetrievalNetworkExplicit = params.allowRetrievalNetwork !== undefined
+  const allowRetrievalNetwork = prepareOptionalBoolean(params, "allowRetrievalNetwork", false)
+
+  if (retrievalMode === "local_only" && allowRetrievalNetworkExplicit && allowRetrievalNetwork) {
+    throw new Error(
+      "context.prepare_write 参数冲突：retrievalMode=local_only 与 allowRetrievalNetwork=true 不能同时传入",
+    )
+  }
+  if (retrievalMode === "configured_network" && allowRetrievalNetworkExplicit && !allowRetrievalNetwork) {
+    throw new Error(
+      "context.prepare_write 参数冲突：retrievalMode=configured_network 与 allowRetrievalNetwork=false 不能同时传入",
+    )
+  }
+
   const offset = prepareOptionalNonNegativeInt(params, "offset", 0)
   const limit = prepareOptionalNonNegativeInt(params, "limit", DEFAULT_PROMPT_PAGE_CHARS)
   if (limit < 1 || limit > MAX_PROMPT_PAGE_CHARS) {
@@ -1320,10 +1448,40 @@ export function normalizePrepareWriteContextParams(
     includeDraft: prepareOptionalBoolean(params, "includeDraft", false),
     includePlanningView: prepareOptionalBoolean(params, "includePlanningView", true),
     dimension,
-    allowRetrievalNetwork: prepareOptionalBoolean(params, "allowRetrievalNetwork", false),
+    retrievalMode,
+    allowRetrievalNetwork,
+    allowRetrievalNetworkExplicit,
     offset,
     limit,
   }
+}
+
+function buildPrepareWriteWorkflowHint(input: {
+  mode: PrepareWriteContextResult["mode"]
+  targetChapter: number
+  matchedDraft?: ChapterDraft
+  promptHasMore: boolean
+  promptNextOffset: number | null
+  dimensionSection?: PrepareWriteContextResult["dimension"]
+}): string {
+  if (input.mode === "draft_review" && input.matchedDraft) {
+    const draftId = input.matchedDraft.id
+    if (input.dimensionSection?.reviewPromptBuilt) {
+      if (input.dimensionSection.hasMore) {
+        return `草稿 ${draftId} 的「${input.dimensionSection.label}」审查 prompt 已分页返回，可传 offset=${input.dimensionSection.nextOffset} 续读；完成后结合 gate.check_mechanical（detailLevel="compact"）输出修改建议，切勿直接改写正式章节。`
+      }
+      return `草稿 ${draftId} 的「${input.dimensionSection.label}」审查 prompt 已就绪；请先核对 gate.check_mechanical（detailLevel="compact"）结果（P0 > P1 > P2），再决定修订或通知用户在应用内审阅采纳。`
+    }
+    if (input.promptHasMore) {
+      return `草稿 ${draftId} 审读上下文已分页返回，可传 offset=${input.promptNextOffset} 续读；随后调用 gate.check_mechanical（draftId="${draftId}", detailLevel="compact"）完成零 LLM 机械预检。`
+    }
+    return `草稿 ${draftId} 审读上下文已就绪；下一步调用 gate.check_mechanical（draftId="${draftId}", detailLevel="compact"）完成零 LLM 机械预检，必要时传 dimension 执行分维语义审查。`
+  }
+
+  if (input.promptHasMore) {
+    return `第 ${input.targetChapter} 章写作上下文已分页返回，可传 offset=${input.promptNextOffset} 续读；无需重复拉取 rules.get 完整 soulDoc，成稿后调用 chapter.write 落草稿再跑 gate.check_mechanical（detailLevel="compact"）。`
+  }
+  return `第 ${input.targetChapter} 章写作上下文已就绪（已含灵魂/前情/章纲）；如需补充约束可调用 rules.get（compact=true），写完后调用 chapter.write 落草稿再运行 gate.check_mechanical（detailLevel="compact"）。`
 }
 
 function resolveChapterFileNumber(name: string): number | undefined {
@@ -1414,12 +1572,26 @@ export async function runPrepareWriteContext(
     )
   }
 
-  if (configAtStart.novelMode && effectiveNetworkEnabled && !normalized.allowRetrievalNetwork) {
+  if (
+    normalized.retrievalMode === undefined
+    && !normalized.allowRetrievalNetwork
+    && configAtStart.novelMode
+    && effectiveNetworkEnabled
+  ) {
     throw new Error(
       "context.prepare_write 拒绝构建：当前生效配置启用了 embedding/rerank 检索网络，" +
-        "但调用方未显式传 allowRetrievalNetwork=true。",
+        '但调用方未显式传 allowRetrievalNetwork=true 或 retrievalMode="local_only"。',
     )
   }
+
+  const resolvedRetrievalMode: PrepareRetrievalMode =
+    normalized.retrievalMode !== undefined
+      ? normalized.retrievalMode
+      : normalized.allowRetrievalNetworkExplicit && normalized.allowRetrievalNetwork
+        ? "configured_network"
+        : "local_only"
+  const retrievalNetworkAllowed = resolvedRetrievalMode === "configured_network"
+  const networkRetrievalSkipped = resolvedRetrievalMode === "local_only" && effectiveNetworkEnabled
 
   const chapters = await deps.listChapters(projectPath)
   const existingChapterCount = chapters.length
@@ -1460,24 +1632,43 @@ export async function runPrepareWriteContext(
     llmConfig: configAtStart.llmConfig,
     novelConfig: configAtStart.novelConfig,
     novelMode: configAtStart.novelMode,
-    embeddingConfig: configAtStart.embeddingConfig,
-    rerankConfig: configAtStart.rerankConfig,
+    embeddingConfig:
+      resolvedRetrievalMode === "local_only"
+        ? { ...configAtStart.embeddingConfig, enabled: false }
+        : configAtStart.embeddingConfig,
+    rerankConfig:
+      resolvedRetrievalMode === "local_only"
+        ? { ...configAtStart.rerankConfig, enabled: false }
+        : configAtStart.rerankConfig,
     revisionFeedbackWindowConfig: configAtStart.revisionFeedbackWindowConfig,
     telemetrySink: DISCARD_TELEMETRY_SINK,
   }
 
-  const pack = copySerializable(await deps.buildContextPack(projectPath, task, targetChapter, buildOptions))
-  const packMetadata = await buildPackMetadata(pack)
-
-  let planningView: ChapterPlanView | null | undefined
-  if (normalized.includePlanningView) {
-    try {
-      planningView = copySerializable(await deps.buildChapterPlan(projectPath, targetChapter))
-    } catch {
-      planningView = null
-      warnings.push("规划视图装载失败，已优雅降级为 null。")
+  const executeBuilds = async (): Promise<{
+    pack: ContextPack
+    planningView: ChapterPlanView | null | undefined
+  }> => {
+    const builtPack = copySerializable(
+      await deps.buildContextPack(projectPath, task, targetChapter, buildOptions),
+    )
+    let builtPlanningView: ChapterPlanView | null | undefined
+    if (normalized.includePlanningView) {
+      try {
+        builtPlanningView = copySerializable(await deps.buildChapterPlan(projectPath, targetChapter))
+      } catch {
+        builtPlanningView = null
+        warnings.push("规划视图装载失败，已优雅降级为 null。")
+      }
     }
+    return { pack: builtPack, planningView: builtPlanningView }
   }
+
+  const localOnlyRunner = deps.runWithLocalOnlyRetrieval ?? runWithLocalOnlyRetrieval
+  const { pack, planningView } =
+    resolvedRetrievalMode === "local_only"
+      ? await localOnlyRunner(executeBuilds)
+      : await executeBuilds()
+  const packMetadata = await buildPackMetadata(pack)
 
   const fullWritingPrompt = contextPackToPrompt(pack, configAtStart.novelConfig.contextTokenBudget, {
     temporalFactsEnabled: configAtStart.novelConfig.temporalFactsEnabled === true,
@@ -1587,6 +1778,15 @@ export async function runPrepareWriteContext(
     throw new Error("context.prepare_write 拒绝：项目在准备期间发生变化，请重跑")
   }
 
+  const workflowHint = buildPrepareWriteWorkflowHint({
+    mode,
+    targetChapter,
+    matchedDraft,
+    promptHasMore: promptSlice.hasMore,
+    promptNextOffset: promptSlice.nextOffset,
+    dimensionSection,
+  })
+
   const result: PrepareWriteContextResult = {
     projectPath,
     mode,
@@ -1600,8 +1800,10 @@ export async function runPrepareWriteContext(
     effectiveConfig,
     buildPolicy: {
       telemetryDiscarded: true,
-      retrievalNetworkAllowed: normalized.allowRetrievalNetwork,
+      retrievalMode: resolvedRetrievalMode,
+      retrievalNetworkAllowed,
       effectiveNetworkEnabled,
+      networkRetrievalSkipped,
       zeroIoClaimed: false,
       llmCalls: 0,
       diskWrites: 0,
@@ -1612,6 +1814,7 @@ export async function runPrepareWriteContext(
       ...promptSlice,
       offsetDomain: "utf16-code-units",
     },
+    workflowHint,
     meta: {
       llmCalls: 0,
       diskWrites: 0,
