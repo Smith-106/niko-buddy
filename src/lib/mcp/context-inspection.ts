@@ -34,23 +34,31 @@
  */
 
 import { readFile } from "@/commands/fs"
-import { fingerprintText } from "@/lib/novel/book-analysis/content-fingerprint"
-import { resolveReviewChapterMaxChars } from "@/lib/novel/chapter-window"
-import { computeCheckpointDigest, stableStringify } from "@/lib/novel/checkpoint-digest"
-import { buildContextPack as buildContextPackProduction } from "@/lib/novel/context-engine"
-import type { BuildContextOptions, ContextPack } from "@/lib/novel/context-engine-types"
-import type { RoutingTelemetrySink } from "@/lib/novel/context-telemetry"
 import {
   SIX_REVIEW_DIMENSION_ORDER,
   SIX_REVIEW_DIMENSIONS,
-  buildDimensionReviewPrompt,
-  type SixReviewDimensionKey,
-} from "@/lib/novel/dimension-review-adapter"
-import {
   assessGoldScaleReadiness,
+  buildChapterPlan as buildChapterPlanProduction,
+  buildContextPack as buildContextPackProduction,
+  buildDimensionReviewPrompt,
+  canonicalizeContextPackForHash,
+  computeCheckpointDigest,
+  contextPackToPrompt,
+  fingerprintText,
+  listChapterDrafts,
+  listScopeFiles,
   loadGoldScaleMaterials,
-} from "@/lib/novel/literary-gold-scale"
-import { canonicalizeContextPackForHash } from "@/lib/novel/measurement-fingerprint"
+  parseChapterOrdinal,
+  readDraftChapterNumber,
+  resolveReviewChapterMaxChars,
+  stableCheckpointStringify,
+  type BuildContextOptions,
+  type ChapterDraft,
+  type ChapterPlanView,
+  type ContextPack,
+  type RoutingTelemetrySink,
+  type SixReviewDimensionKey,
+} from "@/lib/novel"
 import { TASK_PROMPT_KEYS, useWikiStore } from "@/stores/wiki-store"
 import type {
   EmbeddingConfig,
@@ -531,7 +539,7 @@ async function projectEffectiveConfig(config: ContextRuntimeConfig): Promise<Rec
     rerank: projectRerankConfig(config.rerankConfig),
   }
 
-  const fingerprint = await computeCheckpointDigest(stableStringify(projection))
+  const fingerprint = await computeCheckpointDigest(stableCheckpointStringify(projection))
   return { ...projection, fingerprint, fingerprintAlgorithm: "sha256-utf8-of-public-projection" }
 }
 
@@ -804,7 +812,7 @@ export async function inspectContext(
 
   // 2) 实际生效配置快照（用于公开投影 + 原样 DI + 漂移比对）。
   const configAtStart = deps.readRuntimeConfig()
-  const configBaseline = stableStringify(configAtStart)
+  const configBaseline = stableCheckpointStringify(configAtStart)
   const needsPack = params.includePack || params.dimension !== undefined || inspectionId !== undefined
   // 私有 baseline 只在内部比较，不放进公开投影或响应。
   const privateConfigFingerprint = needsPack ? await computeCheckpointDigest(configBaseline) : ""
@@ -953,7 +961,7 @@ export async function inspectContext(
   // SHA await 后再同步核配置 / 项目，避免读取正文期间又切换项目仍返回成功。
   const textAtEnd = await readChapterText()
   if ((await computeCheckpointDigest(textAtEnd)) !== textSha256) rejectDrift("章节正文")
-  if (stableStringify(deps.readRuntimeConfig()) !== configBaseline) rejectDrift("生效配置")
+  if (stableCheckpointStringify(deps.readRuntimeConfig()) !== configBaseline) rejectDrift("生效配置")
   if (deps.readProjectPath() !== projectPath) rejectDrift("项目")
   if (snapshot && snapshot.expiresAt <= now()) {
     if (inspectionId !== undefined) cache.delete(inspectionId)
@@ -1063,4 +1071,568 @@ async function buildDimensionPage(input: {
     },
     offsetDomain: "utf16-code-units",
   }
+}
+
+// ── R2-B2: `context.prepare` 写作前零 LLM 只读准备门面 ─────────────────────────
+
+const PREPARE_DRAFT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/
+
+const CONTEXT_PREPARE_PARAM_KEYS = new Set([
+  "targetChapter",
+  "draftId",
+  "task",
+  "includePack",
+  "includeDraft",
+  "includePlanningView",
+  "dimension",
+  "allowRetrievalNetwork",
+  "offset",
+  "limit",
+])
+
+export interface PrepareWriteContextParams {
+  targetChapter?: number
+  draftId?: string
+  task?: string
+  includePack?: boolean
+  includeDraft?: boolean
+  includePlanningView?: boolean
+  dimension?: string
+  allowRetrievalNetwork?: boolean
+  offset?: number
+  limit?: number
+}
+
+export interface NormalizedPrepareWriteContextParams {
+  targetChapter?: number
+  draftId?: string
+  task?: string
+  includePack: boolean
+  includeDraft: boolean
+  includePlanningView: boolean
+  dimension?: SixReviewDimensionKey
+  allowRetrievalNetwork: boolean
+  offset: number
+  limit: number
+}
+
+export interface PrepareWriteContextDeps {
+  readProjectPath: () => string
+  readRuntimeConfig: () => ContextRuntimeConfig
+  listChapters: (projectPath: string) => Promise<Array<{ name: string; path: string }>>
+  listDrafts: (projectPath: string) => Promise<ChapterDraft[]>
+  buildContextPack: (
+    projectPath: string,
+    task: string,
+    chapterNumber: number | undefined,
+    options: BuildContextOptions,
+  ) => Promise<ContextPack>
+  buildChapterPlan: (projectPath: string, chapterNumber: number) => Promise<ChapterPlanView>
+  loadGoldMaterials: (projectPath: string) => Promise<GoldMaterials>
+  assessGoldReadiness?: typeof assessGoldScaleReadiness
+}
+
+export interface PrepareWriteContextResult {
+  projectPath: string
+  mode: "new_book_chapter_1" | "next_chapter" | "draft_review"
+  targetChapter: number
+  existingChapterCount: number
+  isNewBook: boolean
+  task: string
+  novelMode: boolean
+  /** 显式告警摘要（如 `novelMode=false` 或规划视图降级）；无告警时为 null。 */
+  warning: string | null
+  warnings: string[]
+  effectiveConfig: Record<string, unknown>
+  buildPolicy: {
+    telemetryDiscarded: true
+    retrievalNetworkAllowed: boolean
+    effectiveNetworkEnabled: boolean
+    zeroIoClaimed: false
+    llmCalls: 0
+    diskWrites: 0
+  }
+  contextPackBuilt: boolean
+  packMetadata: PackMetadata
+  /** 仅 `includePack === true` 时返回完整独立副本。 */
+  contextPack?: ContextPack
+  /** 仅 `includePlanningView !== false` 时返回零 LLM 规划视图（降级安全）。 */
+  planningView?: ChapterPlanView | null
+  /** 字符分页的写作上下文提示词切片。 */
+  prompt: {
+    text: string
+    offset: number
+    limit: number
+    pageChars: number
+    totalChars: number
+    hasMore: boolean
+    nextOffset: number | null
+    promptSha256: string
+    pageSha256: string
+    offsetDomain: "utf16-code-units"
+  }
+  /** 传入 `draftId` 时的待审草稿元信息。 */
+  draft?: {
+    draftId: string
+    chapterName: string
+    chapterNumber: number | null
+    status: ChapterDraft["status"]
+    createdAt: number
+    chars: number
+    partial: boolean
+    textSha256: string
+  }
+  /** 仅传入 `draftId` 且 `includeDraft === true` 时返回完整草稿正文。 */
+  draftText?: string
+  /** 仅传入 `dimension` 时返回六维评审标准（若同时传 `draftId` 则含生产六维分页审查 prompt）。 */
+  dimension?: {
+    key: SixReviewDimensionKey
+    label: string
+    objective: string
+    stages: string[]
+    checks: string[]
+    reviewPromptBuilt: boolean
+    note?: string
+    promptKind?: "production-user-analysis-prompt"
+    prompt?: string
+    offset?: number
+    limit?: number
+    pageChars?: number
+    totalChars?: number
+    hasMore?: boolean
+    nextOffset?: number | null
+    chapterWindowOmitted?: boolean
+    goldAnchorCount?: number
+    goldMaterialsSoftFailed?: boolean
+    goldMaterialsDiagnostic?: InspectionGoldSnapshot["diagnostic"]
+    promptSha256?: string
+    pageSha256?: string
+    offsetDomain?: "utf16-code-units"
+  }
+  meta: {
+    llmCalls: 0
+    diskWrites: 0
+  }
+}
+
+const defaultPrepareDeps: PrepareWriteContextDeps = {
+  readProjectPath: defaultDeps.readProjectPath,
+  readRuntimeConfig: defaultDeps.readRuntimeConfig,
+  listChapters: (projectPath) => listScopeFiles(projectPath, "chapters"),
+  listDrafts: (projectPath) => listChapterDrafts(projectPath),
+  buildContextPack: defaultDeps.buildContextPack,
+  buildChapterPlan: (projectPath, chapterNumber) => buildChapterPlanProduction(projectPath, chapterNumber),
+  loadGoldMaterials: defaultDeps.loadGoldMaterials,
+  assessGoldReadiness: assessGoldScaleReadiness,
+}
+
+function prepareOptionalBoolean(
+  params: Record<string, unknown>,
+  field: string,
+  fallback: boolean,
+): boolean {
+  const raw = params[field]
+  if (raw === undefined) return fallback
+  if (typeof raw !== "boolean") {
+    throw new Error(`context.prepare_write 的 ${field} 必须是 boolean，收到 ${typeof raw}`)
+  }
+  return raw
+}
+
+function prepareOptionalNonNegativeInt(
+  params: Record<string, unknown>,
+  field: string,
+  fallback: number,
+): number {
+  const raw = params[field]
+  if (raw === undefined) return fallback
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) {
+    throw new Error(`context.prepare_write 的 ${field} 必须是 >= 0 的整数`)
+  }
+  return raw
+}
+
+/** 校验并归一化 `context.prepare_write` 参数（可供状态桥在异步启动前做同步 fast-fail 校验）。 */
+export function normalizePrepareWriteContextParams(
+  params: Record<string, unknown>,
+): NormalizedPrepareWriteContextParams {
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    throw new Error("context.prepare_write 的 params 必须是对象")
+  }
+  for (const key of Object.keys(params)) {
+    if (!CONTEXT_PREPARE_PARAM_KEYS.has(key)) {
+      throw new Error(`context.prepare_write 的参数未知：${key}`)
+    }
+  }
+
+  let targetChapter: number | undefined
+  if (params.targetChapter !== undefined) {
+    if (
+      typeof params.targetChapter !== "number"
+      || !Number.isInteger(params.targetChapter)
+      || params.targetChapter < 1
+    ) {
+      throw new Error("context.prepare_write 的 targetChapter 必须是 >= 1 的整数")
+    }
+    targetChapter = params.targetChapter
+  }
+
+  let draftId: string | undefined
+  if (params.draftId !== undefined) {
+    if (typeof params.draftId !== "string" || !PREPARE_DRAFT_ID_PATTERN.test(params.draftId)) {
+      throw new Error("context.prepare_write 的 draftId 非法（仅允许 1-128 位字母、数字、下划线或连字符）")
+    }
+    draftId = params.draftId
+  }
+
+  let task: string | undefined
+  if (params.task !== undefined) {
+    if (typeof params.task !== "string" || params.task.trim() === "") {
+      throw new Error("context.prepare_write 的 task 必须是非空字符串")
+    }
+    task = params.task
+  }
+
+  let dimension: SixReviewDimensionKey | undefined
+  if (params.dimension !== undefined) {
+    if (!isSixReviewDimensionKey(params.dimension)) {
+      throw new Error(
+        `context.prepare_write 的 dimension 非法：${String(params.dimension)}。` +
+          `合法值只能来自生产常量 SIX_REVIEW_DIMENSION_ORDER：${SIX_REVIEW_DIMENSION_ORDER.join(", ")}`,
+      )
+    }
+    dimension = params.dimension
+  }
+
+  const offset = prepareOptionalNonNegativeInt(params, "offset", 0)
+  const limit = prepareOptionalNonNegativeInt(params, "limit", DEFAULT_PROMPT_PAGE_CHARS)
+  if (limit < 1 || limit > MAX_PROMPT_PAGE_CHARS) {
+    throw new Error(
+      `context.prepare_write 的 limit 必须在 1..${MAX_PROMPT_PAGE_CHARS}，收到 ${limit}`,
+    )
+  }
+
+  return {
+    targetChapter,
+    draftId,
+    task,
+    includePack: prepareOptionalBoolean(params, "includePack", false),
+    includeDraft: prepareOptionalBoolean(params, "includeDraft", false),
+    includePlanningView: prepareOptionalBoolean(params, "includePlanningView", true),
+    dimension,
+    allowRetrievalNetwork: prepareOptionalBoolean(params, "allowRetrievalNetwork", false),
+    offset,
+    limit,
+  }
+}
+
+function resolveChapterFileNumber(name: string): number | undefined {
+  const stem = name.replace(/\.md$/i, "")
+  const ordinal = parseChapterOrdinal(stem)
+  if (ordinal !== null && Number.isSafeInteger(ordinal) && ordinal > 0) return ordinal
+  const fromDraftHelper = readDraftChapterNumber(stem)
+  if (fromDraftHelper !== undefined) return fromDraftHelper
+  const digits = /(\d+)/.exec(stem)
+  if (!digits) return undefined
+  const num = Number(digits[1])
+  return Number.isSafeInteger(num) && num > 0 ? num : undefined
+}
+
+async function slicePaginatedText(
+  fullText: string,
+  offset: number,
+  limit: number,
+  label: string,
+): Promise<{
+  text: string
+  offset: number
+  limit: number
+  pageChars: number
+  totalChars: number
+  hasMore: boolean
+  nextOffset: number | null
+  promptSha256: string
+  pageSha256: string
+}> {
+  const totalChars = fullText.length
+  if (offset > totalChars) {
+    throw new Error(`${label} 的 offset 超出长度（offset=${offset}, totalChars=${totalChars}）`)
+  }
+  const text = fullText.slice(offset, offset + limit)
+  const consumed = offset + text.length
+  const hasMore = consumed < totalChars
+  const nextOffset = hasMore ? consumed : null
+  const [promptSha256, pageSha256] = await Promise.all([
+    computeCheckpointDigest(fullText),
+    computeCheckpointDigest(text),
+  ])
+  return {
+    text,
+    offset,
+    limit,
+    pageChars: text.length,
+    totalChars,
+    hasMore,
+    nextOffset,
+    promptSha256,
+    pageSha256,
+  }
+}
+
+/**
+ * 零 LLM、零写盘的写作/审稿上下文准备入口（供 MCP `context.prepare_write` 消费）。
+ *
+ * 支持三类核心场景：
+ * 1. 0 章新书首章准备（世界观/大纲/规划视图 + 第 1 章写作上下文）；
+ * 2. 第 `N+1` 章续写上下文（ContextPack + 字符分页提示词切片）；
+ * 3. 待审草稿 `draftId` 审读（可选携带六维评审标准与生产六维分析 prompt）。
+ */
+export async function runPrepareWriteContext(
+  projectPath: string,
+  params: Record<string, unknown> = {},
+  depsOverrides?: Partial<PrepareWriteContextDeps>,
+): Promise<PrepareWriteContextResult> {
+  if (!projectPath || projectPath.trim() === "") {
+    throw new Error("context.prepare_write 需要已打开的项目")
+  }
+  const normalized = normalizePrepareWriteContextParams(params)
+  const deps: PrepareWriteContextDeps = { ...defaultPrepareDeps, ...depsOverrides }
+
+  const activeProject = deps.readProjectPath()
+  if (activeProject !== projectPath) {
+    throw new Error("context.prepare_write 拒绝：当前打开的项目与请求项目不一致")
+  }
+
+  const configAtStart = deps.readRuntimeConfig()
+  const configBaseline = stableCheckpointStringify(configAtStart)
+  const effectiveNetworkEnabled = configAtStart.embeddingConfig.enabled || configAtStart.rerankConfig.enabled
+  const warnings: string[] = []
+
+  if (!configAtStart.novelMode) {
+    warnings.push(
+      "当前项目未启用小说模式（novelMode=false），上下文包仅返回空壳；请在项目设置中开启小说模式后重试。",
+    )
+  }
+
+  if (configAtStart.novelMode && effectiveNetworkEnabled && !normalized.allowRetrievalNetwork) {
+    throw new Error(
+      "context.prepare_write 拒绝构建：当前生效配置启用了 embedding/rerank 检索网络，" +
+        "但调用方未显式传 allowRetrievalNetwork=true。",
+    )
+  }
+
+  const chapters = await deps.listChapters(projectPath)
+  const existingChapterCount = chapters.length
+  const isNewBook = existingChapterCount === 0
+  let maxChapterNumber = 0
+  for (const ch of chapters) {
+    const n = resolveChapterFileNumber(ch.name)
+    if (n !== undefined && n > maxChapterNumber) maxChapterNumber = n
+  }
+  const defaultNextChapter = Math.max(maxChapterNumber, existingChapterCount) + 1
+
+  let matchedDraft: ChapterDraft | undefined
+  if (normalized.draftId !== undefined) {
+    const drafts = await deps.listDrafts(projectPath)
+    matchedDraft = drafts.find((d) => d.id === normalized.draftId)
+    if (!matchedDraft) {
+      throw new Error(`找不到草稿：${normalized.draftId}`)
+    }
+  }
+
+  const draftChapterNumber = matchedDraft ? readDraftChapterNumber(matchedDraft.chapterName) : undefined
+  const targetChapter = normalized.targetChapter ?? draftChapterNumber ?? defaultNextChapter
+  const mode: PrepareWriteContextResult["mode"] = matchedDraft
+    ? "draft_review"
+    : isNewBook && targetChapter === 1
+      ? "new_book_chapter_1"
+      : "next_chapter"
+
+  const task =
+    normalized.task
+    ?? (matchedDraft
+      ? normalized.dimension
+        ? `六维审查第${targetChapter}章（草稿 ${matchedDraft.id}）`
+        : `审阅草稿第${targetChapter}章（${matchedDraft.id}）`
+      : `准备写作第${targetChapter}章`)
+
+  const buildOptions: BuildContextOptions = {
+    llmConfig: configAtStart.llmConfig,
+    novelConfig: configAtStart.novelConfig,
+    novelMode: configAtStart.novelMode,
+    embeddingConfig: configAtStart.embeddingConfig,
+    rerankConfig: configAtStart.rerankConfig,
+    revisionFeedbackWindowConfig: configAtStart.revisionFeedbackWindowConfig,
+    telemetrySink: DISCARD_TELEMETRY_SINK,
+  }
+
+  const pack = copySerializable(await deps.buildContextPack(projectPath, task, targetChapter, buildOptions))
+  const packMetadata = await buildPackMetadata(pack)
+
+  let planningView: ChapterPlanView | null | undefined
+  if (normalized.includePlanningView) {
+    try {
+      planningView = copySerializable(await deps.buildChapterPlan(projectPath, targetChapter))
+    } catch {
+      planningView = null
+      warnings.push("规划视图装载失败，已优雅降级为 null。")
+    }
+  }
+
+  const fullWritingPrompt = contextPackToPrompt(pack, configAtStart.novelConfig.contextTokenBudget, {
+    temporalFactsEnabled: configAtStart.novelConfig.temporalFactsEnabled === true,
+    hardInjectEnabled: configAtStart.novelConfig.hardInjectEnabled === true,
+  })
+
+  let dimensionSection: PrepareWriteContextResult["dimension"]
+  let promptSlice: Awaited<ReturnType<typeof slicePaginatedText>>
+
+  if (normalized.dimension !== undefined) {
+    const definition = SIX_REVIEW_DIMENSIONS[normalized.dimension]
+    if (matchedDraft) {
+      const gold = await loadInspectionGold(projectPath, {
+        ...defaultDeps,
+        loadGoldMaterials: deps.loadGoldMaterials,
+        assessGoldReadiness: deps.assessGoldReadiness ?? assessGoldScaleReadiness,
+      })
+      const reviewPrompt = buildDimensionReviewPrompt(pack, matchedDraft.content, definition, {
+        goldAnchors: gold.materials.merged,
+        goldReadinessHint: gold.promptHint,
+        hardInjectEnabled: configAtStart.novelConfig.hardInjectEnabled === true,
+      })
+      const reviewPage = await slicePaginatedText(
+        reviewPrompt,
+        normalized.offset,
+        normalized.limit,
+        "context.prepare_write(dimension)",
+      )
+      const maxChars = resolveReviewChapterMaxChars()
+      dimensionSection = {
+        key: definition.key,
+        label: definition.label,
+        objective: definition.objective,
+        stages: [...definition.stages],
+        checks: [...definition.checks],
+        reviewPromptBuilt: true,
+        promptKind: "production-user-analysis-prompt",
+        prompt: reviewPage.text,
+        offset: reviewPage.offset,
+        limit: reviewPage.limit,
+        pageChars: reviewPage.pageChars,
+        totalChars: reviewPage.totalChars,
+        hasMore: reviewPage.hasMore,
+        nextOffset: reviewPage.nextOffset,
+        chapterWindowOmitted: matchedDraft.content.length > maxChars,
+        goldAnchorCount: gold.materials.merged.length,
+        goldMaterialsSoftFailed: gold.softFailed,
+        goldMaterialsDiagnostic: gold.diagnostic,
+        promptSha256: reviewPage.promptSha256,
+        pageSha256: reviewPage.pageSha256,
+        offsetDomain: "utf16-code-units",
+      }
+      // dimension 分页时以 0 起点安全截断写作上下文，避免被更长的审查 prompt offset 误伤。
+      promptSlice = await slicePaginatedText(
+        fullWritingPrompt,
+        0,
+        normalized.limit,
+        "context.prepare_write",
+      )
+    } else {
+      dimensionSection = {
+        key: definition.key,
+        label: definition.label,
+        objective: definition.objective,
+        stages: [...definition.stages],
+        checks: [...definition.checks],
+        reviewPromptBuilt: false,
+        note: "未指定 draftId，仅返回维度评审标准；传入 draftId 可生成针对草稿正文的六维审查 prompt。",
+      }
+      promptSlice = await slicePaginatedText(
+        fullWritingPrompt,
+        normalized.offset,
+        normalized.limit,
+        "context.prepare_write",
+      )
+    }
+  } else {
+    promptSlice = await slicePaginatedText(
+      fullWritingPrompt,
+      normalized.offset,
+      normalized.limit,
+      "context.prepare_write",
+    )
+  }
+
+  const effectiveConfig = await projectEffectiveConfig(configAtStart)
+
+  let draftMeta: PrepareWriteContextResult["draft"]
+  if (matchedDraft) {
+    draftMeta = {
+      draftId: matchedDraft.id,
+      chapterName: matchedDraft.chapterName,
+      chapterNumber: draftChapterNumber ?? null,
+      status: matchedDraft.status,
+      createdAt: matchedDraft.createdAt,
+      chars: matchedDraft.content.length,
+      partial: matchedDraft.partial === true,
+      textSha256: await computeCheckpointDigest(matchedDraft.content),
+    }
+  }
+
+  // 终检：若准备期间切换项目或修改配置，显式拒绝，不返回混合快照。
+  if (stableCheckpointStringify(deps.readRuntimeConfig()) !== configBaseline) {
+    throw new Error("context.prepare_write 拒绝：生效配置在准备期间发生变化，请重跑")
+  }
+  if (deps.readProjectPath() !== projectPath) {
+    throw new Error("context.prepare_write 拒绝：项目在准备期间发生变化，请重跑")
+  }
+
+  const result: PrepareWriteContextResult = {
+    projectPath,
+    mode,
+    targetChapter,
+    existingChapterCount,
+    isNewBook,
+    task,
+    novelMode: configAtStart.novelMode,
+    warning: warnings.length > 0 ? warnings.join("；") : null,
+    warnings,
+    effectiveConfig,
+    buildPolicy: {
+      telemetryDiscarded: true,
+      retrievalNetworkAllowed: normalized.allowRetrievalNetwork,
+      effectiveNetworkEnabled,
+      zeroIoClaimed: false,
+      llmCalls: 0,
+      diskWrites: 0,
+    },
+    contextPackBuilt: true,
+    packMetadata,
+    prompt: {
+      ...promptSlice,
+      offsetDomain: "utf16-code-units",
+    },
+    meta: {
+      llmCalls: 0,
+      diskWrites: 0,
+    },
+  }
+
+  if (normalized.includePack) {
+    result.contextPack = pack
+  }
+  if (normalized.includePlanningView) {
+    result.planningView = planningView ?? null
+  }
+  if (draftMeta) {
+    result.draft = draftMeta
+  }
+  if (matchedDraft && normalized.includeDraft) {
+    result.draftText = matchedDraft.content
+  }
+  if (dimensionSection) {
+    result.dimension = dimensionSection
+  }
+
+  return result
 }

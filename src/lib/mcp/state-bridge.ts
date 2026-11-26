@@ -44,11 +44,67 @@
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 
-import { readFile } from "@/commands/fs"
-import { listScopeFiles } from "@/lib/novel/agent-tools"
-import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
-import { upsertCharacterEntity } from "@/lib/novel"
-import { useWikiStore } from "@/stores/wiki-store"
+import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { normalizePath } from "@/lib/path-utils"
+import {
+  CHINESE_NOVEL_DE_AI_RULES,
+  DE_AI_CATEGORIES,
+  DE_AI_SEVERITIES,
+  DE_AI_STRUCTURED_RULES,
+  DIRECTOR_PHASES,
+  DRAFTS_DIR,
+  EMPTY_BOOK_RULES,
+  HUMANIZER_CAVITY_GUARD,
+  SLOP_CLASSIFY_BLOCK_THRESHOLD,
+  SLOP_CLASSIFY_WARN_THRESHOLD,
+  bookRulesToPromptFragment,
+  collectPhaseGateInput,
+  collectProjectSnapshot,
+  computeCheckpointDigest,
+  createEmptyStoryCompass,
+  draftNeedsGateReview,
+  getActiveForeshadowings,
+  getDraftGateStatus,
+  getGenreBaseline,
+  hasPersistedDirectorState,
+  listChapterDrafts,
+  listScopeFiles,
+  loadDirectorPersisted,
+  loadNovelSessionStatus,
+  loadWorldBlueprint,
+  normalizeDeAiSkillConfig,
+  normalizeUserSkillConfig,
+  parseOutlineMarkdownToModel,
+  phaseGapHint,
+  readDraftChapterNumber,
+  resolveChapterLengthSpec,
+  resolveEffectiveDeAiSkill,
+  resolveEnabledWritingSkills,
+  saveOutlineModel,
+  tryAdvanceDirector,
+  upsertCharacterEntity,
+  validateOutlineModel,
+  validateWorldBlueprint,
+  type BookRules,
+  type ChapterDraft,
+  type DeAiSkill,
+  type DeAiSkillConfig,
+  type DirectorPersistedFile,
+  type DirectorSnapshot,
+  type ForeshadowingStore,
+  type OutlineModel,
+  type StoryCompass,
+  type WorldBlueprint,
+  type WritingStylePreset,
+  type WritingStyleStore,
+} from "@/lib/novel"
+import {
+  createDefaultStore,
+  getAvoidWords,
+  getDefaultUserMemoryPath,
+  type UserMemoryStore,
+} from "@/lib/user-memory"
+import { useWikiStore, type NovelConfig } from "@/stores/wiki-store"
 
 import {
   SECRET_REF_CATEGORIES,
@@ -59,7 +115,15 @@ import {
 import { SettingsValidationError, getWriter, validateValue } from "./settings-writers"
 import { resolveFormalPath, writeChapterDraft } from "./draft-actions"
 import { getPipelineTask, startDirectorAdvanceTask, startOutlineGenerationTask, startPipelineBatch, startPipelineTask } from "./pipeline-tasks"
-import { inspectContext, sameInspectedChapter, type ContextInspectionRequest, type InspectedChapter } from "./context-inspection"
+import {
+  inspectContext,
+  normalizePrepareWriteContextParams,
+  runPrepareWriteContext,
+  sameInspectedChapter,
+  type ContextInspectionRequest,
+  type InspectedChapter,
+} from "./context-inspection"
+import { runMechanicalGateForMcp, type MechanicalGateInput, type MechanicalGateReport } from "./mechanical-gate"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
@@ -81,10 +145,18 @@ export type StateOp =
   | "outline-generate"
   | "character-upsert"
   | "draft-write"
+  | "draft-list"
+  | "draft-read"
+  | "rules-get"
+  | "gate-check-mechanical"
   | "formal-path"
   | "context-inspect"
   | "context-inspect-start"
   | "context-inspect-poll"
+  | "context-prepare-start"
+  | "context-prepare-poll"
+  | "director-check"
+  | "outline-write"
 
 export interface StateRequestPayload {
   id: string
@@ -109,10 +181,48 @@ export interface StateResponse {
   error?: string
 }
 
-/** `chapter.read` 的默认返回行数上限：单章动辄上万字，不设限会撑爆 MCP 响应。 */
+/** `chapter.read` 与 `draft.read` 的默认返回行数上限：单章动辄上万字，不设限会撑爆 MCP 响应。 */
 export const DEFAULT_CHAPTER_LIMIT = 200
-/** `chapter.read` 的硬上限：客户端可以要更多，但不能无限。 */
+/** `chapter.read` 与 `draft.read` 的硬上限：客户端可以要更多，但不能无限。 */
 export const MAX_CHAPTER_LIMIT = 2000
+/** `gate.check_mechanical` 待检正文硬上限（字符数）。 */
+export const MAX_MECHANICAL_GATE_TEXT_CHARS = 100_000
+/** `outline-write` 大纲内容硬上限（字符数）。 */
+export const MAX_OUTLINE_WRITE_CHARS = 200_000
+
+const DRAFT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/
+const MAX_OUTLINE_FILENAME_CHARS = 128
+const WINDOWS_RESERVED_BASENAME_RE = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i
+const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/
+const FORBIDDEN_FILENAME_CHAR_RE = /[\\/:*?"<>|]/
+const OUTLINE_WRITE_PARAM_KEYS = new Set(["filename", "content", "syncModel"])
+
+export const RULES_SECTIONS = ["writingStyle", "antiAi", "bookRules", "planning"] as const
+export type RulesSection = (typeof RULES_SECTIONS)[number]
+const RULES_SECTION_SET: ReadonlySet<string> = new Set(RULES_SECTIONS)
+
+/** `rules.get` 的 `novelConfig` 公开标量白名单（严禁 spread `novelConfig` / `llmConfig` / `providerConfigs` / 凭据）。 */
+const RULES_PUBLIC_NOVEL_CONFIG_KEYS = [
+  "genre",
+  "chapterTargetChars",
+  "contextTokenBudget",
+  "recentSummaryWindow",
+  "searchTopK",
+  "dialoguePunctuationStyle",
+  "paragraphIndent",
+  "quoteConvention",
+  "preWriteGateMode",
+  "deepChapterReview",
+  "literaryPolishAfterGate",
+  "autoPlanningEnabled",
+  "autoGenerateChapterTitle",
+  "hardInjectEnabled",
+  "outlineThrillSoftGateEnabled",
+  "stateDeltaLightCheckEnabled",
+  "stateDeltaBlocksTrackA",
+  "trustFilterEnabled",
+  "dualKbRoutingEnabled",
+] as const
 
 /**
  * 桥的依赖注入点。
@@ -144,6 +254,14 @@ export interface StateBridgeDeps {
   readPipeline: (taskId: string) => unknown
   /** 写章节草稿（Draft-first）。 */
   writeChapterDraft: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  /** 草稿写入成功后的 UI 刷新回调（默认 `useWikiStore.getState().bumpDataVersion()`）。 */
+  onDraftWritten?: () => void
+  /** 只读列出项目草稿（默认 `listChapterDrafts`）。 */
+  listDrafts?: (projectPath: string) => Promise<ChapterDraft[]>
+  /** 读取公开只读规则快照（未注入时默认走纯 `deps.readFileText` 零写盘聚合）。 */
+  readRulesSnapshot?: (projectPath: string, sections: readonly RulesSection[]) => Promise<unknown>
+  /** 运行零 LLM 机械门控（未注入时默认调用 `runMechanicalGateForMcp`）。 */
+  runMechanicalGate?: (input: MechanicalGateInput) => Promise<MechanicalGateReport>
   /**
    * 把「章节名 / 记忆名」解析成正式文件的**虚拟路径**。
    *
@@ -158,6 +276,24 @@ export interface StateBridgeDeps {
    * 语义），构建与配置投影在 `context-inspection.ts`。
    */
   inspectContext: (request: ContextInspectionRequest) => Promise<unknown>
+  /** 零 LLM 只读写作上下文准备（`context-prepare-start/poll`；未注入时默认走 `runPrepareWriteContext`）。 */
+  prepareWriteContext?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  /** 零 LLM 只读导演状态检查依赖（`director-check`；未注入时默认走 `@/lib/novel` 只读 loader）。 */
+  directorCheckDeps?: {
+    hasPersistedDirectorState?: (projectPath: string) => Promise<boolean>
+    loadDirectorPersisted?: (projectPath: string) => Promise<DirectorPersistedFile>
+    loadWorldBlueprint?: (projectPath: string) => Promise<WorldBlueprint | null>
+    collectProjectSnapshot?: (
+      projectPath: string,
+      idea: { title: string; genre: string; coreConflict: string },
+    ) => Promise<DirectorSnapshot>
+  }
+  /** `outline-write` 文件与大纲模型侧车写入依赖（未注入时默认走 `@/commands/fs` 与 `saveOutlineModel`）。 */
+  outlineWriteDeps?: {
+    createDirectory?: (path: string) => Promise<void>
+    writeFileAtomic?: (path: string, contents: string) => Promise<void>
+    saveOutlineModel?: (projectPath: string, model: OutlineModel) => Promise<{ path: string }>
+  }
 }
 
 const defaultDeps: StateBridgeDeps = {
@@ -178,6 +314,8 @@ const defaultDeps: StateBridgeDeps = {
   upsertCharacter: (projectPath, params) => upsertCharacterEntityFromParams(projectPath, params),
   readPipeline: (taskId) => getPipelineTask(taskId),
   writeChapterDraft: (projectPath, params) => writeChapterDraft(projectPath, params),
+  onDraftWritten: () => useWikiStore.getState().bumpDataVersion(),
+  listDrafts: (projectPath) => listChapterDrafts(projectPath),
   resolveFormalPath: (projectPath, params) => resolveFormalPath(projectPath, params),
   inspectContext: (request) => inspectContext(request),
   writeSetting: (key, value) => {
@@ -270,6 +408,9 @@ function resolveChapter(
   if (trimmed === "") {
     throw new Error("chapter.read 需要章节序号或文件名")
   }
+  if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..") || trimmed.includes("\0")) {
+    throw new Error(`非法章节选择器（禁止路径分隔符或上级目录引用）：${trimmed}`)
+  }
   const sorted = [...chapters].sort((a, b) => compareChapterName(a.name, b.name))
   if (/^\d+$/.test(trimmed)) {
     const index = Number(trimmed)
@@ -328,19 +469,424 @@ function sliceLines(
   }
 }
 
+function projectRoot(projectPath: string): string {
+  return normalizePath(projectPath).replace(/\/+$/, "")
+}
+
+/** 构造草稿元信息摘要（`draft-list` / `draft-read` 专用，严禁携带正文 `content`）。 */
+function summarizeDraftMetadata(projectPath: string, draft: ChapterDraft) {
+  const isPartial = draft.partial === true || draft.adoptionGate?.status === "partial"
+  const adoptionGated = draft.adoptionGate !== undefined || isPartial
+  // 诚实元数据（零死锁）：无采纳门回执的非 partial 外部写入草稿（`mcp:chapter.write` 与
+  // `acp:*`）如实汇报 `gateStatus: "unassessed"`，同时保持 `needsGateReview: false` 与
+  // `adoptionGated: false`，避免无 API Key 用户在采纳正式章时被锁死。
+  const isUngatedExternalWrite =
+    !isPartial
+    && draft.adoptionGate === undefined
+    && (
+      draft.sourceConversationId === "mcp:chapter.write"
+      || (typeof draft.sourceConversationId === "string" && draft.sourceConversationId.startsWith("acp:"))
+    )
+  const gateStatus = isUngatedExternalWrite ? "unassessed" : getDraftGateStatus(draft)
+  return {
+    draftId: draft.id,
+    chapterName: draft.chapterName,
+    chapterNumber: readDraftChapterNumber(draft.chapterName) ?? null,
+    status: draft.status,
+    createdAt: draft.createdAt,
+    chars: draft.content.length,
+    partial: draft.partial === true,
+    adoptionGated,
+    gateStatus,
+    needsGateReview: draftNeedsGateReview(draft),
+    sourceConversationId: draft.sourceConversationId ?? null,
+    sourceMessageId: draft.sourceMessageId ?? null,
+    path: `${projectRoot(projectPath)}/${DRAFTS_DIR}/${draft.id}.md`,
+  }
+}
+
+function parseRulesSections(raw: unknown): RulesSection[] {
+  if (raw === undefined) return [...RULES_SECTIONS]
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error(`rules-get 的 params.sections 必须是非空数组（合法值：${RULES_SECTIONS.join(", ")}）`)
+  }
+  const out: RulesSection[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (typeof item !== "string" || !RULES_SECTION_SET.has(item)) {
+      throw new Error(`rules-get 不支持的 section：${String(item)}（合法值：${RULES_SECTIONS.join(", ")}）`)
+    }
+    if (!seen.has(item)) {
+      seen.add(item)
+      out.push(item as RulesSection)
+    }
+  }
+  return out
+}
+
+function projectPublicNovelConfig(novelConfig: NovelConfig): Record<string, string | number | boolean> {
+  const source = novelConfig as unknown as Record<string, unknown>
+  const out: Record<string, string | number | boolean> = {}
+  for (const key of RULES_PUBLIC_NOVEL_CONFIG_KEYS) {
+    const val = source[key]
+    if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+      out[key] = val
+    }
+  }
+  return out
+}
+
+function normalizeBookRulesForRead(raw: unknown): BookRules | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  const obj = raw as Record<string, unknown>
+  const toStrings = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : []
+
+  const rules: BookRules = {
+    version: typeof obj.version === "string" && obj.version.trim() ? obj.version : "1.0",
+    prohibitions: toStrings(obj.prohibitions),
+    allowedDeviations: toStrings(obj.allowedDeviations),
+  }
+  if (obj.protagonist && typeof obj.protagonist === "object" && !Array.isArray(obj.protagonist)) {
+    const p = obj.protagonist as Record<string, unknown>
+    if (typeof p.name === "string" && p.name.trim()) {
+      rules.protagonist = {
+        name: p.name.trim(),
+        personalityLock: toStrings(p.personalityLock),
+        behavioralConstraints: toStrings(p.behavioralConstraints),
+      }
+    }
+  }
+  if (obj.genreLock && typeof obj.genreLock === "object" && !Array.isArray(obj.genreLock)) {
+    const g = obj.genreLock as Record<string, unknown>
+    if (typeof g.primary === "string" && g.primary.trim()) {
+      rules.genreLock = {
+        primary: g.primary.trim(),
+        forbidden: toStrings(g.forbidden),
+      }
+    }
+  }
+  if (obj.eraConstraints && typeof obj.eraConstraints === "object" && !Array.isArray(obj.eraConstraints)) {
+    const e = obj.eraConstraints as Record<string, unknown>
+    rules.eraConstraints = {
+      enabled: Boolean(e.enabled),
+      anachronismTerms: toStrings(e.anachronismTerms),
+      ...(typeof e.period === "string" ? { period: e.period } : {}),
+      ...(typeof e.region === "string" ? { region: e.region } : {}),
+    }
+  }
+  if (obj.fanficMode === "canon" || obj.fanficMode === "au" || obj.fanficMode === "ooc" || obj.fanficMode === "cp") {
+    rules.fanficMode = obj.fanficMode
+  }
+  return rules
+}
+
+/**
+ * 纯只读读取项目去 AI 味技能配置：
+ * 按 `.niko-buddy/de-ai-skills.json` → `de-ai-skills.json` → `de-ai-skill.txt` → 内置默认顺序解析，
+ * 绝不调用 `loadDeAiSkillConfig`（避免触发惰性迁移磁盘写入）。
+ */
+async function readDeAiSkillConfigReadOnly(
+  projectPath: string,
+  readFileText: (path: string) => Promise<string>,
+): Promise<{
+  config: DeAiSkillConfig
+  source: "project_v2" | "legacy_json" | "legacy_txt" | "built_in_default"
+  corrupt: boolean
+}> {
+  const root = projectRoot(projectPath)
+  try {
+    const raw = await readFileText(`${root}/.niko-buddy/de-ai-skills.json`)
+    try {
+      return {
+        config: normalizeDeAiSkillConfig(JSON.parse(raw)),
+        source: "project_v2",
+        corrupt: false,
+      }
+    } catch {
+      return {
+        config: normalizeDeAiSkillConfig(null),
+        source: "built_in_default",
+        corrupt: true,
+      }
+    }
+  } catch {
+    // 新路径不存在，只读回退旧路径（不迁移落盘）
+  }
+
+  try {
+    const legacyRaw = await readFileText(`${root}/de-ai-skills.json`)
+    return {
+      config: normalizeDeAiSkillConfig(JSON.parse(legacyRaw)),
+      source: "legacy_json",
+      corrupt: false,
+    }
+  } catch {
+    // 无旧 JSON，回退旧 txt
+  }
+
+  try {
+    const legacyTxt = (await readFileText(`${root}/de-ai-skill.txt`)).trim()
+    if (legacyTxt) {
+      const legacySkill: DeAiSkill = {
+        id: "project:legacy-de-ai-skill",
+        name: "旧版自定义去AI味 Skill",
+        description: "从旧版 de-ai-skill.txt 读取的项目规则。",
+        templateId: "legacy",
+        content: legacyTxt,
+        source: "legacy",
+      }
+      return {
+        config: normalizeDeAiSkillConfig({
+          defaultSkillId: legacySkill.id,
+          projectSkills: [legacySkill],
+        }),
+        source: "legacy_txt",
+        corrupt: false,
+      }
+    }
+  } catch {
+    // 无旧 txt，回退内置默认
+  }
+
+  return {
+    config: normalizeDeAiSkillConfig(null),
+    source: "built_in_default",
+    corrupt: false,
+  }
+}
+
+/** 纯只读读取项目写作技能配置（绝不调用 `loadUserSkillConfig`，零惰性迁移写盘）。 */
+async function readEnabledWritingSkillsReadOnly(
+  projectPath: string,
+  readFileText: (path: string) => Promise<string>,
+): Promise<Array<{ id: string; name: string; description: string; kind: string[]; stages: string[]; modes: string[]; content: string }>> {
+  const root = projectRoot(projectPath)
+  for (const rel of [".niko-buddy/writing-skills.json", "writing-skills.json"]) {
+    try {
+      const raw = await readFileText(`${root}/${rel}`)
+      const config = normalizeUserSkillConfig(JSON.parse(raw))
+      return resolveEnabledWritingSkills(config).map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        kind: [...skill.kind],
+        stages: [...skill.stages],
+        modes: [...skill.modes],
+        content: skill.content,
+      }))
+    } catch {
+      // 文件不存在或损坏则继续尝试下一候选项
+    }
+  }
+  return []
+}
+
+async function readUserMemoryStoreReadOnly(
+  projectPath: string,
+  readFileText: (path: string) => Promise<string>,
+): Promise<UserMemoryStore> {
+  try {
+    const raw = await readFileText(getDefaultUserMemoryPath(projectRoot(projectPath)))
+    const parsed = JSON.parse(raw) as Partial<UserMemoryStore>
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.preferences)) {
+      return createDefaultStore()
+    }
+    return {
+      version: typeof parsed.version === "string" && parsed.version ? parsed.version : "user-memory/1.0",
+      preferences: parsed.preferences,
+      deAiWeights: parsed.deAiWeights ?? { categoryBoosts: {}, severityThreshold: "medium", genreOverrides: {} },
+      reviewCalibration: parsed.reviewCalibration ?? { dimensionWeights: {}, severityDeductions: {} },
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
+    }
+  } catch {
+    return createDefaultStore()
+  }
+}
+
+async function collectRulesSnapshotReadOnly(
+  projectPath: string,
+  sections: readonly RulesSection[],
+  readFileText: (path: string) => Promise<string>,
+): Promise<Record<string, unknown>> {
+  const root = projectRoot(projectPath)
+  const state = useWikiStore.getState()
+  // 严格标量白名单：严禁 spread novelConfig / llmConfig / providerConfigs / 任何凭据字段。
+  const publicNovelConfig = projectPublicNovelConfig(state.novelConfig)
+  const genre = typeof publicNovelConfig.genre === "string" && publicNovelConfig.genre.trim()
+    ? publicNovelConfig.genre.trim()
+    : null
+  const chapterLengthSpec = resolveChapterLengthSpec(
+    typeof publicNovelConfig.chapterTargetChars === "number" ? publicNovelConfig.chapterTargetChars : undefined,
+  )
+
+  const out: Record<string, unknown> = {
+    projectPath,
+    sections: [...sections],
+    publicNovelConfig,
+  }
+
+  const wanted = new Set<RulesSection>(sections)
+
+  if (wanted.has("writingStyle")) {
+    let soulDoc = ""
+    try {
+      soulDoc = await readFileText(`${root}/soul.md`)
+    } catch {
+      soulDoc = ""
+    }
+    let enabledPreset: WritingStylePreset | null = null
+    try {
+      const rawStyle = await readFileText(`${root}/.niko-buddy/writing-style.json`)
+      const parsedStyle = JSON.parse(rawStyle) as Partial<WritingStyleStore>
+      const enabledId = typeof parsedStyle.enabledStyleId === "string" ? parsedStyle.enabledStyleId : null
+      const styles = Array.isArray(parsedStyle.styles) ? parsedStyle.styles : []
+      enabledPreset = enabledId ? (styles.find((s) => s.id === enabledId) ?? null) : null
+    } catch {
+      enabledPreset = null
+    }
+    const enabledWritingSkills = await readEnabledWritingSkillsReadOnly(projectPath, readFileText)
+    out.writingStyle = {
+      soulDoc,
+      enabledPreset,
+      genre,
+      genreBaseline: genre ? (getGenreBaseline(genre) ?? null) : null,
+      chapterLengthSpec,
+      typography: {
+        dialoguePunctuationStyle: publicNovelConfig.dialoguePunctuationStyle ?? null,
+        paragraphIndent: publicNovelConfig.paragraphIndent ?? null,
+        quoteConvention: publicNovelConfig.quoteConvention ?? null,
+      },
+      enabledWritingSkills,
+    }
+  }
+
+  if (wanted.has("antiAi")) {
+    const [deAiLoad, userMemoryStore] = await Promise.all([
+      readDeAiSkillConfigReadOnly(projectPath, readFileText),
+      readUserMemoryStoreReadOnly(projectPath, readFileText),
+    ])
+    const effectiveSkill = resolveEffectiveDeAiSkill(deAiLoad.config)
+    out.antiAi = {
+      effectiveSkill: effectiveSkill
+        ? {
+            id: effectiveSkill.id,
+            name: effectiveSkill.name,
+            description: effectiveSkill.description,
+            source: effectiveSkill.source,
+            content: effectiveSkill.content,
+          }
+        : null,
+      defaultSkillId: deAiLoad.config.defaultSkillId,
+      configSource: deAiLoad.source,
+      configCorrupt: deAiLoad.corrupt,
+      thresholds: {
+        slopWarn: SLOP_CLASSIFY_WARN_THRESHOLD,
+        slopBlock: SLOP_CLASSIFY_BLOCK_THRESHOLD,
+      },
+      categories: [...DE_AI_CATEGORIES],
+      severities: [...DE_AI_SEVERITIES],
+      structuredRuleCount: DE_AI_STRUCTURED_RULES.length,
+      structuredRules: DE_AI_STRUCTURED_RULES,
+      cavityGuard: HUMANIZER_CAVITY_GUARD,
+      chineseNovelRules: CHINESE_NOVEL_DE_AI_RULES,
+      avoidWords: getAvoidWords(userMemoryStore),
+    }
+  }
+
+  if (wanted.has("bookRules")) {
+    let loaded = false
+    let rules: BookRules = EMPTY_BOOK_RULES
+    try {
+      const raw = await readFileText(`${root}/.novel/book-rules.json`)
+      const parsed = normalizeBookRulesForRead(JSON.parse(raw))
+      if (parsed) {
+        loaded = true
+        rules = parsed
+      }
+    } catch {
+      loaded = false
+      rules = EMPTY_BOOK_RULES
+    }
+    out.bookRules = {
+      loaded,
+      rules,
+      promptFragment: bookRulesToPromptFragment(rules),
+    }
+  }
+
+  if (wanted.has("planning")) {
+    let storyCompass: StoryCompass = createEmptyStoryCompass("")
+    try {
+      const rawCompass = await readFileText(`${root}/.novel/story-compass.json`)
+      const parsedCompass = JSON.parse(rawCompass) as Partial<StoryCompass>
+      if (parsedCompass && typeof parsedCompass === "object") {
+        storyCompass = {
+          endingDirection: typeof parsedCompass.endingDirection === "string" ? parsedCompass.endingDirection : "",
+          openThreads: Array.isArray(parsedCompass.openThreads)
+            ? parsedCompass.openThreads.filter((t): t is string => typeof t === "string")
+            : [],
+          estimatedScale: typeof parsedCompass.estimatedScale === "string" ? parsedCompass.estimatedScale : "",
+          finalVolumeDeclared: Boolean(parsedCompass.finalVolumeDeclared),
+          ...(typeof parsedCompass.finalVolumeNumber === "number"
+            ? { finalVolumeNumber: parsedCompass.finalVolumeNumber }
+            : {}),
+          lastUpdated: typeof parsedCompass.lastUpdated === "string" ? parsedCompass.lastUpdated : "",
+        }
+      }
+    } catch {
+      storyCompass = createEmptyStoryCompass("")
+    }
+
+    let activeForeshadowings: Array<{ id: string; name: string; status: string; plantedChapter: number }> = []
+    try {
+      const rawFs = await readFileText(`${root}/.novel/foreshadowing-tracker.json`)
+      const parsedFs = JSON.parse(rawFs) as Partial<ForeshadowingStore>
+      if (parsedFs && Array.isArray(parsedFs.items)) {
+        const fsStore: ForeshadowingStore = {
+          items: parsedFs.items,
+          lastUpdated: typeof parsedFs.lastUpdated === "string" ? parsedFs.lastUpdated : "",
+        }
+        activeForeshadowings = getActiveForeshadowings(fsStore).map((item) => ({
+          id: item.id,
+          name: item.name,
+          status: item.status,
+          plantedChapter: item.plantedChapter,
+        }))
+      }
+    } catch {
+      activeForeshadowings = []
+    }
+
+    out.planning = {
+      novelMode: Boolean(state.novelMode),
+      chapterLengthSpec,
+      storyCompass,
+      activeForeshadowings,
+    }
+  }
+
+  return out
+}
+
 const MAX_INSPECT_JOBS = 16
 
+type InspectJobKind = "inspect" | "prepare"
+
 type InspectJobEntry =
-  | { status: "running"; startedAt: number }
-  | { status: "done"; startedAt: number; finishedAt: number; value: unknown }
-  | { status: "failed"; startedAt: number; finishedAt: number; error: string }
+  | { kind: InspectJobKind; status: "running"; startedAt: number }
+  | { kind: InspectJobKind; status: "done"; startedAt: number; finishedAt: number; value: unknown }
+  | { kind: InspectJobKind; status: "failed"; startedAt: number; finishedAt: number; error: string }
 
 const inspectJobs = new Map<string, InspectJobEntry>()
 let inspectJobSeq = 0
 
-function nextInspectJobId(): string {
+function nextInspectJobId(kind: InspectJobKind): string {
   inspectJobSeq += 1
-  return `cinspect_${Date.now().toString(36)}_${inspectJobSeq.toString(36)}`
+  const prefix = kind === "prepare" ? "cprepare" : "cinspect"
+  return `${prefix}_${Date.now().toString(36)}_${inspectJobSeq.toString(36)}`
 }
 
 function pruneInspectJobsIfNeeded(): void {
@@ -351,6 +897,190 @@ function pruneInspectJobsIfNeeded(): void {
   for (const [id] of finished) {
     if (inspectJobs.size <= MAX_INSPECT_JOBS) break
     inspectJobs.delete(id)
+  }
+}
+
+/** 私有只读聚合：`director-check`（零 LLM、零磁盘写）。 */
+async function runDirectorCheckReadOnly(
+  projectPath: string,
+  overrides?: StateBridgeDeps["directorCheckDeps"],
+): Promise<Record<string, unknown>> {
+  const hasPersistedFn = overrides?.hasPersistedDirectorState ?? hasPersistedDirectorState
+  const loadPersistedFn = overrides?.loadDirectorPersisted ?? loadDirectorPersisted
+  const loadWorldFn = overrides?.loadWorldBlueprint ?? loadWorldBlueprint
+  const collectSnapshotFn = overrides?.collectProjectSnapshot ?? collectProjectSnapshot
+
+  const [hasPersistedState, persisted, worldBlueprint] = await Promise.all([
+    hasPersistedFn(projectPath),
+    loadPersistedFn(projectPath),
+    loadWorldFn(projectPath).catch(() => null),
+  ])
+
+  const snapshot = await collectSnapshotFn(projectPath, persisted.ideaInput)
+  const phaseGateInput = collectPhaseGateInput(snapshot, worldBlueprint)
+  const probe = tryAdvanceDirector(persisted.state, snapshot, worldBlueprint)
+  const gapHint = probe.advanced
+    ? null
+    : (probe.gap ?? phaseGapHint(persisted.state.currentPhase, snapshot))
+  const completed = DIRECTOR_PHASES.every((phase) => persisted.state.statuses[phase] === "done")
+  const worldValidation = worldBlueprint?.layers ? validateWorldBlueprint(worldBlueprint) : null
+
+  return {
+    projectPath,
+    hasPersistedState,
+    persistedState: persisted.state,
+    ideaInput: persisted.ideaInput,
+    currentPhase: persisted.state.currentPhase,
+    completed,
+    snapshot,
+    phaseGateInput,
+    worldBlueprintPresent: worldBlueprint !== null,
+    worldValidation,
+    probe: {
+      canAdvance: probe.advanced,
+      wouldAdvanceTo: probe.advanced && !probe.completed ? probe.state.currentPhase : null,
+      wouldComplete: probe.completed,
+      blockedReason: probe.blockedReason ?? null,
+      gapHint,
+    },
+    meta: {
+      readOnly: true,
+      llmCalls: 0,
+      diskWrites: 0,
+    },
+  }
+}
+
+/** 校验 `outline-write` 文件名：单段安全 `.md` 基名（<=128，禁路径分隔符/控制字符/Windows 保留名）。 */
+function validateOutlineFilename(raw: unknown): string {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new Error("outline-write 需要非空字符串参数 filename")
+  }
+  if (raw !== raw.trim()) {
+    throw new Error("outline-write 的 filename 不允许包含首尾空白字符")
+  }
+  if (raw.length > MAX_OUTLINE_FILENAME_CHARS) {
+    throw new Error(`outline-write 的 filename 超过 ${MAX_OUTLINE_FILENAME_CHARS} 字符上限`)
+  }
+  if (
+    raw.includes("..")
+    || FORBIDDEN_FILENAME_CHAR_RE.test(raw)
+    || CONTROL_CHAR_RE.test(raw)
+  ) {
+    throw new Error(`outline-write 的 filename 非法（禁止路径分隔符、..、冒号或控制字符）：${raw}`)
+  }
+  if (!raw.toLowerCase().endsWith(".md")) {
+    throw new Error(`outline-write 的 filename 必须以 .md 结尾：${raw}`)
+  }
+  if (raw.startsWith(".")) {
+    throw new Error(`outline-write 的 filename 不允许以点号开头：${raw}`)
+  }
+  const stem = raw.slice(0, -3)
+  if (!stem || stem.endsWith(".")) {
+    throw new Error(`outline-write 的 filename 缺少有效文件名主体：${raw}`)
+  }
+  const firstSegment = (stem.split(".")[0] ?? "").trimEnd()
+  if (WINDOWS_RESERVED_BASENAME_RE.test(firstSegment)) {
+    throw new Error(`outline-write 的 filename 命中 Windows 保留设备名：${raw}`)
+  }
+  return raw
+}
+
+/**
+ * 私有辅助函数（严禁导出，遵守 state-bridge P0 零写导出门禁）：
+ * 写 `<projectPath>/wiki/outlines/<filename>`，并按需在解析与校验全部通过且章节数 > 0 时同步 `.novel/outline-model.json`。
+ */
+async function executeOutlineWrite(
+  projectPath: string,
+  params: Record<string, unknown>,
+  deps: StateBridgeDeps,
+): Promise<Record<string, unknown>> {
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    throw new Error("outline-write 的 params 必须是对象")
+  }
+  for (const key of Object.keys(params)) {
+    if (!OUTLINE_WRITE_PARAM_KEYS.has(key)) {
+      throw new Error(`outline-write 的参数未知：${key}`)
+    }
+  }
+
+  const filename = validateOutlineFilename(params.filename)
+  if (typeof params.content !== "string" || params.content.trim().length === 0) {
+    throw new Error("outline-write 的 content 必须是非空字符串")
+  }
+  if (params.content.length > MAX_OUTLINE_WRITE_CHARS) {
+    throw new Error(`outline-write 的 content 超过 ${MAX_OUTLINE_WRITE_CHARS} 字符上限`)
+  }
+  if (params.syncModel !== undefined && typeof params.syncModel !== "boolean") {
+    throw new Error("outline-write 的 syncModel 必须是 boolean")
+  }
+  const syncModel = params.syncModel !== false
+
+  const root = projectRoot(projectPath)
+  const outlinesDir = `${root}/wiki/outlines`
+  const targetPath = `${outlinesDir}/${filename}`
+
+  const ensureDir = deps.outlineWriteDeps?.createDirectory ?? createDirectory
+  const writeAtomic = deps.outlineWriteDeps?.writeFileAtomic ?? writeFileAtomic
+  const saveModel = deps.outlineWriteDeps?.saveOutlineModel ?? saveOutlineModel
+
+  // Guardrail G-B3: 写入前必须确保 `<projectPath>/wiki/outlines` 目录存在。
+  await ensureDir(outlinesDir)
+  await writeAtomic(targetPath, params.content)
+
+  let modelSynced = false
+  let modelPath: string | null = null
+  let modelSyncSkippedReason: string | null = null
+  let parseSummary: {
+    confidence: string
+    confidenceScore: number
+    chapterCount: number
+    volumeCount: number
+    warnings: string[]
+    validationOk: boolean
+    validationIssues: string[]
+  } | null = null
+
+  try {
+    if (!syncModel) {
+      modelSyncSkippedReason = "disabled_by_caller"
+    } else {
+      const parsed = parseOutlineMarkdownToModel(params.content, { updatedAt: new Date().toISOString() })
+      const validation = validateOutlineModel(parsed.model)
+      parseSummary = {
+        confidence: parsed.confidence,
+        confidenceScore: parsed.confidenceScore,
+        chapterCount: parsed.signals.chapterCount,
+        volumeCount: parsed.model.volumes.length,
+        warnings: parsed.warnings,
+        validationOk: validation.ok,
+        validationIssues: validation.issues,
+      }
+      if (validation.ok && validation.issues.length === 0 && parsed.signals.chapterCount > 0) {
+        const saved = await saveModel(projectPath, parsed.model)
+        modelSynced = true
+        modelPath = saved.path
+      } else if (parsed.signals.chapterCount <= 0) {
+        modelSyncSkippedReason = "no_chapters_parsed"
+      } else {
+        modelSyncSkippedReason = "validation_failed"
+      }
+    }
+  } finally {
+    // 大纲正文已原子落盘，即使后续侧车模型同步抛错也必须触发 UI 刷新回调。
+    deps.onDraftWritten?.()
+  }
+
+  return {
+    projectPath,
+    filename,
+    path: targetPath,
+    chars: params.content.length,
+    contentSha256: await computeCheckpointDigest(params.content),
+    modelSynced,
+    modelPath,
+    modelSyncSkippedReason,
+    parseSummary,
   }
 }
 
@@ -611,7 +1341,192 @@ export async function handleStateRequest(
       case "draft-write": {
         const projectPath = requireProjectPath(deps)
         const result = await deps.writeChapterDraft(projectPath, payload.params ?? {})
+        deps.onDraftWritten?.()
         return { ok: true, value: result }
+      }
+
+      case "draft-list": {
+        const projectPath = requireProjectPath(deps)
+        const listFn = deps.listDrafts ?? defaultDeps.listDrafts!
+        const drafts = await listFn(projectPath)
+        const sorted = [...drafts].sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id))
+        return {
+          ok: true,
+          value: {
+            projectPath,
+            total: sorted.length,
+            drafts: sorted.map((draft) => summarizeDraftMetadata(projectPath, draft)),
+          },
+        }
+      }
+
+      case "draft-read": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const rawDraftId =
+          typeof params.draftId === "string"
+            ? params.draftId
+            : typeof payload.path === "string"
+              ? payload.path
+              : ""
+        const draftId = rawDraftId.trim()
+        if (!draftId) {
+          return { ok: false, error: "draft-read 需要 params.draftId" }
+        }
+        if (!DRAFT_ID_PATTERN.test(draftId)) {
+          return { ok: false, error: `非法 draftId（仅允许 1-128 位字母、数字、下划线或连字符）：${draftId}` }
+        }
+        const rawOffset = params.offset ?? payload.offset ?? 0
+        if (typeof rawOffset !== "number" || !Number.isFinite(rawOffset)) {
+          return { ok: false, error: "draft-read 的 offset 必须是有限数字" }
+        }
+        const rawLimit = params.limit ?? payload.limit ?? DEFAULT_CHAPTER_LIMIT
+        if (typeof rawLimit !== "number" || !Number.isFinite(rawLimit)) {
+          return { ok: false, error: "draft-read 的 limit 必须是有限数字" }
+        }
+        const offset = Math.max(0, Math.floor(rawOffset))
+        const limit = Math.max(1, Math.min(MAX_CHAPTER_LIMIT, Math.floor(rawLimit)))
+
+        // 严格只从已枚举草稿列表中匹配 id，杜绝任意路径拼接读取
+        const listFn = deps.listDrafts ?? defaultDeps.listDrafts!
+        const drafts = await listFn(projectPath)
+        const matched = drafts.find((d) => d.id === draftId)
+        if (!matched) {
+          return { ok: false, error: `找不到草稿：${draftId}` }
+        }
+
+        const sliced = sliceLines(matched.content, offset, limit)
+        const bodySha256 = await computeCheckpointDigest(matched.content)
+        return {
+          ok: true,
+          value: {
+            projectPath,
+            ...summarizeDraftMetadata(projectPath, matched),
+            bodySha256,
+            offset,
+            limit,
+            totalLines: sliced.totalLines,
+            truncated: sliced.truncated,
+            content: sliced.text,
+          },
+        }
+      }
+
+      case "rules-get": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const sections = parseRulesSections(params.sections)
+        const value = deps.readRulesSnapshot
+          ? await deps.readRulesSnapshot(projectPath, sections)
+          : await collectRulesSnapshotReadOnly(projectPath, sections, deps.readFileText)
+        return { ok: true, value }
+      }
+
+      case "gate-check-mechanical": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const hasDraftId = params.draftId !== undefined && params.draftId !== null
+        const hasChapter = params.chapter !== undefined && params.chapter !== null
+        const hasText = params.text !== undefined && params.text !== null
+        const targetCount = (hasDraftId ? 1 : 0) + (hasChapter ? 1 : 0) + (hasText ? 1 : 0)
+        if (targetCount === 0) {
+          return { ok: false, error: "gate-check-mechanical 需要 draftId / chapter / text 三者之一" }
+        }
+        if (targetCount > 1) {
+          return { ok: false, error: "gate-check-mechanical 的 draftId / chapter / text 只能提供其一（严格 1-of-3）" }
+        }
+
+        let explicitChapterNumber: number | undefined
+        if (params.chapterNumber !== undefined && params.chapterNumber !== null) {
+          if (
+            typeof params.chapterNumber !== "number"
+            || !Number.isInteger(params.chapterNumber)
+            || params.chapterNumber < 1
+          ) {
+            return { ok: false, error: "gate-check-mechanical 的 chapterNumber 必须是 >= 1 的整数" }
+          }
+          explicitChapterNumber = params.chapterNumber
+        }
+
+        let genre: string | undefined
+        if (params.genre !== undefined && params.genre !== null) {
+          if (typeof params.genre !== "string") {
+            return { ok: false, error: "gate-check-mechanical 的 genre 必须是字符串" }
+          }
+          genre = params.genre.trim() || undefined
+        }
+
+        let resolvedText = ""
+        let resolvedChapterNumber = explicitChapterNumber
+        let target: Record<string, unknown>
+
+        if (hasDraftId) {
+          if (typeof params.draftId !== "string" || !DRAFT_ID_PATTERN.test(params.draftId.trim())) {
+            return { ok: false, error: `gate-check-mechanical 的 draftId 非法：${String(params.draftId)}` }
+          }
+          const draftId = params.draftId.trim()
+          const listFn = deps.listDrafts ?? defaultDeps.listDrafts!
+          const drafts = await listFn(projectPath)
+          const matched = drafts.find((d) => d.id === draftId)
+          if (!matched) {
+            return { ok: false, error: `找不到草稿：${draftId}` }
+          }
+          resolvedText = matched.content
+          if (resolvedText.length > MAX_MECHANICAL_GATE_TEXT_CHARS) {
+            return {
+              ok: false,
+              error: `待检文本长度超过上限（${resolvedText.length} > ${MAX_MECHANICAL_GATE_TEXT_CHARS}）`,
+            }
+          }
+          resolvedChapterNumber = explicitChapterNumber ?? readDraftChapterNumber(matched.chapterName)
+          target = { kind: "draft", draftId: matched.id, chapterName: matched.chapterName }
+        } else if (hasChapter) {
+          let selector: string
+          if (typeof params.chapter === "string") {
+            selector = params.chapter
+          } else if (typeof params.chapter === "number" && Number.isInteger(params.chapter) && params.chapter >= 1) {
+            selector = String(params.chapter)
+          } else {
+            return { ok: false, error: "gate-check-mechanical 的 chapter 必须是章节序号或文件名" }
+          }
+          const chapters = await deps.listChapters(projectPath)
+          if (chapters.length === 0) {
+            return { ok: false, error: `项目下没有章节文件：${projectPath}/wiki/chapters` }
+          }
+          const selected = selectChapter(chapters, selector)
+          resolvedText = await deps.readFileText(selected.path)
+          if (resolvedText.length > MAX_MECHANICAL_GATE_TEXT_CHARS) {
+            return {
+              ok: false,
+              error: `待检文本长度超过上限（${resolvedText.length} > ${MAX_MECHANICAL_GATE_TEXT_CHARS}）`,
+            }
+          }
+          resolvedChapterNumber = explicitChapterNumber ?? selected.number
+          target = { kind: "chapter", index: selected.index, number: selected.number, name: selected.name, path: selected.path }
+        } else {
+          if (typeof params.text !== "string" || params.text.trim().length === 0) {
+            return { ok: false, error: "gate-check-mechanical 的 text 必须是非空字符串" }
+          }
+          if (params.text.length > MAX_MECHANICAL_GATE_TEXT_CHARS) {
+            return {
+              ok: false,
+              error: `待检文本长度超过上限（${params.text.length} > ${MAX_MECHANICAL_GATE_TEXT_CHARS}）`,
+            }
+          }
+          resolvedText = params.text
+          target = { kind: "text", chars: resolvedText.length }
+        }
+
+        const gateRunner =
+          deps.runMechanicalGate
+          ?? ((input: MechanicalGateInput) => runMechanicalGateForMcp(input, { readFileText: deps.readFileText }))
+        const report = await gateRunner({
+          projectPath,
+          text: resolvedText,
+          chapterNumber: resolvedChapterNumber,
+          genre,
+        })
+        return { ok: true, value: { ...report, target } }
       }
 
       case "formal-path": {
@@ -640,17 +1555,17 @@ export async function handleStateRequest(
         if ([...inspectJobs.values()].filter(job => job.status === "running").length >= MAX_INSPECT_JOBS) {
           return { ok: false, error: "在途 context.inspect 任务已达上限，请稍后重试" }
         }
-        const jobId = nextInspectJobId()
+        const jobId = nextInspectJobId("inspect")
         const startedAt = Date.now()
-        inspectJobs.set(jobId, { status: "running", startedAt })
+        inspectJobs.set(jobId, { kind: "inspect", status: "running", startedAt })
         pruneInspectJobsIfNeeded()
         void (async () => deps.inspectContext(prepared))()
           .then((value) => {
-            inspectJobs.set(jobId, { status: "done", startedAt, finishedAt: Date.now(), value })
+            inspectJobs.set(jobId, { kind: "inspect", status: "done", startedAt, finishedAt: Date.now(), value })
           })
           .catch((err: unknown) => {
             const error = err instanceof Error ? err.message : String(err)
-            inspectJobs.set(jobId, { status: "failed", startedAt, finishedAt: Date.now(), error })
+            inspectJobs.set(jobId, { kind: "inspect", status: "failed", startedAt, finishedAt: Date.now(), error })
           })
         return { ok: true, value: { status: "running", jobId } }
       }
@@ -664,6 +1579,9 @@ export async function handleStateRequest(
         if (!entry) {
           return { ok: false, error: `未知 context-inspect 任务：${jobId}（任务不存在、已被清理或前端已重载）` }
         }
+        if (entry.kind !== "inspect") {
+          return { ok: false, error: `任务类型不匹配：${jobId} 不是 context-inspect 任务` }
+        }
         if (entry.status === "running") {
           return { ok: true, value: { status: "running", jobId } }
         }
@@ -671,6 +1589,78 @@ export async function handleStateRequest(
           return { ok: true, value: { status: "done", jobId, value: entry.value } }
         }
         return { ok: true, value: { status: "failed", jobId, error: entry.error } }
+      }
+
+      case "context-prepare-start": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        normalizePrepareWriteContextParams(params)
+        if ([...inspectJobs.values()].filter(job => job.status === "running").length >= MAX_INSPECT_JOBS) {
+          return { ok: false, error: "在途 context.prepare_write 任务已达上限，请稍后重试" }
+        }
+        const jobId = nextInspectJobId("prepare")
+        const startedAt = Date.now()
+        inspectJobs.set(jobId, { kind: "prepare", status: "running", startedAt })
+        pruneInspectJobsIfNeeded()
+        const prepareFn =
+          deps.prepareWriteContext
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runPrepareWriteContext(pp, p, {
+              readProjectPath: deps.readProjectPath,
+              listChapters: deps.listChapters,
+              listDrafts: deps.listDrafts ?? defaultDeps.listDrafts!,
+            }))
+        void (async () => prepareFn(projectPath, params))()
+          .then((value) => {
+            inspectJobs.set(jobId, { kind: "prepare", status: "done", startedAt, finishedAt: Date.now(), value })
+          })
+          .catch((err: unknown) => {
+            const error = err instanceof Error ? err.message : String(err)
+            inspectJobs.set(jobId, { kind: "prepare", status: "failed", startedAt, finishedAt: Date.now(), error })
+          })
+        return { ok: true, value: { status: "running", jobId } }
+      }
+
+      case "context-prepare-poll": {
+        const jobId = typeof payload.params?.jobId === "string" ? payload.params.jobId : ""
+        if (!jobId) {
+          return { ok: false, error: "op=context-prepare-poll 需要 params.jobId" }
+        }
+        const entry = inspectJobs.get(jobId)
+        if (!entry) {
+          return { ok: false, error: `未知 context-prepare 任务：${jobId}（任务不存在、已被清理或前端已重载）` }
+        }
+        if (entry.kind !== "prepare") {
+          return { ok: false, error: `任务类型不匹配：${jobId} 不是 context-prepare 任务` }
+        }
+        if (entry.status === "running") {
+          return { ok: true, value: { status: "running", jobId } }
+        }
+        if (entry.status === "done") {
+          return { ok: true, value: { status: "done", jobId, value: entry.value } }
+        }
+        return { ok: true, value: { status: "failed", jobId, error: entry.error } }
+      }
+
+      case "director-check": {
+        if (payload.params !== undefined) {
+          if (payload.params === null || typeof payload.params !== "object" || Array.isArray(payload.params)) {
+            return { ok: false, error: "op=director-check 不接受非对象 params" }
+          }
+          const keys = Object.keys(payload.params)
+          if (keys.length > 0) {
+            return { ok: false, error: `op=director-check 不接受参数（收到未知键：${keys.join(", ")}）` }
+          }
+        }
+        const projectPath = requireProjectPath(deps)
+        const value = await runDirectorCheckReadOnly(projectPath, deps.directorCheckDeps)
+        return { ok: true, value }
+      }
+
+      case "outline-write": {
+        const projectPath = requireProjectPath(deps)
+        const value = await executeOutlineWrite(projectPath, payload.params ?? {}, deps)
+        return { ok: true, value }
       }
 
       default:

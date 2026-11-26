@@ -326,6 +326,10 @@ export interface AuditTriadPreflightOptions {
   chapterText?: string
   /** 已加载 store 注入 (守 S-20260718-ito3 不重复 reload). */
   sources?: AuditChapterOptions["sources"]
+  /** 只读模式：跳过 `.novel/audit-findings.jsonl` 磁盘追加写（MCP 只读门控用）。 */
+  readOnly?: boolean
+  /** 是否返回全部转换后的发现（含 warning/info）；默认 false 仅在 BLOCK 时返回 critical。 */
+  includeNonBlocking?: boolean
 }
 
 export async function runAuditTriadPreflight(
@@ -367,7 +371,12 @@ export async function runAuditTriadPreflight(
       presentParticles,
       auditOptions,
     )
-    await appendAuditFindings(projectPath, report.findings)
+    if (!options?.readOnly) {
+      await appendAuditFindings(projectPath, report.findings)
+    }
+    if (options?.includeNonBlocking) {
+      return toConsistencyReviewResult(report.findings)
+    }
     const gate = checkConsistency(report.findings)
     if (gate.decision === "BLOCK") {
       return toConsistencyReviewResult(gate.critical)
@@ -413,7 +422,13 @@ export async function runAuditTriadPreflight(
 export async function runContinuityMechanicalPreflight(
   projectPath: string,
   chapterNumber?: number,
-  options?: { chapterText?: string },
+  options?: {
+    chapterText?: string
+    /** 只读模式：跳过 continuity metric 与 audit findings 的磁盘写入。 */
+    readOnly?: boolean
+    /** 透传至 runAuditTriadPreflight.includeNonBlocking，返回非阻断过程库发现。 */
+    includeNonBlockingAudit?: boolean
+  },
 ): Promise<NovelReviewResult[]> {
   // chapterNumber 缺失无法算 gap, 跳过引擎 (不阻断)
   if (chapterNumber === undefined || chapterNumber < 1) return []
@@ -505,19 +520,21 @@ export async function runContinuityMechanicalPreflight(
     // (机械预门未短路 LLM, 短路走 critical 分支); engine_error_count 此路径 0 (异常走 catch)。
     // overrides_hit 接双跑差值计数 (raw critical+warning - final critical+warning,
     // = 被 dismiss 的 finding 数, 守 applyOverrides 单一降级真源)。
-    const metric: ContinuityMetric = {
-      execution_ms: Date.now() - startMs,
-      critical_count: summary.critical,
-      high_count: 0,
-      warning_count: summary.warning,
-      data_gap_count: summary.data_gap,
-      overrides_hit: overridesHit,
-      short_circuit_hits: 0,
-      engine_error_count: 0,
-      gate: "consistency",
-      timestamp: new Date().toISOString(),
+    if (!options?.readOnly) {
+      const metric: ContinuityMetric = {
+        execution_ms: Date.now() - startMs,
+        critical_count: summary.critical,
+        high_count: 0,
+        warning_count: summary.warning,
+        data_gap_count: summary.data_gap,
+        overrides_hit: overridesHit,
+        short_circuit_hits: 0,
+        engine_error_count: 0,
+        gate: "consistency",
+        timestamp: new Date().toISOString(),
+      }
+      collectContinuityMetric(metric)
     }
-    collectContinuityMetric(metric)
     // REV-CE-003: 调 engine export toConsistencyReviewResult 消除内联
     // continuityFindingToReviewResult reimplementation。两者行为完全等价 (severity
     // 映射 critical→error/warning→warning/info→info; type='consistency_mechanical';
@@ -528,24 +545,28 @@ export async function runContinuityMechanicalPreflight(
     const auditResults = await runAuditTriadPreflight(projectPath, chapterNumber, {
       chapterText: options?.chapterText,
       sources: { foreshadowing: foreshadowingStore, characterStates: characterStateStore },
+      readOnly: options?.readOnly,
+      includeNonBlocking: options?.includeNonBlockingAudit,
     })
     return [...toConsistencyReviewResult(findings), ...auditResults]
   } catch (err) {
     // Decision 7.3 + fold_rebuildable: 引擎异常降级 LLM continuity 维度兜底, 不阻断审查。
     // logger 双参 scope='continuity-engine' (memory a19-emotion-ledger 坑: 单参丢 scope)。
     logger.error("continuity-engine", `engine degraded: ${toErrorMessage(err)}`)
-    collectContinuityMetric({
-      execution_ms: Date.now() - startMs,
-      critical_count: 0,
-      high_count: 0,
-      warning_count: 0,
-      data_gap_count: 0,
-      overrides_hit: 0,
-      short_circuit_hits: 0,
-      engine_error_count: 1,
-      gate: "consistency",
-      timestamp: new Date().toISOString(),
-    })
+    if (!options?.readOnly) {
+      collectContinuityMetric({
+        execution_ms: Date.now() - startMs,
+        critical_count: 0,
+        high_count: 0,
+        warning_count: 0,
+        data_gap_count: 0,
+        overrides_hit: 0,
+        short_circuit_hits: 0,
+        engine_error_count: 1,
+        gate: "consistency",
+        timestamp: new Date().toISOString(),
+      })
+    }
     return [{
       severity: "warning",
       type: "consistency_mechanical",
@@ -566,13 +587,6 @@ export async function reviewChapter(
 ): Promise<NovelReviewResult[]> {
 
   if (signal?.aborted) throw new Error("已停止生成")
-  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
-  const llmConfig = resolveNovelModel(
-    options.llmConfig ?? useWikiStore.getState().llmConfig,
-    options.novelConfig ?? useWikiStore.getState().novelConfig,
-    "review",
-  )
-  if (!hasUsableLlm(llmConfig)) return []
 
   const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
   if (!novelMode) return []
@@ -634,6 +648,17 @@ export async function reviewChapter(
   const hasContinuityError = continuityResults.some(r => r.severity === "error")
   if (hasContinuityError || slopBlocking.length > 0) {
     // P0/P1 阻断均短路 LLM 审查，且 P0 发现恒前置
+    return [...continuityResults, ...slopBlocking, ...behaviorReview]
+  }
+
+  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
+  // 零 LLM 降级：无可用 LLM 时仍保留已完成的前置 P0/P1 机械层结果，不调用 streamChat 或 onSemanticReviewCompleted。
+  const llmConfig = resolveNovelModel(
+    options.llmConfig ?? useWikiStore.getState().llmConfig,
+    options.novelConfig ?? useWikiStore.getState().novelConfig,
+    "review",
+  )
+  if (!hasUsableLlm(llmConfig)) {
     return [...continuityResults, ...slopBlocking, ...behaviorReview]
   }
 

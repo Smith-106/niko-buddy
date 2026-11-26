@@ -22,8 +22,7 @@
 
 import { normalizePath } from "@/lib/path-utils"
 import { DRAFTS_DIR, formalChapterPathForDraft, writeDraft } from "@/lib/novel"
-import type { ChapterDraft } from "@/lib/novel"
-import type { DraftGateStatus } from "@/lib/novel/lifecycle-types"
+import type { ChapterDraft, DraftGateStatus } from "@/lib/novel"
 
 export interface ChapterDraftResult {
   draftId: string

@@ -19,11 +19,13 @@
  * （它们定义在母模块，直接 import 会造成运行时循环依赖）。
  */
 import { readFile } from "@/commands/fs"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { writePatchFieldsToWiki, writeSnapshotToWiki } from "./graph-adapter"
 import { buildAliasMapsFromSnapshot } from "./chapter-snapshot-normalize"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
+import { resolveNovelModel } from "./model-resolver"
 import {
   appendProjectionAuditEntry,
   emptyLedger,
@@ -292,63 +294,70 @@ export async function runIngestProjections(
       })
     }
 
-    // 社区摘要定期重建
+    // 社区摘要定期重建（zero-LLM 守卫：未配置可用摘要模型时静默跳过，不抛错、不污染账本 failed）
     const deferCommunitySummary = novelConfig.communitySummaryAsync && !options.awaitCommunitySummary
     const awaitOutsideLock = Boolean(options.awaitCommunitySummary)
     if (snapshot && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
-      const projection = "community_summary"
-      // Serialize jobs through publication so concurrent runs cannot stage into the same vector slot.
-      const apply = async () => {
-        const startedAt = Date.now()
-        try {
-          await enqueueCommunitySummary(pp, async () => {
-            let failure: { cause: unknown } | undefined
-            await generateCommunitySummaries(pp, llmConfig, novelConfig, embCfg, cause => { failure ??= { cause } })
-            if (failure) throw failure.cause
-          })
-          return { startedAt, status: "committed" as const }
-        } catch (error) {
-          return { startedAt, status: "failed" as const, message: toErrorMessage(error) }
+      const summaryLlmConfig = resolveNovelModel(llmConfig, novelConfig, "summary")
+      if (!hasUsableLlm(summaryLlmConfig)) {
+        logger.info("Chapter Ingest", "跳过社区摘要重建：未配置可用摘要模型（zero-LLM 安全降级）", {
+          chapter: chapterNo,
+        })
+      } else {
+        const projection = "community_summary"
+        // Serialize jobs through publication so concurrent runs cannot stage into the same vector slot.
+        const apply = async () => {
+          const startedAt = Date.now()
+          try {
+            await enqueueCommunitySummary(pp, async () => {
+              let failure: { cause: unknown } | undefined
+              await generateCommunitySummaries(pp, llmConfig, novelConfig, embCfg, cause => { failure ??= { cause } })
+              if (failure) throw failure.cause
+            })
+            return { startedAt, status: "committed" as const }
+          } catch (error) {
+            return { startedAt, status: "failed" as const, message: toErrorMessage(error) }
+          }
         }
-      }
-      const notify = (message: string) => {
-        logger.warn("Chapter Ingest", "社区摘要生成失败", { error: message })
-        const onErr = options.onCommunitySummaryError ?? ((msg: string) => useWikiStore.getState().setCommunitySummaryError(msg))
-        onErr(message)
-      }
-      if (deferCommunitySummary || awaitOutsideLock) {
-        // This opaque attempt id distinguishes two pending runs even in the same millisecond.
-        const attemptId = crypto.randomUUID()
-        const pending = recordProjectionStatus(emptyLedger(), chapterNo, projection, "pending")
-        pending.chapters[String(chapterNo)][projection].attemptId = attemptId
-        projectionDelta = { ...projectionDelta, chapters: { ...projectionDelta.chapters, [String(chapterNo)]: { ...projectionDelta.chapters[String(chapterNo)], ...pending.chapters[String(chapterNo)] } } }
-        pendingProjections.push(projection)
-        // Deferred / post-lock awaited completion writes its own immutable delta (pending -> terminal).
-        const run = async () => {
+        const notify = (message: string) => {
+          logger.warn("Chapter Ingest", "社区摘要生成失败", { error: message })
+          const onErr = options.onCommunitySummaryError ?? ((msg: string) => useWikiStore.getState().setCommunitySummaryError(msg))
+          onErr(message)
+        }
+        if (deferCommunitySummary || awaitOutsideLock) {
+          // This opaque attempt id distinguishes two pending runs even in the same millisecond.
+          const attemptId = crypto.randomUUID()
+          const pending = recordProjectionStatus(emptyLedger(), chapterNo, projection, "pending")
+          pending.chapters[String(chapterNo)][projection].attemptId = attemptId
+          projectionDelta = { ...projectionDelta, chapters: { ...projectionDelta.chapters, [String(chapterNo)]: { ...projectionDelta.chapters[String(chapterNo)], ...pending.chapters[String(chapterNo)] } } }
+          pendingProjections.push(projection)
+          // Deferred / post-lock awaited completion writes its own immutable delta (pending -> terminal).
+          const run = async () => {
+            const result = await apply()
+            const message = result.status === "failed" ? result.message : undefined
+            const delta = recordProjectionStatus(emptyLedger(), chapterNo, projection, result.status, message)
+            const audit: ProjectionAuditEntry = {
+              projection, chapter: chapterNo, status: result.status === "failed" ? "failed" : "rebuild",
+              durationMs: Date.now() - result.startedAt,
+              ...(message !== undefined ? { error: message } : {}),
+              timestamp: delta.chapters[String(chapterNo)][projection].updated_at,
+            }
+            const persisted = await saveProjectionLedgerWithSingleRetry(pp, { ...delta, auditTrail: [audit] }, pending.chapters)
+            if (persisted === false) notify("Community summary finished but its final status could not be saved.")
+            else if (persisted === true && message !== undefined) notify(message)
+            return { result, persisted }
+          }
+          postLockCommunitySummary = { mode: awaitOutsideLock ? "await" : "defer", attemptId, run }
+        } else {
+          // Ordinary synchronous ingest writes the community-summary result.
           const result = await apply()
           const message = result.status === "failed" ? result.message : undefined
-          const delta = recordProjectionStatus(emptyLedger(), chapterNo, projection, result.status, message)
-          const audit: ProjectionAuditEntry = {
-            projection, chapter: chapterNo, status: result.status === "failed" ? "failed" : "rebuild",
-            durationMs: Date.now() - result.startedAt,
-            ...(message !== undefined ? { error: message } : {}),
-            timestamp: delta.chapters[String(chapterNo)][projection].updated_at,
-          }
-          const persisted = await saveProjectionLedgerWithSingleRetry(pp, { ...delta, auditTrail: [audit] }, pending.chapters)
-          if (persisted === false) notify("Community summary finished but its final status could not be saved.")
-          else if (persisted === true && message !== undefined) notify(message)
-          return { result, persisted }
+          projectionDelta = recordProjectionStatus(projectionDelta, chapterNo, projection, result.status, message)
+          if (result.status === "committed") committedProjections.push(projection)
+          else failedProjections.add(projection)
+          await recordProjectionAuditEvent(projection, result.status === "committed" ? "rebuild" : "failed", Date.now() - result.startedAt, message)
+          if (message !== undefined) notify(message)
         }
-        postLockCommunitySummary = { mode: awaitOutsideLock ? "await" : "defer", attemptId, run }
-      } else {
-        // Ordinary synchronous ingest writes the community-summary result.
-        const result = await apply()
-        const message = result.status === "failed" ? result.message : undefined
-        projectionDelta = recordProjectionStatus(projectionDelta, chapterNo, projection, result.status, message)
-        if (result.status === "committed") committedProjections.push(projection)
-        else failedProjections.add(projection)
-        await recordProjectionAuditEvent(projection, result.status === "committed" ? "rebuild" : "failed", Date.now() - result.startedAt, message)
-        if (message !== undefined) notify(message)
       }
     }
 

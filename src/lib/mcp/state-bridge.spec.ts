@@ -18,6 +18,8 @@ import {
 import {
   DEFAULT_CHAPTER_LIMIT,
   MAX_CHAPTER_LIMIT,
+  MAX_MECHANICAL_GATE_TEXT_CHARS,
+  MAX_OUTLINE_WRITE_CHARS,
   handleStateRequest,
   type StateBridgeDeps,
   type StateRequestPayload,
@@ -29,7 +31,7 @@ import {
   type ContextInspectionResult,
   type ContextRuntimeConfig,
 } from "./context-inspection"
-import type { ContextPack } from "@/lib/novel/context-engine-types"
+import { createDirectorPipeline, draftNeedsGateReview, type ChapterDraft, type ContextPack, type DirectorPersistedFile, type WorldBlueprint } from "@/lib/novel"
 import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
 
 const store = new Map<string, string>()
@@ -1464,5 +1466,734 @@ describe("handleStateRequest — 防御分支（增补2）", () => {
     const res = await handleStateRequest(request({ key: "ghost-key" }), deps())
     expect(res.ok).toBe(false)
     expect(res.error).toContain("未登记")
+  })
+})
+
+describe("handleStateRequest — B3 新增 op（draft-list / draft-read / rules-get / gate-check-mechanical / onDraftWritten / 路径遍历防护）", () => {
+  const sampleDrafts: ChapterDraft[] = [
+    {
+      id: "draft_old_1",
+      chapterName: "第1章-启程",
+      content: "旧草稿第一行\n旧草稿第二行\n旧草稿第三行",
+      createdAt: 1_700_000_100_000,
+      status: "draft",
+      sourceConversationId: "mcp:chapter.write",
+    },
+    {
+      id: "draft_new_2",
+      chapterName: "第2章-夜雨",
+      content: "新草稿正文L1\n新草稿正文L2\n新草稿正文L3\n新草稿正文L4",
+      createdAt: 1_700_000_200_000,
+      status: "draft",
+      partial: true,
+      adoptionGate: { status: "partial" },
+      sourceConversationId: "mcp:deep-chapter",
+    },
+  ]
+
+  afterEach(() => {
+    useWikiStore.getState().setProject(null)
+    tauriInvoke.mockReset()
+  })
+
+  it("draft-write 成功时触发 onDraftWritten，失败时不触发", async () => {
+    const onDraftWritten = vi.fn()
+    const okRes = await handleStateRequest(
+      request({ op: "draft-write", params: { chapterName: "第3章", content: "正文" } }),
+      deps({ onDraftWritten }),
+    )
+    expect(okRes.ok).toBe(true)
+    expect(onDraftWritten).toHaveBeenCalledTimes(1)
+
+    const failRes = await handleStateRequest(
+      request({ op: "draft-write", params: { chapterName: "第3章", content: "正文" } }),
+      deps({
+        onDraftWritten,
+        writeChapterDraft: async () => {
+          throw new Error("写盘失败")
+        },
+      }),
+    )
+    expect(failRes.ok).toBe(false)
+    expect(onDraftWritten).toHaveBeenCalledTimes(1)
+  })
+
+  it("chapter-read 与 context-inspect 拒绝路径分隔符与 .. 遍历", async () => {
+    for (const malicious of ["../secret.md", "sub/chapter-001.md", "..\\secret.md", "chapter\0.md", ".."]) {
+      const chRes = await handleStateRequest(request({ op: "chapter-read", path: malicious }), deps())
+      expect(chRes.ok).toBe(false)
+      expect(chRes.error).toContain("非法章节选择器")
+
+      const ctxRes = await handleStateRequest(
+        request({ op: "context-inspect", params: { chapter: malicious } }),
+        deps(),
+      )
+      expect(ctxRes.ok).toBe(false)
+      expect(ctxRes.error).toContain("非法章节选择器")
+    }
+  })
+
+  it("draft-list 按 createdAt 倒序返回元信息摘要，绝不返回正文 content", async () => {
+    const res = await handleStateRequest(
+      request({ op: "draft-list", params: {} }),
+      deps({ listDrafts: async () => sampleDrafts }),
+    )
+    expect(res.ok).toBe(true)
+    const val = res.value as {
+      projectPath: string
+      total: number
+      drafts: Array<Record<string, unknown>>
+    }
+    expect(val.total).toBe(2)
+    expect(val.drafts.map((d) => d.draftId)).toEqual(["draft_new_2", "draft_old_1"])
+    expect(val.drafts[0]).toMatchObject({
+      draftId: "draft_new_2",
+      chapterName: "第2章-夜雨",
+      chapterNumber: 2,
+      partial: true,
+      gateStatus: "partial",
+      needsGateReview: true,
+    })
+    for (const d of val.drafts) {
+      expect("content" in d).toBe(false)
+    }
+    expect(JSON.stringify(res.value)).not.toContain("新草稿正文L1")
+    expect(JSON.stringify(res.value)).not.toContain("旧草稿第一行")
+  })
+
+  it("draft-read 仅匹配枚举列表（零直接路径读取），支持 0-based offset/limit 切片与全文 bodySha256", async () => {
+    const readFileText = vi.fn(async () => "不应被直接调用")
+    const res = await handleStateRequest(
+      request({ op: "draft-read", params: { draftId: "draft_new_2", offset: 1, limit: 2 } }),
+      deps({ listDrafts: async () => sampleDrafts, readFileText }),
+    )
+    expect(res.ok).toBe(true)
+    expect(readFileText).not.toHaveBeenCalled()
+    const val = res.value as {
+      draftId: string
+      content: string
+      offset: number
+      limit: number
+      totalLines: number
+      truncated: boolean
+      bodySha256: string
+    }
+    expect(val.draftId).toBe("draft_new_2")
+    expect(val.offset).toBe(1)
+    expect(val.limit).toBe(2)
+    expect(val.totalLines).toBe(4)
+    expect(val.truncated).toBe(true)
+    expect(val.content).toBe("新草稿正文L2\n新草稿正文L3")
+    expect(val.bodySha256).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it("draft-read 拒绝路径遍历 / 非法 draftId 与未知 draftId", async () => {
+    const listDrafts = vi.fn(async () => sampleDrafts)
+    for (const badId of ["../etc/passwd", "a/b", "a\\b", "draft_1.md", "", "a".repeat(129)]) {
+      const res = await handleStateRequest(
+        request({ op: "draft-read", params: { draftId: badId } }),
+        deps({ listDrafts }),
+      )
+      expect(res.ok).toBe(false)
+    }
+    expect(listDrafts).not.toHaveBeenCalled()
+
+    const missing = await handleStateRequest(
+      request({ op: "draft-read", params: { draftId: "draft_not_found" } }),
+      deps({ listDrafts }),
+    )
+    expect(missing.ok).toBe(false)
+    expect(missing.error).toContain("找不到草稿")
+  })
+
+  it("rules-get 严格只读（零磁盘写）、零凭据泄漏、支持 legacy de-ai 与 book-rules 回退", async () => {
+    const prevLlm = useWikiStore.getState().llmConfig
+    const prevProviders = useWikiStore.getState().providerConfigs
+    const prevNovel = useWikiStore.getState().novelConfig
+    useWikiStore.getState().setLlmConfig({
+      ...prevLlm,
+      apiKey: "SECRET-LLM-KEY-SHOULD-NEVER-LEAK",
+      customEndpoint: "https://secret.internal.example/v1?token=TOPSECRET",
+    })
+    useWikiStore.getState().setProviderConfigs({
+      openai: { apiKey: "SECRET-PROVIDER-OVERRIDE-KEY", baseUrl: "https://private.provider" },
+    })
+    useWikiStore.getState().setNovelConfig({ genre: "悬疑", chapterTargetChars: 2800 })
+
+    const files = new Map<string, string>([
+      ["/proj/soul.md", "# 项目灵魂\n克制、悬疑"],
+      ["/proj/de-ai-skills.json", JSON.stringify({
+        version: 1,
+        defaultSkillId: "project:custom-1",
+        disabledSkillIds: [],
+        projectSkills: [
+          {
+            id: "project:custom-1",
+            name: "项目定制去AI味",
+            description: "来自旧根路径",
+            templateId: "custom",
+            content: "删总结腔",
+            source: "project",
+          },
+        ],
+        builtInSkillOverrides: [],
+        lastChapterDeAiSkillId: null,
+      })],
+      ["/proj/.novel/book-rules.json", JSON.stringify({
+        version: "1.0",
+        prohibitions: ["现代热梗"],
+        allowedDeviations: [],
+      })],
+      ["/proj/.novel/user-memory.json", JSON.stringify({
+        version: "user-memory/1.0",
+        preferences: [{ id: "u1", key: "avoid_words_1", value: "陡然, 骤然", category: "vocabulary", createdAt: "", updatedAt: "" }],
+        deAiWeights: { categoryBoosts: {}, severityThreshold: "medium", genreOverrides: {} },
+        reviewCalibration: { dimensionWeights: {}, severityDeductions: {} },
+        updatedAt: "",
+      })],
+    ])
+
+    try {
+      const res = await handleStateRequest(
+        request({ op: "rules-get", params: {} }),
+        deps({
+          readFileText: async (path) => {
+            if (files.has(path)) return files.get(path)!
+            throw new Error(`ENOENT: ${path}`)
+          },
+        }),
+      )
+      expect(res.ok).toBe(true)
+      const serialized = JSON.stringify(res.value)
+      // 严禁任何密钥/端点/providerConfigs 泄漏
+      expect(serialized).not.toContain("SECRET-LLM-KEY-SHOULD-NEVER-LEAK")
+      expect(serialized).not.toContain("TOPSECRET")
+      expect(serialized).not.toContain("SECRET-PROVIDER-OVERRIDE-KEY")
+      expect(serialized).not.toContain("private.provider")
+      // 严禁触发任何 Tauri 写盘命令（特别是 legacy de-ai-skills.json 不得惰性迁移写盘！）
+      expect(tauriInvoke).not.toHaveBeenCalled()
+
+      const val = res.value as {
+        sections: string[]
+        writingStyle: { soulDoc: string; genre: string }
+        antiAi: { configSource: string; effectiveSkill: { id: string } | null; avoidWords: string[] }
+        bookRules: { loaded: boolean; rules: { prohibitions: string[] } }
+        planning: { novelMode: boolean }
+      }
+      expect(val.sections).toEqual(["writingStyle", "antiAi", "bookRules", "planning"])
+      expect(val.writingStyle.soulDoc).toContain("克制、悬疑")
+      expect(val.writingStyle.genre).toBe("悬疑")
+      expect(val.antiAi.configSource).toBe("legacy_json")
+      expect(val.antiAi.effectiveSkill?.id).toBe("project:custom-1")
+      expect(val.antiAi.avoidWords).toEqual(["陡然", "骤然"])
+      expect(val.bookRules.loaded).toBe(true)
+      expect(val.bookRules.rules.prohibitions).toEqual(["现代热梗"])
+
+      // 按需过滤 sections & 校验非法 sections
+      const partial = await handleStateRequest(
+        request({ op: "rules-get", params: { sections: ["bookRules"] } }),
+        deps({ readFileText: async () => { throw new Error("ENOENT") } }),
+      )
+      expect(partial.ok).toBe(true)
+      const pVal = partial.value as Record<string, unknown>
+      expect(pVal.bookRules).toBeDefined()
+      expect(pVal.antiAi).toBeUndefined()
+      expect((pVal.bookRules as { loaded: boolean; rules: { prohibitions: string[] } }).loaded).toBe(false)
+      expect((pVal.bookRules as { rules: { prohibitions: string[] } }).rules.prohibitions).toEqual([])
+
+      const invalidSec = await handleStateRequest(
+        request({ op: "rules-get", params: { sections: ["secrets"] } }),
+        deps(),
+      )
+      expect(invalidSec.ok).toBe(false)
+      expect(invalidSec.error).toContain("不支持的 section")
+    } finally {
+      useWikiStore.getState().setLlmConfig(prevLlm)
+      useWikiStore.getState().setProviderConfigs(prevProviders)
+      useWikiStore.getState().setNovelConfig(prevNovel)
+    }
+  })
+
+  it("gate-check-mechanical 严格执行 1-of-3 校验、100000 字符上限与路径遍历拒绝", async () => {
+    // 0 个目标 -> 拒绝
+    const none = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: {} }),
+      deps(),
+    )
+    expect(none.ok).toBe(false)
+    expect(none.error).toContain("三者之一")
+
+    // >1 个目标 -> 拒绝
+    const two = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { draftId: "draft_old_1", text: "正文" } }),
+      deps(),
+    )
+    expect(two.ok).toBe(false)
+    expect(two.error).toContain("1-of-3")
+
+    const allThree = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { draftId: "draft_old_1", chapter: "1", text: "正文" } }),
+      deps(),
+    )
+    expect(allThree.ok).toBe(false)
+    expect(allThree.error).toContain("1-of-3")
+
+    // 超 100_000 字符 -> 拒绝
+    const tooLong = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { text: "甲".repeat(MAX_MECHANICAL_GATE_TEXT_CHARS + 1) } }),
+      deps(),
+    )
+    expect(tooLong.ok).toBe(false)
+    expect(tooLong.error).toContain("超过上限")
+
+    // 路径遍历 draftId / chapter -> 拒绝
+    const badDraft = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { draftId: "../evil" } }),
+      deps(),
+    )
+    expect(badDraft.ok).toBe(false)
+
+    const badChapter = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { chapter: "../evil.md" } }),
+      deps(),
+    )
+    expect(badChapter.ok).toBe(false)
+    expect(badChapter.error).toContain("非法章节选择器")
+
+    // 合法 text / draftId / chapter 三路径分别透传并回机械报告
+    const seenInputs: unknown[] = []
+    const stubReport = {
+      mechanicalOnly: true as const,
+      semanticReviewCompleted: false as const,
+      verdict: "mechanical_pass_pending_semantic" as const,
+      blockingGate: null,
+      chapterNumber: 2,
+      genre: "悬疑",
+      gates: {
+        consistency: { priority: "P0" as const, status: "mechanical_passed_pending_semantic" as const, verdict: "pending" as const, errorCount: 0, warningCount: 0, infoCount: 0, issues: [] },
+        anti_ai: { priority: "P1" as const, status: "mechanical_passed_pending_semantic" as const, verdict: "pending" as const, errorCount: 0, warningCount: 0, infoCount: 0, issues: [] },
+        quality: { priority: "P2" as const, status: "pending" as const, verdict: "pending" as const, note: "pending" },
+      },
+    }
+    const runMechanicalGate = vi.fn(async (input) => {
+      seenInputs.push(input)
+      return stubReport as never
+    })
+
+    const byDraft = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { draftId: "draft_new_2", genre: "悬疑" } }),
+      deps({ listDrafts: async () => sampleDrafts, runMechanicalGate }),
+    )
+    expect(byDraft.ok).toBe(true)
+    expect(byDraft.value).toMatchObject({
+      mechanicalOnly: true,
+      semanticReviewCompleted: false,
+      verdict: "mechanical_pass_pending_semantic",
+      target: { kind: "draft", draftId: "draft_new_2" },
+    })
+    expect(seenInputs[0]).toMatchObject({ projectPath: "/proj", chapterNumber: 2, genre: "悬疑" })
+
+    const byChapter = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { chapter: "2" } }),
+      deps({ runMechanicalGate }),
+    )
+    expect(byChapter.ok).toBe(true)
+    expect(seenInputs[1]).toMatchObject({ projectPath: "/proj", chapterNumber: 2, text: "line1\nline2\nline3\nline4\nline5" })
+
+    const byText = await handleStateRequest(
+      request({ op: "gate-check-mechanical", params: { text: "一段测试正文", chapterNumber: 9 } }),
+      deps({ runMechanicalGate }),
+    )
+    expect(byText.ok).toBe(true)
+    expect(seenInputs[2]).toMatchObject({ projectPath: "/proj", chapterNumber: 9, text: "一段测试正文" })
+  })
+})
+
+describe("handleStateRequest — R2-B3（诚实草稿元数据 / context-prepare / kind 隔离 / director-check / outline-write）", () => {
+  afterEach(() => {
+    useWikiStore.getState().setProject(null)
+    tauriInvoke.mockReset()
+  })
+
+  it("summarizeDraftMetadata 诚实报告 adoptionGated，且无采纳门回执的 mcp:chapter.write 与 acp:* 草稿返回 gateStatus=unassessed 与 needsGateReview=false（零死锁）", async () => {
+    const acpUngatedDraft: ChapterDraft = {
+      id: "draft_acp_ungated",
+      chapterName: "第4章-风暴",
+      content: "通过 Antigravity ACP 面板保存的草稿正文",
+      createdAt: 1_700_000_400_000,
+      status: "draft",
+      sourceConversationId: "acp:sess-1",
+    }
+    // 零 API Key 可直接采纳：draftNeedsGateReview 恒为 false，不死锁 acceptChapterDraft
+    expect(draftNeedsGateReview(acpUngatedDraft)).toBe(false)
+
+    const drafts: ChapterDraft[] = [
+      acpUngatedDraft,
+      {
+        id: "draft_mcp_ungated",
+        chapterName: "第1章-启程",
+        content: "外部 Agent 通过 chapter.write 写入的草稿正文",
+        createdAt: 1_700_000_300_000,
+        status: "draft",
+        sourceConversationId: "mcp:chapter.write",
+      },
+      {
+        id: "draft_mcp_partial",
+        chapterName: "第2章-残篇",
+        content: "截断草稿",
+        createdAt: 1_700_000_200_000,
+        status: "draft",
+        partial: true,
+        sourceConversationId: "mcp:chapter.write",
+      },
+      {
+        id: "draft_deep_passed",
+        chapterName: "第3章-过门",
+        content: "已过门草稿",
+        createdAt: 1_700_000_100_000,
+        status: "draft",
+        adoptionGate: { status: "passed", bodySha256: "a".repeat(64) },
+        sourceConversationId: "mcp:deep-chapter",
+      },
+    ]
+
+    const res = await handleStateRequest(
+      request({ op: "draft-list", params: {} }),
+      deps({ listDrafts: async () => drafts }),
+    )
+    expect(res.ok).toBe(true)
+    const list = (res.value as { drafts: Array<Record<string, unknown>> }).drafts
+    expect(list[0]).toMatchObject({
+      draftId: "draft_acp_ungated",
+      adoptionGated: false,
+      gateStatus: "unassessed",
+      needsGateReview: false,
+      sourceConversationId: "acp:sess-1",
+    })
+    expect(list[1]).toMatchObject({
+      draftId: "draft_mcp_ungated",
+      adoptionGated: false,
+      gateStatus: "unassessed",
+      needsGateReview: false,
+    })
+    expect(list[2]).toMatchObject({
+      draftId: "draft_mcp_partial",
+      adoptionGated: true,
+      gateStatus: "partial",
+      needsGateReview: true,
+    })
+    expect(list[3]).toMatchObject({
+      draftId: "draft_deep_passed",
+      adoptionGated: true,
+      gateStatus: "passed",
+      needsGateReview: false,
+    })
+  })
+
+  it("context-prepare-start / poll 正常异步完结，且与 context-inspect 严格按 kind 隔离（拒绝跨 kind jobId）", async () => {
+    const prepDeferred = deferredValue<unknown>()
+    const inspectDeferred = deferredValue<unknown>()
+    const bridgeDeps = deps({
+      prepareWriteContext: async () => await prepDeferred.promise,
+      inspectContext: async (input) => {
+        await input.recheckChapter?.()
+        return await inspectDeferred.promise
+      },
+    })
+
+    // 参数错误在 start 阶段即同步拒绝
+    const badStart = await handleStateRequest(
+      request({ op: "context-prepare-start", params: { dimension: "thril" } }),
+      bridgeDeps,
+    )
+    expect(badStart.ok).toBe(false)
+    expect(badStart.error).toContain("dimension")
+
+    const prepStart = await handleStateRequest(
+      request({ op: "context-prepare-start", params: { targetChapter: 2 } }),
+      bridgeDeps,
+    )
+    expect(prepStart.ok).toBe(true)
+    const prepJobId = (prepStart.value as { jobId: string }).jobId
+    expect(prepJobId).toMatch(/^cprepare_/)
+
+    const inspectStart = await handleStateRequest(
+      request({ op: "context-inspect-start", params: { chapter: "1" } }),
+      bridgeDeps,
+    )
+    expect(inspectStart.ok).toBe(true)
+    const inspectJobId = (inspectStart.value as { jobId: string }).jobId
+    expect(inspectJobId).toMatch(/^cinspect_/)
+
+    // 跨 kind 轮询严格拒绝
+    const crossInspect = await handleStateRequest(
+      request({ op: "context-inspect-poll", params: { jobId: prepJobId } }),
+      bridgeDeps,
+    )
+    expect(crossInspect.ok).toBe(false)
+    expect(crossInspect.error).toContain("任务类型不匹配")
+
+    const crossPrepare = await handleStateRequest(
+      request({ op: "context-prepare-poll", params: { jobId: inspectJobId } }),
+      bridgeDeps,
+    )
+    expect(crossPrepare.ok).toBe(false)
+    expect(crossPrepare.error).toContain("任务类型不匹配")
+
+    // 同 kind 轮询 running → done
+    const runningPoll = await handleStateRequest(
+      request({ op: "context-prepare-poll", params: { jobId: prepJobId } }),
+      bridgeDeps,
+    )
+    expect(runningPoll).toEqual({ ok: true, value: { status: "running", jobId: prepJobId } })
+
+    prepDeferred.resolve({ mode: "next_chapter", targetChapter: 2 })
+    inspectDeferred.resolve({ ok: true })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    const donePoll = await handleStateRequest(
+      request({ op: "context-prepare-poll", params: { jobId: prepJobId } }),
+      bridgeDeps,
+    )
+    expect(donePoll).toEqual({
+      ok: true,
+      value: { status: "done", jobId: prepJobId, value: { mode: "next_chapter", targetChapter: 2 } },
+    })
+  })
+
+  it("director-check 严格拒绝非空 params，零 LLM 零写盘聚合导演状态与缺口/推进探针", async () => {
+    const badParams = await handleStateRequest(
+      request({ op: "director-check", params: { force: true } }),
+      deps(),
+    )
+    expect(badParams.ok).toBe(false)
+    expect(badParams.error).toContain("不接受参数")
+
+    const persistedBlocked: DirectorPersistedFile = {
+      fileVersion: 1,
+      state: createDirectorPipeline(),
+      ideaInput: { title: "雾港旧案", genre: "悬疑", coreConflict: "" },
+    }
+    const incompleteBp: WorldBlueprint = {
+      version: "1.0",
+      worldType: "mystery",
+      layers: { axioms: ["现实逻辑"] },
+    }
+    const blockedRes = await handleStateRequest(
+      request({ op: "director-check", params: {} }),
+      deps({
+        directorCheckDeps: {
+          hasPersistedDirectorState: async () => true,
+          loadDirectorPersisted: async () => persistedBlocked,
+          loadWorldBlueprint: async () => incompleteBp,
+          collectProjectSnapshot: async (_pp, idea) => ({
+            idea,
+            worldComplete: false,
+            protagonistNamed: false,
+            antagonistNamed: false,
+            frameworkChosen: false,
+            volumesPlanned: false,
+            firstChapterReady: false,
+          }),
+        },
+      }),
+    )
+    expect(blockedRes.ok).toBe(true)
+    expect(tauriInvoke).not.toHaveBeenCalled()
+    expect(blockedRes.value).toMatchObject({
+      projectPath: "/proj",
+      hasPersistedState: true,
+      currentPhase: "idea",
+      completed: false,
+      worldBlueprintPresent: true,
+      worldValidation: { verdict: "incomplete" },
+      probe: {
+        canAdvance: false,
+        wouldAdvanceTo: null,
+        wouldComplete: false,
+        blockedReason: "核心冲突缺失",
+        gapHint: "请先描述核心冲突",
+      },
+      meta: { readOnly: true, llmCalls: 0, diskWrites: 0 },
+    })
+
+    // 立意完备时 probe 预告可推进至 world（仍不落盘修改状态）
+    const persistedReady: DirectorPersistedFile = {
+      fileVersion: 1,
+      state: createDirectorPipeline(),
+      ideaInput: { title: "雾港旧案", genre: "悬疑", coreConflict: "追查十年前失踪案" },
+    }
+    const readyRes = await handleStateRequest(
+      request({ op: "director-check" }),
+      deps({
+        directorCheckDeps: {
+          hasPersistedDirectorState: async () => true,
+          loadDirectorPersisted: async () => persistedReady,
+          loadWorldBlueprint: async () => null,
+          collectProjectSnapshot: async (_pp, idea) => ({
+            idea,
+            worldComplete: false,
+            protagonistNamed: false,
+            antagonistNamed: false,
+            frameworkChosen: false,
+            volumesPlanned: false,
+            firstChapterReady: false,
+          }),
+        },
+      }),
+    )
+    expect(readyRes.ok).toBe(true)
+    expect(tauriInvoke).not.toHaveBeenCalled()
+    expect(readyRes.value).toMatchObject({
+      currentPhase: "idea",
+      worldBlueprintPresent: false,
+      worldValidation: null,
+      probe: {
+        canAdvance: true,
+        wouldAdvanceTo: "world",
+        wouldComplete: false,
+        blockedReason: null,
+        gapHint: null,
+      },
+    })
+  })
+
+  it("outline-write 严守先 createDirectory 再写盘、路径安全校验、有效章节才同步模型以及 onDraftWritten 刷新", async () => {
+    const callOrder: string[] = []
+    const ensureDir = vi.fn(async (dir: string) => {
+      callOrder.push(`mkdir:${dir}`)
+    })
+    const writeAtomic = vi.fn(async (path: string, _content: string) => {
+      callOrder.push(`write:${path}`)
+    })
+    const saveModel = vi.fn(async (pp: string) => {
+      callOrder.push(`model:${pp}`)
+      return { path: `${pp}/.novel/outline-model.json` }
+    })
+    const onDraftWritten = vi.fn()
+
+    // 1) 非法文件名（遍历/分隔符/冒号/控制字符/非 .md/Windows 保留名/超长）与非法内容全部先于落盘拒绝
+    const badFilenames = [
+      "",
+      "../escape.md",
+      "sub/outline.md",
+      "sub\\outline.md",
+      "a:b.md",
+      "bad\x00.md",
+      ".hidden.md",
+      "outline.txt",
+      "CON.md",
+      "CON .md",
+      "nul.md",
+      "NUL .md",
+      "COM1.md",
+      "LPT9.md",
+      " leading.md",
+      `${"a".repeat(126)}.md`,
+    ]
+    for (const filename of badFilenames) {
+      const res = await handleStateRequest(
+        request({ op: "outline-write", params: { filename, content: "# 第1卷 启程\n## 第1章 雨夜" } }),
+        deps({ outlineWriteDeps: { createDirectory: ensureDir, writeFileAtomic: writeAtomic, saveOutlineModel: saveModel }, onDraftWritten }),
+      )
+      expect(res.ok).toBe(false)
+    }
+    const emptyContent = await handleStateRequest(
+      request({ op: "outline-write", params: { filename: "main.md", content: "   " } }),
+      deps({ outlineWriteDeps: { createDirectory: ensureDir, writeFileAtomic: writeAtomic, saveOutlineModel: saveModel }, onDraftWritten }),
+    )
+    expect(emptyContent.ok).toBe(false)
+    const hugeContent = await handleStateRequest(
+      request({ op: "outline-write", params: { filename: "main.md", content: "甲".repeat(MAX_OUTLINE_WRITE_CHARS + 1) } }),
+      deps({ outlineWriteDeps: { createDirectory: ensureDir, writeFileAtomic: writeAtomic, saveOutlineModel: saveModel }, onDraftWritten }),
+    )
+    expect(hugeContent.ok).toBe(false)
+    expect(ensureDir).not.toHaveBeenCalled()
+    expect(writeAtomic).not.toHaveBeenCalled()
+    expect(saveModel).not.toHaveBeenCalled()
+    expect(onDraftWritten).not.toHaveBeenCalled()
+
+    // 2) 结构化大纲（chapterCount > 0 且校验通过）：先 createDirectory -> writeFileAtomic -> saveOutlineModel -> onDraftWritten
+    const validOutline = [
+      "# 第1卷 雾港暗潮",
+      "",
+      "## 第1章 雨夜来客",
+      "### 本章目标",
+      "主角陈砚在雨夜接到一封失踪案密信。",
+    ].join("\n")
+    const okRes = await handleStateRequest(
+      request({ op: "outline-write", params: { filename: "master-outline.md", content: validOutline } }),
+      deps({
+        outlineWriteDeps: { createDirectory: ensureDir, writeFileAtomic: writeAtomic, saveOutlineModel: saveModel },
+        onDraftWritten,
+      }),
+    )
+    expect(okRes.ok).toBe(true)
+    expect(callOrder).toEqual([
+      "mkdir:/proj/wiki/outlines",
+      "write:/proj/wiki/outlines/master-outline.md",
+      "model:/proj",
+    ])
+    expect(onDraftWritten).toHaveBeenCalledTimes(1)
+    expect(okRes.value).toMatchObject({
+      filename: "master-outline.md",
+      path: "/proj/wiki/outlines/master-outline.md",
+      modelSynced: true,
+      modelPath: "/proj/.novel/outline-model.json",
+      modelSyncSkippedReason: null,
+      parseSummary: { chapterCount: 1, validationOk: true, validationIssues: [] },
+    })
+
+    // 3) 无章节散文大纲（chapterCount === 0）：只写 wiki/outlines，不覆写 .novel/outline-model.json
+    saveModel.mockClear()
+    const proseOnlyRes = await handleStateRequest(
+      request({ op: "outline-write", params: { filename: "notes.md", content: "纯构思笔记，不含任何章标题。" } }),
+      deps({
+        outlineWriteDeps: { createDirectory: ensureDir, writeFileAtomic: writeAtomic, saveOutlineModel: saveModel },
+        onDraftWritten,
+      }),
+    )
+    expect(proseOnlyRes.ok).toBe(true)
+    expect(saveModel).not.toHaveBeenCalled()
+    expect(proseOnlyRes.value).toMatchObject({
+      modelSynced: false,
+      modelPath: null,
+      modelSyncSkippedReason: "no_chapters_parsed",
+    })
+    expect(onDraftWritten).toHaveBeenCalledTimes(2)
+
+    // 4) syncModel=false 显式关闭侧车同步，同时接受大写 .MD 后缀（与 Rust validate_outline_filename 对齐）
+    saveModel.mockClear()
+    const noSyncRes = await handleStateRequest(
+      request({ op: "outline-write", params: { filename: "MAIN-OUTLINE.MD", content: validOutline, syncModel: false } }),
+      deps({
+        outlineWriteDeps: { createDirectory: ensureDir, writeFileAtomic: writeAtomic, saveOutlineModel: saveModel },
+        onDraftWritten,
+      }),
+    )
+    expect(noSyncRes.ok).toBe(true)
+    expect(saveModel).not.toHaveBeenCalled()
+    expect(noSyncRes.value).toMatchObject({
+      filename: "MAIN-OUTLINE.MD",
+      path: "/proj/wiki/outlines/MAIN-OUTLINE.MD",
+      modelSynced: false,
+      modelSyncSkippedReason: "disabled_by_caller",
+    })
+    expect(onDraftWritten).toHaveBeenCalledTimes(3)
+
+    // 5) 正文写入成功后即便 saveOutlineModel 抛错，finally 仍必须触发 onDraftWritten 刷新 UI
+    const failingSaveModel = vi.fn(async () => {
+      throw new Error("outline-model 磁盘写入失败")
+    })
+    const syncFailRes = await handleStateRequest(
+      request({ op: "outline-write", params: { filename: "sync-fail.md", content: validOutline } }),
+      deps({
+        outlineWriteDeps: { createDirectory: ensureDir, writeFileAtomic: writeAtomic, saveOutlineModel: failingSaveModel },
+        onDraftWritten,
+      }),
+    )
+    expect(syncFailRes.ok).toBe(false)
+    expect(syncFailRes.error).toContain("outline-model 磁盘写入失败")
+    expect(onDraftWritten).toHaveBeenCalledTimes(4)
   })
 })

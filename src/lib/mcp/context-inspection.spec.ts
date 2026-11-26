@@ -28,24 +28,31 @@ import {
   createContextInspectionCache,
   inspectContext,
   isSixReviewDimensionKey,
+  runPrepareWriteContext,
   type ContextInspectionDeps,
   type ContextInspectionResult,
   type ContextRuntimeConfig,
   type InspectedChapter,
+  type PrepareWriteContextDeps,
 } from "./context-inspection"
-import { fingerprintText } from "@/lib/novel/book-analysis/content-fingerprint"
-import { resolveReviewChapterMaxChars } from "@/lib/novel/chapter-window"
-import { computeCheckpointDigest } from "@/lib/novel/checkpoint-digest"
-import * as checkpointDigest from "@/lib/novel/checkpoint-digest"
-import type { BuildContextOptions, ContextPack } from "@/lib/novel/context-engine-types"
-import type { RoutingROISample } from "@/lib/novel/context-telemetry"
 import {
   SIX_REVIEW_DIMENSIONS,
   SIX_REVIEW_DIMENSION_ORDER,
+  assessGoldScaleReadiness,
   buildDimensionReviewPrompt,
-} from "@/lib/novel/dimension-review-adapter"
-import { assessGoldScaleReadiness, type LiteraryGoldAnchor } from "@/lib/novel/literary-gold-scale"
-import { canonicalizeContextPackForHash } from "@/lib/novel/measurement-fingerprint"
+  canonicalizeContextPackForHash,
+  computeCheckpointDigest,
+  contextPackToPrompt,
+  fingerprintText,
+  resolveReviewChapterMaxChars,
+  type BuildContextOptions,
+  type ChapterDraft,
+  type ChapterPlanView,
+  type ContextPack,
+  type LiteraryGoldAnchor,
+  type RoutingROISample,
+} from "@/lib/novel"
+import * as checkpointDigest from "@/lib/novel/checkpoint-digest"
 import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
 
 // ── 夹具 ────────────────────────────────────────────────────────────────────
@@ -1148,5 +1155,269 @@ describe("context.inspect — 内部章复查 callback 契约", () => {
     const h = harness()
     await expect(inspectContext(request({ recheckChapter: async () => undefined }), h.deps)).rejects.toThrow(/参数未知/)
     expect(h.calls).toHaveLength(0)
+  })
+})
+
+// ── R2-B2: runPrepareWriteContext 零 LLM / 零写盘写作准备门面 ────────────────
+
+function makePlanningView(chapterNumber: number): ChapterPlanView {
+  return {
+    chapterNumber,
+    generatedAt: "2026-11-26T00:00:00.000Z",
+    foreshadowing: {
+      status: "ok",
+      report: { currentChapter: chapterNumber, items: [], debtScore: 0 },
+      overdueFindings: [],
+    },
+    characters: { status: "ok", items: [] },
+    threads: { status: "ok", items: [], openCount: 0 },
+    summary: { debtScore: 0, criticalForeshadowing: 0, openThreads: 0, charactersDue: 0 },
+  } as unknown as ChapterPlanView
+}
+
+function makePrepareHarness(options: {
+  config?: ContextRuntimeConfig
+  chapters?: Array<{ name: string; path: string }>
+  drafts?: ChapterDraft[]
+  pack?: ContextPack
+  projectPath?: string
+  overrides?: Partial<PrepareWriteContextDeps>
+} = {}) {
+  const state = {
+    projectPath: options.projectPath ?? "/proj",
+    config: options.config ?? makeConfig(),
+    chapters: options.chapters ?? [],
+    drafts: options.drafts ?? [],
+    pack: options.pack ?? makePack({ worldBlueprint: "# 世界观骨架\n- 灵气枯竭时代" }),
+    planCalls: [] as number[],
+    goldLoads: 0,
+  }
+  const calls: BuildCall[] = []
+  const deps: PrepareWriteContextDeps = {
+    readProjectPath: () => state.projectPath,
+    readRuntimeConfig: () => state.config,
+    listChapters: async () => state.chapters,
+    listDrafts: async () => state.drafts,
+    buildContextPack: async (projectPath, task, chapterNumber, buildOptions) => {
+      calls.push({ projectPath, task, chapterNumber, options: buildOptions })
+      return { ...state.pack, task }
+    },
+    buildChapterPlan: async (_projectPath, chapterNumber) => {
+      state.planCalls.push(chapterNumber)
+      return makePlanningView(chapterNumber)
+    },
+    loadGoldMaterials: async () => {
+      state.goldLoads += 1
+      return { anchors: [], exemplars: [], merged: [] }
+    },
+    assessGoldReadiness: assessGoldScaleReadiness,
+    ...options.overrides,
+  }
+  return { deps, calls, state }
+}
+
+describe("context.prepare (runPrepareWriteContext) — R2-B2", () => {
+  it("0 章新书准备第 1 章上下文：返回世界观/大纲/规划视图、丢弃 ROI 遥测且零写盘零秘密泄漏", async () => {
+    const h = makePrepareHarness({ chapters: [] })
+    const result = await runPrepareWriteContext("/proj", { includePack: true }, h.deps)
+
+    expect(result.mode).toBe("new_book_chapter_1")
+    expect(result.isNewBook).toBe(true)
+    expect(result.existingChapterCount).toBe(0)
+    expect(result.targetChapter).toBe(1)
+    expect(result.novelMode).toBe(true)
+    expect(result.warning).toBeNull()
+    expect(result.warnings).toEqual([])
+    expect(result.planningView?.chapterNumber).toBe(1)
+    expect(h.state.planCalls).toEqual([1])
+    expect(result.contextPack?.worldBlueprint).toContain("灵气枯竭时代")
+    expect(result.prompt.text).toContain("本章章纲")
+    expect(result.meta).toEqual({ llmCalls: 0, diskWrites: 0 })
+    expect(result.buildPolicy).toMatchObject({
+      telemetryDiscarded: true,
+      retrievalNetworkAllowed: false,
+      effectiveNetworkEnabled: false,
+      zeroIoClaimed: false,
+      llmCalls: 0,
+      diskWrites: 0,
+    })
+
+    // telemetrySink 必须显式丢弃 ROI（不写 cognition-state.json）
+    expect(h.calls).toHaveLength(1)
+    expect(h.calls[0]?.chapterNumber).toBe(1)
+    expect(typeof h.calls[0]?.options.telemetrySink).toBe("function")
+    expect(h.calls[0]?.options.telemetrySink?.("/proj", {} as RoutingROISample)).toBeUndefined()
+
+    // 零凭据泄漏
+    const serialized = JSON.stringify(result)
+    for (const secret of ["sk-SECRET-LLM", "sk-SECRET-EMBED", "https://secret.example/v1", "SECRET_TASK_EXTRA"]) {
+      expect(serialized).not.toContain(secret)
+    }
+  })
+
+  it("第 N+1 章续写上下文按字符分页（offset / limit / totalChars / hasMore / nextOffset），拼回与源 prompt 逐字一致", async () => {
+    const longOutline = "第一段剧情推进与冲突展开。".repeat(80)
+    const h = makePrepareHarness({
+      chapters: [
+        { name: "chapter-001.md", path: "/proj/wiki/chapters/chapter-001.md" },
+        { name: "chapter-002.md", path: "/proj/wiki/chapters/chapter-002.md" },
+        { name: "第3章-暗潮.md", path: "/proj/wiki/chapters/第3章-暗潮.md" },
+      ],
+      pack: makePack({ outline: longOutline, previousChapterEnding: "上一章结尾停在悬崖边。" }),
+    })
+
+    const expectedTask = "准备写作第4章"
+    const expectedFull = contextPackToPrompt(
+      { ...h.state.pack, task: expectedTask },
+      h.state.config.novelConfig.contextTokenBudget,
+      {
+        temporalFactsEnabled: h.state.config.novelConfig.temporalFactsEnabled === true,
+        hardInjectEnabled: h.state.config.novelConfig.hardInjectEnabled === true,
+      },
+    )
+    expect(expectedFull.length).toBeGreaterThan(600)
+
+    let offset = 0
+    let assembled = ""
+    let pages = 0
+    for (;;) {
+      const pageRes = await runPrepareWriteContext(
+        "/proj",
+        { offset, limit: 300, includePlanningView: false },
+        h.deps,
+      )
+      expect(pageRes.mode).toBe("next_chapter")
+      expect(pageRes.isNewBook).toBe(false)
+      expect(pageRes.existingChapterCount).toBe(3)
+      expect(pageRes.targetChapter).toBe(4)
+      expect(pageRes.planningView).toBeUndefined()
+      expect(pageRes.prompt.offset).toBe(offset)
+      expect(pageRes.prompt.limit).toBe(300)
+      expect(pageRes.prompt.totalChars).toBe(expectedFull.length)
+      expect(pageRes.prompt.pageChars).toBe(pageRes.prompt.text.length)
+      assembled += pageRes.prompt.text
+      pages += 1
+      if (!pageRes.prompt.hasMore) {
+        expect(pageRes.prompt.nextOffset).toBeNull()
+        break
+      }
+      expect(pageRes.prompt.nextOffset).toBe(offset + pageRes.prompt.pageChars)
+      offset = pageRes.prompt.nextOffset!
+      if (pages > 50) throw new Error("分页失控")
+    }
+    expect(pages).toBeGreaterThan(2)
+    expect(assembled).toBe(expectedFull)
+    expect(h.state.planCalls).toEqual([])
+
+    // offset 越界明确报错
+    await expect(
+      runPrepareWriteContext("/proj", { offset: expectedFull.length + 1 }, h.deps),
+    ).rejects.toThrow(/offset 超出长度/)
+  })
+
+  it("待审草稿 draftId + dimension 返回六维标准与生产审查 prompt 并支持分页，includeDraft=true 才携带正文", async () => {
+    const draft: ChapterDraft = {
+      id: "draft_review_7",
+      chapterName: "第7章-伏笔回收",
+      content: "草稿正文第一段，主角在雨夜揭开谜底。\n".repeat(40),
+      createdAt: 1_700_000_500_000,
+      status: "draft",
+      sourceConversationId: "mcp:chapter.write",
+    }
+    const h = makePrepareHarness({ drafts: [draft] })
+
+    const noDraftText = await runPrepareWriteContext(
+      "/proj",
+      { draftId: "draft_review_7", dimension: "thrill", offset: 0, limit: 400 },
+      h.deps,
+    )
+    expect(noDraftText.mode).toBe("draft_review")
+    expect(noDraftText.targetChapter).toBe(7)
+    expect(noDraftText.draft).toMatchObject({
+      draftId: "draft_review_7",
+      chapterName: "第7章-伏笔回收",
+      chapterNumber: 7,
+      chars: draft.content.length,
+    })
+    expect(noDraftText.draftText).toBeUndefined()
+    expect(noDraftText.dimension?.key).toBe("thrill")
+    expect(noDraftText.dimension?.label).toBe(SIX_REVIEW_DIMENSIONS.thrill.label)
+    expect(noDraftText.dimension?.reviewPromptBuilt).toBe(true)
+    expect(noDraftText.dimension?.hasMore).toBe(true)
+    expect(noDraftText.dimension?.nextOffset).toBe(400)
+
+    const withDraftText = await runPrepareWriteContext(
+      "/proj",
+      {
+        draftId: "draft_review_7",
+        dimension: "thrill",
+        includeDraft: true,
+        offset: 400,
+        limit: MAX_PROMPT_PAGE_CHARS,
+      },
+      h.deps,
+    )
+    expect(withDraftText.draftText).toBe(draft.content)
+    const combinedReview = `${noDraftText.dimension?.prompt ?? ""}${withDraftText.dimension?.prompt ?? ""}`
+    const expectedReview = buildDimensionReviewPrompt(
+      { ...h.state.pack, task: "六维审查第7章（草稿 draft_review_7）" },
+      draft.content,
+      SIX_REVIEW_DIMENSIONS.thrill,
+      {
+        goldAnchors: [],
+        goldReadinessHint: assessGoldScaleReadiness({ anchors: [], exemplars: [] }).promptHint,
+        hardInjectEnabled: true,
+      },
+    )
+    expect(combinedReview).toBe(expectedReview)
+  })
+
+  it("novelMode=false 时不崩溃，显式发出 warning 与 warnings 告警", async () => {
+    const h = makePrepareHarness({
+      config: makeConfig({ novelMode: false }),
+      pack: makePack({ outline: "" }),
+    })
+    const result = await runPrepareWriteContext("/proj", {}, h.deps)
+
+    expect(result.novelMode).toBe(false)
+    expect(result.warning).toBeTruthy()
+    expect(result.warning).toContain("novelMode=false")
+    expect(result.warnings.length).toBeGreaterThan(0)
+    expect(result.meta).toEqual({ llmCalls: 0, diskWrites: 0 })
+  })
+
+  it("严格校验非法 dimension / targetChapter / draftId / offset / limit / 未知键与网络检索门禁", async () => {
+    const badParams: Array<Record<string, unknown>> = [
+      { dimension: "thril" },
+      { dimension: "structure" },
+      { dimension: "" },
+      { targetChapter: 0 },
+      { targetChapter: -2 },
+      { targetChapter: 1.5 },
+      { draftId: "../evil" },
+      { draftId: "" },
+      { draftId: "a".repeat(129) },
+      { offset: -1 },
+      { offset: 1.2 },
+      { limit: 0 },
+      { limit: MAX_PROMPT_PAGE_CHARS + 1 },
+      { unknownKey: true },
+    ]
+    for (const params of badParams) {
+      const h = makePrepareHarness()
+      await expect(runPrepareWriteContext("/proj", params, h.deps)).rejects.toThrow(/context\.prepare_write/)
+      expect(h.calls).toHaveLength(0)
+    }
+
+    // 启用了检索网络但未传 allowRetrievalNetwork=true 时在构建前拒绝
+    const netHarness = makePrepareHarness({
+      config: makeConfig({
+        embeddingConfig: { ...makeConfig().embeddingConfig, enabled: true },
+      }),
+    })
+    await expect(runPrepareWriteContext("/proj", {}, netHarness.deps)).rejects.toThrow(
+      /allowRetrievalNetwork/,
+    )
+    expect(netHarness.calls).toHaveLength(0)
   })
 })

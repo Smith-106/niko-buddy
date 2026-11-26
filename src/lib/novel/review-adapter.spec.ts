@@ -3,7 +3,7 @@ import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { ChapterSnapshot } from "./chapter-ingest"
-import { buildReviewPrompt, buildCanonModalityContext, clampReviewStageTimeoutMs, ReviewParseError, REVIEW_STAGE_TIMEOUT_DEFAULT_MS, reviewChapter, resolveReviewGateKey, CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES, CORR108_LEGACY_ANTI_AI_REVIEW_TYPES } from "./review-adapter"
+import { buildReviewPrompt, buildCanonModalityContext, clampReviewStageTimeoutMs, ReviewParseError, REVIEW_STAGE_TIMEOUT_DEFAULT_MS, reviewChapter, resolveReviewGateKey, runAuditTriadPreflight, runContinuityMechanicalPreflight, CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES, CORR108_LEGACY_ANTI_AI_REVIEW_TYPES } from "./review-adapter"
 import type { NovelReviewResult } from "./review-adapter"
 import { ALL_AUDIT_DIMENSION_IDS, AUDIT_TAXONOMY, type AuditDimensionId } from "./audit-taxonomy"
 import { buildDecisionGates } from "./deep-chapter-decision-gates"
@@ -11,6 +11,11 @@ import type { TemporalFact } from "./temporal-memory"
 
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
+  collectContinuityMetricMock: vi.fn(),
+  fsWriteFileAtomicMock: vi.fn(async () => undefined),
+  fsCreateDirectoryMock: vi.fn(async () => undefined),
+  fsFileExistsMock: vi.fn(async () => false),
+  auditFindingsOverride: undefined as unknown,
   // C1 真接线 (ISS-20260719-002) 后 reviewChapter 无条件真实执行
   // runContinuityMechanicalPreflight：node 测试环境无 tauri invoke，loader 的
   // readFile 会抛 ReferenceError(window is not defined)，loadCharacterStates 对
@@ -95,6 +100,29 @@ vi.mock("@/commands/fs", async () => {
   return {
     ...actual,
     readFile: mocks.fsReadFileMock,
+    writeFileAtomic: mocks.fsWriteFileAtomicMock,
+    createDirectory: mocks.fsCreateDirectoryMock,
+    fileExists: mocks.fsFileExistsMock,
+  }
+})
+
+vi.mock("./process-library", async () => {
+  const actual = await vi.importActual<typeof import("./process-library")>("./process-library")
+  return {
+    ...actual,
+    auditChapter: async (
+      projectPath: string,
+      chapterNumber: number,
+      presentCharacters: string[],
+      presentItems: string[],
+      presentParticles: Record<string, string[]> | undefined,
+      options?: Parameters<typeof actual.auditChapter>[5],
+    ) => {
+      if (mocks.auditFindingsOverride !== undefined) {
+        return { findings: mocks.auditFindingsOverride }
+      }
+      return actual.auditChapter(projectPath, chapterNumber, presentCharacters, presentItems, presentParticles, options)
+    },
   }
 })
 
@@ -103,10 +131,8 @@ vi.mock("@/lib/llm-client", async (importOriginal) => {
   return {
     ...actual,
       streamChat: mocks.streamChatMock,
-      // TASK-010: collectContinuityMetric mirror — 薄包装层调, 测试不验证 metric 持久化,
-      // no-op mock 即可 (PAT-G2 spec-mock 须镜像新 export 否则 runContinuityMechanicalPreflight
-      // catch 块调用抛 "No export defined")。
-      collectContinuityMetric: () => {},
+      // TASK-010: collectContinuityMetric mirror — 薄包装层调, 可断言 readOnly 跳过 metric 写盘
+      collectContinuityMetric: mocks.collectContinuityMetricMock,
       extractJsonArraySpan: (text: string): string | null => {
         // Mirror real implementation for test use.
         const fenceMatch = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/)
@@ -1784,5 +1810,136 @@ describe("R2-W05 & R2-W08：state_delta_light_check 归位 P0 consistency 与当
     } finally {
       if (prevImpl) mocks.fsReadFileMock.mockImplementation(prevImpl)
     }
+  })
+})
+
+describe("B1 零 LLM 机械降级与只读预检契约", () => {
+  beforeEach(() => {
+    streamChatMock.mockReset()
+    mocks.collectContinuityMetricMock.mockReset()
+    mocks.fsWriteFileAtomicMock.mockReset()
+    mocks.fsCreateDirectoryMock.mockReset()
+    mocks.continuityFindingsOverride = undefined
+    mocks.continuityThrow = undefined
+    mocks.auditFindingsOverride = undefined
+    mocks.slopBlock = false
+    mocks.actionHitsOverride = undefined
+    mocks.actionTextOverride = undefined
+    mocks.llmUsable = true
+  })
+
+  it("runAuditTriadPreflight(readOnly: true, includeNonBlocking: true) 跳过磁盘写且返回非阻断发现", async () => {
+    mocks.auditFindingsOverride = [
+      {
+        type: "presence_path",
+        subtype: "consistency_mechanical",
+        severity: "warning",
+        ref: "character:林墨",
+        message: "角色在场路径疑似矛盾",
+        chapter: 8,
+      },
+      {
+        type: "data_gap",
+        subtype: "data_gap",
+        severity: "info",
+        ref: "process:cognition",
+        message: "缺少认知条目",
+        chapter: 8,
+        missingField: "cognition",
+      },
+    ]
+
+    const defaultOnly = await runAuditTriadPreflight("E:/Novel", 8, { readOnly: true })
+    expect(defaultOnly).toEqual([])
+    expect(mocks.fsWriteFileAtomicMock).not.toHaveBeenCalled()
+    expect(mocks.fsCreateDirectoryMock).not.toHaveBeenCalled()
+
+    const withNonBlocking = await runAuditTriadPreflight("E:/Novel", 8, {
+      readOnly: true,
+      includeNonBlocking: true,
+    })
+    expect(withNonBlocking).toHaveLength(2)
+    expect(withNonBlocking.map((r) => r.severity)).toEqual(["warning", "info"])
+    expect(mocks.fsWriteFileAtomicMock).not.toHaveBeenCalled()
+    expect(mocks.fsCreateDirectoryMock).not.toHaveBeenCalled()
+  })
+
+  it("runContinuityMechanicalPreflight(readOnly: true) 正常与异常分支均跳过 collectContinuityMetric 和 audit 写盘", async () => {
+    mocks.auditFindingsOverride = [
+      {
+        type: "lost_item",
+        subtype: "consistency_mechanical",
+        severity: "warning",
+        ref: "item:青铜钥匙",
+        message: "物品去向未交代",
+        chapter: 8,
+      },
+    ]
+    const results = await runContinuityMechanicalPreflight("E:/Novel", 8, {
+      chapterText: "正文",
+      readOnly: true,
+      includeNonBlockingAudit: true,
+    })
+    expect(results.some((r) => r.severity === "warning" && r.message.includes("物品去向未交代"))).toBe(true)
+    expect(mocks.collectContinuityMetricMock).not.toHaveBeenCalled()
+    expect(mocks.fsWriteFileAtomicMock).not.toHaveBeenCalled()
+
+    // 异常分支同样跳过 metric 写盘
+    mocks.continuityThrow = new Error("engine boom")
+    const degraded = await runContinuityMechanicalPreflight("E:/Novel", 8, { readOnly: true })
+    expect(degraded).toHaveLength(1)
+    expect(degraded[0]?.evidence).toBe("engine_error")
+    expect(mocks.collectContinuityMetricMock).not.toHaveBeenCalled()
+  })
+
+  it("reviewChapter 在无可用 LLM 时仍返回前置 P0/P1 机械层结果，且不调用 streamChat 或 onSemanticReviewCompleted", async () => {
+    mocks.llmUsable = false
+    mocks.continuityFindingsOverride = [
+      {
+        type: "dormant_thread",
+        subtype: "consistency_mechanical",
+        severity: "warning",
+        ref: "subplot:暗线",
+        message: "暗线休眠 6 章未推进",
+        chapter: 8,
+      },
+    ]
+    mocks.actionHitsOverride = [{ action: "推眼镜", totalCount: 3 }]
+    mocks.actionTextOverride = '重复动作: "推眼镜"×3'
+    const onSemanticDone = vi.fn()
+
+    const results = await reviewChapter("E:/Novel", "正文", 8, {
+      contextPack,
+      onSemanticReviewCompleted: onSemanticDone,
+    })
+
+    expect(streamChatMock).not.toHaveBeenCalled()
+    expect(onSemanticDone).not.toHaveBeenCalled()
+    expect(results).toHaveLength(2)
+    expect(results[0]?.type).toBe("consistency_mechanical")
+    expect(results[1]?.type).toBe("character_behavior")
+  })
+
+  it("reviewChapter 在 novelMode=false 时先于机械预检直接返回 []", async () => {
+    mocks.llmUsable = false
+    mocks.slopBlock = true
+    mocks.continuityFindingsOverride = [
+      {
+        type: "dead_character_state",
+        subtype: "consistency_mechanical",
+        severity: "critical",
+        ref: "character:已故掌门",
+        message: "已故掌门复现",
+        chapter: 8,
+      },
+    ]
+
+    const results = await reviewChapter("E:/Novel", "正文", 8, {
+      contextPack,
+      novelMode: false,
+    })
+
+    expect(results).toEqual([])
+    expect(streamChatMock).not.toHaveBeenCalled()
   })
 })

@@ -16,11 +16,12 @@
 
 export { buildAgentSystemSuffix, detectEditIntent, parseAgentResponse } from "./agent-parser"
 export type { FileEditAction } from "./agent-parser"
-export { applyFileEdits, readScopeFileContents } from "./agent-tools"
+export { applyFileEdits, listScopeFiles, readScopeFileContents } from "./agent-tools"
 export type { FileEditResult } from "./agent-tools"
 export { shutdownAntiAiTelemetrySink } from "./anti-ai-telemetry-sink"
 export { applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, saveAntiAiTelemetryConsent } from "./anti-ai-telemetry-wiring"
-export type { BookRules } from "./book-rules"
+export { EMPTY_BOOK_RULES, bookRulesToPromptFragment, validateAgainstBookRules, validateFanficChapter } from "./book-rules"
+export type { BookRules, BookRulesValidation, EraConstraints, FanficMode, FanficPolicy, GenreLock, ProtagonistRule, RuleFinding } from "./book-rules"
 export { runAutonomousDraftCampaign, batchAcceptCampaignDrafts, filterAcceptableChapters } from "./campaign-runner"
 export type { CampaignChapterResult, CampaignRunOptions, CampaignReport, BatchAcceptResult } from "./campaign-runner"
 export { runAutonomousNovelIncubator, runEndToEndAutonomousNovelProduction } from "./autonomous-incubator"
@@ -101,8 +102,8 @@ export type {
 } from "./de-ai-adapter"
 export { acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch } from "./de-ai-batch"
 export type { DeAiBatchOptions, DeAiBatchProgress, DeAiBatchSummary } from "./de-ai-batch"
-export { DE_AI_STRUCTURED_RULES, filterRulesBySeverity } from "./de-ai-rules"
-export type { DeAiSeverity } from "./de-ai-rules"
+export { CHINESE_NOVEL_DE_AI_RULES, DE_AI_CATEGORIES, DE_AI_SEVERITIES, DE_AI_STRUCTURED_RULES, HUMANIZER_CAVITY_GUARD, filterRulesBySeverity, getGenreBaseline } from "./de-ai-rules"
+export type { DeAiCategory, DeAiSeverity, DeAiStructuredRule, GenreBaseline, WebNovelGenre } from "./de-ai-rules"
 export { BUILT_IN_DE_AI_SKILLS, createBlankProjectDeAiSkill, deAiSkillToUserSkill, deleteProjectDeAiSkill, getAllDeAiSkills, isDeAiSkillConfigCorruptError, loadDeAiSkillConfig, normalizeDeAiSkillConfig, recreateDeAiSkillConfig, resetBuiltInDeAiSkill, resolveAvailableDeAiSkills, resolveEffectiveDeAiSkill, restoreDeAiSkillConfigFromBackup, saveDeAiSkillConfig, setDeAiSkillEnabled, setDefaultDeAiSkill, updateDeAiSkill } from "./de-ai-skill-library"
 export type { DeAiSkill, DeAiSkillConfig } from "./de-ai-skill-library"
 export { TIERED_DEAI_TABLE, computeTieredDeAiStats } from "./de-ai-tiered-table"
@@ -114,13 +115,13 @@ export type { ChapterLengthSpec } from "./deep-chapter-prompts"
 export { runDeepOutlineGeneration } from "./deep-outline-generation"
 export { deleteNovelSourceMemory } from "./delete-source-memory"
 export type { ContinuityOverrideReasonCode } from "./deterministic-continuity-engine"
-export { SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER, summarizeScoringModels } from "./dimension-review-adapter"
+export { SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER, buildDimensionReviewPrompt, summarizeScoringModels } from "./dimension-review-adapter"
 export type { DimensionReviewResult, ScoringModelSummary, SixReviewDimensionKey } from "./dimension-review-adapter"
 // §GAP-90-08 授权边界最小返工集（dimension-review-adapter additive 导出）
 export { minimalReworkSet, minimalReworkSetFromDimensionIssues } from "./dimension-review-adapter"
 export type { MinimalReworkIssue } from "./dimension-review-adapter"
-export { retryDirector, tryAdvanceDirector, tryAdvanceDirectorFromProject, collectProjectSnapshot } from "./director-orchestrator"
-export type { DirectorSnapshot } from "./director-orchestrator"
+export { retryDirector, tryAdvanceDirector, tryAdvanceDirectorFromProject, collectProjectSnapshot, collectPhaseGateInput, phaseGapHint } from "./director-orchestrator"
+export type { DirectorAdvanceOutcome, DirectorSnapshot } from "./director-orchestrator"
 export {
   advanceDirectorAutomatically,
   advanceDirectorToStall,
@@ -172,8 +173,9 @@ export { buildDismantlingAnalysisPrompt, buildDismantlingWebResearchPrompt, extr
 export type { DismantlingAnalysis, DismantlingChapter, DismantlingLibrary, DismantlingProject } from "./dismantling"
 export { formatDoctorReport, runProjectDoctor } from "./doctor"
 export type { DoctorFinding, DoctorReport, DoctorSeverity } from "./doctor"
-export { acceptChapterDraft, discardChapterDraft, draftNeedsGateReview, formalChapterPathForDraft, getDraftGateStatus, listChapterDrafts, resolveChapterDraftAdoptionTarget, writeDraft } from "./draft-manager"
-export type { ChapterDraft, DraftGateStatus } from "./lifecycle-types"
+export { acceptChapterDraft, discardChapterDraft, draftNeedsGateReview, formalChapterPathForDraft, getDraftGateStatus, listChapterDrafts, readDraftChapterNumber, resolveChapterDraftAdoptionTarget, writeDraft } from "./draft-manager"
+export type { DraftManagerDeps } from "./draft-manager"
+export type { ChapterDraft, DraftAdoptionGate, DraftGateStatus, DraftStatus } from "./lifecycle-types"
 export { DRAFTS_DIR } from "./lifecycle-types"
 export { calculateEmotionNetValue, evaluatePlayableEmotionPath, getCircuitBreakerStatus, getTopEmotionalDebt, loadEmotionLedger } from "./emotion-ledger"
 export type { EmotionLedgerEntry } from "./emotion-ledger"
@@ -244,11 +246,36 @@ export { goldenCoverageOf, goldenKbShadowCases, runKbShadowArmsIfConsented } fro
 export { detectLocalEntityMiss } from "./local-entity-names"
 export { repairMarkdownFormatWithAi } from "./markdown-quality-ai-repair"
 export { finalizeStructuredMarkdownMessage } from "./markdown-quality-finalizer"
-export { formatMeasurementFingerprintSummary } from "./measurement-fingerprint"
+export { canonicalizeContextPackForHash, formatMeasurementFingerprintSummary } from "./measurement-fingerprint"
 export type { MeasurementFingerprint } from "./measurement-fingerprint"
-// §GAP-90-04 全书级 style_stats rollup（mechanical-slop-detector additive 导出）
-export { bookStyleStatsToText, rollupStyleStats, STYLE_STATS_DEGRADED_AVG, STYLE_STATS_MIN_CHAPTERS } from "./mechanical-slop-detector"
-export type { BookStyleStats } from "./mechanical-slop-detector"
+// §GAP-90-04 全书级 style_stats rollup + 机械层 slop / 行为 / 改写腔 / 结构信号（mechanical-slop-detector 显式导出）
+export {
+  SLOP_CLASSIFY_BLOCK_THRESHOLD,
+  SLOP_CLASSIFY_WARN_THRESHOLD,
+  STYLE_STATS_DEGRADED_AVG,
+  STYLE_STATS_MIN_CHAPTERS,
+  bookStyleStatsToText,
+  cavityPatternPenalty,
+  characterActionsToText,
+  classifySlop,
+  detectCharacterActions,
+  detectChorusSing,
+  detectSilentStretch,
+  overCorrectionReport,
+  overCorrectionToText,
+  rollupStyleStats,
+  slopReportToText,
+  slopScore,
+} from "./mechanical-slop-detector"
+export type {
+  BookStyleStats,
+  CharacterActionHit,
+  ChorusHit,
+  OverCorrectionReport,
+  SilentStretch,
+  SlopHit,
+  SlopReport,
+} from "./mechanical-slop-detector"
 export { loadMemoryCenterData } from "./memory-center"
 export type { MemoryCenterData, MemoryCenterFilePreview, MemoryCenterSnapshotCard } from "./memory-center"
 export { resolveDefaultModel, resolveModelConfig, resolveNovelModel } from "./model-resolver"
@@ -292,8 +319,14 @@ export { recentCast, renderCastIntros } from "./related-chapters"
 export type { CharacterAppearance, RecentCastEntry } from "./related-chapters"
 export { resolveResidualCampaignFields } from "./residual-campaign"
 export type { ResidualCampaignNovelConfigSlice, ResidualCampaignResolvedFields } from "./residual-campaign"
-export { reviewChapter } from "./review-adapter"
-export type { NovelReviewResult } from "./review-adapter"
+export {
+  checkConsistency,
+  resolveReviewGateKey,
+  reviewChapter,
+  runAuditTriadPreflight,
+  runContinuityMechanicalPreflight,
+} from "./review-adapter"
+export type { AuditTriadPreflightOptions, NovelReviewResult, ReviewChapterOptions } from "./review-adapter"
 export { formatReviewJobStatusLine, getReviewJobUiModel } from "./review-job-ui"
 export type { ReviewJobUiModel } from "./review-job-ui"
 export { resolveReviewModel } from "./review-model"
@@ -1618,7 +1651,7 @@ export { buildChapterGateRunEvents, readLatestGateRunGroup } from "./deep-chapte
 export type { GateRunEvidenceGroup, GateRunEvidenceRow } from "./deep-chapter-gate-evidence"
 
 // ── 摘要工具显式命名导出（供 app 侧走 barrel，禁止 export * 防与 asset-library.stableStringify 冲突）──
-export { computeCheckpointDigest } from "./checkpoint-digest"
+export { computeCheckpointDigest, stableStringify as stableCheckpointStringify } from "./checkpoint-digest"
 
 // ── P1-03 批量提取扫库/范围/预算（既在 novel-deferred，也在 barrel 显式命名导出）──
 export {
@@ -1640,3 +1673,22 @@ export type {
 // ── R3-M01 晋升重试队列重放（显式命名导出）──
 export { replayPromotionRetryQueue, resolveNextPromotionRevision } from "./promotion-bridge"
 export type { PromotionRetryEntry, PromotionRetryReplayReport } from "./promotion-bridge"
+
+// ── 零 LLM 机械门控与统计候选池（MCP 只读门控经 barrel 消费，禁止深导入）──
+export { AntiAiCandidatePool } from "./anti-ai-candidate-pool"
+export type {
+  AntiAiAnalysisReport,
+  AntiAiTextOrigin,
+  CorpusLoadResult,
+  CorpusSample,
+  StatisticalFactorReport,
+} from "./anti-ai-candidate-pool"
+export { buildDecisionGates, emptyDecisionGates } from "./deep-chapter-decision-gates"
+export type { DeepChapterDecisionGate } from "./deep-chapter-decision-gates"
+
+// ── R2-B1：MCP 上下文回读 / 写作准备门面经 barrel 消费（零深导入）──
+export { fingerprintText } from "./book-analysis/content-fingerprint"
+export { resolveReviewChapterMaxChars } from "./chapter-window"
+export type { RoutingROISample, RoutingTelemetrySink } from "./context-telemetry"
+export { assessGoldScaleReadiness, loadGoldScaleMaterials } from "./literary-gold-scale"
+export type { GoldScaleReadiness, LiteraryGoldAnchor } from "./literary-gold-scale"
