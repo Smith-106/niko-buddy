@@ -556,4 +556,70 @@ describe("useAntigravityAcpStore", () => {
     // Strictly memory-only: zero localStorage writes.
     expect(localStorage.length).toBe(0)
   })
+
+  it("initializes ANL-009 tosCompliance in NO-GO state, evaluates triggers into memory-only reassessment issues, and resets cleanly", () => {
+    const initial = useAntigravityAcpStore.getState()
+    expect(initial.tosCompliance.hasTrigger).toBe(false)
+    expect(initial.tosCompliance.anl009Status).toBe("no_go")
+    expect(initial.tosCompliance.triggers).toEqual([])
+    expect(initial.tosCompliance.note).toContain("ANL-009")
+    expect(initial.tosReassessmentIssues).toEqual([])
+
+    // Invalid/empty conditions keep ANL-009 NO-GO intact and emit no reassessment issues.
+    const emptyIssues = initial.evaluateTosTriggers([
+      {
+        type: "tos_change",
+        description: "   ",
+        evidence: "",
+        detectedAt: "2026-11-27T00:00:00Z",
+      },
+    ])
+    expect(emptyIssues).toEqual([])
+    expect(useAntigravityAcpStore.getState().tosCompliance.hasTrigger).toBe(false)
+    expect(useAntigravityAcpStore.getState().tosCompliance.anl009Status).toBe("no_go")
+    expect(useAntigravityAcpStore.getState().tosReassessmentIssues).toEqual([])
+
+    // Valid trigger generates in-memory reassessment issue without writing localStorage/disk.
+    const triggered = initial.evaluateTosTriggers([
+      {
+        type: "embedded_sdk_available",
+        description: "First-party embedded SDK published",
+        evidence: "https://example.com/embedded-sdk-v1",
+        detectedAt: "2026-11-27T12:00:00Z",
+      },
+      {
+        type: "billing_model_change",
+        description: "",
+        evidence: "missing description",
+        detectedAt: "2026-11-27T12:01:00Z",
+      },
+    ])
+    expect(triggered).toHaveLength(1)
+    expect(triggered[0]).toMatchObject({
+      type: "reassessment",
+      severity: "info",
+      status: "open",
+      source: "tos-trigger-monitor",
+      related: "ANL-009",
+      created_at: "2026-11-27T12:00:00Z",
+    })
+    expect(triggered[0]?.description).toContain("https://example.com/embedded-sdk-v1")
+    expect(triggered[0]?.description).toContain("NO-GO remains enforced")
+
+    const afterEval = useAntigravityAcpStore.getState()
+    expect(afterEval.tosCompliance.hasTrigger).toBe(true)
+    expect(afterEval.tosCompliance.anl009Status).toBe("reassessment_recommended")
+    expect(afterEval.tosCompliance.triggers).toHaveLength(1)
+    expect(afterEval.tosReassessmentIssues).toEqual(triggered)
+    expect(localStorage.length).toBe(0)
+
+    // reset() restores NO-GO compliance snapshot and clears reassessment issues.
+    afterEval.reset()
+    const afterReset = useAntigravityAcpStore.getState()
+    expect(afterReset.tosCompliance.hasTrigger).toBe(false)
+    expect(afterReset.tosCompliance.anl009Status).toBe("no_go")
+    expect(afterReset.tosCompliance.triggers).toEqual([])
+    expect(afterReset.tosReassessmentIssues).toEqual([])
+    expect(localStorage.length).toBe(0)
+  })
 })

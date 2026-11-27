@@ -23,6 +23,13 @@ import {
   type AcpStatusSnapshot,
   type McpToolProfile,
 } from "@/lib/antigravity-acp-client"
+import {
+  buildReassessmentIssue,
+  checkTosTriggers,
+  type TosReassessmentIssue,
+  type TosTriggerCondition,
+  type TosTriggerMonitorResult,
+} from "@/lib/tos-trigger-monitor"
 
 export const STDERR_LOG_LIMIT = 100
 
@@ -75,6 +82,8 @@ export interface AntigravityAcpStoreState {
   mcpProfile: McpToolProfile
   localMcpProfile: McpToolProfile | null
   parentCodeRepoWarning: string | null
+  tosCompliance: TosTriggerMonitorResult
+  tosReassessmentIssues: TosReassessmentIssue[]
 
   handleAcpEvent: (evt: AcpEventPayload) => void
   applyStatusSnapshot: (st: AcpStatusSnapshot) => void
@@ -93,6 +102,7 @@ export interface AntigravityAcpStoreState {
   dismissDraftWriteBanner: () => void
   markRecentDraftWrite: (summary?: string) => void
   appendSystemMessage: (text: string) => void
+  evaluateTosTriggers: (conditions?: TosTriggerCondition[]) => TosReassessmentIssue[]
   reset: () => void
 }
 
@@ -115,6 +125,8 @@ type AntigravityAcpDataState = Pick<
   | "mcpProfile"
   | "localMcpProfile"
   | "parentCodeRepoWarning"
+  | "tosCompliance"
+  | "tosReassessmentIssues"
 >
 
 function createInitialDataState(): AntigravityAcpDataState {
@@ -136,6 +148,8 @@ function createInitialDataState(): AntigravityAcpDataState {
     mcpProfile: "writer-sub",
     localMcpProfile: null,
     parentCodeRepoWarning: null,
+    tosCompliance: checkTosTriggers(),
+    tosReassessmentIssues: [],
   }
 }
 
@@ -459,6 +473,18 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
         { id: makeItemId("sys"), role: "system", text },
       ],
     }))
+  },
+
+  evaluateTosTriggers: (conditions) => {
+    const result = checkTosTriggers(conditions)
+    const issues = result.hasTrigger
+      ? result.triggers.map((trigger) => buildReassessmentIssue(trigger))
+      : []
+    set({
+      tosCompliance: result,
+      tosReassessmentIssues: issues,
+    })
+    return issues
   },
 
   reset: () => {
