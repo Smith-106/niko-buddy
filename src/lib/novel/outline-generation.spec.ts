@@ -30,6 +30,8 @@ const mocks = vi.hoisted(() => {
     setActiveView: vi.fn(),
     setSelectedFile: vi.fn(),
     setFileContent: vi.fn(),
+    novelConfig: undefined as Record<string, unknown> | undefined,
+    mcpConfig: undefined as unknown,
   }
   return {
     outlineStore,
@@ -50,6 +52,9 @@ const mocks = vi.hoisted(() => {
     getFileName: vi.fn(),
     normalizePath: vi.fn(),
     outlineGenerationPrompt: vi.fn(),
+    loadUserSkillConfig: vi.fn(),
+    runOutlineMultiAgentGeneration: vi.fn(),
+    buildMcpAgentTools: vi.fn(),
   }
 })
 
@@ -159,6 +164,30 @@ vi.mock("./context-engine", () => ({
   buildContextPack: (...args: unknown[]) => mocks.buildContextPack(...args),
 }))
 
+vi.mock("./user-skill-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./user-skill-store")>()
+  return {
+    ...actual,
+    loadUserSkillConfig: (...args: unknown[]) => mocks.loadUserSkillConfig(...args),
+  }
+})
+
+vi.mock("./outline-multi-agent-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./outline-multi-agent-adapter")>()
+  return {
+    ...actual,
+    runOutlineMultiAgentGeneration: (...args: unknown[]) => mocks.runOutlineMultiAgentGeneration(...args),
+  }
+})
+
+vi.mock("@/lib/mcp/agent-consumer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/mcp/agent-consumer")>()
+  return {
+    ...actual,
+    buildMcpAgentTools: (...args: unknown[]) => mocks.buildMcpAgentTools(...args),
+  }
+})
+
 import {
   addOutlineFileToSourceList,
   addOutlineTaskToSourceList,
@@ -166,6 +195,7 @@ import {
   buildOutlineRefinementContext,
   createOutlineIngestTask,
   generateOutlineFile,
+  generateOutlineFileMultiAgent,
   generateOutlineRefinementFiles,
   generateOutlineRefinementSectionFile,
   hasOutlineForRefinement,
@@ -196,6 +226,8 @@ beforeEach(() => {
   mocks.wiki.setActiveView.mockReset()
   mocks.wiki.setSelectedFile.mockReset()
   mocks.wiki.setFileContent.mockReset()
+  mocks.wiki.novelConfig = undefined
+  mocks.wiki.mcpConfig = undefined
   mocks.streamChat.mockReset()
   mocks.buildContextPack.mockReset()
   mocks.ingestOutline.mockReset()
@@ -214,6 +246,9 @@ beforeEach(() => {
     (genre: string, scale: string, premise: string, context: string) =>
       `请为以下小说生成大纲：\n类型=${genre} 规模=${scale} 核心设定=${premise}\n${context}`,
   )
+  mocks.loadUserSkillConfig.mockReset()
+  mocks.runOutlineMultiAgentGeneration.mockReset()
+  mocks.buildMcpAgentTools.mockReset().mockResolvedValue({ tools: [] })
 })
 
 /** A ContextPack whose refinement/generation sections are all non-empty. */
@@ -1002,5 +1037,180 @@ describe("runBulkOutlineIngest", () => {
     const result = await runBulkOutlineIngest("E:/N")
 
     expect(result).toEqual({ total: 0, succeeded: 0, failed: 0 })
+  })
+})
+
+describe("generateOutlineFileMultiAgent", () => {
+  it("调用真实 buildContextPack、过滤 disabledSkillIds 并透传 enabledSkills 正文至 resolvedSkills", async () => {
+    const realPack = { ...fullPack(), recentChapterContents: ["第一章正文"] }
+    mocks.buildContextPack.mockResolvedValue(realPack)
+    mocks.loadUserSkillConfig.mockResolvedValue({
+      version: 1,
+      selectedSkillId: "skillhub:outline-master-builder",
+      disabledSkillIds: ["skillhub:disabled-character"],
+      skills: [
+        {
+          id: "skillhub:outline-master-builder",
+          name: "outline-master-builder",
+          description: "总纲技能",
+          kind: ["planning"],
+          stages: ["planning"],
+          modes: ["standard"],
+          content: "---\nname: outline-master-builder\n---\n三幕总纲规范正文",
+          source: "built-in",
+          priority: 10,
+          tags: [],
+          categoryId: "",
+        },
+        {
+          id: "skillhub:disabled-character",
+          name: "disabled-character",
+          description: "已禁用角色技能",
+          kind: ["planning"],
+          stages: ["planning"],
+          modes: ["standard"],
+          content: "不应注入的禁用技能正文",
+          source: "built-in",
+          priority: 20,
+          tags: [],
+          categoryId: "",
+        },
+      ],
+      categories: [],
+    })
+    mocks.runOutlineMultiAgentGeneration.mockResolvedValue({
+      mode: "multi-agent",
+      finalText: "# 第一卷 总大纲\n真实合并产出",
+      successfulAgents: ["outline-agent"],
+      failedAgents: [],
+    })
+
+    const res = await generateOutlineFileMultiAgent("E:/N", llmConfig, "生成包含主线与人物的完整第一卷大纲")
+
+    expect(mocks.buildContextPack).toHaveBeenCalledWith(
+      "E:/N",
+      "生成包含主线与人物的完整第一卷大纲",
+      undefined,
+      { llmConfig, novelMode: true },
+    )
+    expect(mocks.runOutlineMultiAgentGeneration).toHaveBeenCalledTimes(1)
+    const callArg = mocks.runOutlineMultiAgentGeneration.mock.calls[0][0] as {
+      contextPack: { outline: string; soulDoc: string }
+      resolvedSkills: Array<{ id: string; content: string }>
+      plan: Array<{ skillNames: string[] }>
+    }
+    expect(callArg.contextPack.outline).toBe("现有大纲")
+    expect(callArg.contextPack.soulDoc).toBe("灵魂文档")
+    expect(callArg.resolvedSkills.map((s) => s.id)).toEqual(["skillhub:outline-master-builder"])
+    expect(callArg.resolvedSkills[0].content).toContain("三幕总纲规范正文")
+    expect(callArg.plan.flatMap((p) => p.skillNames)).not.toContain("skillhub:disabled-character")
+    expect(res.content).toContain("真实合并产出")
+    expect(mocks.writeFile).toHaveBeenCalledTimes(1)
+  })
+
+  it("优先响应 novelConfig.taskSkillNames.outline 配置并忽略其中被禁用的技能", async () => {
+    mocks.wiki.novelConfig = {
+      taskSkillNames: {
+        outline: ["foreshadowing-suspense", "disabled-skill"],
+      },
+    }
+    mocks.buildContextPack.mockResolvedValue(fullPack())
+    mocks.loadUserSkillConfig.mockResolvedValue({
+      version: 1,
+      selectedSkillId: "skillhub:outline-master-builder",
+      disabledSkillIds: ["skill:disabled-skill"],
+      skills: [
+        {
+          id: "skillhub:outline-master-builder",
+          name: "outline-master-builder",
+          description: "默认大纲技能",
+          kind: ["planning"],
+          stages: ["planning"],
+          modes: ["standard"],
+          content: "默认大纲正文",
+          source: "built-in",
+          priority: 10,
+          tags: [],
+          categoryId: "",
+        },
+        {
+          id: "skillhub:foreshadowing-suspense",
+          name: "foreshadowing-suspense",
+          description: "悬疑伏笔技能",
+          kind: ["planning"],
+          stages: ["planning"],
+          modes: ["standard"],
+          content: "悬疑伏笔定制正文",
+          source: "built-in",
+          priority: 20,
+          tags: [],
+          categoryId: "",
+        },
+        {
+          id: "skill:disabled-skill",
+          name: "disabled-skill",
+          description: "禁用技能",
+          kind: ["planning"],
+          stages: ["planning"],
+          modes: ["standard"],
+          content: "禁用内容",
+          source: "uploaded",
+          priority: 30,
+          tags: [],
+          categoryId: "",
+        },
+      ],
+      categories: [],
+    })
+    mocks.runOutlineMultiAgentGeneration.mockResolvedValue({
+      mode: "multi-agent",
+      finalText: "按定制技能生成",
+      successfulAgents: ["foreshadowing-agent"],
+      failedAgents: [],
+    })
+
+    await generateOutlineFileMultiAgent("E:/N", llmConfig, "生成完整长篇悬疑伏笔大纲")
+
+    const callArg = mocks.runOutlineMultiAgentGeneration.mock.calls[0][0] as {
+      resolvedSkills: Array<{ id: string }>
+    }
+    expect(callArg.resolvedSkills.map((s) => s.id)).toEqual(["skillhub:foreshadowing-suspense"])
+  })
+
+  it("空 projectPath 或 buildContextPack 抛错时非致命回退至空 contextPack（含 recentChapterContents: []）", async () => {
+    mocks.loadUserSkillConfig.mockResolvedValue({
+      version: 1,
+      selectedSkillId: null,
+      disabledSkillIds: [],
+      skills: [],
+      categories: [],
+    })
+    mocks.runOutlineMultiAgentGeneration.mockResolvedValue({
+      mode: "single-agent-fallback",
+      finalText: "降级大纲内容",
+      successfulAgents: [],
+      failedAgents: [],
+    })
+
+    // 1. projectPath 为空 → 不调用 buildContextPack，非致命回退空包
+    await generateOutlineFileMultiAgent("   ", llmConfig, "生成完整第一卷大纲")
+    expect(mocks.buildContextPack).not.toHaveBeenCalled()
+    const emptyPathPack = (mocks.runOutlineMultiAgentGeneration.mock.calls[0][0] as {
+      contextPack: { task: string; recentChapterContents?: string[]; outline: string }
+    }).contextPack
+    expect(emptyPathPack.task).toBe("生成完整第一卷大纲")
+    expect(emptyPathPack.outline).toBe("")
+    expect(emptyPathPack.recentChapterContents).toEqual([])
+
+    // 2. buildContextPack 抛错 → 捕获并回退空包（含 recentChapterContents: []）
+    mocks.buildContextPack.mockRejectedValue(new Error("index unavailable"))
+    await generateOutlineFileMultiAgent("E:/N", llmConfig, "生成完整第二卷大纲")
+    expect(mocks.buildContextPack).toHaveBeenCalledTimes(1)
+    const fallbackPack = (mocks.runOutlineMultiAgentGeneration.mock.calls[1][0] as {
+      contextPack: { task: string; recentChapterContents?: string[]; outline: string }
+    }).contextPack
+    expect(fallbackPack.task).toBe("生成完整第二卷大纲")
+    expect(fallbackPack.outline).toBe("")
+    expect(fallbackPack.recentChapterContents).toEqual([])
   })
 })

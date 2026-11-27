@@ -39,13 +39,13 @@ export const MAIN_CONTROL_QUALITY_TOOLS = ["score_chapter", "revise_chapter"] as
 export const MAIN_CONTROL_DEEP_TOOLS = ["run_chapter_workflow"] as const
 
 /**
- * 主控工具白名单（20 项基础工具，严格排除 write_memory / route_task / trim_context）。
+ * 主控工具白名单（22 项基础工具，严格排除 write_memory / route_task / trim_context）。
  *
  * - 原 12 项只读/上下文/草稿写入工具（`write_chapter` 始终处于 `draftMode=true`）；
  * - `apply_skill`：加载项目去 AI 味/写作规范 Skill（省略参数可列出可用 Skill）；
  * - `write_outline_node`：受确认门与防覆盖守卫保护的大纲节点写入工具；
- * - 6 项只读零 LLM MCP 本地门面（`MAIN_CONTROL_MCP_TOOL_NAMES`）：机械门控、长篇健康审计、
- *   正典查询、伏笔列表、角色读取、工作流下一步路由。
+ * - 8 项只读零 LLM MCP 本地门面（`MAIN_CONTROL_MCP_TOOL_NAMES`）：机械门控、长篇健康审计、
+ *   正典查询、伏笔列表、角色读取、工作流下一步路由、技能目录浏览（`skills_list`）与技能正文按需读取（`skills_get`）。
  * - `write_memory` 严格排除（正式记忆仅能经草稿采纳后写回）；`route_task` / `trim_context`
  *   保持排除。
  */
@@ -72,7 +72,7 @@ export const MAIN_CONTROL_SYSTEM_PROMPT = `你是 Niko Buddy 的主控 Agent（�
 工作方式：
 1. 先用只读工具把上下文取全（章节列表 → 相关章节正文 → 记忆/大纲/上下文包），不要凭想象写作。
 2. 可按需调用只读诊断与门控工具校验一致性与长篇状态：workflow_next（推演下一步）、canon_query（查正典事实）、character_read（查角色状态/灵魂）、foreshadowing_list（查伏笔与债务）、audit_longform_health（审计长篇健康）、gate_check_mechanical（对草稿正文做零 LLM 机械门控预检）。
-3. 可调用 apply_skill 加载写作/去 AI 味规范模板（不传参可列出可用 Skill）；规划或补全大纲节点时可调用 write_outline_node（须经确认且不静默覆盖既有章纲）。
+3. 可先调用 skills_list 按阶段/关键词检索可用写作与去 AI 味技能目录，再用 skills_get 按需读取指定技能正文，或调用 apply_skill 加载规范模板；规划或补全大纲节点时可调用 write_outline_node（须经确认且不静默覆盖既有章纲）。
 4. 用两三句话给出执行计划，再动手。
 5. 需要产出正文时，只能调用 write_chapter——它写入草稿区，等用户确认后才进正式库。绝不可声称已写入正式章节或正式记忆（严禁直写正式记忆）。
 6. 拿不到的信息如实说明缺失，不要编造设定、人物或既定事实。

@@ -19,8 +19,8 @@ function toolByName(tools: ReturnType<typeof createMainControlMcpTools>, name: s
   return tool
 }
 
-describe("main-control-mcp-tools（6 个零 LLM 只读 MCP 本地门面）", () => {
-  it("导出固定 6 个只读工具且全部声明 category=read / permission=auto", () => {
+describe("main-control-mcp-tools（8 个零 LLM 只读 MCP 本地门面）", () => {
+  it("导出固定 8 个只读工具且全部声明 category=read / permission=auto", () => {
     expect(MAIN_CONTROL_MCP_TOOL_NAMES).toEqual([
       "gate_check_mechanical",
       "audit_longform_health",
@@ -28,6 +28,8 @@ describe("main-control-mcp-tools（6 个零 LLM 只读 MCP 本地门面）", () 
       "foreshadowing_list",
       "character_read",
       "workflow_next",
+      "skills_list",
+      "skills_get",
     ])
 
     const tools = createMainControlMcpTools(PROJECT)
@@ -51,6 +53,7 @@ describe("main-control-mcp-tools（6 个零 LLM 只读 MCP 本地门面）", () 
     expect(source).toContain('await import("@/lib/mcp/phase3-read-tools")')
     expect(source).toContain('await import("@/lib/mcp/atomic-read-tools")')
     expect(source).toContain('await import("@/lib/mcp/workflow-draft-tools")')
+    expect(source).toContain('await import("@/lib/mcp/skills-read-tools")')
   })
 
   it("gate_check_mechanical：默认 compact 模式调用门控并在缺 text 时返回中文错误", async () => {
@@ -381,6 +384,66 @@ describe("main-control-mcp-tools（6 个零 LLM 只读 MCP 本地门面）", () 
     const tools = createMainControlMcpTools(PROJECT, { runForeshadowingList })
     await expect(toolByName(tools, "foreshadowing_list").execute({})).resolves.toBe(
       "错误：foreshadowing_list 执行失败 - disk unreadable",
+    )
+  })
+
+  it("skills_list / skills_get：严格白名单透传、显式 null 剥离与错误处理", async () => {
+    const runSkillsList = vi.fn(async () => ({
+      total: 2,
+      returned: 2,
+      items: [{ id: "skill:1", name: "测试技能", contentChars: 120 }],
+    }) as any)
+    const runSkillsGet = vi.fn(async () => ({
+      returned: 1,
+      skills: [{ id: "skill:1", name: "测试技能", content: "正文" }],
+    }) as any)
+
+    const tools = createMainControlMcpTools(PROJECT, { runSkillsList, runSkillsGet })
+
+    const listOut = await toolByName(tools, "skills_list").execute({
+      stage: "outline",
+      kind: "writing",
+      query: null,
+      enabledOnly: true,
+      limit: null,
+      rogueExtra: "drop-me",
+    })
+    expect(runSkillsList).toHaveBeenCalledWith(PROJECT, {
+      stage: "outline",
+      kind: "writing",
+      enabledOnly: true,
+    })
+    expect(JSON.parse(listOut)).toMatchObject({ total: 2, returned: 2 })
+
+    const getOut = await toolByName(tools, "skills_get").execute({
+      ids: ["skill:1"],
+      names: null,
+      stage: null,
+      stripFrontmatter: true,
+      maxCharsPerSkill: 2000,
+      unknownField: 42,
+    })
+    expect(runSkillsGet).toHaveBeenCalledWith(PROJECT, {
+      ids: ["skill:1"],
+      stripFrontmatter: true,
+      maxCharsPerSkill: 2000,
+    })
+    expect(JSON.parse(getOut)).toMatchObject({ returned: 1 })
+
+    // 错误捕获为中文错误串
+    const errTools = createMainControlMcpTools(PROJECT, {
+      runSkillsList: vi.fn(async () => {
+        throw new Error("list failed")
+      }),
+      runSkillsGet: vi.fn(async () => {
+        throw new Error("skills.get 至少需要提供 ids、names 或 stage 之一")
+      }),
+    })
+    await expect(toolByName(errTools, "skills_list").execute({})).resolves.toBe(
+      "错误：skills_list 执行失败 - list failed",
+    )
+    await expect(toolByName(errTools, "skills_get").execute({})).resolves.toBe(
+      "错误：skills_get 执行失败 - skills.get 至少需要提供 ids、names 或 stage 之一",
     )
   })
 })

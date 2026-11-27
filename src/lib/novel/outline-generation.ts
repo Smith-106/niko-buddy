@@ -858,6 +858,13 @@ export async function runOutlineIngestTask(
   }
 }
 
+function createEmptyOutlineContextPack(task: string): ContextPack {
+  return {
+    ...emptyOutlineContextPack(task),
+    recentChapterContents: [],
+  }
+}
+
 /**
  * 多智能体协作生成大纲文件：规划子智能体 → 并行执行 → 合并 → 写盘。
  * 规划失败或子智能体全部失败时自动回退单智能体（fallback 语义）。
@@ -884,40 +891,67 @@ export async function generateOutlineFileMultiAgent(
     mcpTools = undefined
   }
 
-  // SkillHub：装载用户技能（含内置 SkillHub 种子技能）作为大纲子智能体可用技能
-  const { loadUserSkillConfig } = await import("./user-skill-store")
+  // SkillHub：仅装载已启用技能（严格过滤 disabledSkillIds），并优先响应 novelConfig.taskSkillNames.outline
+  const { loadUserSkillConfig, resolveEnabledWritingSkills } = await import("./user-skill-store")
+  const { resolveTaskSkillNames } = await import("./task-customization")
+  const { resolveSkillReference } = await import("./skill-route-registry")
   const skillNames: string[] = []
+  let resolvedSkills: import("./skill-library").UserSkill[] = []
   try {
     const userSkills = await loadUserSkillConfig(projectPath)
-    skillNames.push(...userSkills.skills.map((skill) => skill.id))
+    const enabledSkills = resolveEnabledWritingSkills(userSkills)
+    const configuredOutlineSkills = resolveTaskSkillNames(
+      useWikiStore.getState().novelConfig,
+      "outline",
+    )
+    if (configuredOutlineSkills.length > 0) {
+      const matchedConfigured: import("./skill-library").UserSkill[] = []
+      const seenIds = new Set<string>()
+      for (const ref of configuredOutlineSkills) {
+        const matched =
+          enabledSkills.find((skill) => skill.id === ref || skill.name === ref)
+          ?? resolveSkillReference(enabledSkills, { id: ref })
+          ?? resolveSkillReference(enabledSkills, { name: ref })
+        if (matched && !seenIds.has(matched.id)) {
+          seenIds.add(matched.id)
+          matchedConfigured.push(matched)
+        }
+      }
+      resolvedSkills = matchedConfigured.length > 0 ? matchedConfigured : enabledSkills
+    } else {
+      resolvedSkills = enabledSkills
+    }
+    skillNames.push(...resolvedSkills.map((skill) => skill.id))
   } catch (err) {
     // 技能装载失败不阻断大纲生成
     // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
     logger.warn("Outline Generation", "skill load failed, continue without skills (non-fatal)", { error: toErrorMessage(err) })
   }
   const plan = planOutlineSubAgents({ taskPrompt: prompt, preferredSkillNames: skillNames })
-  const contextPack = {
-    task: prompt,
-    chapterGoal: "",
-    outline: "",
-    recentSummaries: [],
-    previousChapterEnding: "",
-    characterStates: "",
-    soulDoc: "",
-    characterAuras: "",
-    cognitionStates: "",
-    relatedSettings: "",
-    canonRules: "",
-    timeline: "",
-    foreshadowingStates: "",
-    writingStyle: "",
-    searchResults: "",
-    graphSearchResults: "",
-    mustDo: "",
-    mustAvoid: "",
-    nextChapterAdvice: "",
-    revisionDirectives: "",
+
+  let contextPack: ContextPack
+  if (projectPath.trim()) {
+    try {
+      contextPack = await buildContextPack(projectPath, prompt, undefined, {
+        llmConfig,
+        novelMode: true,
+      })
+    } catch (err) {
+      logger.warn(
+        "Outline Generation",
+        "multi-agent buildContextPack failed, fallback to empty pack (non-fatal)",
+        { error: toErrorMessage(err) },
+      )
+      contextPack = createEmptyOutlineContextPack(prompt)
+    }
+  } else {
+    logger.warn(
+      "Outline Generation",
+      "multi-agent projectPath is empty, fallback to empty contextPack (non-fatal)",
+    )
+    contextPack = createEmptyOutlineContextPack(prompt)
   }
+
   const result = await runOutlineMultiAgentGeneration({
     llmConfig,
     userRequest: prompt,
@@ -925,6 +959,7 @@ export async function generateOutlineFileMultiAgent(
     plan,
     signal,
     mcpTools,
+    resolvedSkills,
   })
   const content = result.finalText.trim() || "AI大纲未返回内容。"
 
