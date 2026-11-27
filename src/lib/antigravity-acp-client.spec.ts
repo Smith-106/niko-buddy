@@ -10,6 +10,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }))
 
 import {
+  ACP_ROLE_SLOTS,
   ANTIGRAVITY_ACP_EVENT_TOPIC,
   MCP_TOOL_PROFILES,
   authenticateAntigravityAcp,
@@ -21,6 +22,7 @@ import {
   getWriterPluginStatus,
   installGlobalWriterPlugin,
   isAcpAuthRequiredError,
+  isAcpRoleSlotId,
   isWriterPluginStatus,
   listenAntigravityAcpEvents,
   parseAcpConfigOptions,
@@ -28,11 +30,14 @@ import {
   respondAntigravityAcpPermission,
   sendAntigravityAcpPrompt,
   setAntigravityAcpConfigOption,
+  switchAntigravityAcpSlot,
   syncProjectWriterPlugin,
   type AcpEventPayload,
   type AcpPendingPermission,
   type AcpPromptResult,
+  type AcpRoleSlotId,
   type AcpSessionResult,
+  type AcpSlotStatusSnapshot,
   type AcpStatusSnapshot,
   type LocalMcpStaleReason,
   type McpToolProfile,
@@ -557,5 +562,137 @@ describe("antigravity-acp-client", () => {
     for (const candidate of invalidCases) {
       expect(isWriterPluginStatus(candidate)).toBe(false)
     }
+  })
+
+  // ── Multi-role slot types & optional slot IPC forwarding ──
+
+  it("validates ACP_ROLE_SLOTS, invokes antigravity_acp_switch_slot, and forwards optional slot only when defined", async () => {
+    expect([...ACP_ROLE_SLOTS]).toEqual(["writer", "reviewer", "architect"])
+    expect(isAcpRoleSlotId("writer")).toBe(true)
+    expect(isAcpRoleSlotId("reviewer")).toBe(true)
+    expect(isAcpRoleSlotId("architect")).toBe(true)
+    expect(isAcpRoleSlotId("Reviewer")).toBe(false)
+    expect(isAcpRoleSlotId("")).toBe(false)
+    expect(isAcpRoleSlotId("unknown")).toBe(false)
+    expect(isAcpRoleSlotId(null)).toBe(false)
+
+    const reviewerSlotSnap: AcpSlotStatusSnapshot = {
+      slot: "reviewer",
+      sessionId: "sess-rev-1",
+      cwd: "/book",
+      configOptions: [],
+      pendingPermissions: [],
+      attachedLocalMcp: true,
+      localMcpScope: "project",
+      effectiveMcpScope: "read",
+      localMcpProfile: "reviewer",
+      readOnly: true,
+      inFlightPrompt: false,
+      localMcpStale: false,
+      localMcpStaleReason: null,
+      parentCodeRepoWarning: null,
+    }
+    const multiSlotStatus: AcpStatusSnapshot = {
+      connected: true,
+      binaryPath: "agy",
+      agentName: "antigravity",
+      agentVersion: "2.2.0",
+      protocolVersion: 1,
+      authMethods: [],
+      activeSlot: "reviewer",
+      slots: { reviewer: reviewerSlotSnap },
+      activeSessionId: "sess-rev-1",
+      cwd: "/book",
+      configOptions: [],
+      pendingPermissions: [],
+      httpMcpEnabled: true,
+      localMcpProfile: "reviewer",
+    }
+
+    invokeMock.mockResolvedValueOnce(multiSlotStatus)
+    const switched = await switchAntigravityAcpSlot("reviewer")
+    expect(invokeMock).toHaveBeenLastCalledWith("antigravity_acp_switch_slot", { slot: "reviewer" })
+    expect(switched.activeSlot).toBe("reviewer")
+    expect(switched.slots?.reviewer?.readOnly).toBe(true)
+    expect(switched.slots?.reviewer?.effectiveMcpScope).toBe("read")
+
+    const sessionRes: AcpSessionResult = {
+      slot: "reviewer",
+      sessionId: "sess-rev-2",
+      cwd: "/book",
+      configOptions: [],
+      attachedLocalMcp: true,
+      localMcpScope: "project",
+      effectiveMcpScope: "read",
+      localMcpProfile: "reviewer",
+      readOnly: true,
+      rawResult: {},
+    }
+    invokeMock.mockResolvedValue(sessionRes)
+
+    await createAntigravityAcpSession("/book", true, "reviewer", "reviewer")
+    expect(invokeMock).toHaveBeenLastCalledWith("antigravity_acp_new_session", {
+      cwd: "/book",
+      attachLocalMcp: true,
+      mcpProfile: "reviewer",
+      slot: "reviewer",
+    })
+
+    // Omit mcpProfile while passing explicit slot
+    await createAntigravityAcpSession("/book", false, undefined, "architect")
+    expect(invokeMock).toHaveBeenLastCalledWith("antigravity_acp_new_session", {
+      cwd: "/book",
+      attachLocalMcp: false,
+      slot: "architect",
+    })
+
+    await sendAntigravityAcpPrompt({
+      sessionId: "sess-rev-2",
+      text: "Audit chapter 3",
+      slot: "reviewer",
+    })
+    expect(invokeMock).toHaveBeenLastCalledWith("antigravity_acp_prompt", {
+      sessionId: "sess-rev-2",
+      text: "Audit chapter 3",
+      contextTitle: null,
+      contextText: null,
+      slot: "reviewer",
+    })
+
+    await cancelAntigravityAcpTurn("sess-rev-2", "reviewer")
+    expect(invokeMock).toHaveBeenLastCalledWith("antigravity_acp_cancel", {
+      sessionId: "sess-rev-2",
+      slot: "reviewer",
+    })
+
+    await setAntigravityAcpConfigOption("sess-rev-2", "model", "gemini-3-pro", "reviewer")
+    expect(invokeMock).toHaveBeenLastCalledWith("antigravity_acp_set_config_option", {
+      sessionId: "sess-rev-2",
+      configId: "model",
+      value: "gemini-3-pro",
+      slot: "reviewer",
+    })
+
+    // Additive slot metadata on AcpEventPayload & AcpPendingPermission type-checks cleanly
+    const slotId: AcpRoleSlotId = "reviewer"
+    const perm: AcpPendingPermission = {
+      requestId: "req-ro-1",
+      sessionId: "sess-rev-2",
+      slot: slotId,
+      title: "draft.read",
+      options: [{ optionId: "allow_once", name: "Allow" }],
+    }
+    const events: AcpEventPayload[] = [
+      { kind: "session_update", params: { sessionId: "sess-rev-2" }, slot: slotId },
+      { kind: "permission_request", permission: perm, slot: slotId },
+      {
+        kind: "permission_resolved",
+        requestId: "req-ro-1",
+        optionId: "allow_once",
+        sessionId: "sess-rev-2",
+        slot: slotId,
+      },
+    ]
+    expect(events).toHaveLength(3)
   })
 })

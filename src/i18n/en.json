@@ -5301,6 +5301,24 @@
     "isolatedReviewerBtn": "Isolated Read-Only Review",
     "isolatedReviewerStarted": "Started isolated read-only reviewer session ({{sessionId}}) with read-only review tools, completely separated from the writer context.",
     "isolatedReviewerStartedNoMcp": "Started fresh isolated review session ({{sessionId}}) with cleared writer context; local read-only MCP tools were not attached (enable and attach local MCP if you want server-side read-only review tools).",
+    "slots": {
+      "tablistLabel": "ACP multi-role session slots",
+      "writer": "Writer",
+      "reviewer": "Reviewer",
+      "architect": "Architect",
+      "roBadge": "[RO]",
+      "connectedBadge": "Session connected",
+      "connectedHint": "Active session {{sessionId}}",
+      "promptingBadge": "Generating",
+      "pendingPermissionsBadge": "{{count}} pending permission(s)",
+      "reviewerLockedHint": "Reviewer slot is protocol-locked to read-only [RO] (read-only review tools only)"
+    },
+    "handoff": {
+      "toReviewerBtn": "Hand off to Reviewer Slot",
+      "reviewerStarted": "Started isolated Reviewer [RO] slot session ({{sessionId}}) with read-only review tools; Writer slot context remains completely intact.",
+      "reviewerStartedNoMcp": "Started isolated Reviewer [RO] slot session ({{sessionId}}) with Writer slot context intact; local read-only MCP tools were not attached (enable and attach local MCP if you want server-side read-only review tools).",
+      "reviewerReused": "Switched to existing Reviewer [RO] slot session ({{sessionId}}) and pre-filled review handoff context (pre-fill only, never auto-sent; Writer slot remains intact)."
+    },
     "profiles": {
       "label": "Writer Role / MCP Profile",
       "activeBadge": "Active session profile: {{profile}}",

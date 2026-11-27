@@ -13,14 +13,19 @@ import { create } from "zustand"
 import type { UnlistenFn } from "@tauri-apps/api/event"
 import { isTauri } from "@/lib/platform"
 import {
+  ACP_ROLE_SLOTS,
+  isAcpRoleSlotId,
   listenAntigravityAcpEvents,
   parseAcpConfigOptions,
   parseAcpSessionUpdate,
   type AcpConfigOption,
   type AcpEventPayload,
   type AcpPendingPermission,
+  type AcpRoleSlotId,
   type AcpSessionResult,
+  type AcpSlotStatusSnapshot,
   type AcpStatusSnapshot,
+  type LocalMcpStaleReason,
   type McpToolProfile,
 } from "@/lib/antigravity-acp-client"
 import {
@@ -64,9 +69,37 @@ export function isDraftChapterWriteTool(title: string): boolean {
   return CHAPTER_WRITE_RE.test(trimmed)
 }
 
+export interface AcpRoleSlotState {
+  slot: AcpRoleSlotId
+  sessionId: string | null
+  cwd: string | null
+  transcript: AcpTranscriptItem[]
+  composerText: string
+  prompting: boolean
+  pendingPermissions: AcpPendingPermission[]
+  configOptions: AcpConfigOption[]
+  lastStopReason: string | null
+  hasRecentDraftWrite: boolean
+  recentDraftWriteSummary: string | null
+  lastLocalMcpSkipReason: string | null
+  activeAssistantId: string | null
+  mcpProfile: McpToolProfile
+  localMcpProfile: McpToolProfile | null
+  attachedLocalMcp: boolean
+  localMcpScope: string | null
+  effectiveMcpScope: string | null
+  readOnly: boolean
+  localMcpStale: boolean
+  localMcpStaleReason: LocalMcpStaleReason | null
+  parentCodeRepoWarning: string | null
+}
+
 export interface AntigravityAcpStoreState {
   status: AcpStatusSnapshot | null
+  activeSlot: AcpRoleSlotId
+  slots: Record<AcpRoleSlotId, AcpRoleSlotState>
   transcript: AcpTranscriptItem[]
+  composerText: string
   prompting: boolean
   stderrLogs: string[]
   pendingPermissions: AcpPendingPermission[]
@@ -87,21 +120,29 @@ export interface AntigravityAcpStoreState {
 
   handleAcpEvent: (evt: AcpEventPayload) => void
   applyStatusSnapshot: (st: AcpStatusSnapshot) => void
-  applySessionCreated: (res: AcpSessionResult, systemMessage?: string) => void
-  beginPromptTurn: (userText: string) => void
-  finishPromptTurn: (stopReason?: string | null) => void
+  applySessionCreated: (
+    res: AcpSessionResult,
+    systemMessage?: string,
+    slot?: AcpRoleSlotId,
+  ) => void
+  beginPromptTurn: (userText: string, slot?: AcpRoleSlotId) => void
+  finishPromptTurn: (stopReason?: string | null, slot?: AcpRoleSlotId) => void
+  setActiveSlot: (slot: AcpRoleSlotId) => void
+  setSlotComposerText: (slot: AcpRoleSlotId, text: string) => void
+  setComposerText: (text: string) => void
   setConfigOptions: (
     options: AcpConfigOption[] | ((prev: AcpConfigOption[]) => AcpConfigOption[]),
+    slot?: AcpRoleSlotId,
   ) => void
-  setMcpProfile: (profile: McpToolProfile) => void
+  setMcpProfile: (profile: McpToolProfile, slot?: AcpRoleSlotId) => void
   setAuthRequired: (required: boolean) => void
   setError: (error: string | null) => void
-  setPrompting: (prompting: boolean) => void
-  clearTranscript: () => void
+  setPrompting: (prompting: boolean, slot?: AcpRoleSlotId) => void
+  clearTranscript: (slot?: AcpRoleSlotId) => void
   clearStderr: () => void
-  dismissDraftWriteBanner: () => void
-  markRecentDraftWrite: (summary?: string) => void
-  appendSystemMessage: (text: string) => void
+  dismissDraftWriteBanner: (slot?: AcpRoleSlotId) => void
+  markRecentDraftWrite: (summary?: string, slot?: AcpRoleSlotId) => void
+  appendSystemMessage: (text: string, slot?: AcpRoleSlotId) => void
   evaluateTosTriggers: (conditions?: TosTriggerCondition[]) => TosReassessmentIssue[]
   reset: () => void
 }
@@ -109,7 +150,10 @@ export interface AntigravityAcpStoreState {
 type AntigravityAcpDataState = Pick<
   AntigravityAcpStoreState,
   | "status"
+  | "activeSlot"
+  | "slots"
   | "transcript"
+  | "composerText"
   | "prompting"
   | "stderrLogs"
   | "pendingPermissions"
@@ -129,33 +173,225 @@ type AntigravityAcpDataState = Pick<
   | "tosReassessmentIssues"
 >
 
-function createInitialDataState(): AntigravityAcpDataState {
+function defaultSlotProfile(slot: AcpRoleSlotId): McpToolProfile {
+  if (slot === "reviewer") return "reviewer"
+  if (slot === "architect") return "architect"
+  return "writer-sub"
+}
+
+function createInitialSlotState(slot: AcpRoleSlotId): AcpRoleSlotState {
   return {
-    status: null,
+    slot,
+    sessionId: null,
+    cwd: null,
     transcript: [],
+    composerText: "",
     prompting: false,
-    stderrLogs: [],
     pendingPermissions: [],
     configOptions: [],
     lastStopReason: null,
     hasRecentDraftWrite: false,
     recentDraftWriteSummary: null,
     lastLocalMcpSkipReason: null,
-    activeSessionId: null,
     activeAssistantId: null,
+    mcpProfile: defaultSlotProfile(slot),
+    localMcpProfile: null,
+    attachedLocalMcp: false,
+    localMcpScope: null,
+    effectiveMcpScope: null,
+    readOnly: slot === "reviewer",
+    localMcpStale: false,
+    localMcpStaleReason: null,
+    parentCodeRepoWarning: null,
+  }
+}
+
+function createInitialSlots(): Record<AcpRoleSlotId, AcpRoleSlotState> {
+  return {
+    writer: createInitialSlotState("writer"),
+    reviewer: createInitialSlotState("reviewer"),
+    architect: createInitialSlotState("architect"),
+  }
+}
+
+function projectActiveSlot(
+  slots: Record<AcpRoleSlotId, AcpRoleSlotState>,
+  activeSlot: AcpRoleSlotId,
+  status: AcpStatusSnapshot | null,
+  syncStatusMirrors = true,
+): Pick<
+  AntigravityAcpDataState,
+  | "activeSlot"
+  | "slots"
+  | "status"
+  | "activeSessionId"
+  | "transcript"
+  | "composerText"
+  | "prompting"
+  | "pendingPermissions"
+  | "configOptions"
+  | "lastStopReason"
+  | "hasRecentDraftWrite"
+  | "recentDraftWriteSummary"
+  | "lastLocalMcpSkipReason"
+  | "activeAssistantId"
+  | "mcpProfile"
+  | "localMcpProfile"
+  | "parentCodeRepoWarning"
+> {
+  const active = slots[activeSlot]
+  let nextStatus = status
+  if (syncStatusMirrors && status) {
+    nextStatus = {
+      ...status,
+      activeSlot,
+      activeSessionId: active.sessionId,
+      cwd: active.cwd ?? status.cwd,
+      pendingPermissions: active.pendingPermissions,
+      attachedLocalMcp: active.attachedLocalMcp,
+      localMcpScope: active.localMcpScope,
+      localMcpProfile: active.localMcpProfile,
+      inFlightPrompt: active.prompting,
+      localMcpStale: active.localMcpStale,
+      localMcpStaleReason: active.localMcpStaleReason,
+      parentCodeRepoWarning: active.parentCodeRepoWarning,
+    }
+  }
+  return {
+    activeSlot,
+    slots,
+    status: nextStatus,
+    activeSessionId: active.sessionId,
+    transcript: active.transcript,
+    composerText: active.composerText,
+    prompting: active.prompting,
+    pendingPermissions: active.pendingPermissions,
+    configOptions: active.configOptions,
+    lastStopReason: active.lastStopReason,
+    hasRecentDraftWrite: active.hasRecentDraftWrite,
+    recentDraftWriteSummary: active.recentDraftWriteSummary,
+    lastLocalMcpSkipReason: active.lastLocalMcpSkipReason,
+    activeAssistantId: active.activeAssistantId,
+    mcpProfile: active.mcpProfile,
+    localMcpProfile: active.localMcpProfile,
+    parentCodeRepoWarning: active.parentCodeRepoWarning,
+  }
+}
+
+function createInitialDataState(): AntigravityAcpDataState {
+  const slots = createInitialSlots()
+  const projected = projectActiveSlot(slots, "writer", null, false)
+  return {
+    ...projected,
+    stderrLogs: [],
     authRequired: false,
     error: null,
-    mcpProfile: "writer-sub",
-    localMcpProfile: null,
-    parentCodeRepoWarning: null,
     tosCompliance: checkTosTriggers(),
     tosReassessmentIssues: [],
   }
 }
 
+function hasAnyLiveSlotSession(slots: Record<AcpRoleSlotId, AcpRoleSlotState>): boolean {
+  return ACP_ROLE_SLOTS.some((slot) => slots[slot].sessionId !== null)
+}
+
 function isStoreDisconnected(state: AntigravityAcpDataState): boolean {
   if (state.status !== null) return !state.status.connected
-  return state.activeSessionId === null
+  return !hasAnyLiveSlotSession(state.slots)
+}
+
+/**
+ * Strictly resolve the owning role slot for an incoming ACP event.
+ *
+ * When a non-empty `sessionId` is present, ONLY the slot whose `sessionId`
+ * matches verbatim receives the event; if unmatched while any slot has a live
+ * session, return `null` to drop the event and prevent cross-slot leakage.
+ */
+function resolveEventTargetSlot(
+  state: AntigravityAcpDataState,
+  evtSlot: AcpRoleSlotId | null | undefined,
+  evtSessionId: string | null,
+): AcpRoleSlotId | null {
+  const trimmedSid = evtSessionId?.trim() || null
+  if (trimmedSid) {
+    for (const slot of ACP_ROLE_SLOTS) {
+      if (state.slots[slot].sessionId === trimmedSid) {
+        return slot
+      }
+    }
+    if (hasAnyLiveSlotSession(state.slots)) {
+      return null
+    }
+    return isAcpRoleSlotId(evtSlot) ? evtSlot : state.activeSlot
+  }
+  if (isAcpRoleSlotId(evtSlot)) {
+    return evtSlot
+  }
+  return state.activeSlot
+}
+
+function clearSlotConnectionState(
+  prev: AcpRoleSlotState,
+  resetProfileToDefault: boolean,
+): AcpRoleSlotState {
+  return {
+    ...prev,
+    sessionId: null,
+    cwd: null,
+    pendingPermissions: [],
+    configOptions: [],
+    prompting: false,
+    activeAssistantId: null,
+    lastLocalMcpSkipReason: null,
+    mcpProfile: resetProfileToDefault
+      ? defaultSlotProfile(prev.slot)
+      : prev.slot === "reviewer"
+        ? "reviewer"
+        : prev.mcpProfile,
+    localMcpProfile: null,
+    attachedLocalMcp: false,
+    localMcpScope: null,
+    effectiveMcpScope: null,
+    readOnly: prev.slot === "reviewer",
+    localMcpStale: false,
+    localMcpStaleReason: null,
+    parentCodeRepoWarning: null,
+  }
+}
+
+function mergeServerSlotSnapshot(
+  prev: AcpRoleSlotState,
+  srv: AcpSlotStatusSnapshot,
+): AcpRoleSlotState {
+  const nextLocalProfile = srv.localMcpProfile ?? null
+  const nextMcpProfile: McpToolProfile =
+    prev.slot === "reviewer"
+      ? "reviewer"
+      : nextLocalProfile && srv.sessionId !== prev.sessionId
+        ? nextLocalProfile
+        : prev.mcpProfile
+  const nextParentWarning =
+    "parentCodeRepoWarning" in srv
+      ? (srv.parentCodeRepoWarning ?? null)
+      : prev.parentCodeRepoWarning
+
+  return {
+    ...prev,
+    sessionId: srv.sessionId,
+    cwd: srv.cwd,
+    configOptions: parseAcpConfigOptions(srv.configOptions ?? []),
+    pendingPermissions: srv.pendingPermissions ?? [],
+    attachedLocalMcp: srv.attachedLocalMcp,
+    localMcpScope: srv.localMcpScope ?? null,
+    effectiveMcpScope: srv.effectiveMcpScope ?? null,
+    localMcpProfile: nextLocalProfile,
+    mcpProfile: nextMcpProfile,
+    readOnly: prev.slot === "reviewer" ? true : Boolean(srv.readOnly),
+    prompting: typeof srv.inFlightPrompt === "boolean" ? srv.inFlightPrompt : prev.prompting,
+    localMcpStale: Boolean(srv.localMcpStale),
+    localMcpStaleReason: srv.localMcpStaleReason ?? null,
+    parentCodeRepoWarning: nextParentWarning,
+  }
 }
 
 function appendStderrLine(logs: string[], line: string): string[] {
@@ -172,11 +408,18 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
 
   handleAcpEvent: (evt) => {
     if (evt.kind === "disconnected") {
-      set((state) => ({
-        status: state.status
+      set((state) => {
+        const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+          writer: clearSlotConnectionState(state.slots.writer, true),
+          reviewer: clearSlotConnectionState(state.slots.reviewer, true),
+          architect: clearSlotConnectionState(state.slots.architect, true),
+        }
+        const nextStatus: AcpStatusSnapshot | null = state.status
           ? {
               ...state.status,
               connected: false,
+              activeSlot: "writer",
+              slots: {},
               activeSessionId: null,
               configOptions: [],
               pendingPermissions: [],
@@ -190,18 +433,13 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
               supportsLoadSession: undefined,
               parentCodeRepoWarning: null,
             }
-          : state.status,
-        pendingPermissions: [],
-        configOptions: [],
-        prompting: false,
-        activeSessionId: null,
-        activeAssistantId: null,
-        authRequired: false,
-        lastLocalMcpSkipReason: null,
-        mcpProfile: "writer-sub",
-        localMcpProfile: null,
-        parentCodeRepoWarning: null,
-      }))
+          : state.status
+
+        return {
+          ...projectActiveSlot(nextSlots, "writer", nextStatus, false),
+          authRequired: false,
+        }
+      })
       return
     }
 
@@ -228,15 +466,24 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
       set((state) => {
         if (isStoreDisconnected(state)) return state
         const permSid = evt.permission.sessionId?.trim() || null
-        if (permSid && state.activeSessionId && permSid !== state.activeSessionId) {
-          return state
-        }
-        return {
+        const hintSlot = isAcpRoleSlotId(evt.slot)
+          ? evt.slot
+          : isAcpRoleSlotId(evt.permission.slot)
+            ? evt.permission.slot
+            : null
+        const targetSlot = resolveEventTargetSlot(state, hintSlot, permSid)
+        if (!targetSlot) return state
+
+        const prevSlot = state.slots[targetSlot]
+        const nextSlot: AcpRoleSlotState = {
+          ...prevSlot,
           pendingPermissions: [
-            ...state.pendingPermissions.filter((p) => p.requestId !== evt.permission.requestId),
+            ...prevSlot.pendingPermissions.filter((p) => p.requestId !== evt.permission.requestId),
             evt.permission,
           ],
         }
+        const nextSlots = { ...state.slots, [targetSlot]: nextSlot }
+        return projectActiveSlot(nextSlots, state.activeSlot, state.status, true)
       })
       return
     }
@@ -244,9 +491,22 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
     if (evt.kind === "permission_resolved") {
       set((state) => {
         if (isStoreDisconnected(state)) return state
-        return {
-          pendingPermissions: state.pendingPermissions.filter((p) => p.requestId !== evt.requestId),
+        let changed = false
+        const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = { ...state.slots }
+        for (const slot of ACP_ROLE_SLOTS) {
+          const prevSlot = state.slots[slot]
+          if (prevSlot.pendingPermissions.some((p) => p.requestId === evt.requestId)) {
+            nextSlots[slot] = {
+              ...prevSlot,
+              pendingPermissions: prevSlot.pendingPermissions.filter(
+                (p) => p.requestId !== evt.requestId,
+              ),
+            }
+            changed = true
+          }
         }
+        if (!changed) return state
+        return projectActiveSlot(nextSlots, state.activeSlot, state.status, true)
       })
       return
     }
@@ -256,23 +516,33 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
         if (isStoreDisconnected(state)) return state
         const rawSid = evt.params.sessionId
         const evtSid = typeof rawSid === "string" && rawSid.trim() ? rawSid.trim() : null
-        if (evtSid && state.activeSessionId && evtSid !== state.activeSessionId) {
-          return state
-        }
+        const hintSlot = isAcpRoleSlotId(evt.slot) ? evt.slot : null
+        const targetSlot = resolveEventTargetSlot(state, hintSlot, evtSid)
+        if (!targetSlot) return state
+
         const parsed = parseAcpSessionUpdate(evt.params)
         if (!parsed) return state
+        const prevSlot = state.slots[targetSlot]
+
         if (parsed.type === "config_option_update") {
-          return { configOptions: parsed.configOptions }
+          const nextSlots = {
+            ...state.slots,
+            [targetSlot]: {
+              ...prevSlot,
+              configOptions: parsed.configOptions,
+            },
+          }
+          return projectActiveSlot(nextSlots, state.activeSlot, state.status, false)
         }
         if (parsed.type === "other") return state
 
-        const targetId = state.activeAssistantId ?? makeItemId("asst")
-        const idx = state.transcript.findIndex((item) => item.id === targetId)
+        const targetId = prevSlot.activeAssistantId ?? makeItemId("asst")
+        const idx = prevSlot.transcript.findIndex((item) => item.id === targetId)
         const base: AcpTranscriptItem =
-          idx >= 0 ? state.transcript[idx]! : { id: targetId, role: "assistant", text: "" }
+          idx >= 0 ? prevSlot.transcript[idx]! : { id: targetId, role: "assistant", text: "" }
         let nextItem: AcpTranscriptItem = base
-        let nextHasRecentDraftWrite = state.hasRecentDraftWrite
-        let nextRecentDraftWriteSummary = state.recentDraftWriteSummary
+        let nextHasRecentDraftWrite = prevSlot.hasRecentDraftWrite
+        let nextRecentDraftWriteSummary = prevSlot.recentDraftWriteSummary
 
         if (parsed.type === "agent_message_chunk") {
           nextItem = { ...base, text: base.text + parsed.text }
@@ -304,129 +574,295 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
 
         const nextTranscript =
           idx >= 0
-            ? state.transcript.map((item, i) => (i === idx ? nextItem : item))
-            : [...state.transcript, nextItem]
+            ? prevSlot.transcript.map((item, i) => (i === idx ? nextItem : item))
+            : [...prevSlot.transcript, nextItem]
 
-        return {
-          activeAssistantId: targetId,
-          transcript: nextTranscript,
-          hasRecentDraftWrite: nextHasRecentDraftWrite,
-          recentDraftWriteSummary: nextRecentDraftWriteSummary,
+        const nextSlots = {
+          ...state.slots,
+          [targetSlot]: {
+            ...prevSlot,
+            activeAssistantId: targetId,
+            transcript: nextTranscript,
+            hasRecentDraftWrite: nextHasRecentDraftWrite,
+            recentDraftWriteSummary: nextRecentDraftWriteSummary,
+          },
         }
+        return projectActiveSlot(nextSlots, state.activeSlot, state.status, false)
       })
     }
   },
 
   applyStatusSnapshot: (st) => {
     set((state) => {
-      const nextLocalMcpProfile = st.connected ? (st.localMcpProfile ?? null) : null
+      const nextActiveSlot: AcpRoleSlotId = isAcpRoleSlotId(st.activeSlot)
+        ? st.activeSlot
+        : state.activeSlot
+
+      if (!st.connected) {
+        const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+          writer: clearSlotConnectionState(state.slots.writer, false),
+          reviewer: clearSlotConnectionState(state.slots.reviewer, false),
+          architect: clearSlotConnectionState(state.slots.architect, false),
+        }
+        return projectActiveSlot(nextSlots, nextActiveSlot, st, false)
+      }
+
+      if (st.slots !== undefined) {
+        const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = { ...state.slots }
+        for (const slot of ACP_ROLE_SLOTS) {
+          const srv = st.slots[slot]
+          const prev = state.slots[slot]
+          if (srv) {
+            nextSlots[slot] = mergeServerSlotSnapshot(prev, srv)
+          } else {
+            const cleared = clearSlotConnectionState(prev, false)
+            nextSlots[slot] = {
+              ...cleared,
+              cwd: slot === nextActiveSlot ? (st.cwd ?? null) : null,
+              parentCodeRepoWarning:
+                slot === nextActiveSlot && "parentCodeRepoWarning" in st
+                  ? (st.parentCodeRepoWarning ?? null)
+                  : null,
+            }
+          }
+        }
+        return projectActiveSlot(nextSlots, nextActiveSlot, st, false)
+      }
+
+      // Legacy single-slot snapshot mode (when `st.slots` is omitted)
+      const prev = state.slots[nextActiveSlot]
+      const nextLocalMcpProfile = st.localMcpProfile ?? null
       const nextParentWarning =
         "parentCodeRepoWarning" in st
           ? (st.parentCodeRepoWarning ?? null)
-          : st.connected
-            ? state.parentCodeRepoWarning
-            : null
+          : prev.parentCodeRepoWarning
       // Never overwrite user's chosen mcpProfile while disconnected (or when
       // refreshing an already-known active session mid-flight). Only adopt the
       // server's active profile when attaching to a newly discovered session.
-      const nextMcpProfile =
-        st.connected &&
-        nextLocalMcpProfile &&
-        st.activeSessionId &&
-        st.activeSessionId !== state.activeSessionId
-          ? nextLocalMcpProfile
-          : state.mcpProfile
+      const nextMcpProfile: McpToolProfile =
+        nextActiveSlot === "reviewer"
+          ? "reviewer"
+          : nextLocalMcpProfile &&
+              st.activeSessionId &&
+              st.activeSessionId !== prev.sessionId
+            ? nextLocalMcpProfile
+            : prev.mcpProfile
 
-      return {
-        status: st,
-        activeSessionId: st.activeSessionId ?? null,
-        activeAssistantId: st.connected ? state.activeAssistantId : null,
-        pendingPermissions: st.pendingPermissions ?? [],
-        configOptions: parseAcpConfigOptions(st.configOptions ?? []),
-        prompting:
-          typeof st.inFlightPrompt === "boolean"
-            ? st.inFlightPrompt
-            : st.connected
-              ? state.prompting
-              : false,
-        mcpProfile: nextMcpProfile,
-        localMcpProfile: nextLocalMcpProfile,
-        parentCodeRepoWarning: nextParentWarning,
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [nextActiveSlot]: {
+          ...prev,
+          sessionId: st.activeSessionId ?? null,
+          cwd: st.cwd ?? prev.cwd,
+          activeAssistantId: prev.activeAssistantId,
+          pendingPermissions: st.pendingPermissions ?? [],
+          configOptions: parseAcpConfigOptions(st.configOptions ?? []),
+          prompting:
+            typeof st.inFlightPrompt === "boolean" ? st.inFlightPrompt : prev.prompting,
+          mcpProfile: nextMcpProfile,
+          localMcpProfile: nextLocalMcpProfile,
+          attachedLocalMcp: Boolean(st.attachedLocalMcp),
+          localMcpScope: st.localMcpScope ?? null,
+          readOnly: nextActiveSlot === "reviewer",
+          localMcpStale: Boolean(st.localMcpStale),
+          localMcpStaleReason: st.localMcpStaleReason ?? null,
+          parentCodeRepoWarning: nextParentWarning,
+        },
       }
+      return projectActiveSlot(nextSlots, nextActiveSlot, st, false)
     })
   },
 
-  applySessionCreated: (res, systemMessage) => {
+  applySessionCreated: (res, systemMessage, slotOverride) => {
     set((state) => {
+      const targetSlot: AcpRoleSlotId =
+        slotOverride ?? (isAcpRoleSlotId(res.slot) ? res.slot : state.activeSlot)
+      const prev = state.slots[targetSlot]
       const nextLocalMcpProfile = res.localMcpProfile ?? null
       const nextParentWarning =
         "parentCodeRepoWarning" in res
           ? (res.parentCodeRepoWarning ?? null)
-          : state.parentCodeRepoWarning
+          : prev.parentCodeRepoWarning
+      const nextReadOnly = targetSlot === "reviewer" ? true : Boolean(res.readOnly)
+      const nextEffectiveScope =
+        res.effectiveMcpScope ?? (nextReadOnly ? "read" : (res.localMcpScope ?? null))
+      const nextPendingPermissions = prev.pendingPermissions.filter(
+        (p) => p.sessionId === res.sessionId,
+      )
 
-      return {
-        status: state.status
-          ? {
-              ...state.status,
-              activeSessionId: res.sessionId,
-              cwd: res.cwd,
-              configOptions: res.configOptions,
-              attachedLocalMcp: res.attachedLocalMcp,
-              localMcpScope: res.localMcpScope ?? null,
-              localMcpProfile: nextLocalMcpProfile,
-              localMcpStale: false,
-              localMcpStaleReason: null,
-              parentCodeRepoWarning: nextParentWarning,
-            }
-          : state.status,
-        activeSessionId: res.sessionId,
+      const nextSlotState: AcpRoleSlotState = {
+        ...prev,
+        sessionId: res.sessionId,
+        cwd: res.cwd,
         activeAssistantId: null,
-        authRequired: false,
+        prompting: false,
         lastStopReason: null,
         hasRecentDraftWrite: false,
         recentDraftWriteSummary: null,
         lastLocalMcpSkipReason: res.localMcpSkipReason ?? null,
-        mcpProfile: nextLocalMcpProfile ?? state.mcpProfile,
+        mcpProfile:
+          targetSlot === "reviewer" ? "reviewer" : (nextLocalMcpProfile ?? prev.mcpProfile),
         localMcpProfile: nextLocalMcpProfile,
+        attachedLocalMcp: res.attachedLocalMcp,
+        localMcpScope: res.localMcpScope ?? null,
+        effectiveMcpScope: nextEffectiveScope,
+        readOnly: nextReadOnly,
+        localMcpStale: false,
+        localMcpStaleReason: null,
         parentCodeRepoWarning: nextParentWarning,
-        pendingPermissions: state.pendingPermissions.filter((p) => p.sessionId === res.sessionId),
+        pendingPermissions: nextPendingPermissions,
         configOptions: parseAcpConfigOptions(res.configOptions ?? []),
         transcript: systemMessage
           ? [{ id: makeItemId("sys"), role: "system", text: systemMessage }]
           : [],
       }
+
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [targetSlot]: nextSlotState,
+      }
+
+      const nextStatus: AcpStatusSnapshot | null = state.status
+        ? {
+            ...state.status,
+            activeSlot: targetSlot,
+            activeSessionId: res.sessionId,
+            cwd: res.cwd,
+            configOptions: res.configOptions,
+            pendingPermissions: nextPendingPermissions,
+            attachedLocalMcp: res.attachedLocalMcp,
+            localMcpScope: res.localMcpScope ?? null,
+            localMcpProfile: nextLocalMcpProfile,
+            inFlightPrompt: false,
+            localMcpStale: false,
+            localMcpStaleReason: null,
+            parentCodeRepoWarning: nextParentWarning,
+            ...(state.status.slots
+              ? {
+                  slots: {
+                    ...state.status.slots,
+                    [targetSlot]: {
+                      slot: targetSlot,
+                      sessionId: res.sessionId,
+                      cwd: res.cwd,
+                      configOptions: res.configOptions,
+                      pendingPermissions: nextPendingPermissions,
+                      attachedLocalMcp: res.attachedLocalMcp,
+                      localMcpScope: res.localMcpScope ?? null,
+                      effectiveMcpScope: nextEffectiveScope,
+                      localMcpProfile: nextLocalMcpProfile,
+                      readOnly: nextReadOnly,
+                      inFlightPrompt: false,
+                      localMcpStale: false,
+                      localMcpStaleReason: null,
+                      parentCodeRepoWarning: nextParentWarning,
+                    },
+                  },
+                }
+              : {}),
+          }
+        : state.status
+
+      return {
+        ...projectActiveSlot(nextSlots, targetSlot, nextStatus, false),
+        authRequired: false,
+      }
     })
   },
 
-  beginPromptTurn: (userText) => {
-    set((state) => ({
-      error: null,
-      prompting: true,
-      activeAssistantId: null,
-      lastStopReason: null,
-      transcript: [
-        ...state.transcript,
-        { id: makeItemId("usr"), role: "user", text: userText },
-      ],
-    }))
+  beginPromptTurn: (userText, slotOverride) => {
+    set((state) => {
+      const targetSlot = slotOverride ?? state.activeSlot
+      const prev = state.slots[targetSlot]
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [targetSlot]: {
+          ...prev,
+          prompting: true,
+          activeAssistantId: null,
+          lastStopReason: null,
+          transcript: [
+            ...prev.transcript,
+            { id: makeItemId("usr"), role: "user", text: userText },
+          ],
+        },
+      }
+      return {
+        ...projectActiveSlot(nextSlots, state.activeSlot, state.status, true),
+        error: null,
+      }
+    })
   },
 
-  finishPromptTurn: (stopReason) => {
-    set((state) => ({
-      prompting: false,
-      activeAssistantId: null,
-      lastStopReason: stopReason !== undefined ? stopReason : state.lastStopReason,
-    }))
+  finishPromptTurn: (stopReason, slotOverride) => {
+    set((state) => {
+      const targetSlot = slotOverride ?? state.activeSlot
+      const prev = state.slots[targetSlot]
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [targetSlot]: {
+          ...prev,
+          prompting: false,
+          activeAssistantId: null,
+          lastStopReason: stopReason !== undefined ? stopReason : prev.lastStopReason,
+        },
+      }
+      return projectActiveSlot(nextSlots, state.activeSlot, state.status, true)
+    })
   },
 
-  setConfigOptions: (options) => {
-    set((state) => ({
-      configOptions: typeof options === "function" ? options(state.configOptions) : options,
-    }))
+  setActiveSlot: (slot) => {
+    set((state) => projectActiveSlot(state.slots, slot, state.status, true))
   },
 
-  setMcpProfile: (profile) => {
-    set({ mcpProfile: profile })
+  setSlotComposerText: (slot, text) => {
+    set((state) => {
+      const prev = state.slots[slot]
+      if (prev.composerText === text) return state
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [slot]: { ...prev, composerText: text },
+      }
+      return projectActiveSlot(nextSlots, state.activeSlot, state.status, false)
+    })
+  },
+
+  setComposerText: (text) => {
+    set((state) => {
+      const prev = state.slots[state.activeSlot]
+      if (prev.composerText === text) return state
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [state.activeSlot]: { ...prev, composerText: text },
+      }
+      return projectActiveSlot(nextSlots, state.activeSlot, state.status, false)
+    })
+  },
+
+  setConfigOptions: (options, slotOverride) => {
+    set((state) => {
+      const targetSlot = slotOverride ?? state.activeSlot
+      const prev = state.slots[targetSlot]
+      const nextOptions = typeof options === "function" ? options(prev.configOptions) : options
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [targetSlot]: { ...prev, configOptions: nextOptions },
+      }
+      return projectActiveSlot(nextSlots, state.activeSlot, state.status, false)
+    })
+  },
+
+  setMcpProfile: (profile, slotOverride) => {
+    set((state) => {
+      const targetSlot = slotOverride ?? state.activeSlot
+      const enforcedProfile: McpToolProfile = targetSlot === "reviewer" ? "reviewer" : profile
+      const prev = state.slots[targetSlot]
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [targetSlot]: { ...prev, mcpProfile: enforcedProfile },
+      }
+      return projectActiveSlot(nextSlots, state.activeSlot, state.status, false)
+    })
   },
 
   setAuthRequired: (required) => {
@@ -437,17 +873,34 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
     set({ error })
   },
 
-  setPrompting: (prompting) => {
-    set({ prompting })
+  setPrompting: (prompting, slotOverride) => {
+    set((state) => {
+      const targetSlot = slotOverride ?? state.activeSlot
+      const prev = state.slots[targetSlot]
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [targetSlot]: { ...prev, prompting },
+      }
+      return projectActiveSlot(nextSlots, state.activeSlot, state.status, true)
+    })
   },
 
-  clearTranscript: () => {
-    set({
-      transcript: [],
-      activeAssistantId: null,
-      lastStopReason: null,
-      hasRecentDraftWrite: false,
-      recentDraftWriteSummary: null,
+  clearTranscript: (slotOverride) => {
+    set((state) => {
+      const targetSlot = slotOverride ?? state.activeSlot
+      const prev = state.slots[targetSlot]
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [targetSlot]: {
+          ...prev,
+          transcript: [],
+          activeAssistantId: null,
+          lastStopReason: null,
+          hasRecentDraftWrite: false,
+          recentDraftWriteSummary: null,
+        },
+      }
+      return projectActiveSlot(nextSlots, state.activeSlot, state.status, false)
     })
   },
 
@@ -455,24 +908,51 @@ export const useAntigravityAcpStore = create<AntigravityAcpStoreState>((set) => 
     set({ stderrLogs: [] })
   },
 
-  dismissDraftWriteBanner: () => {
-    set({ hasRecentDraftWrite: false, recentDraftWriteSummary: null })
-  },
-
-  markRecentDraftWrite: (summary) => {
-    set({
-      hasRecentDraftWrite: true,
-      recentDraftWriteSummary: summary?.trim() ? summary.trim() : null,
+  dismissDraftWriteBanner: (slotOverride) => {
+    set((state) => {
+      const targetSlot = slotOverride ?? state.activeSlot
+      const prev = state.slots[targetSlot]
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [targetSlot]: {
+          ...prev,
+          hasRecentDraftWrite: false,
+          recentDraftWriteSummary: null,
+        },
+      }
+      return projectActiveSlot(nextSlots, state.activeSlot, state.status, false)
     })
   },
 
-  appendSystemMessage: (text) => {
-    set((state) => ({
-      transcript: [
-        ...state.transcript,
-        { id: makeItemId("sys"), role: "system", text },
-      ],
-    }))
+  markRecentDraftWrite: (summary, slotOverride) => {
+    set((state) => {
+      const targetSlot = slotOverride ?? state.activeSlot
+      const prev = state.slots[targetSlot]
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [targetSlot]: {
+          ...prev,
+          hasRecentDraftWrite: true,
+          recentDraftWriteSummary: summary?.trim() ? summary.trim() : null,
+        },
+      }
+      return projectActiveSlot(nextSlots, state.activeSlot, state.status, false)
+    })
+  },
+
+  appendSystemMessage: (text, slotOverride) => {
+    set((state) => {
+      const targetSlot = slotOverride ?? state.activeSlot
+      const prev = state.slots[targetSlot]
+      const nextSlots: Record<AcpRoleSlotId, AcpRoleSlotState> = {
+        ...state.slots,
+        [targetSlot]: {
+          ...prev,
+          transcript: [...prev.transcript, { id: makeItemId("sys"), role: "system", text }],
+        },
+      }
+      return projectActiveSlot(nextSlots, state.activeSlot, state.status, false)
+    })
   },
 
   evaluateTosTriggers: (conditions) => {

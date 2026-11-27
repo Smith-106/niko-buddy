@@ -3,8 +3,11 @@
 // SPDX-License-Identifier: MIT
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import * as jestDomMatchers from "@testing-library/jest-dom/matchers"
 import { cleanup, within } from "@testing-library/react"
 import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
+
+expect.extend(jestDomMatchers)
 import {
   AntigravityAcpQuickActions,
   buildWriterQuickActionPrompt,
@@ -309,6 +312,14 @@ describe("AntigravityAcpQuickActions", () => {
       expect(next).toContain("project.state")
       expect(next).toContain("draft.list")
       expect(next).toContain("foreshadowing.list")
+
+      // Read-only skills.list / skills.get rubric guidance across workflow_next, draft_next, review_current
+      expect(next).toContain("skills.list")
+      expect(next).toContain("skills.get")
+      expect(draft).toContain("skills.list")
+      expect(draft).toContain("skills.get")
+      expect(review).toContain("skills.list")
+      expect(review).toContain("skills.get")
     }
   })
 })

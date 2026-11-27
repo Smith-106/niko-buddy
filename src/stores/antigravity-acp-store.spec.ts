@@ -622,4 +622,178 @@ describe("useAntigravityAcpStore", () => {
     expect(afterReset.tosReassessmentIssues).toEqual([])
     expect(localStorage.length).toBe(0)
   })
+
+  it("coexists writer/reviewer/architect slots with strict cross-slot event isolation, per-slot composerText/prompting, and non-destructive setActiveSlot", () => {
+    const store = useAntigravityAcpStore.getState()
+    expect(store.activeSlot).toBe("writer")
+    expect(store.slots.writer.mcpProfile).toBe("writer-sub")
+    expect(store.slots.reviewer.mcpProfile).toBe("reviewer")
+    expect(store.slots.reviewer.readOnly).toBe(true)
+    expect(store.slots.architect.mcpProfile).toBe("architect")
+
+    // Reviewer slot profile is protocol-locked to "reviewer" even if caller tries to override.
+    store.setMcpProfile("writer-sub", "reviewer")
+    expect(useAntigravityAcpStore.getState().slots.reviewer.mcpProfile).toBe("reviewer")
+
+    // Establish writer and reviewer sessions via multi-slot snapshot
+    store.applyStatusSnapshot({
+      connected: true,
+      binaryPath: "agy.exe",
+      agentName: "Antigravity",
+      agentVersion: "2.2.0",
+      protocolVersion: 1,
+      authMethods: [],
+      activeSlot: "writer",
+      activeSessionId: "sess-w1",
+      cwd: "C:\\books\\demo",
+      configOptions: [],
+      pendingPermissions: [],
+      httpMcpEnabled: true,
+      attachedLocalMcp: true,
+      localMcpScope: "project",
+      localMcpProfile: "writer-sub",
+      slots: {
+        writer: {
+          slot: "writer",
+          sessionId: "sess-w1",
+          cwd: "C:\\books\\demo",
+          configOptions: [],
+          pendingPermissions: [],
+          attachedLocalMcp: true,
+          localMcpScope: "project",
+          effectiveMcpScope: "project",
+          localMcpProfile: "writer-sub",
+          readOnly: false,
+          inFlightPrompt: false,
+        },
+        reviewer: {
+          slot: "reviewer",
+          sessionId: "sess-r1",
+          cwd: "C:\\books\\demo",
+          configOptions: [],
+          pendingPermissions: [],
+          attachedLocalMcp: true,
+          localMcpScope: "project",
+          effectiveMcpScope: "read",
+          localMcpProfile: "reviewer",
+          readOnly: true,
+          inFlightPrompt: false,
+        },
+      },
+    })
+
+    // Writer types unsent draft note and starts a prompt turn
+    store.setComposerText("Writer unsent note")
+    store.beginPromptTurn("Draft chapter 5", "writer")
+    store.setSlotComposerText("reviewer", "Reviewer pre-filled handoff")
+
+    // Reviewer receives streaming chunk + permission request while activeSlot is still "writer"
+    useAntigravityAcpStore.getState().handleAcpEvent({
+      kind: "session_update",
+      slot: "reviewer",
+      params: {
+        sessionId: "sess-r1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Reviewer P0 audit finding" },
+        },
+      },
+    })
+    useAntigravityAcpStore.getState().handleAcpEvent({
+      kind: "permission_request",
+      slot: "reviewer",
+      permission: {
+        requestId: "req-rev-1",
+        sessionId: "sess-r1",
+        slot: "reviewer",
+        title: "draft.read",
+        options: [{ optionId: "allow_once", name: "Allow" }],
+      },
+    })
+
+    // Unmatched stale session event is dropped completely (zero cross-slot leakage!)
+    useAntigravityAcpStore.getState().handleAcpEvent({
+      kind: "session_update",
+      slot: "writer",
+      params: {
+        sessionId: "sess-unknown-999",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "LEAKED_CHUNK" },
+        },
+      },
+    })
+    useAntigravityAcpStore.getState().handleAcpEvent({
+      kind: "permission_request",
+      permission: {
+        requestId: "req-stale-999",
+        sessionId: "sess-unknown-999",
+        title: "Stale write",
+        options: [{ optionId: "allow_once", name: "Allow" }],
+      },
+    })
+
+    // Active top-level mirror (writer) has ZERO reviewer leakage!
+    const whileOnWriter = useAntigravityAcpStore.getState()
+    expect(whileOnWriter.activeSlot).toBe("writer")
+    expect(whileOnWriter.activeSessionId).toBe("sess-w1")
+    expect(whileOnWriter.composerText).toBe("Writer unsent note")
+    expect(whileOnWriter.prompting).toBe(true)
+    expect(whileOnWriter.pendingPermissions).toEqual([])
+    expect(whileOnWriter.transcript.map((m) => m.text)).toEqual(["Draft chapter 5"])
+
+    // Reviewer slot captured its own chunk and permission cleanly
+    expect(whileOnWriter.slots.reviewer.transcript.map((m) => m.text)).toEqual([
+      "Reviewer P0 audit finding",
+    ])
+    expect(whileOnWriter.slots.reviewer.pendingPermissions.map((p) => p.requestId)).toEqual([
+      "req-rev-1",
+    ])
+    expect(whileOnWriter.slots.reviewer.composerText).toBe("Reviewer pre-filled handoff")
+    expect(whileOnWriter.slots.reviewer.prompting).toBe(false)
+
+    // Non-destructive switch to reviewer projects reviewer state while keeping writer intact
+    whileOnWriter.setActiveSlot("reviewer")
+    const onReviewer = useAntigravityAcpStore.getState()
+    expect(onReviewer.activeSlot).toBe("reviewer")
+    expect(onReviewer.activeSessionId).toBe("sess-r1")
+    expect(onReviewer.composerText).toBe("Reviewer pre-filled handoff")
+    expect(onReviewer.prompting).toBe(false)
+    expect(onReviewer.mcpProfile).toBe("reviewer")
+    expect(onReviewer.pendingPermissions.map((p) => p.requestId)).toEqual(["req-rev-1"])
+    expect(onReviewer.transcript.map((m) => m.text)).toEqual(["Reviewer P0 audit finding"])
+
+    // Finishing writer's prompt turn while viewing reviewer ONLY updates writer
+    onReviewer.finishPromptTurn("end_turn", "writer")
+    expect(useAntigravityAcpStore.getState().slots.writer.prompting).toBe(false)
+    expect(useAntigravityAcpStore.getState().slots.writer.lastStopReason).toBe("end_turn")
+    expect(useAntigravityAcpStore.getState().lastStopReason).toBeNull()
+
+    // Resolving reviewer's permission removes it from reviewer without affecting writer
+    onReviewer.handleAcpEvent({
+      kind: "permission_resolved",
+      requestId: "req-rev-1",
+      optionId: "allow_once",
+      sessionId: "sess-r1",
+      slot: "reviewer",
+    })
+    expect(useAntigravityAcpStore.getState().pendingPermissions).toEqual([])
+    expect(useAntigravityAcpStore.getState().slots.reviewer.pendingPermissions).toEqual([])
+
+    // Disconnect clears connection fields across ALL slots, resets activeSlot to writer,
+    // and preserves per-slot transcripts & composerText in memory only.
+    useAntigravityAcpStore.getState().handleAcpEvent({ kind: "disconnected", reason: "eof" })
+    const afterDisc = useAntigravityAcpStore.getState()
+    expect(afterDisc.activeSlot).toBe("writer")
+    expect(afterDisc.activeSessionId).toBeNull()
+    expect(afterDisc.slots.writer.sessionId).toBeNull()
+    expect(afterDisc.slots.reviewer.sessionId).toBeNull()
+    expect(afterDisc.slots.writer.transcript.map((m) => m.text)).toEqual(["Draft chapter 5"])
+    expect(afterDisc.slots.writer.composerText).toBe("Writer unsent note")
+    expect(afterDisc.slots.reviewer.transcript.map((m) => m.text)).toEqual([
+      "Reviewer P0 audit finding",
+    ])
+    expect(afterDisc.slots.reviewer.composerText).toBe("Reviewer pre-filled handoff")
+    expect(localStorage.length).toBe(0)
+  })
 })
