@@ -1058,4 +1058,126 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
       })
     }
   })
+
+  it("Phase 2: Antigravity profile 选择器准确展示 38/24/19/17 工具数与规范能力说明，且零 role=alert 污染与 1:1 zh/en 键对齐", async () => {
+    invokeMock.mockResolvedValueOnce(RUNNING_STATUS)
+    render(<ExternalControlSection />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-endpoint")).toHaveTextContent("45871")
+    })
+
+    const select = screen.getByTestId("external-control-antigravity-profile") as HTMLSelectElement
+    expect(select.value).toBe("full-legacy")
+
+    const expectedProfiles: Array<{
+      profile: "full-legacy" | "writer-sub" | "reviewer" | "architect"
+      count: number
+      mustContain: string[]
+    }> = [
+      {
+        profile: "full-legacy",
+        count: 38,
+        mustContain: [
+          "workflow.next",
+          "foreshadowing.list",
+          "character.read",
+          "outline.read",
+          "style.exemplars",
+          "chapter.search",
+          "draft.patch",
+          "draft.record_review",
+        ],
+      },
+      {
+        profile: "writer-sub",
+        count: 24,
+        mustContain: [
+          "workflow.next",
+          "foreshadowing.list",
+          "character.read",
+          "outline.read",
+          "style.exemplars",
+          "chapter.search",
+          "draft.patch",
+          "draft.record_review",
+        ],
+      },
+      {
+        profile: "reviewer",
+        count: 19,
+        mustContain: [
+          "workflow.next",
+          "foreshadowing.list",
+          "character.read",
+          "outline.read",
+          "style.exemplars",
+          "chapter.search",
+        ],
+      },
+      {
+        profile: "architect",
+        count: 17,
+        mustContain: [
+          "workflow.next",
+          "foreshadowing.list",
+          "character.read",
+          "outline.read",
+          "chapter.search",
+        ],
+      },
+    ]
+
+    for (const item of expectedProfiles) {
+      fireEvent.change(select, { target: { value: item.profile } })
+      expect(screen.getByTestId("external-control-antigravity-profile-count")).toHaveTextContent(
+        String(item.count),
+      )
+      const desc = screen.getByTestId("external-control-antigravity-profile-desc").textContent ?? ""
+      for (const toolName of item.mustContain) {
+        expect(desc).toContain(toolName)
+      }
+      expect(desc).not.toContain("draft.accept")
+      expect(screen.queryByRole("alert")).toBeNull()
+    }
+
+    // 校验 zh/en 在 externalControl 与 antigravityAcp 命名空间 1:1 键集与插值占位符一致
+    const collectLeafEntries = (
+      obj: Record<string, unknown>,
+      prefix = "",
+    ): Record<string, string> => {
+      const out: Record<string, string> = {}
+      for (const [k, v] of Object.entries(obj)) {
+        const nextKey = prefix ? `${prefix}.${k}` : k
+        if (v && typeof v === "object" && !Array.isArray(v)) {
+          Object.assign(out, collectLeafEntries(v as Record<string, unknown>, nextKey))
+        } else {
+          out[nextKey] = String(v ?? "")
+        }
+      }
+      return out
+    }
+    const extractPlaceholders = (text: string): string[] =>
+      Array.from(new Set(text.match(/\{\{[^}]+\}\}/g) ?? [])).sort()
+
+    for (const section of [
+      {
+        zh: (zhLocale as { settings: { sections: { externalControl: Record<string, unknown> } } })
+          .settings.sections.externalControl,
+        en: (enLocale as { settings: { sections: { externalControl: Record<string, unknown> } } })
+          .settings.sections.externalControl,
+      },
+      {
+        zh: (zhLocale as { antigravityAcp: Record<string, unknown> }).antigravityAcp,
+        en: (enLocale as { antigravityAcp: Record<string, unknown> }).antigravityAcp,
+      },
+    ]) {
+      const zhLeaves = collectLeafEntries(section.zh)
+      const enLeaves = collectLeafEntries(section.en)
+      expect(Object.keys(zhLeaves).sort()).toEqual(Object.keys(enLeaves).sort())
+      for (const key of Object.keys(zhLeaves)) {
+        expect(extractPlaceholders(zhLeaves[key]!)).toEqual(extractPlaceholders(enLeaves[key]!))
+      }
+    }
+  })
 })

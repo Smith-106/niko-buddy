@@ -35,6 +35,8 @@ const mocks = vi.hoisted(() => ({
   bumpDataVersion: vi.fn(),
   writeDraft: vi.fn(),
   listChapterDrafts: vi.fn(async () => [] as Array<{ chapterName: string; status: string }>),
+  prepareInteractiveChapterSnapshot: vi.fn(),
+  commitInteractiveChapterSnapshot: vi.fn(),
   usePendingDraftCount: vi.fn<(projectPath: string, reloadKey: unknown) => number | null>(() => 0),
   storeState: {
     project: { path: "C:\\books\\demo", name: "Demo" } as { path: string; name: string } | null,
@@ -42,6 +44,12 @@ const mocks = vi.hoisted(() => ({
     selectedFile: "chapters/ch01.md" as string | null,
     fileContent: "Chapter 1 draft content",
     dataVersion: 0,
+    llmConfig: undefined as Record<string, unknown> | undefined,
+    novelConfig: undefined as Record<string, unknown> | undefined,
+    embeddingConfig: undefined as Record<string, unknown> | undefined,
+    providerConfigs: undefined as Record<string, unknown> | undefined,
+    defaultLlmModel: "",
+    aiChatModel: "",
   },
 }))
 
@@ -61,6 +69,10 @@ vi.mock("@/lib/novel", async (importOriginal) => {
     ...actual,
     writeDraft: mocks.writeDraft,
     listChapterDrafts: mocks.listChapterDrafts,
+    prepareInteractiveChapterSnapshot: (...args: unknown[]) =>
+      mocks.prepareInteractiveChapterSnapshot(...args),
+    commitInteractiveChapterSnapshot: (...args: unknown[]) =>
+      mocks.commitInteractiveChapterSnapshot(...args),
   }
 })
 vi.mock("@/components/layout/writing-workspace-widgets", async (importOriginal) => {
@@ -208,6 +220,8 @@ describe("AntigravityAcpView", () => {
     })
     mocks.listChapterDrafts.mockReset()
     mocks.listChapterDrafts.mockResolvedValue([])
+    mocks.prepareInteractiveChapterSnapshot.mockReset()
+    mocks.commitInteractiveChapterSnapshot.mockReset()
     mocks.usePendingDraftCount.mockReset()
     mocks.usePendingDraftCount.mockReturnValue(0)
     mocks.isTauri.mockReturnValue(true)
@@ -216,6 +230,12 @@ describe("AntigravityAcpView", () => {
     mocks.storeState.selectedFile = "chapters/ch01.md"
     mocks.storeState.fileContent = "Chapter 1 draft content"
     mocks.storeState.dataVersion = 0
+    mocks.storeState.llmConfig = undefined
+    mocks.storeState.novelConfig = undefined
+    mocks.storeState.embeddingConfig = undefined
+    mocks.storeState.providerConfigs = undefined
+    mocks.storeState.defaultLlmModel = ""
+    mocks.storeState.aiChatModel = ""
 
     mocks.listen.mockImplementation(
       async (_topic: string, cb: (e: { payload: AcpEventPayload }) => void) => {
@@ -1489,5 +1509,194 @@ describe("AntigravityAcpView", () => {
     expect(transcript.textContent).not.toContain("仅挂载只读审稿工具")
     expect(transcript.textContent).not.toContain("with read-only review tools")
     expect((screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement).value).toBe("")
+  })
+
+  it("renders pure_subscription memory banner (role=status, zero extra mount invokes), navigates to Novel extract settings, and supports interactive snapshot dialog pre-fill & commit", async () => {
+    mocks.storeState.fileTree = [
+      {
+        name: "wiki",
+        path: "wiki",
+        is_dir: true,
+        children: [
+          {
+            name: "chapters",
+            path: "wiki/chapters",
+            is_dir: true,
+            children: [
+              { name: "ch01.md", path: "wiki/chapters/ch01.md", is_dir: false },
+              { name: "ch02.md", path: "wiki/chapters/ch02.md", is_dir: false },
+            ],
+          },
+        ],
+      },
+    ]
+    mocks.storeState.selectedFile = "wiki/chapters/ch02.md"
+
+    const sampleSnapshot = {
+      chapterId: "chapter-2",
+      chapterNumber: 2,
+      summary: "第二章关键摘要",
+      characters: ["林川"],
+      locations: [],
+      organizations: [],
+      items: [],
+      events: [],
+      characterStateChanges: [],
+      relationshipChanges: [],
+      knowledgeChanges: [],
+      foreshadowingChanges: [],
+      newCanonFacts: ["青铜印章刻有星图"],
+      timelineEvents: [],
+      conflicts: [],
+      endingHook: "",
+      graphNodes: [],
+      graphEdges: [],
+    }
+    const preparedSnapshot = {
+      prepared: {
+        snapshot: sampleSnapshot,
+        source: {
+          readPath: "wiki/chapters/ch02.md",
+          chapterNumber: 2,
+          bodySha256: "a".repeat(64),
+          contentSha256: "b".repeat(64),
+        },
+      },
+      snapshot: sampleSnapshot,
+      preview: "preview",
+      validationWarnings: [],
+      warnings: [],
+      chapterPath: "wiki/chapters/ch02.md",
+      chapterNumber: 2,
+    }
+    mocks.prepareInteractiveChapterSnapshot.mockResolvedValue({
+      ok: true,
+      prepared: preparedSnapshot,
+    })
+    mocks.commitInteractiveChapterSnapshot.mockResolvedValue({
+      ingestResult: {
+        snapshot: sampleSnapshot,
+        canonOutcome: { status: "completed", report: { written: 1 } },
+      },
+      memoryStatus: {
+        ingest: "ok",
+        canonOutcome: { status: "completed", report: { written: 1 } },
+      },
+    })
+
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "antigravity_cli_detect") {
+        return { installed: true, version: "1.6.0", path: "agy.exe", error: null, acp_supported: true }
+      }
+      if (cmd === "antigravity_acp_status") {
+        return { ...CONNECTED_STATUS, activeSessionId: "sess-hybrid-1" }
+      }
+      return undefined
+    })
+
+    render(<AntigravityAcpView />)
+    await screen.findByTestId("acp-connected-badge")
+
+    // Zero extra mount invokes beyond the 4 standard mount commands
+    const mountCommands = new Set(mocks.invoke.mock.calls.map(([cmd]) => cmd as string))
+    for (const cmd of mountCommands) {
+      expect([
+        "antigravity_cli_detect",
+        "antigravity_acp_status",
+        "mcp_server_status",
+        "writer_plugin_status",
+      ]).toContain(cmd)
+    }
+
+    // Memory mode banner is role="status" (never role="alert"), sibling after acp-mcp-readiness-strip
+    const memoryBanner = screen.getByTestId("acp-memory-mode-banner")
+    expect(memoryBanner).toHaveAttribute("role", "status")
+    expect(memoryBanner).toHaveAttribute("data-memory-mode", "pure_subscription")
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(screen.getByTestId("acp-mcp-readiness-strip")).not.toHaveAttribute("role", "status")
+
+    // Configure extract model button routes to Settings -> novel
+    fireEvent.click(screen.getByTestId("acp-configure-extract-model-btn"))
+    expect(mocks.setActiveSettingsCategory).toHaveBeenCalledWith("novel")
+    expect(mocks.setActiveView).toHaveBeenCalledWith("settings")
+
+    // Open interactive snapshot dialog -> Step 1 Pre-fill populates composer ONLY (never auto-sends)
+    fireEvent.click(screen.getByTestId("acp-open-snapshot-ingest-btn"))
+    expect(await screen.findByTestId("acp-snapshot-ingest-dialog")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId("snapshot-ingest-prefill-btn"))
+    await waitFor(() => {
+      expect(screen.queryByTestId("acp-snapshot-ingest-dialog")).toBeNull()
+    })
+    const composer = screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement
+    expect(composer.value).toContain("chapter.read")
+    expect(composer.value).toContain("wiki/chapters/ch02.md")
+    expect(mocks.invoke).not.toHaveBeenCalledWith("antigravity_acp_prompt", expect.anything())
+
+    // Re-open dialog -> Step 2 Validate & Step 3 Commit triggers bumpDataVersion
+    fireEvent.click(screen.getByTestId("acp-open-snapshot-ingest-btn"))
+    await screen.findByTestId("acp-snapshot-ingest-dialog")
+    fireEvent.change(screen.getByTestId("snapshot-ingest-json-input"), {
+      target: { value: '{"chapterNumber":2,"summary":"第二章关键摘要"}' },
+    })
+    fireEvent.click(screen.getByTestId("snapshot-ingest-validate-btn"))
+    await screen.findByTestId("snapshot-ingest-preview")
+
+    fireEvent.click(screen.getByTestId("snapshot-ingest-commit-btn"))
+    await screen.findByTestId("snapshot-ingest-result")
+    expect(mocks.commitInteractiveChapterSnapshot).toHaveBeenCalledWith(
+      "C:\\books\\demo",
+      preparedSnapshot,
+      { confirmed: true },
+    )
+    expect(mocks.bumpDataVersion).toHaveBeenCalledTimes(1)
+  })
+
+  it("renders golden_hybrid memory banner with extractModelLabel, embedding badge, autoIngestOnSave=false note, and disables manual commit when project is null", async () => {
+    mocks.storeState.project = null
+    mocks.storeState.llmConfig = {
+      provider: "openai",
+      apiKey: "",
+      model: "",
+      ollamaUrl: "",
+      customEndpoint: "",
+      maxContextSize: 128000,
+    }
+    mocks.storeState.novelConfig = {
+      extractModel: "ollama-local/qwen2.5:7b",
+      autoIngestOnSave: false,
+    }
+    mocks.storeState.providerConfigs = {
+      "ollama-local": {
+        apiKey: "",
+        baseUrl: "http://127.0.0.1:11434",
+        savedModels: [{ id: "m-ollama", name: "Qwen 2.5 7B", model: "qwen2.5:7b", createdAt: 1 }],
+      },
+    }
+    mocks.storeState.embeddingConfig = {
+      enabled: true,
+    }
+
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "antigravity_cli_detect") {
+        return { installed: true, version: "1.6.0", path: "agy.exe", error: null, acp_supported: true }
+      }
+      if (cmd === "antigravity_acp_status") return INITIAL_STATUS
+      return undefined
+    })
+
+    render(<AntigravityAcpView />)
+    await screen.findByTestId("acp-cli-ready")
+
+    const memoryBanner = screen.getByTestId("acp-memory-mode-banner")
+    expect(memoryBanner).toHaveAttribute("role", "status")
+    expect(memoryBanner).toHaveAttribute("data-memory-mode", "golden_hybrid")
+    expect(screen.getByTestId("acp-memory-mode-extract-model")).toHaveTextContent(
+      "ollama/qwen2.5:7b",
+    )
+    expect(screen.getByTestId("acp-memory-mode-embedding-badge")).toBeInTheDocument()
+    expect(screen.getByTestId("acp-memory-mode-auto-ingest-off-note")).toBeInTheDocument()
+    expect(screen.queryByTestId("acp-configure-extract-model-btn")).toBeNull()
+    expect(screen.getByTestId("acp-open-snapshot-ingest-btn")).toBeDisabled()
   })
 })

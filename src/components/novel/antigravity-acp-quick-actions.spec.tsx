@@ -3,13 +3,15 @@
 // SPDX-License-Identifier: MIT
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup } from "@testing-library/react"
+import { cleanup, within } from "@testing-library/react"
 import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
 import {
   AntigravityAcpQuickActions,
   buildWriterQuickActionPrompt,
   inferChapterContext,
+  resolveRecommendedQuickAction,
   type InferredChapterContext,
+  type WriterQuickActionId,
 } from "./antigravity-acp-quick-actions"
 
 const SAMPLE_CTX: InferredChapterContext = {
@@ -175,5 +177,138 @@ describe("AntigravityAcpQuickActions", () => {
     expect(zhDraft).toContain(
       'gate.check_mechanical({ draftId: "<chapter.write 返回的 draftId>", detailLevel: "compact" })',
     )
+  })
+
+  it("resolves recommended quick action deterministically by profile, pending drafts, and chapter count", () => {
+    expect(
+      resolveRecommendedQuickAction({
+        chapterCount: 5,
+        pendingDraftCount: 0,
+        activeProfile: "reviewer",
+      }),
+    ).toEqual({ actionId: "review_current", reason: "reviewerProfile" })
+
+    expect(
+      resolveRecommendedQuickAction({
+        chapterCount: 5,
+        pendingDraftCount: 3,
+        activeProfile: "architect",
+      }),
+    ).toEqual({ actionId: "book_setup", reason: "architectProfile" })
+
+    expect(
+      resolveRecommendedQuickAction({
+        chapterCount: 5,
+        pendingDraftCount: 2,
+        activeProfile: "writer-sub",
+      }),
+    ).toEqual({ actionId: "review_current", reason: "pendingDrafts" })
+
+    expect(
+      resolveRecommendedQuickAction({
+        chapterCount: 0,
+        pendingDraftCount: 0,
+        activeProfile: "writer-sub",
+      }),
+    ).toEqual({ actionId: "book_setup", reason: "noChapters" })
+
+    expect(
+      resolveRecommendedQuickAction({
+        chapterCount: 2,
+        pendingDraftCount: 0,
+        activeProfile: "writer-sub",
+      }),
+    ).toEqual({ actionId: "draft_next", reason: "readyNext" })
+  })
+
+  it("renders 6th workflow_next button with guide role badge, highlights recommended action, and shows role=status hint", () => {
+    const onSelectPrompt = vi.fn()
+    render(
+      <AntigravityAcpQuickActions
+        chapterContext={SAMPLE_CTX}
+        disabled={false}
+        onSelectPrompt={onSelectPrompt}
+        pendingDraftCount={2}
+        activeProfile="writer-sub"
+      />,
+    )
+
+    const workflowBtn = screen.getByTestId("acp-quick-action-workflow_next")
+    expect(workflowBtn).toBeInTheDocument()
+    expect(screen.getByTestId("acp-quick-action-role-workflow_next")).toHaveTextContent(
+      /向导|Guide/,
+    )
+
+    // Recommended highlight lands on review_current when pendingDraftCount > 0
+    const reviewBtn = screen.getByTestId("acp-quick-action-review_current")
+    expect(within(reviewBtn).getByTestId("acp-quick-action-recommended")).toBeInTheDocument()
+
+    const hint = screen.getByTestId("acp-quick-actions-workflow-hint")
+    expect(hint).toHaveAttribute("role", "status")
+    expect(hint).toHaveTextContent("2")
+
+    fireEvent.click(workflowBtn)
+    expect(onSelectPrompt).toHaveBeenCalledTimes(1)
+    const workflowPrompt = onSelectPrompt.mock.calls[0]![0] as string
+    expect(workflowPrompt).toContain("workflow.next")
+    expect(workflowPrompt).toContain("project.state")
+    expect(workflowPrompt).toContain("draft.list")
+    expect(workflowPrompt).toContain("foreshadowing.list")
+  })
+
+  it("enforces Phase 2 canonical tool names and forbids legacy/non-existent tool names across all 6 templates (zh & en)", () => {
+    const allActions: WriterQuickActionId[] = [
+      "draft_next",
+      "review_current",
+      "polish_draft",
+      "canon_audit",
+      "book_setup",
+      "workflow_next",
+    ]
+    const forbidden = ["draft.accept", "character.list", "timeline.list", "snapshot.read"]
+
+    for (const lang of ["zh", "en"]) {
+      for (const action of allActions) {
+        const prompt = buildWriterQuickActionPrompt(action, SAMPLE_CTX, lang)
+        for (const bad of forbidden) {
+          expect(prompt).not.toContain(bad)
+        }
+      }
+
+      const draft = buildWriterQuickActionPrompt("draft_next", SAMPLE_CTX, lang)
+      expect(draft).toContain("workflow.next")
+      expect(draft).toContain("prepareId")
+
+      const polish = buildWriterQuickActionPrompt("polish_draft", SAMPLE_CTX, lang)
+      expect(polish).toContain("draft.patch")
+      expect(polish).toContain("expectedSha256")
+      expect(polish).toContain("HARD_FUSE_LIMIT = 5")
+      expect(polish).toContain("chapter.write")
+
+      const review = buildWriterQuickActionPrompt("review_current", SAMPLE_CTX, lang)
+      expect(review).toContain("prepareId")
+      expect(review).toContain("foreshadowing.list")
+      expect(review).toContain("character.read")
+      expect(review).toContain("outline.read")
+      expect(review).toContain("style.exemplars")
+      expect(review).toContain("chapter.search")
+      expect(review).toContain("draft.record_review")
+
+      const canon = buildWriterQuickActionPrompt("canon_audit", SAMPLE_CTX, lang)
+      expect(canon).toContain("foreshadowing.list")
+      expect(canon).toContain("character.read")
+      expect(canon).toContain("outline.read")
+      expect(canon).toContain("chapter.search")
+
+      const setup = buildWriterQuickActionPrompt("book_setup", SAMPLE_CTX, lang)
+      expect(setup).toContain("workflow.next")
+      expect(setup).toContain("outline.read")
+
+      const next = buildWriterQuickActionPrompt("workflow_next", SAMPLE_CTX, lang)
+      expect(next).toContain("workflow.next")
+      expect(next).toContain("project.state")
+      expect(next).toContain("draft.list")
+      expect(next).toContain("foreshadowing.list")
+    }
   })
 })

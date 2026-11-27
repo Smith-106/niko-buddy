@@ -22,6 +22,7 @@ import {
   Check,
   CheckCircle2,
   Copy,
+  Database,
   Download,
   Eye,
   FilePlus2,
@@ -33,6 +34,7 @@ import {
   RefreshCw,
   Send,
   ShieldCheck,
+  SlidersHorizontal,
   Square,
   Terminal,
   Trash2,
@@ -48,7 +50,12 @@ import {
 import { isTauri, pickDirectory } from "@/lib/platform"
 import { getFileName } from "@/lib/path-utils"
 import { toErrorMessage } from "@/lib/utils"
-import { listChapterDrafts, parseChapterOrdinal, writeDraft } from "@/lib/novel"
+import {
+  detectAntigravityMemoryMode,
+  listChapterDrafts,
+  parseChapterOrdinal,
+  writeDraft,
+} from "@/lib/novel"
 import { usePendingDraftCount } from "@/components/layout/writing-workspace-widgets"
 import {
   MCP_TOOL_PROFILES,
@@ -78,6 +85,7 @@ import {
   AntigravityAcpQuickActions,
   inferChapterContext,
 } from "./antigravity-acp-quick-actions"
+import { AntigravitySnapshotIngestDialog } from "./antigravity-snapshot-ingest-dialog"
 import { SafeMarkdownProse } from "./safe-markdown-prose"
 
 export const ACP_CONTEXT_MAX_CHARS = 16000
@@ -219,6 +227,12 @@ export function AntigravityAcpView() {
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
+  const llmConfig = useWikiStore((s) => s.llmConfig)
+  const novelConfig = useWikiStore((s) => s.novelConfig)
+  const embeddingConfig = useWikiStore((s) => s.embeddingConfig)
+  const providerConfigs = useWikiStore((s) => s.providerConfigs)
+  const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel)
+  const aiChatModel = useWikiStore((s) => s.aiChatModel)
 
   const status = useAntigravityAcpStore((s) => s.status)
   const transcript = useAntigravityAcpStore((s) => s.transcript)
@@ -277,6 +291,7 @@ export function AntigravityAcpView() {
   const [savedDraftMsgMap, setSavedDraftMsgMap] = useState<Record<string, string>>({})
   const [submittingPermIds, setSubmittingPermIds] = useState<Record<string, string>>({})
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
+  const [snapshotIngestOpen, setSnapshotIngestOpen] = useState(false)
 
   const mountedRef = useRef(true)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -412,6 +427,16 @@ export function AntigravityAcpView() {
   const chapterContext = useMemo(
     () => inferChapterContext(fileTree ?? [], selectedFile),
     [fileTree, selectedFile],
+  )
+
+  const memoryModeInfo = useMemo(
+    () =>
+      detectAntigravityMemoryMode(llmConfig, novelConfig, embeddingConfig, {
+        providerConfigs: providerConfigs ?? {},
+        defaultLlmModel: defaultLlmModel ?? "",
+        aiChatModel: aiChatModel ?? "",
+      }),
+    [aiChatModel, defaultLlmModel, embeddingConfig, llmConfig, novelConfig, providerConfigs],
   )
 
   const selectedFileDisplayName = useMemo(
@@ -1050,6 +1075,11 @@ export function AntigravityAcpView() {
     setActiveView("settings")
   }, [setActiveSettingsCategory, setActiveView])
 
+  const openNovelExtractSettings = useCallback(() => {
+    setActiveSettingsCategory("novel")
+    setActiveView("settings")
+  }, [setActiveSettingsCategory, setActiveView])
+
   const openMainControlDrafts = useCallback(() => {
     setMainControlTabHandoff("drafts")
     setActiveView("mainControl")
@@ -1581,6 +1611,100 @@ export function AntigravityAcpView() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Long-term memory ingest mode banner (pure synchronous, strictly role="status") */}
+      <div
+        role="status"
+        aria-live="polite"
+        data-testid="acp-memory-mode-banner"
+        data-memory-mode={memoryModeInfo.mode}
+        className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${
+          memoryModeInfo.mode === "pure_subscription"
+            ? "border-warning/50 bg-warning/10"
+            : "border-success/40 bg-success/10"
+        }`}
+      >
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Database className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="font-medium">{t("antigravityAcp.memoryMode.title")}</span>
+            <span
+              data-testid="acp-memory-mode-badge"
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                memoryModeInfo.mode === "pure_subscription"
+                  ? "bg-warning/20 text-warning-foreground"
+                  : "bg-success/20 text-success-foreground"
+              }`}
+            >
+              {t(`antigravityAcp.memoryMode.modes.${memoryModeInfo.mode}`)}
+            </span>
+            {memoryModeInfo.extractModelLabel && (
+              <span
+                data-testid="acp-memory-mode-extract-model"
+                className="rounded bg-background/70 px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+              >
+                {t("antigravityAcp.memoryMode.extractModel", {
+                  model: memoryModeInfo.extractModelLabel,
+                })}
+              </span>
+            )}
+            {memoryModeInfo.embeddingEnabled && (
+              <span
+                data-testid="acp-memory-mode-embedding-badge"
+                className="rounded bg-background/70 px-1.5 py-0.5 text-[11px] text-success-foreground"
+              >
+                {t("antigravityAcp.memoryMode.embeddingOn")}
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {memoryModeInfo.mode === "pure_subscription"
+              ? t("antigravityAcp.memoryMode.pureSubscriptionSummary")
+              : t("antigravityAcp.memoryMode.hybridSummary")}
+            {memoryModeInfo.mode !== "pure_subscription" && !memoryModeInfo.autoIngestOnSave && (
+              <span
+                data-testid="acp-memory-mode-auto-ingest-off-note"
+                className="ml-1 text-warning-foreground"
+              >
+                {t("antigravityAcp.memoryMode.autoIngestOffNote")}
+              </span>
+            )}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {memoryModeInfo.mode === "pure_subscription" && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={openNovelExtractSettings}
+              data-testid="acp-configure-extract-model-btn"
+            >
+              <SlidersHorizontal className="mr-1 h-3 w-3" aria-hidden="true" />
+              {t("antigravityAcp.memoryMode.configureExtractModelBtn")}
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant={memoryModeInfo.mode === "pure_subscription" ? "secondary" : "outline"}
+            size="sm"
+            className="h-7 px-2 text-xs"
+            disabled={!project?.path?.trim()}
+            title={
+              !project?.path?.trim()
+                ? t("antigravityAcp.memoryMode.openSnapshotIngestNoProject")
+                : undefined
+            }
+            onClick={() => setSnapshotIngestOpen(true)}
+            data-testid="acp-open-snapshot-ingest-btn"
+          >
+            <Database className="mr-1 h-3 w-3" aria-hidden="true" />
+            {t("antigravityAcp.memoryMode.openSnapshotIngestBtn")}
+          </Button>
+        </div>
       </div>
 
       {/* Parent code repository warning banner (strictly role="status") */}
@@ -2178,6 +2302,8 @@ export function AntigravityAcpView() {
           chapterContext={chapterContext}
           disabled={!activeSessionId || prompting}
           onSelectPrompt={handleSelectQuickActionPrompt}
+          pendingDraftCount={pendingDraftCount}
+          activeProfile={localMcpProfile ?? mcpProfile}
         />
 
         {selectedFile && fileContent && (
@@ -2252,6 +2378,18 @@ export function AntigravityAcpView() {
           {t("antigravityAcp.complianceNotice")}
         </p>
       </div>
+
+      <AntigravitySnapshotIngestDialog
+        open={snapshotIngestOpen}
+        onOpenChange={setSnapshotIngestOpen}
+        projectPath={project?.path ?? ""}
+        fileTree={fileTree ?? []}
+        defaultChapterPath={selectedFile}
+        onPrefillPrompt={handleSelectQuickActionPrompt}
+        onCommitted={() => {
+          bumpDataVersion()
+        }}
+      />
     </div>
   )
 }

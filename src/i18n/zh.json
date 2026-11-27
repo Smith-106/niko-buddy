@@ -1550,10 +1550,15 @@
         "antigravityCopyWarnStopped": "已复制配置片段，但外部控制服务当前未启动。请先开启上方「允许外部控制」开关后再在 Antigravity 中连接。",
         "antigravityCopyWarnStoppedAndMasked": "已复制配置片段，但外部控制服务未启动且 Bearer Token 尚未展开（含占位符 <YOUR_BEARER_TOKEN>）。请先开启服务并点击「显示」后再复制。",
         "antigravityProfileLabel": "MCP 工具档位（serverUrl profile）",
-        "antigravityProfileFullLegacy": "默认完整兼容（不附带 ?profile）",
-        "antigravityProfileWriterSub": "推荐：主笔精简档 (?profile=writer-sub)",
-        "antigravityProfileReviewer": "责编只读档 (?profile=reviewer)",
-        "antigravityProfileArchitect": "策划大纲档 (?profile=architect)",
+        "antigravityProfileFullLegacy": "默认完整兼容（38 个工具 · 不附带 ?profile）",
+        "antigravityProfileWriterSub": "推荐：主笔精简档（24 个工具 · ?profile=writer-sub）",
+        "antigravityProfileReviewer": "责编只读档（19 个工具 · ?profile=reviewer）",
+        "antigravityProfileArchitect": "策划大纲档（17 个工具 · ?profile=architect）",
+        "antigravityProfileToolCount": "{{count}} 个工具",
+        "antigravityProfileDescFullLegacy": "完整兼容档：开放全部 38 个已注册工具（含内部 API 管线与全部 Phase 2 原子只读工具：workflow.next、foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search，以及 draft.patch / draft.record_review）。",
+        "antigravityProfileDescWriterSub": "主笔精简档（推荐）：零内部 API 管线、严格 Draft-first，开放 24 个工具——包含 workflow.next、context.prepare_write、foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search，以及草稿区写入工具 chapter.write、draft.patch、draft.record_review、outline.write、character.upsert。",
+        "antigravityProfileDescReviewer": "责编只读档：严格零写入（19 个只读工具），支持独立上下文复核——包含 workflow.next、draft.list、draft.read、gate.check_mechanical、context.prepare_write、foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search；仅输出结构化审稿结论，由 writer-sub 落盘。",
+        "antigravityProfileDescArchitect": "策划大纲档：聚焦开书建档与卷章规划（17 个工具）——包含 workflow.next、director.check、context.prepare_write、foreshadowing.list、character.read、outline.read、chapter.search 及规划写入工具 outline.write、character.upsert（不含正文写入与草稿修审）。",
         "writerPluginTitle": "写作 Agent 声明式插件（项目同步 / 全局禁用版）",
         "writerPluginStateSynced": "本项目已同步",
         "writerPluginStateNeedsUpdate": "本项目需更新",
@@ -5200,12 +5205,22 @@
       "polishDraft": "精修待审草稿",
       "canonAudit": "设定与伏笔体检",
       "bookSetup": "新书建档/大纲",
+      "workflowNext": "下一步指引",
+      "recommendedBadge": "推荐",
       "roles": {
         "writer": "主笔",
         "editor": "责编",
         "polish": "润色师",
         "canon": "考据官",
-        "architect": "策划"
+        "architect": "策划",
+        "guide": "向导"
+      },
+      "workflowHints": {
+        "reviewerProfile": "推荐动作：审查当前章/草稿（当前处于 reviewer 独立只读档，优先核对门控与设定）",
+        "architectProfile": "推荐动作：新书建档/大纲（当前处于 architect 策划档，优先完善卷章大纲与角色规划）",
+        "pendingDrafts": "推荐动作：审查当前章/草稿（检测到 {{count}} 份待审草稿，建议先审校再开新章）",
+        "noChapters": "推荐动作：新书建档/大纲（当前尚无正式章节，建议先通过 director.check 与大纲完成建档）",
+        "readyNext": "推荐动作：起草第 {{chapter}} 章（可先调用 workflow.next 核对步骤，再起草并复用 prepareId）"
       }
     },
     "isolatedReviewerBtn": "独立只读复核会话",
@@ -5215,10 +5230,81 @@
       "label": "写作角色 / MCP 档位",
       "activeBadge": "当前会话档位：{{profile}}",
       "pendingHint": "已切换为 {{selected}}（当前会话仍运行 {{active}}），新建或重建会话后生效。",
-      "writer-sub": "主笔精简档 (writer-sub · 推荐)",
-      "reviewer": "责编只读档 (reviewer)",
-      "architect": "策划大纲档 (architect)",
-      "full-legacy": "完整兼容档 (full-legacy)"
+      "writer-sub": "主笔精简档 (writer-sub · 24 工具 · 推荐)",
+      "reviewer": "责编只读档 (reviewer · 19 工具)",
+      "architect": "策划大纲档 (architect · 17 工具)",
+      "full-legacy": "完整兼容档 (full-legacy · 38 工具)"
+    },
+    "memoryMode": {
+      "title": "长期记忆摄取模式",
+      "modes": {
+        "golden_hybrid": "黄金混合模式（推荐）",
+        "full_api": "全 API 自动摄取",
+        "pure_subscription": "纯订阅模式（零 API Key）"
+      },
+      "extractModel": "提取模型：{{model}}",
+      "embeddingOn": "语义向量检索已启用",
+      "autoIngestOffNote": "（提示：已关闭「保存定稿自动提取记忆」，可在小说设置中重新开启，或使用右侧手动入库）",
+      "hybridSummary": "采纳定稿后将自动提取章节快照并同步人物/伏笔/正史记忆；也可随时手动预览并提交交互式快照。",
+      "pureSubscriptionSummary": "当前未配置提取 API 模型：在草稿箱采纳定稿后将跳过自动记忆提取（正文仍安全保存）。可配置廉价/本地提取模型升级黄金混合模式，或通过交互式快照手动预览入库。",
+      "configureExtractModelBtn": "配置提取模型",
+      "openSnapshotIngestBtn": "手动快照入库",
+      "openSnapshotIngestNoProject": "请先打开一个小说项目后再提交章节快照。"
+    },
+    "snapshotIngest": {
+      "title": "交互式章节快照入库（零 API Key 人工确认）",
+      "description": "严格两段式只读预览后落盘：1) 预填提取提示词到 ACP（仅调用只读 chapter.read）；2) 粘贴 Antigravity 输出的 JSON 并只读校验预览；3) 人工核对后显式提交至正式记忆库。",
+      "close": "关闭",
+      "step1Title": "第 1 步：选择正式章节并预填提取提示词",
+      "chapterLabel": "目标正式章节",
+      "chapterOption": "第 {{chapter}} 章 · {{title}}",
+      "noChapters": "未在项目文件树（wiki/chapters/ 或 chapters/）中发现正式章节文件。请先采纳草稿生成正式章节后再入库。",
+      "prefillBtn": "预填提取提示词到 ACP",
+      "prefillHint": "仅预填至 ACP 输入框并关闭弹窗，绝不自动发送。",
+      "step2Title": "第 2 步：粘贴 Antigravity 输出的快照 JSON 并只读校验",
+      "jsonLabel": "章节快照 JSON（支持直接粘贴 ```json 代码块）",
+      "jsonPlaceholder": "将 Antigravity 输出的 ChapterSnapshot JSON 粘贴到这里…",
+      "validateBtn": "只读校验与预览",
+      "validating": "只读校验中…",
+      "staleNotice": "章节选择或 JSON 内容已修改，请重新点击「只读校验与预览」后再提交。",
+      "step3Title": "第 3 步：核对结构化预览并确认提交",
+      "commitBtn": "确认提交至正式记忆库",
+      "committing": "提交入库中…",
+      "preview": {
+        "heading": "只读快照预览 · 第 {{chapter}} 章",
+        "summaryLabel": "章节摘要",
+        "emptyValue": "（空）",
+        "charactersLabel": "出场人物（{{count}}）",
+        "canonFactsLabel": "新增正史设定（{{count}}）",
+        "foreshadowingLabel": "伏笔更新（{{count}}）",
+        "timelineLabel": "时间线事件（{{count}}）",
+        "warningsLabel": "预检告警（{{count}}）",
+        "degradedNoticesLabel": "只读预检备注（{{count}}）"
+      },
+      "result": {
+        "committedTitle": "已成功提交第 {{chapter}} 章快照至正式记忆库",
+        "canonOutcome": "正史双写状态：{{outcome}}",
+        "canonOutcomes": {
+          "completed": "已完成 (completed)",
+          "skipped": "已跳过 (skipped)",
+          "failed": "失败 (failed)",
+          "unknown": "未知"
+        },
+        "partialWarningsTitle": "部分派生投影/附属写入存在告警：",
+        "factsStoreFailed": "事实索引（facts.json）写入失败，快照本体已安全保存。",
+        "failedProjections": "失败的派生投影：{{list}}",
+        "projectionError": "投影流水线告警（{{stage}}）：{{message}}"
+      },
+      "failReasons": {
+        "source_changed": "提交被拒绝：正式章源文件自预检后已发生变更（source_changed）。请重新预检后再提交。",
+        "source_unavailable": "提交被拒绝：无法读取正式章源文件（source_unavailable）。",
+        "not_final": "提交被拒绝：目标章节尚未定稿（chapter_status 必须为 final）。",
+        "duplicate_chapter_number": "提交被拒绝：同章号存在多个正式章文件（duplicate_chapter_number），请先清理冲突。",
+        "not_chapter": "提交被拒绝：目标文件不是规范章节页（not_chapter）。",
+        "invalid_chapter_number": "提交被拒绝：章节号非法（invalid_chapter_number）。",
+        "cancelled": "提交已取消（cancelled）。",
+        "unknown": "提交未完成（原因：{{reason}}）。"
+      }
     },
     "parentRepoWarning": {
       "title": "检测到工作区位于上级代码仓库内（可能误读代码仓规则）"

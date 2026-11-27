@@ -2185,10 +2185,15 @@
         "antigravityCopyWarnStopped": "Copied snippet, but the External Control server is currently stopped. Enable Allow external control above before connecting from Antigravity.",
         "antigravityCopyWarnStoppedAndMasked": "Copied snippet while the server is stopped and the Bearer token is hidden (<YOUR_BEARER_TOKEN>). Start the server and reveal the token above before connecting.",
         "antigravityProfileLabel": "MCP tool profile (serverUrl profile)",
-        "antigravityProfileFullLegacy": "Full legacy (bare URL, no ?profile)",
-        "antigravityProfileWriterSub": "Recommended: Writer compact (?profile=writer-sub)",
-        "antigravityProfileReviewer": "Reviewer read-only (?profile=reviewer)",
-        "antigravityProfileArchitect": "Architect / outline (?profile=architect)",
+        "antigravityProfileFullLegacy": "Full legacy (38 tools · bare URL, no ?profile)",
+        "antigravityProfileWriterSub": "Recommended: Writer compact (24 tools · ?profile=writer-sub)",
+        "antigravityProfileReviewer": "Reviewer read-only (19 tools · ?profile=reviewer)",
+        "antigravityProfileArchitect": "Architect / outline (17 tools · ?profile=architect)",
+        "antigravityProfileToolCount": "{{count}} tools",
+        "antigravityProfileDescFullLegacy": "Full legacy profile: exposes all 38 registered tools (including internal API pipelines, Phase 2 atomic read tools workflow.next, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, plus draft.patch / draft.record_review).",
+        "antigravityProfileDescWriterSub": "Writer compact profile (Recommended): zero internal API pipelines, strict Draft-first, 24 tools — includes workflow.next, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, plus draft-safe writes chapter.write, draft.patch, draft.record_review, outline.write, and character.upsert.",
+        "antigravityProfileDescReviewer": "Reviewer read-only profile: strictly zero write tools (19 read-only tools) for isolated review — includes workflow.next, draft.list, draft.read, gate.check_mechanical, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, and chapter.search; outputs structured verdicts for writer-sub to record.",
+        "antigravityProfileDescArchitect": "Architect / outline profile: focused on book setup and arc planning (17 tools) — includes workflow.next, director.check, context.prepare_write, foreshadowing.list, character.read, outline.read, chapter.search, plus planning writes outline.write and character.upsert (excludes chapter drafting and draft patching/review).",
         "writerPluginTitle": "Declarative Writer Agent Plugin (Project Sync / Disabled Global)",
         "writerPluginStateSynced": "Project synced",
         "writerPluginStateNeedsUpdate": "Update available",
@@ -5200,12 +5205,22 @@
       "polishDraft": "Polish Draft",
       "canonAudit": "Canon Audit",
       "bookSetup": "Book Setup / Outline",
+      "workflowNext": "Next Step",
+      "recommendedBadge": "Recommended",
       "roles": {
         "writer": "Writer",
         "editor": "Editor",
         "polish": "Polish",
         "canon": "Canon",
-        "architect": "Architect"
+        "architect": "Architect",
+        "guide": "Guide"
+      },
+      "workflowHints": {
+        "reviewerProfile": "Recommended: Review Current (active reviewer read-only profile — audit gates and canon first)",
+        "architectProfile": "Recommended: Book Setup / Outline (active architect profile — refine arcs and dossier first)",
+        "pendingDrafts": "Recommended: Review Current ({{count}} pending draft(s) detected — review before drafting next)",
+        "noChapters": "Recommended: Book Setup / Outline (no formal chapters yet — verify readiness and outline first)",
+        "readyNext": "Recommended: Draft Ch. {{chapter}} (run workflow.next if needed, then draft and reuse prepareId)"
       }
     },
     "isolatedReviewerBtn": "Isolated Read-Only Review",
@@ -5215,10 +5230,81 @@
       "label": "Writer Role / MCP Profile",
       "activeBadge": "Active session profile: {{profile}}",
       "pendingHint": "Switched to {{selected}} (active session still uses {{active}}). Start or rebuild a session to apply.",
-      "writer-sub": "Writer Compact (writer-sub · Recommended)",
-      "reviewer": "Reviewer Read-Only (reviewer)",
-      "architect": "Architect / Outline (architect)",
-      "full-legacy": "Full Legacy (full-legacy)"
+      "writer-sub": "Writer Compact (writer-sub · 24 tools · Recommended)",
+      "reviewer": "Reviewer Read-Only (reviewer · 19 tools)",
+      "architect": "Architect / Outline (architect · 17 tools)",
+      "full-legacy": "Full Legacy (full-legacy · 38 tools)"
+    },
+    "memoryMode": {
+      "title": "Long-Term Memory Ingest Mode",
+      "modes": {
+        "golden_hybrid": "Golden Hybrid (Recommended)",
+        "full_api": "Full API Auto-Ingest",
+        "pure_subscription": "Pure Subscription (Zero API Key)"
+      },
+      "extractModel": "Extract model: {{model}}",
+      "embeddingOn": "Semantic vector search enabled",
+      "autoIngestOffNote": "(Note: Auto-ingest on final save is turned off; re-enable in Novel Settings or use Manual Snapshot Commit.)",
+      "hybridSummary": "Accepting a formal chapter automatically extracts its snapshot into character, foreshadowing, and canon memory; you can also commit snapshots manually anytime.",
+      "pureSubscriptionSummary": "No extract API model configured: accepting a draft will save the formal chapter but skip automatic memory extraction. Configure a low-cost/local extract model for Golden Hybrid mode, or use Manual Snapshot Commit below.",
+      "configureExtractModelBtn": "Configure Extract Model",
+      "openSnapshotIngestBtn": "Manual Snapshot Commit",
+      "openSnapshotIngestNoProject": "Open a novel project first before committing a chapter snapshot."
+    },
+    "snapshotIngest": {
+      "title": "Interactive Chapter Snapshot Commit (Zero API Key · Human-in-the-Loop)",
+      "description": "Strict 2-stage preview-then-commit flow: 1) Pre-fill extraction prompt into ACP (read-only chapter.read only); 2) Paste Antigravity's JSON output for read-only validation & preview; 3) Confirm to commit into formal memory.",
+      "close": "Close",
+      "step1Title": "Step 1: Select Formal Chapter & Pre-fill Extraction Prompt",
+      "chapterLabel": "Target formal chapter",
+      "chapterOption": "Chapter {{chapter}} · {{title}}",
+      "noChapters": "No formal chapters found in the project file tree (wiki/chapters/ or chapters/). Accept a draft into a formal chapter first.",
+      "prefillBtn": "Pre-fill Prompt into ACP",
+      "prefillHint": "Pre-fills the ACP composer only and closes this dialog — never auto-sends.",
+      "step2Title": "Step 2: Paste Antigravity Snapshot JSON & Validate (Read-Only)",
+      "jsonLabel": "Chapter snapshot JSON (supports fenced ```json blocks)",
+      "jsonPlaceholder": "Paste the ChapterSnapshot JSON returned by Antigravity here...",
+      "validateBtn": "Validate & Preview (Read-Only)",
+      "validating": "Validating...",
+      "staleNotice": "Chapter selection or JSON text changed. Re-run Validate & Preview before committing.",
+      "step3Title": "Step 3: Review Structured Preview & Confirm Commit",
+      "commitBtn": "Confirm & Commit to Formal Memory",
+      "committing": "Committing...",
+      "preview": {
+        "heading": "Read-Only Snapshot Preview · Chapter {{chapter}}",
+        "summaryLabel": "Summary",
+        "emptyValue": "(None)",
+        "charactersLabel": "Characters ({{count}})",
+        "canonFactsLabel": "New Canon Facts ({{count}})",
+        "foreshadowingLabel": "Foreshadowing Updates ({{count}})",
+        "timelineLabel": "Timeline Events ({{count}})",
+        "warningsLabel": "Validation Warnings ({{count}})",
+        "degradedNoticesLabel": "Pre-check Notices ({{count}})"
+      },
+      "result": {
+        "committedTitle": "Successfully committed Chapter {{chapter}} snapshot to formal memory",
+        "canonOutcome": "Canon sync outcome: {{outcome}}",
+        "canonOutcomes": {
+          "completed": "Completed",
+          "skipped": "Skipped",
+          "failed": "Failed",
+          "unknown": "Unknown"
+        },
+        "partialWarningsTitle": "Partial projection/auxiliary warnings:",
+        "factsStoreFailed": "Facts store (facts.json) update failed; snapshot itself was saved safely.",
+        "failedProjections": "Failed projections: {{list}}",
+        "projectionError": "Projection pipeline warning ({{stage}}): {{message}}"
+      },
+      "failReasons": {
+        "source_changed": "Commit rejected: the formal chapter file changed after preview (source_changed). Re-validate before committing.",
+        "source_unavailable": "Commit rejected: the formal chapter source file is unavailable (source_unavailable).",
+        "not_final": "Commit rejected: target chapter is not finalized (chapter_status must be final).",
+        "duplicate_chapter_number": "Commit rejected: duplicate formal chapter files exist for this chapter number (duplicate_chapter_number).",
+        "not_chapter": "Commit rejected: target file is not a valid chapter page (not_chapter).",
+        "invalid_chapter_number": "Commit rejected: invalid chapter number (invalid_chapter_number).",
+        "cancelled": "Commit was cancelled (cancelled).",
+        "unknown": "Commit did not complete (reason: {{reason}})."
+      }
     },
     "parentRepoWarning": {
       "title": "Workspace is inside a parent code repository (may inherit code-repo rules)"

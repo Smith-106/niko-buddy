@@ -79,6 +79,36 @@ interface McpServerStatus {
   scope: McpScope
 }
 
+const ANTIGRAVITY_PROFILE_META: Record<
+  McpToolProfile,
+  { toolCount: number; descKey: string; descFallback: string }
+> = {
+  "full-legacy": {
+    toolCount: 38,
+    descKey: "settings.sections.externalControl.antigravityProfileDescFullLegacy",
+    descFallback:
+      "Full legacy profile: exposes all 38 registered tools (including internal API pipelines, Phase 2 atomic read tools workflow.next, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, plus draft.patch / draft.record_review).",
+  },
+  "writer-sub": {
+    toolCount: 24,
+    descKey: "settings.sections.externalControl.antigravityProfileDescWriterSub",
+    descFallback:
+      "Writer compact profile (Recommended): zero internal API pipelines, strict Draft-first, 24 tools — includes workflow.next, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, plus draft-safe writes chapter.write, draft.patch, draft.record_review, outline.write, and character.upsert.",
+  },
+  reviewer: {
+    toolCount: 19,
+    descKey: "settings.sections.externalControl.antigravityProfileDescReviewer",
+    descFallback:
+      "Reviewer read-only profile: strictly zero write tools (19 read-only tools) for isolated review — includes workflow.next, draft.list, draft.read, gate.check_mechanical, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, and chapter.search; outputs structured verdicts for writer-sub to record.",
+  },
+  architect: {
+    toolCount: 17,
+    descKey: "settings.sections.externalControl.antigravityProfileDescArchitect",
+    descFallback:
+      "Architect / outline profile: focused on book setup and arc planning (17 tools) — includes workflow.next, director.check, context.prepare_write, foreshadowing.list, character.read, outline.read, chapter.search, plus planning writes outline.write and character.upsert (excludes chapter drafting and draft patching/review).",
+  },
+}
+
 function buildProfiledEndpoint(baseEndpoint: string, profile: McpToolProfile): string {
   if (profile === "full-legacy") return baseEndpoint
   try {
@@ -784,25 +814,44 @@ export function ExternalControlSection() {
           >
             <option value="full-legacy">
               {t("settings.sections.externalControl.antigravityProfileFullLegacy", {
-                defaultValue: "Full legacy (bare URL, no ?profile)",
+                defaultValue: "Full legacy (38 tools · bare URL, no ?profile)",
               })}
             </option>
             <option value="writer-sub">
               {t("settings.sections.externalControl.antigravityProfileWriterSub", {
-                defaultValue: "Recommended: Writer compact (?profile=writer-sub)",
+                defaultValue: "Recommended: Writer compact (24 tools · ?profile=writer-sub)",
               })}
             </option>
             <option value="reviewer">
               {t("settings.sections.externalControl.antigravityProfileReviewer", {
-                defaultValue: "Reviewer read-only (?profile=reviewer)",
+                defaultValue: "Reviewer read-only (19 tools · ?profile=reviewer)",
               })}
             </option>
             <option value="architect">
               {t("settings.sections.externalControl.antigravityProfileArchitect", {
-                defaultValue: "Architect / outline (?profile=architect)",
+                defaultValue: "Architect / outline (17 tools · ?profile=architect)",
               })}
             </option>
           </select>
+        </div>
+        <div
+          data-testid="external-control-antigravity-profile-desc"
+          className="flex flex-wrap items-start gap-2 rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground"
+        >
+          <span
+            data-testid="external-control-antigravity-profile-count"
+            className="inline-flex shrink-0 items-center rounded bg-background px-1.5 py-0.5 font-medium text-foreground ring-1 ring-border"
+          >
+            {t("settings.sections.externalControl.antigravityProfileToolCount", {
+              count: ANTIGRAVITY_PROFILE_META[antigravityProfile].toolCount,
+              defaultValue: `${ANTIGRAVITY_PROFILE_META[antigravityProfile].toolCount} tools`,
+            })}
+          </span>
+          <span className="min-w-0 flex-1 leading-relaxed">
+            {t(ANTIGRAVITY_PROFILE_META[antigravityProfile].descKey, {
+              defaultValue: ANTIGRAVITY_PROFILE_META[antigravityProfile].descFallback,
+            })}
+          </span>
         </div>
         <pre
           className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs"
