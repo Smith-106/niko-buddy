@@ -41,17 +41,32 @@ import { listDirectory, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
 import {
+  canonPendingQueuePath,
   defaultCanonDualWriteDeps,
+  loadPendingQueue,
   reconcileOutcomes,
+  resolvePriorEdgesForSupersede,
   shadowWriteCanon,
   type CanonDualWriteDeps,
   type CanonDualWriteOp,
+  type CanonPendingRecord,
   type CanonWriteOutcome,
 } from "./canon-dual-write"
 import type { ChapterSnapshot } from "./chapter-ingest"
+import {
+  collectSnapshotKnownBy,
+  findMatchingPriorEdgeIds,
+  parseCanonFactTriple,
+} from "./chapter-ingest-utils"
 import { normalizeChapterSnapshot } from "./chapter-snapshot-normalize"
-import type { CanonFact } from "./canon-graph-client"
+import type { CanonFact, RawCanonEdge } from "./canon-graph-client"
 import { queryEpisodesByChapter } from "./canon-graph-client"
+import {
+  loadNovelSessionStatus,
+  setCanonMigrationMode,
+  type CanonMigrationMode,
+  type NovelSessionStatus,
+} from "./novel-session-status"
 import { promote, promotionAudit } from "./promotion-bridge"
 import { logger } from "@/lib/utils"
 import { toErrorMessage } from "@/lib/utils"
@@ -112,6 +127,11 @@ export interface CanonBackfillDeps {
   readSnapshotText: (path: string) => Promise<string>
   /** T15 双写依赖（旧 view 影子 + canon 写 + 持久待写队列）。 */
   dualWrite: CanonDualWriteDeps
+  /** 可选：查询 `canon.db` 中既有活跃边以种子化先序冲突 `old_edge_ids`（缺省走安全非致命 `resolvePriorEdgesForSupersede`）。 */
+  queryExistingEdges?: (
+    projectPath: string,
+    candidateEdges: ReadonlyArray<{ source_id: string; predicate: string }>,
+  ) => Promise<RawCanonEdge[]>
 }
 
 /**
@@ -207,11 +227,50 @@ export async function loadBackfillSnapshot(
  * 同构的意义：实时双写与离线回填对同一事实产出**相同幂等键与内容 ID**，
  * canon_store 去重后两路来源收敛为单行——重放回填绝不产生重复事实。
  */
-export async function buildBackfillOps(snapshot: ChapterSnapshot): Promise<CanonDualWriteOp[]> {
+export interface BuildBackfillOpsOptions {
+  /** 可选：用于按目标实体/谓词查询先序活跃 world_fact 边以填充 `old_edge_ids`（IPC 不可用时非致命回退 `[]`）。 */
+  projectPath?: string
+  /** 可选：直接注入现存活跃边快照（优先于 `projectPath` IPC 查询，用于离线计算、单测与多章顺序累计）。 */
+  existingEdges?: readonly RawCanonEdge[]
+  /**
+   * 可选：本轮被修订替换的同章旧事实集合（可为旧事实原文、旧 edge id 或旧 edge digest）。
+   * 命中时允许封顶对应同章旧 `world_fact` / 模态边（绝不自封同快照新边）。
+   */
+  supersededFacts?: ReadonlySet<string>
+  /**
+   * 可选：修订章重跑回填时为 `true`，允许同章既有活跃冲突边（`valid_at === chapterNumber`
+   * 且不在当前快照新边集合内）并入 `old_edge_ids`。默认 `false`。
+   */
+  includeSameChapterConflict?: boolean
+}
+
+function collectSnapshotCandidateKeys(
+  snapshot: ChapterSnapshot,
+): Array<{ source_id: string; predicate: string }> {
+  const keys: Array<{ source_id: string; predicate: string }> = []
+  for (const fact of snapshot.newCanonFacts ?? []) {
+    const { sourceId, predicate } = parseCanonFactTriple(fact, snapshot.chapterId)
+    keys.push({ source_id: sourceId, predicate })
+  }
+  for (const mf of snapshot.beliefFacts ?? []) {
+    keys.push({ source_id: mf.subject, predicate: mf.predicate })
+  }
+  for (const mf of snapshot.hypothesisFacts ?? []) {
+    keys.push({ source_id: mf.subject, predicate: mf.predicate })
+  }
+  return keys
+}
+
+export async function buildBackfillOps(
+  snapshot: ChapterSnapshot,
+  options?: BuildBackfillOpsOptions,
+): Promise<CanonDualWriteOp[]> {
   const facts = snapshot.newCanonFacts ?? []
   const beliefFacts = snapshot.beliefFacts ?? []
   const hypothesisFacts = snapshot.hypothesisFacts ?? []
   if (facts.length === 0 && beliefFacts.length === 0 && hypothesisFacts.length === 0) return []
+
+  const snapshotKnownBy = collectSnapshotKnownBy(snapshot)
 
   const episodeOps: CanonDualWriteOp[] = facts.length > 0
     ? await Promise.all(
@@ -237,7 +296,50 @@ export async function buildBackfillOps(snapshot: ChapterSnapshot): Promise<Canon
       )
     : []
 
-  const modalityOps: CanonDualWriteOp[] = await Promise.all(
+  const worldFactDrafts = facts.length > 0
+    ? await Promise.all(
+        facts.map(async (fact) => {
+          const { sourceId, predicate, targetId } = parseCanonFactTriple(fact, snapshot.chapterId)
+          const content = {
+            chapter: snapshot.chapterNumber,
+            kind: "world_fact" as const,
+            fact,
+            sourceId,
+            predicate,
+            targetId,
+          }
+          const digest = await computeCheckpointDigestOf(content)
+          const edge = {
+            id: `ch${snapshot.chapterNumber}-wf-${digest.slice(0, 12)}`,
+            source_id: sourceId,
+            target_id: targetId,
+            predicate,
+            edge_kind: "world_fact" as const,
+            valid_at: snapshot.chapterNumber,
+            source_chapter: snapshot.chapterNumber,
+            revealed_at: snapshot.chapterNumber,
+            known_by: snapshotKnownBy,
+            modality: "assertive" as const,
+            digest,
+          }
+          return {
+            digest,
+            content,
+            legacyPayload: {
+              kind: "snapshot_world_fact",
+              chapterNumber: snapshot.chapterNumber,
+              fact,
+              subject: sourceId,
+              predicate,
+              object: targetId,
+            },
+            edge,
+          }
+        }),
+      )
+    : []
+
+  const modalityDrafts = await Promise.all(
     [
       ...beliefFacts.map((f) => ({ ...f, modality: "belief" as const })),
       ...hypothesisFacts.map((f) => ({ ...f, modality: "hypothesis" as const })),
@@ -248,6 +350,19 @@ export async function buildBackfillOps(snapshot: ChapterSnapshot): Promise<Canon
         fact: `${mf.subject}${mf.predicate}${mf.object}`,
       }
       const digest = await computeCheckpointDigestOf(content)
+      const edge = {
+        id: `ch${snapshot.chapterNumber}-mod-${digest.slice(0, 12)}`,
+        source_id: mf.subject,
+        target_id: mf.object,
+        predicate: mf.predicate,
+        edge_kind: "world_fact" as const,
+        valid_at: snapshot.chapterNumber,
+        source_chapter: snapshot.chapterNumber,
+        revealed_at: snapshot.chapterNumber,
+        known_by: collectSnapshotKnownBy(snapshot, [mf.subject]),
+        modality: mf.modality,
+        digest,
+      }
       return {
         digest,
         content,
@@ -259,31 +374,96 @@ export async function buildBackfillOps(snapshot: ChapterSnapshot): Promise<Canon
           predicate: mf.predicate,
           object: mf.object,
         },
-        canonPayload: {
-          kind: "supersede" as const,
-          request: {
-            old_edge_ids: [],
-            cap_chapter: snapshot.chapterNumber,
-            caused_by: "snapshot-modality-facts",
-            new_edges: [
-              {
-                id: `ch${snapshot.chapterNumber}-mod-${digest.slice(0, 12)}`,
-                source_id: mf.subject,
-                target_id: mf.object,
-                predicate: mf.predicate,
-                edge_kind: "world_fact",
-                valid_at: snapshot.chapterNumber,
-                modality: mf.modality,
-                digest,
-              },
-            ],
-          },
-        },
+        edge,
       }
     }),
   )
 
-  return [...episodeOps, ...modalityOps]
+  let priorEdges: readonly RawCanonEdge[] = []
+  const candidateEdges = [
+    ...worldFactDrafts.map((d) => d.edge),
+    ...modalityDrafts.map((d) => d.edge),
+  ]
+  if (candidateEdges.length > 0 && options) {
+    if (options.existingEdges) {
+      priorEdges = options.existingEdges
+    } else if (options.projectPath) {
+      priorEdges = await resolvePriorEdgesForSupersede(options.projectPath, candidateEdges)
+    }
+  }
+
+  const currentSnapshotEdgeIds = new Set<string>(candidateEdges.map((e) => e.id))
+  const includeSameChapter = options?.includeSameChapterConflict === true
+  const supersededFacts = options?.supersededFacts
+  let supersededTriples: Array<{ sourceId: string; predicate: string; targetId: string }> | null = null
+
+  const resolveOldEdgeIds = (edge: (typeof candidateEdges)[number]): string[] => {
+    const baseIds = findMatchingPriorEdgeIds(priorEdges, snapshot.chapterNumber, edge, {
+      includeSameChapterConflict: includeSameChapter,
+      excludeEdgeIds: currentSnapshotEdgeIds,
+    })
+    if (includeSameChapter || !supersededFacts || supersededFacts.size === 0 || priorEdges.length === 0) {
+      return baseIds
+    }
+    if (supersededTriples === null) {
+      supersededTriples = [...supersededFacts].map((raw) => parseCanonFactTriple(raw, snapshot.chapterId))
+    }
+    const matched = new Set<string>(baseIds)
+    const sameChapterIds = findMatchingPriorEdgeIds(priorEdges, snapshot.chapterNumber, edge, {
+      includeSameChapterConflict: true,
+      excludeEdgeIds: currentSnapshotEdgeIds,
+    })
+    for (const edgeId of sameChapterIds) {
+      if (matched.has(edgeId)) continue
+      const prior = priorEdges.find((e) => e.id === edgeId)
+      if (!prior) continue
+      const isExplicitlySuperseded =
+        supersededFacts.has(prior.id) ||
+        (typeof prior.digest === "string" && supersededFacts.has(prior.digest)) ||
+        supersededTriples.some(
+          (t) =>
+            t.sourceId === prior.source_id &&
+            t.predicate === prior.predicate &&
+            t.targetId === prior.target_id,
+        )
+      if (isExplicitlySuperseded) {
+        matched.add(edgeId)
+      }
+    }
+    return [...matched]
+  }
+
+  const worldFactOps: CanonDualWriteOp[] = worldFactDrafts.map((d) => ({
+    digest: d.digest,
+    content: d.content,
+    legacyPayload: d.legacyPayload,
+    canonPayload: {
+      kind: "supersede" as const,
+      request: {
+        old_edge_ids: resolveOldEdgeIds(d.edge),
+        cap_chapter: snapshot.chapterNumber,
+        caused_by: "snapshot-world-facts",
+        new_edges: [d.edge],
+      },
+    },
+  }))
+
+  const modalityOps: CanonDualWriteOp[] = modalityDrafts.map((d) => ({
+    digest: d.digest,
+    content: d.content,
+    legacyPayload: d.legacyPayload,
+    canonPayload: {
+      kind: "supersede" as const,
+      request: {
+        old_edge_ids: resolveOldEdgeIds(d.edge),
+        cap_chapter: snapshot.chapterNumber,
+        caused_by: "snapshot-modality-facts",
+        new_edges: [d.edge],
+      },
+    },
+  }))
+
+  return [...episodeOps, ...worldFactOps, ...modalityOps]
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -610,6 +790,8 @@ export async function backfillCanonHistory(
 
   const perChapter: CanonBackfillChapterReport[] = []
   const allResults: CanonWriteOutcome[] = []
+  const accumulatedActiveEdges = new Map<string, RawCanonEdge>()
+  const invalidatedEdgeIds = new Set<string>()
 
   for (const chapter of selectedChapters) {
     const snapshot = await loadBackfillSnapshot(deps, pp, chapter)
@@ -617,7 +799,33 @@ export async function backfillCanonHistory(
       perChapter.push({ chapter, status: "snapshot-unreadable", factCount: 0, written: 0, queued: 0 })
       continue
     }
-    const ops = await buildBackfillOps(snapshot)
+    const candidateKeys = collectSnapshotCandidateKeys(snapshot)
+    if (candidateKeys.length === 0) {
+      perChapter.push({ chapter, status: "no-facts", factCount: 0, written: 0, queued: 0 })
+      continue
+    }
+    // 种子化该章目标实体/谓词在 canon.db 中的既有活跃边（过滤本轮已封顶旧边；离线/mock 非致命降级）
+    try {
+      const existingFromStore = deps.queryExistingEdges
+        ? await deps.queryExistingEdges(pp, candidateKeys)
+        : await resolvePriorEdgesForSupersede(pp, candidateKeys)
+      if (Array.isArray(existingFromStore)) {
+        for (const edge of existingFromStore) {
+          if (!edge?.id || edge.archived === true || edge.invalid_at != null) continue
+          if (invalidatedEdgeIds.has(edge.id)) continue
+          if (!accumulatedActiveEdges.has(edge.id)) {
+            accumulatedActiveEdges.set(edge.id, edge)
+          }
+        }
+      }
+    } catch {
+      // 非致命：沿用当前内存累计活跃边集
+    }
+    const ops = await buildBackfillOps(snapshot, {
+      projectPath: pp,
+      existingEdges: [...accumulatedActiveEdges.values()],
+      includeSameChapterConflict: true,
+    })
     if (ops.length === 0) {
       perChapter.push({ chapter, status: "no-facts", factCount: 0, written: 0, queued: 0 })
       continue
@@ -625,9 +833,73 @@ export async function backfillCanonHistory(
     // DEBT-20260621-30b：supersede 分歧检测（buildBackfillOps 后、shadowWriteCanon 前）
     const divergences = await detectSupersedeDivergences(pp, chapter, ops)
     const supersedeOps = divergences.length > 0 ? await buildSupersedeOps(chapter, divergences) : []
-    // op 顺序 = [...episodeOps, ...supersedeOps]（先写新再封旧，避免事实暂时消失）
+    // op 顺序 = [...episodeOps, ...worldFactOps, ...modalityOps, ...supersedeOps]（先写新再封旧，避免事实暂时消失）
     const allOps = [...ops, ...supersedeOps]
     const report = await shadowWriteCanon(deps.dualWrite, pp, allOps, now)
+    // 维护升序跨章活跃边集：仅对写入 canon 成功的 supersede 操作移除被封顶旧边并登记新活跃边
+    for (let i = 0; i < allOps.length; i++) {
+      const outcome = report.results[i]
+      if (!outcome?.canon.ok) continue
+      const op = allOps[i]!
+      if (op.canonPayload.kind === "supersede") {
+        const req = op.canonPayload.request as {
+          old_edge_ids?: readonly string[]
+          new_edges?: ReadonlyArray<{
+            id?: string
+            source_id?: string
+            target_id?: string
+            predicate?: string
+            edge_kind?: RawCanonEdge["edge_kind"]
+            valid_at?: number | null
+            invalid_at?: number | null
+            source_chapter?: number | null
+            revealed_at?: number | null
+            known_by?: string[] | null
+            modality?: RawCanonEdge["modality"]
+            digest?: string | null
+          }>
+        }
+        for (const oldId of req.old_edge_ids ?? []) {
+          accumulatedActiveEdges.delete(oldId)
+          invalidatedEdgeIds.add(oldId)
+        }
+        for (const ne of req.new_edges ?? []) {
+          if (
+            typeof ne.id !== "string" ||
+            !ne.id ||
+            typeof ne.source_id !== "string" ||
+            typeof ne.target_id !== "string" ||
+            typeof ne.predicate !== "string"
+          ) {
+            continue
+          }
+          invalidatedEdgeIds.delete(ne.id)
+          accumulatedActiveEdges.set(ne.id, {
+            id: ne.id,
+            source_id: ne.source_id,
+            target_id: ne.target_id,
+            predicate: ne.predicate,
+            edge_kind: ne.edge_kind ?? "world_fact",
+            valid_at: ne.valid_at ?? chapter,
+            invalid_at: ne.invalid_at ?? null,
+            source_chapter: ne.source_chapter ?? chapter,
+            revealed_at: ne.revealed_at ?? chapter,
+            known_by: ne.known_by ?? [],
+            modality: ne.modality ?? "assertive",
+            digest: ne.digest ?? op.digest ?? null,
+            archived: false,
+          })
+        }
+      } else if (op.canonPayload.kind === "supersede_by_digest") {
+        const oldDigest = op.canonPayload.request.oldDigest
+        for (const [edgeId, edge] of accumulatedActiveEdges.entries()) {
+          if (edge.digest === oldDigest) {
+            accumulatedActiveEdges.delete(edgeId)
+            invalidatedEdgeIds.add(edgeId)
+          }
+        }
+      }
+    }
     // E-05 (C-4/C-6): canon-backfill 通道晋升接线。
     // 逐章 backfilled 成功后批量晋升（凭证层落盘 + 事件日志）；
     // revision 取 ChapterSnapshot.revision（C-2 权威字段，单调修订链）。
@@ -736,4 +1008,169 @@ export async function runCanonHistoryBackfill(
     throw new Error("canon backfill requires an open project path")
   }
   return backfillCanonHistory(deps, trimmed, {}, now)
+}
+
+/** 受控 `canon_migration='dual'` 激活编排依赖（全部可注入，默认走真实 fs/canon/status 实现）。 */
+export interface ActivateCanonDualMigrationDeps {
+  backfill: CanonBackfillDeps
+  loadStatus: (projectPath: string) => Promise<NovelSessionStatus | null>
+  setMigrationMode: (
+    projectPath: string,
+    mode: CanonMigrationMode,
+    options?: { onlyIfUnset?: boolean; createIfMissing?: boolean; now?: string },
+  ) => Promise<NovelSessionStatus | null>
+  loadPending: (dualWrite: CanonDualWriteDeps, queuePath: string) => Promise<CanonPendingRecord[]>
+}
+
+export type CanonDualMigrationActivationReason =
+  | "activated"
+  | "already_dual"
+  | "explicit_legacy_preserved"
+  | "backfill_inconsistent"
+  | "pending_queue_non_empty"
+  | "status_persist_skipped"
+
+/** 受控 `canon_migration='dual'` 激活结果报告。 */
+export interface CanonDualMigrationActivationReport {
+  projectPath: string
+  /** 是否已完成或确认处于 `'dual'` 模式。 */
+  activated: boolean
+  /** 激活门控结论原因码。 */
+  reason: CanonDualMigrationActivationReason
+  previousMode: CanonMigrationMode | undefined
+  currentMode: CanonMigrationMode | undefined
+  /** 回填报告（若因显式 `'legacy'` 拒绝而跳过回填，则为 `null`）。 */
+  backfillReport: CanonBackfillReport | null
+  /** 回填后检查的 `.novel/canon-pending.jsonl` 残留待写条目数。 */
+  pendingQueueLength: number
+}
+
+/**
+ * 受控激活 `canon_migration='dual'` 读路径（TASK-006）：
+ *
+ * 1. 读取当前 `.novel/status.json` 的 `canon_migration`；若显式为 `'legacy'` 且未传 `force: true`，
+ *    直接拒绝覆盖并返回 `explicit_legacy_preserved`；
+ * 2. 执行 `backfillCanonHistory` 离线回填历史章节快照（同时物化 `episode` 与 `world_fact` 边）；
+ * 3. 核验零差异（`consistent && factsQueued === 0 && divergences.length === 0`）且待写队列为空；
+ * 4. 仅在全部门控通过后，经 `setCanonMigrationMode(pp, 'dual', { onlyIfUnset: !force, createIfMissing: true })`
+ *    原子写入 `.novel/status.json`（若已为 `'dual'` 则幂等不重复写盘）。
+ */
+export async function activateCanonDualMigration(
+  projectPath: string,
+  deps?: Partial<ActivateCanonDualMigrationDeps>,
+  options?: CanonBackfillOptions & { now?: number; force?: boolean },
+): Promise<CanonDualMigrationActivationReport> {
+  const trimmed = projectPath.trim()
+  if (!trimmed) {
+    throw new Error("activateCanonDualMigration requires an open project path")
+  }
+  const pp = normalizePath(trimmed)
+  const now = options?.now ?? Date.now()
+  const force = options?.force === true
+
+  const backfillDeps = deps?.backfill ?? defaultCanonBackfillDeps()
+  const loadStatusFn = deps?.loadStatus ?? loadNovelSessionStatus
+  const setModeFn = deps?.setMigrationMode ?? setCanonMigrationMode
+  const loadPendingFn = deps?.loadPending ?? loadPendingQueue
+
+  const existingStatus = await loadStatusFn(pp)
+  const previousMode = existingStatus?.canon_migration
+
+  if (previousMode === "legacy" && !force) {
+    return {
+      projectPath: pp,
+      activated: false,
+      reason: "explicit_legacy_preserved",
+      previousMode,
+      currentMode: previousMode,
+      backfillReport: null,
+      pendingQueueLength: 0,
+    }
+  }
+
+  const backfillOptions: CanonBackfillOptions = {
+    ...(options?.firstChapter !== undefined ? { firstChapter: options.firstChapter } : {}),
+    ...(options?.exclusiveUpperBound !== undefined ? { exclusiveUpperBound: options.exclusiveUpperBound } : {}),
+  }
+  const backfillReport = await backfillCanonHistory(backfillDeps, pp, backfillOptions, now)
+
+  const zeroDiff =
+    backfillReport.consistent &&
+    backfillReport.factsQueued === 0 &&
+    backfillReport.divergences.length === 0
+
+  if (!zeroDiff) {
+    const pendingQueueLength = await loadPendingFn(backfillDeps.dualWrite, canonPendingQueuePath(pp))
+      .then((records) => records.length, () => backfillReport.factsQueued)
+    return {
+      projectPath: pp,
+      activated: false,
+      reason: "backfill_inconsistent",
+      previousMode,
+      currentMode: previousMode,
+      backfillReport,
+      pendingQueueLength,
+    }
+  }
+
+  const pendingRecords = await loadPendingFn(backfillDeps.dualWrite, canonPendingQueuePath(pp))
+  const pendingQueueLength = pendingRecords.length
+
+  if (pendingQueueLength > 0) {
+    return {
+      projectPath: pp,
+      activated: false,
+      reason: "pending_queue_non_empty",
+      previousMode,
+      currentMode: previousMode,
+      backfillReport,
+      pendingQueueLength,
+    }
+  }
+
+  const updated = await setModeFn(pp, "dual", {
+    onlyIfUnset: !force,
+    createIfMissing: true,
+    now: new Date(now).toISOString(),
+  })
+
+  if (updated) {
+    return {
+      projectPath: pp,
+      activated: true,
+      reason: "activated",
+      previousMode,
+      currentMode: updated.canon_migration,
+      backfillReport,
+      pendingQueueLength: 0,
+    }
+  }
+
+  if (previousMode === "dual") {
+    return {
+      projectPath: pp,
+      activated: true,
+      reason: "already_dual",
+      previousMode,
+      currentMode: "dual",
+      backfillReport,
+      pendingQueueLength: 0,
+    }
+  }
+
+  const latestMode = (await loadStatusFn(pp))?.canon_migration
+  return {
+    projectPath: pp,
+    activated: latestMode === "dual",
+    reason:
+      latestMode === "dual"
+        ? "already_dual"
+        : latestMode === "legacy"
+          ? "explicit_legacy_preserved"
+          : "status_persist_skipped",
+    previousMode,
+    currentMode: latestMode,
+    backfillReport,
+    pendingQueueLength: 0,
+  }
 }

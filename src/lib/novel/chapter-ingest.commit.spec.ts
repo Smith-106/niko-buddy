@@ -191,11 +191,13 @@ vi.mock("./chapter-ingest-fold-registry", async (importOriginal) => {
   }
 })
 
+import { logger } from "@/lib/utils"
 import { computeCheckpointDigest } from "./checkpoint-digest"
 import { commitPreparedChapterIngest, ingestChapter, prepareChapterIngest, type ChapterSnapshot } from "./chapter-ingest"
 import { recoverInterruptedCommunitySummaryAttempts } from "./chapter-ingest-projections"
 import { withSnapshotWriteLock } from "./chapter-ingest-snapshot-io"
 import { emptyLedger, recordProjectionStatus, type ProjectionStatusLedger } from "./projection-status-ledger"
+import * as promotionBridge from "./promotion-bridge"
 
 const PROJECT = "E:/Novel"
 const CHAPTER_PATH = `${PROJECT}/wiki/chapters/chapter-001.md`
@@ -346,6 +348,113 @@ describe("ingestChapter — failed 投影自愈非致命降级（拆分边界 2�
     mockLlmJsonResponse(llmSnapshotJson())
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot).not.toBeNull()
+  })
+})
+
+describe("ingestChapter — 提交后晋升重试队列排空（v2.35 TASK-005）", () => {
+  const FIXED_NOW_ISO = "2026-11-20T00:00:00.000Z"
+  const FIXED_NOW_MS = Date.parse(FIXED_NOW_ISO)
+
+  it("committed ingest 自愈排空到期 promotion-retry.jsonl 条目并落盘凭证", async () => {
+    const retryPath = promotionBridge.promotionRetryPath(PROJECT)
+    const dueEntry: promotionBridge.PromotionRetryEntry = {
+      replayKey: "canon-dual-write:chapter-1:ch1-ep-abc123456789:1",
+      channel: "canon-dual-write",
+      chapterId: "chapter-1",
+      chapterNumber: 1,
+      revision: 1,
+      entity: "ch1-ep-abc123456789",
+      input: {
+        channel: "canon-dual-write",
+        projectPath: PROJECT,
+        chapterId: "chapter-1",
+        chapterNumber: 1,
+        revision: 1,
+        entity: "ch1-ep-abc123456789",
+        gateContext: { isFinalChapter: true, dualWriteConsistent: true },
+        contentDigestPrefix: "abc1234567890000",
+      },
+      reason: "transient sink failure",
+      attempts: 1,
+      nextRetryAt: FIXED_NOW_MS - 1000,
+      enqueuedAt: FIXED_NOW_MS - 60_000,
+    }
+    snapshotFiles.set(retryPath, `${JSON.stringify(dueEntry)}\n`)
+    mockLlmJsonResponse(llmSnapshotJson())
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    try {
+      const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, undefined, { now: FIXED_NOW_ISO })
+      expect(result.snapshot).not.toBeNull()
+      // 到期重试项已被自愈排空，且晋升凭证已补齐落盘
+      expect(snapshotFiles.get(retryPath)).toBe("")
+      const promotionsRaw = snapshotFiles.get(`${PROJECT}/.novel/promotions.json`)
+      expect(promotionsRaw).toBeDefined()
+      expect(promotionsRaw).toContain("canon-dual-write:chapter-1:ch1-ep-abc123456789:1")
+      expect(infoSpy).toHaveBeenCalledWith(
+        "Chapter Ingest",
+        expect.stringContaining("Promotion retry queue drained: succeeded=1"),
+      )
+    } finally {
+      infoSpy.mockRestore()
+    }
+  })
+
+  it("replayPromotionRetryQueue 抛错 → 非致命 logger.warn，不中断 ingest", async () => {
+    mockLlmJsonResponse(llmSnapshotJson())
+    const replaySpy = vi
+      .spyOn(promotionBridge, "replayPromotionRetryQueue")
+      .mockRejectedValueOnce(new Error("retry queue io error"))
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    try {
+      const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, undefined, { now: FIXED_NOW_ISO })
+      expect(result.snapshot).not.toBeNull()
+      expect(replaySpy).toHaveBeenCalledTimes(1)
+      expect(replaySpy).toHaveBeenCalledWith(PROJECT, undefined, { now: FIXED_NOW_MS })
+      expect(warnSpy).toHaveBeenCalledWith(
+        "Chapter Ingest",
+        "Promotion retry queue drain failed (non-fatal)",
+        expect.objectContaining({ error: expect.stringContaining("retry queue io error") }),
+      )
+    } finally {
+      replaySpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it("提交被拒（not_final / source_changed）→ 跳过排空，绝不调用 replayPromotionRetryQueue", async () => {
+    const replaySpy = vi.spyOn(promotionBridge, "replayPromotionRetryQueue")
+    try {
+      // 1) not_final 早退
+      fsMocks.readFile.mockImplementation(async (path: string) => {
+        if (String(path).endsWith("chapter-001.md")) {
+          return chapterContent().replace("chapter_status: final", "chapter_status: draft")
+        }
+        throw new Error("ENOENT: no such file or directory")
+      })
+      const draftRes = await ingestChapter(PROJECT, CHAPTER_PATH)
+      expect(draftRes).toEqual({ snapshot: null, failReason: "not_final" })
+      expect(replaySpy).not.toHaveBeenCalled()
+
+      // 2) source_changed 提交前源变更拒绝
+      let chapterReads = 0
+      fsMocks.readFile.mockImplementation(async (path: string) => {
+        const p = String(path)
+        if (p.endsWith("chapter-001.md")) {
+          chapterReads += 1
+          return chapterReads === 1 ? chapterContent() : `${chapterContent()}\nEdited`
+        }
+        const saved = snapshotFiles.get(p)
+        if (saved !== undefined) return saved
+        if (p.endsWith(".wiki-patch.json")) return JSON.stringify({ sharedWiki: true, entries: [] })
+        throw new Error("ENOENT: no such file or directory")
+      })
+      mockLlmJsonResponse(llmSnapshotJson())
+      const changedRes = await ingestChapter(PROJECT, CHAPTER_PATH)
+      expect(changedRes).toEqual({ snapshot: null, failReason: "source_changed" })
+      expect(replaySpy).not.toHaveBeenCalled()
+    } finally {
+      replaySpy.mockRestore()
+    }
   })
 })
 

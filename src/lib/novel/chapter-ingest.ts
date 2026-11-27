@@ -159,9 +159,19 @@ import {
 // B2（守门四件套接线 · projection-self-heal 派生）：跳过集合与门槛的唯一事实源。
 // mayEnterFoldReplay(projection, isRebuildable)：isSelfHealSkipClass 命中 →
 // false（禁入自愈重算）；其余交由 isAutoRebuildableProjection 既有门槛。
+import type { RawCanonEdge } from "./canon-graph-client"
 import { computeCheckpointDigest, computeCheckpointDigestOf } from "./checkpoint-digest"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
-import { shadowWriteCanon, replayPendingQueue, defaultCanonDualWriteDeps } from "./canon-dual-write"
+import {
+  canonPendingQueuePath,
+  defaultCanonDualWriteDeps,
+  loadPendingQueue,
+  replayPendingQueue,
+  resolvePriorEdgesForSupersede,
+  shadowWriteCanon,
+} from "./canon-dual-write"
+import { setCanonMigrationMode } from "./novel-session-status"
+import { replayPromotionRetryQueue } from "./promotion-bridge"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict" | "truth_authority_conflict"
@@ -400,30 +410,49 @@ export interface IngestChapterOptions {
 // extractFrontmatter* 同抽（并收敛 canonical parseFrontmatter）。import 供本模块
 // 使用 + re-export 保持外部 import 路径不变。
 import {
+  collectSnapshotKnownBy,
+  findMatchingPriorEdgeIds,
   isCanonDualWriteEligible,
+  parseCanonFactTriple,
 } from "./chapter-ingest-utils"
 export {
+  collectSnapshotKnownBy,
   extractFrontmatterNumber,
   extractFrontmatterString,
+  findMatchingPriorEdgeIds,
   isCanonDualWriteEligible,
+  parseCanonFactTriple,
   parseFactsSubject,
 } from "./chapter-ingest-utils"
 
+export interface BuildCanonDualWriteOpsOptions {
+  /** 可选：用于按目标实体/谓词查询先序活跃 world_fact 边以填充 `old_edge_ids`（IPC 不可用时非致命回退 `[]`）。 */
+  projectPath?: string
+  /** 可选：直接注入现存边快照（优先于 `projectPath` IPC 查询，用于单测与离线计算）。 */
+  existingEdges?: readonly RawCanonEdge[]
+}
+
 /**
- * T16 / F-14: 从 snapshot.newCanonFacts 派生 episode 双写操作集。
- * 每条事实的 digest = SHA-256({ chapter, fact })——幂等键。
+ * T16 / F-14 + v2.35: 从 snapshot.newCanonFacts 同时派生：
+ *   1. 既有 `episode` 双写操作（digest = SHA-256({ chapter, fact })，legacyPayload.kind = 'snapshot_fact'，逐字节向后兼容）；
+ *   2. 可查询的 `world_fact` `supersede` 边操作（digest = SHA-256({ chapter, kind: 'world_fact', fact, sourceId, predicate, targetId })，
+ *      携带归一化 `known_by`、`source_chapter`、`revealed_at` 与真实先序冲突 `old_edge_ids`）。
  *
  * T3 写端（路线 B）：snapshot.beliefFacts / hypothesisFacts 派生 supersede
- * new_edges 边 ops（modality=belief/hypothesis）。幂等键保持旧键兼容：
- * digest=SHA-256({ chapter, modality, fact:subject+predicate+object })，
- * 与 assertive episode 键空间（{ chapter, fact }）天然不同，双写队列重放
- * 不会错配。缺省（无模态事实）返回 []——保底行为 = 现状，零倒退。
+ * new_edges 边 ops（modality=belief/hypothesis），同样携带 `known_by` / `source_chapter` / `revealed_at`
+ * 并在传入 `options?.existingEdges` / `options?.projectPath` 时解析先序同模态冲突边 `old_edge_ids`。
+ * 单参调用 `buildCanonDualWriteOps(snapshot)` 保持纯函数确定性（零 IPC）。
  */
-export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise<CanonDualWriteOp[]> {
+export async function buildCanonDualWriteOps(
+  snapshot: ChapterSnapshot,
+  options?: BuildCanonDualWriteOpsOptions,
+): Promise<CanonDualWriteOp[]> {
   const facts = snapshot.newCanonFacts ?? []
   const beliefFacts = snapshot.beliefFacts ?? []
   const hypothesisFacts = snapshot.hypothesisFacts ?? []
   if (facts.length === 0 && beliefFacts.length === 0 && hypothesisFacts.length === 0) return []
+
+  const snapshotKnownBy = collectSnapshotKnownBy(snapshot)
 
   const episodeOps = facts.length > 0
     ? await Promise.all(
@@ -449,8 +478,51 @@ export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise
       )
     : []
 
-  // T3 路线 B：模态事实 → supersede new_edges 边 ops（纯插入，old_edge_ids 空）。
-  const modalityOps = await Promise.all(
+  const worldFactDrafts = facts.length > 0
+    ? await Promise.all(
+        facts.map(async (fact) => {
+          const { sourceId, predicate, targetId } = parseCanonFactTriple(fact, snapshot.chapterId)
+          const content = {
+            chapter: snapshot.chapterNumber,
+            kind: "world_fact" as const,
+            fact,
+            sourceId,
+            predicate,
+            targetId,
+          }
+          const digest = await computeCheckpointDigestOf(content)
+          const edge = {
+            id: `ch${snapshot.chapterNumber}-wf-${digest.slice(0, 12)}`,
+            source_id: sourceId,
+            target_id: targetId,
+            predicate,
+            edge_kind: "world_fact" as const,
+            valid_at: snapshot.chapterNumber,
+            source_chapter: snapshot.chapterNumber,
+            revealed_at: snapshot.chapterNumber,
+            known_by: snapshotKnownBy,
+            modality: "assertive" as const,
+            digest,
+          }
+          return {
+            digest,
+            content,
+            legacyPayload: {
+              kind: "snapshot_world_fact",
+              chapterNumber: snapshot.chapterNumber,
+              fact,
+              subject: sourceId,
+              predicate,
+              object: targetId,
+            },
+            edge,
+          }
+        }),
+      )
+    : []
+
+  // T3 路线 B：模态事实 → supersede new_edges 边 ops（带 holder known_by / source_chapter / revealed_at）。
+  const modalityDrafts = await Promise.all(
     [...beliefFacts.map((f) => ({ ...f, modality: "belief" as const })),
      ...hypothesisFacts.map((f) => ({ ...f, modality: "hypothesis" as const }))].map(
       async (mf) => {
@@ -460,6 +532,19 @@ export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise
           fact: `${mf.subject}${mf.predicate}${mf.object}`,
         }
         const digest = await computeCheckpointDigestOf(content)
+        const edge = {
+          id: `ch${snapshot.chapterNumber}-mod-${digest.slice(0, 12)}`,
+          source_id: mf.subject,
+          target_id: mf.object,
+          predicate: mf.predicate,
+          edge_kind: "world_fact" as const,
+          valid_at: snapshot.chapterNumber,
+          source_chapter: snapshot.chapterNumber,
+          revealed_at: snapshot.chapterNumber,
+          known_by: collectSnapshotKnownBy(snapshot, [mf.subject]),
+          modality: mf.modality,
+          digest,
+        }
         return {
           digest,
           content,
@@ -471,32 +556,56 @@ export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise
             predicate: mf.predicate,
             object: mf.object,
           },
-          canonPayload: {
-            kind: "supersede" as const,
-            request: {
-              old_edge_ids: [],
-              cap_chapter: snapshot.chapterNumber,
-              caused_by: "snapshot-modality-facts",
-              new_edges: [
-                {
-                  id: `ch${snapshot.chapterNumber}-mod-${digest.slice(0, 12)}`,
-                  source_id: mf.subject,
-                  target_id: mf.object,
-                  predicate: mf.predicate,
-                  edge_kind: "world_fact",
-                  valid_at: snapshot.chapterNumber,
-                  modality: mf.modality,
-                  digest,
-                },
-              ],
-            },
-          },
+          edge,
         }
       },
     ),
   )
 
-  return [...episodeOps, ...modalityOps]
+  let priorEdges: readonly RawCanonEdge[] = []
+  const candidateEdges = [
+    ...worldFactDrafts.map((d) => d.edge),
+    ...modalityDrafts.map((d) => d.edge),
+  ]
+  if (candidateEdges.length > 0) {
+    if (options?.existingEdges) {
+      priorEdges = options.existingEdges
+    } else if (options?.projectPath) {
+      priorEdges = await resolvePriorEdgesForSupersede(options.projectPath, candidateEdges)
+    }
+  }
+
+  const worldFactOps: CanonDualWriteOp[] = worldFactDrafts.map((d) => ({
+    digest: d.digest,
+    content: d.content,
+    legacyPayload: d.legacyPayload,
+    canonPayload: {
+      kind: "supersede" as const,
+      request: {
+        old_edge_ids: findMatchingPriorEdgeIds(priorEdges, snapshot.chapterNumber, d.edge),
+        cap_chapter: snapshot.chapterNumber,
+        caused_by: "snapshot-world-facts",
+        new_edges: [d.edge],
+      },
+    },
+  }))
+
+  const modalityOps: CanonDualWriteOp[] = modalityDrafts.map((d) => ({
+    digest: d.digest,
+    content: d.content,
+    legacyPayload: d.legacyPayload,
+    canonPayload: {
+      kind: "supersede" as const,
+      request: {
+        old_edge_ids: findMatchingPriorEdgeIds(priorEdges, snapshot.chapterNumber, d.edge),
+        cap_chapter: snapshot.chapterNumber,
+        caused_by: "snapshot-modality-facts",
+        new_edges: [d.edge],
+      },
+    },
+  }))
+
+  return [...episodeOps, ...worldFactOps, ...modalityOps]
 }
 
 /**
@@ -538,7 +647,7 @@ export async function runCanonDualWriteHookOutcome(
   // R4 共识（deepseek+glm）: 原先在 try 外构建 ops，且调用方（ingestChapter）未包 try
   // ⇒ 构建抛错会冲出「非致命钩子」契约，成为未处理 rejection。
   try {
-    const ops = await buildCanonDualWriteOps(snapshot)
+    const ops = await buildCanonDualWriteOps(snapshot, { projectPath })
     if (ops.length === 0) return { status: "skipped", reason: "no_facts" }
     // E-05 (C-4/C-6) + R3-M01: T16 钩子传 promoteChannel="canon-dual-write" 与真实 snapshot.revision ——
     // reconcile 一致时对 episode 类 ops 批量晋升（凭证层落盘 + 事件日志）。
@@ -565,6 +674,22 @@ export async function runCanonDualWriteHookOutcome(
       logger.warn("Chapter Ingest", "Canon dual-write: reconcile divergences remain after replay", {
         divergences: report.reconcile.divergences,
       })
+    }
+    if (report.written > 0 && report.queued === 0 && report.reconcile?.consistent === true) {
+      try {
+        const pending = await loadPendingQueue(deps, canonPendingQueuePath(projectPath))
+        if (pending.length === 0) {
+          await setCanonMigrationMode(projectPath, "dual", {
+            onlyIfUnset: true,
+            createIfMissing: false,
+            now: new Date(now).toISOString(),
+          })
+        }
+      } catch (promoteErr) {
+        logger.warn("Chapter Ingest", "Canon dual-write: canon_migration auto-promotion failed (non-fatal)", {
+          error: toErrorMessage(promoteErr),
+        })
+      }
     }
     return { status: "completed", report }
   } catch (err) {
@@ -812,6 +937,28 @@ async function ingestChapterInternal(
   if (commitResult.status !== "committed") {
     const failReason: IngestFailReason = commitResult.status
     return { snapshot: null, failReason }
+  }
+
+  // v2.35 (TASK-005): 提交后、所有快照/facts 锁外非致命排空晋升重试队列（promotion-retry.jsonl），
+  // 避免历史瞬态失败滞留，同时绝不侵入 commitIngestSnapshot 的 readFile 契约或引入嵌套锁。
+  try {
+    const parsedRetryNow = options.now !== undefined ? Date.parse(options.now) : Number.NaN
+    const retryNow = Number.isFinite(parsedRetryNow) ? parsedRetryNow : undefined
+    const retryReport = await replayPromotionRetryQueue(
+      pp,
+      undefined,
+      retryNow !== undefined ? { now: retryNow } : {},
+    )
+    if (retryReport.succeeded + retryReport.failed + retryReport.deadLettered > 0) {
+      logger.info(
+        "Chapter Ingest",
+        `Promotion retry queue drained: succeeded=${retryReport.succeeded}, failed=${retryReport.failed}, deadLettered=${retryReport.deadLettered}, remaining=${retryReport.remaining}`,
+      )
+    }
+  } catch (err) {
+    logger.warn("Chapter Ingest", "Promotion retry queue drain failed (non-fatal)", {
+      error: toErrorMessage(err),
+    })
   }
 
   const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig

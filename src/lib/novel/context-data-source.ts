@@ -1,6 +1,7 @@
 import { logger, toErrorMessage } from "@/lib/utils"
 import type { ContextBudget } from "@/lib/context-budget"
 import type { EmbeddingConfig, NovelConfig, RerankConfig, RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
+import type { ChapterSnapshot } from "./chapter-ingest"
 
 /**
  * 上下文数据源抽象层
@@ -77,6 +78,11 @@ export interface ContextLoadContext {
    * supply it — e.g. tests, direct DataSource.load invocations).
    */
   recordGap?: (ref: string, reason?: ContextGapReason) => void
+  /**
+   * TASK-006: per-build 懒加载快照共享闭包，供 cognitionTextDataSource 与
+   * loadProjectionTexts（emotional_arc / resource_ledger）复用单次磁盘读取。
+   */
+  getSharedValidSnapshots?: () => Promise<readonly ChapterSnapshot[]>
 }
 
 /**

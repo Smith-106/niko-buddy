@@ -3,6 +3,7 @@ import {
   buildNextStatus,
   loadNovelSessionStatus,
   novelSessionStatusPath,
+  setCanonMigrationMode,
   startDeepChapterSession,
   validateAndBackfillNovelSessionStatus,
   type AntiAiMode,
@@ -322,5 +323,91 @@ describe("T09: 三开关按 projectId 项目级隔离单测", () => {
     expect(loaded!.anti_ai_mode).toBeUndefined()
     // 未知键经 passthrough 保留
     expect((loaded as unknown as Record<string, unknown>).source).toBe("deep_chapter_generation")
+  })
+})
+
+describe("TASK-006: setCanonMigrationMode 原子更新与守卫", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
+  })
+
+  it("原子更新 canon_migration 并保留全部既有会话字段与其他开关", async () => {
+    await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-mig",
+      userRequest: "写第5章",
+      chapterNumber: 5,
+    })
+    const existingRaw = readJson(statusPath)
+    existingRaw.route_shell_mode = "route"
+    existingRaw.anti_ai_mode = "warn"
+    existingRaw.step_digest = "dig-123"
+    fsState.fileMap.set(statusPath, JSON.stringify(existingRaw))
+    fsState.writeFileAtomic.mockClear()
+
+    const updated = await setCanonMigrationMode(projectPath, "dual", {
+      onlyIfUnset: true,
+      now: "2026-06-01T12:00:00.000Z",
+    })
+
+    expect(updated).not.toBeNull()
+    expect(updated!.canon_migration).toBe("dual")
+    expect(updated!.route_shell_mode).toBe("route")
+    expect(updated!.anti_ai_mode).toBe("warn")
+    expect(updated!.step_digest).toBe("dig-123")
+    expect(updated!.updated_at).toBe("2026-06-01T12:00:00.000Z")
+    expect(fsState.writeFileAtomic).toHaveBeenCalledTimes(1)
+
+    const reloaded = await loadNovelSessionStatus(projectPath)
+    expect(reloaded?.canon_migration).toBe("dual")
+    expect(reloaded?.route_shell_mode).toBe("route")
+  })
+
+  it("onlyIfUnset: true 绝不覆盖显式 'legacy'；onlyIfUnset: false 可显式切换", async () => {
+    const legacy = { ...minimalStatus(), canon_migration: "legacy" }
+    fsState.fileMap.set(statusPath, JSON.stringify(legacy))
+
+    const skipped = await setCanonMigrationMode(projectPath, "dual", { onlyIfUnset: true })
+    expect(skipped).toBeNull()
+    expect(fsState.writeFileAtomic).not.toHaveBeenCalled()
+    expect((await loadNovelSessionStatus(projectPath))?.canon_migration).toBe("legacy")
+
+    const forced = await setCanonMigrationMode(projectPath, "dual", {
+      onlyIfUnset: false,
+      now: "2026-06-02T00:00:00.000Z",
+    })
+    expect(forced?.canon_migration).toBe("dual")
+    expect(fsState.writeFileAtomic).toHaveBeenCalledTimes(1)
+  })
+
+  it("目标模式与当前值相同时幂等短路（返回 null 且零写盘）", async () => {
+    const alreadyDual = { ...minimalStatus(), canon_migration: "dual" }
+    fsState.fileMap.set(statusPath, JSON.stringify(alreadyDual))
+
+    const result = await setCanonMigrationMode(projectPath, "dual")
+    expect(result).toBeNull()
+    expect(fsState.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("status.json 缺失时遵循 createIfMissing（false → null 零写盘；true → 创建最小空闲基线）", async () => {
+    const noCreate = await setCanonMigrationMode(projectPath, "dual", { createIfMissing: false })
+    expect(noCreate).toBeNull()
+    expect(fsState.writeFileAtomic).not.toHaveBeenCalled()
+
+    const created = await setCanonMigrationMode(projectPath, "dual", {
+      createIfMissing: true,
+      now: "2026-06-03T08:00:00.000Z",
+    })
+    expect(created).not.toBeNull()
+    expect(created!.canon_migration).toBe("dual")
+    expect(created!.status).toBe("completed")
+    expect(created!.updated_at).toBe("2026-06-03T08:00:00.000Z")
+    expect(fsState.writeFileAtomic).toHaveBeenCalledTimes(1)
+
+    const reloaded = await loadNovelSessionStatus(projectPath)
+    expect(reloaded?.canon_migration).toBe("dual")
+    expect(reloaded?.status).toBe("completed")
   })
 })

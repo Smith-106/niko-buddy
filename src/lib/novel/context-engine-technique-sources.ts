@@ -49,6 +49,15 @@ export interface CanonSourceFacts {
   former: TemporalFact[]
 }
 
+async function loadLegacyFallbackFacts(pp: string): Promise<TemporalFact[]> {
+  try {
+    const loaded = await loadTemporalFactsCached(pp)
+    return Array.isArray(loaded) ? loaded : []
+  } catch {
+    return []
+  }
+}
+
 export async function loadCanonSourceFacts(
   pp: string,
   targetChapter: number,
@@ -78,10 +87,21 @@ export async function loadCanonSourceFacts(
         undefined,
         { chapter: targetChapter, includeInvalidated: true },
       ).filter((f) => f.former === true)
+      if (current.length === 0 && former.length === 0) {
+        const fallback = await loadLegacyFallbackFacts(pp)
+        if (fallback.length > 0) {
+          return { current: fallback, former: [] }
+        }
+        return { current: [], former: [] }
+      }
       return { current, former }
     } catch (error) {
       // P1-IMP-13: 分级记录（DEGRADED — canon 检索失败降级回退，不终止写作）
       logDegradation("canon-graph load failed, falling back to raw canonRules", error, { retrievalFailed: true })
+      const fallback = await loadLegacyFallbackFacts(pp)
+      if (fallback.length > 0) {
+        return { current: fallback, former: [] }
+      }
       return { current: null, former: [] }
     }
   }

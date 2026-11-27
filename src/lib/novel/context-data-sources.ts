@@ -810,6 +810,7 @@ export const cognitionTextDataSource: DataSource<string> = {
     return readCognitionStatesText(context.projectPath, {
       beforeChapter: context.chapterNumber,
       recordGap: context.recordGap,
+      preloadedSnapshots: context.getSharedValidSnapshots,
     })
   },
 }
