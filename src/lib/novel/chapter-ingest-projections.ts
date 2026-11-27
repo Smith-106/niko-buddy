@@ -294,13 +294,26 @@ export async function runIngestProjections(
       })
     }
 
-    // 社区摘要定期重建（zero-LLM 守卫：未配置可用摘要模型时静默跳过，不抛错、不污染账本 failed）
+    // 社区摘要定期重建（zero-LLM 守卫：优先用 summary 模型，不可用时回退 extract 模型；两者均不可用才静默跳过）
     const deferCommunitySummary = novelConfig.communitySummaryAsync && !options.awaitCommunitySummary
     const awaitOutsideLock = Boolean(options.awaitCommunitySummary)
     if (snapshot && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
       const summaryLlmConfig = resolveNovelModel(llmConfig, novelConfig, "summary")
-      if (!hasUsableLlm(summaryLlmConfig)) {
-        logger.info("Chapter Ingest", "跳过社区摘要重建：未配置可用摘要模型（zero-LLM 安全降级）", {
+      const summaryUsable = hasUsableLlm(summaryLlmConfig)
+      let effectiveNovelConfig = novelConfig
+      let canRunCommunitySummary = summaryUsable
+      if (!summaryUsable) {
+        const extractLlmConfig = resolveNovelModel(llmConfig, novelConfig, "extract")
+        if (hasUsableLlm(extractLlmConfig)) {
+          canRunCommunitySummary = true
+          effectiveNovelConfig = {
+            ...novelConfig,
+            summaryModel: novelConfig.extractModel?.trim() ?? "",
+          }
+        }
+      }
+      if (!canRunCommunitySummary) {
+        logger.info("Chapter Ingest", "跳过社区摘要重建：未配置可用摘要或提取模型（zero-LLM 安全降级）", {
           chapter: chapterNo,
         })
       } else {
@@ -311,7 +324,7 @@ export async function runIngestProjections(
           try {
             await enqueueCommunitySummary(pp, async () => {
               let failure: { cause: unknown } | undefined
-              await generateCommunitySummaries(pp, llmConfig, novelConfig, embCfg, cause => { failure ??= { cause } })
+              await generateCommunitySummaries(pp, llmConfig, effectiveNovelConfig, embCfg, cause => { failure ??= { cause } })
               if (failure) throw failure.cause
             })
             return { startedAt, status: "committed" as const }

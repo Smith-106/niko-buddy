@@ -9,6 +9,7 @@ import i18n from "@/i18n"
 import type { ContextPack, ContextEntity } from "./context-engine"
 import type { HardInjectItem } from "./search-adapter"
 import type { TemporalFact } from "./temporal-memory"
+import type { StyleExemplar } from "./style-exemplars-loader"
 import { applySectionCharBudget } from "./context-pack-format-helpers"
 import { PROTECTED_TRIM_FIELDS, SECTION_PRIORITY_BY_FIELD } from "./context-engine-gaps"
 
@@ -121,6 +122,31 @@ const FIELD_CONFIGS: FieldConfig[] = [
     },
   },
   { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle", layer: "L3" },
+  {
+    titleKey: "novel.contextPack.styleExemplars",
+    fallbackTitle: "## 风格示范锚点（正向参考）",
+    fieldKey: "styleExemplars",
+    layer: "L3",
+    renderIf: (pack) => (pack.styleExemplars?.length ?? 0) > 0,
+    serialize: (content) => {
+      const exemplars = content as StyleExemplar[]
+      const markTypeLabels: Record<StyleExemplar["markType"], string> = {
+        style: "文风",
+        voice: "声线/对白",
+        pacing: "节奏",
+        thrill: "爽感兑现",
+        pull: "追读钩子",
+        consistency: "设定自洽",
+      }
+      return exemplars
+        .filter((ex) => Boolean(ex && typeof ex.text === "string" && ex.text.trim()))
+        .map((ex) => {
+          const label = markTypeLabels[ex.markType] ?? ex.markType ?? "文风"
+          const noteSuffix = ex.note?.trim() ? `（注：${ex.note.trim()}）` : ""
+          return `- [${label}] ${ex.text.trim()}${noteSuffix}`
+        })
+    },
+  },
   {
     titleKey: "novel.contextPack.voiceStyleGuide",
     fallbackTitle: "## 声音与风格指南",

@@ -115,6 +115,7 @@ export function CampaignDashboardDialog({
   const [chapterCount, setChapterCount] = useState(3)
   const [autoIngest, setAutoIngest] = useState(true)
   const [cruiseMode, setCruiseMode] = useState(false)
+  const [confirmCruiseAutoAccept, setConfirmCruiseAutoAccept] = useState(false)
 
   const [isRunning, setIsRunning] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
@@ -152,6 +153,12 @@ export function CampaignDashboardDialog({
     }
   }, [open, project])
 
+  useEffect(() => {
+    if (!open) {
+      setConfirmCruiseAutoAccept(false)
+    }
+  }, [open])
+
   async function runCampaignRange(options: {
     runStart: number
     runCount: number
@@ -180,6 +187,8 @@ export function CampaignDashboardDialog({
         : `正在准备调度第 ${options.runStart} 至 ${endChapter} 章...`,
     )
 
+    const effectiveCruiseAutoAccept = cruiseMode && confirmCruiseAutoAccept
+
     try {
       const report = await runAutonomousDraftCampaign({
         projectPath: project.path,
@@ -188,6 +197,7 @@ export function CampaignDashboardDialog({
         llmConfig,
         novelConfig,
         cruiseMode,
+        confirmAutoAccept: effectiveCruiseAutoAccept,
         onChapterStart: (chapterNumber, current, total) => {
           setActiveChapterIndex(current)
           setProgressMessage(`正在生成第 ${chapterNumber} 章 (${current}/${total})...`)
@@ -218,11 +228,15 @@ export function CampaignDashboardDialog({
         }
       }
 
-      if (cruiseMode) {
+      if (effectiveCruiseAutoAccept) {
         const verifiedMemoryCount = autoAccepted.filter((r) => r.autoIngested === true).length
         const message = `全自动巡航${report.summary.allPassed ? "完成" : "暂停"}！自动落盘 ${autoAccepted.length} 章，已验证事实库摄取 ${verifiedMemoryCount} 章`
         if (autoAccepted.length > 0) toast.success(message)
         else toast.info(message)
+      } else if (cruiseMode) {
+        toast.info(
+          `巡航草稿模式完成！共生成 ${report.completedChapters} 章，准备就绪 ${report.summary.readyCount} 章（未勾选二次确认，已保留为待审草稿）`,
+        )
       } else {
         toast.success(`批量战役完成！共生成 ${report.completedChapters} 章，准备就绪 ${report.summary.readyCount} 章`)
       }
@@ -278,6 +292,9 @@ export function CampaignDashboardDialog({
 
   function handleDialogOpenChange(nextOpen: boolean) {
     if (!nextOpen && isBusy) return
+    if (!nextOpen) {
+      setConfirmCruiseAutoAccept(false)
+    }
     onOpenChange(nextOpen)
   }
 
@@ -376,31 +393,58 @@ export function CampaignDashboardDialog({
               className="h-8 text-xs"
             />
           </div>
-          <div className="col-span-2 flex items-center justify-between pt-1 border-t border-border/40">
-            <label className="flex items-center gap-1.5 cursor-pointer text-xs">
-              <input
-                type="checkbox"
-                checked={cruiseMode}
-                disabled={isBusy}
-                onChange={(e) => setCruiseMode(e.target.checked)}
-                className="rounded border-border text-primary focus:ring-primary"
-              />
-              <span className="font-semibold text-primary">
-                {t("campaign.dialog.cruiseMode", {
-                  defaultValue: "开启全自动巡航推进（质检全通过时自动转入正式章节并同步设定记忆）",
-                })}
-              </span>
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={autoIngest}
-                disabled={isBusy}
-                onChange={(e) => setAutoIngest(e.target.checked)}
-                className="rounded border-border text-primary focus:ring-primary"
-              />
-              <span>{t("campaign.dialog.autoIngest", { defaultValue: "验收后自动同步设定记忆" })}</span>
-            </label>
+          <div className="col-span-2 flex flex-col gap-2 pt-1 border-t border-border/40">
+            <div className="flex items-center justify-between gap-2">
+              <label className="flex items-center gap-1.5 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={cruiseMode}
+                  disabled={isBusy}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setCruiseMode(checked)
+                    if (!checked) setConfirmCruiseAutoAccept(false)
+                  }}
+                  className="rounded border-border text-primary focus:ring-primary"
+                />
+                <span className="font-semibold text-primary">
+                  {t("campaign.dialog.cruiseMode", {
+                    defaultValue: "开启全自动巡航推进（质检全通过时自动转入正式章节并同步设定记忆）",
+                  })}
+                </span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={autoIngest}
+                  disabled={isBusy}
+                  onChange={(e) => setAutoIngest(e.target.checked)}
+                  className="rounded border-border text-primary focus:ring-primary"
+                />
+                <span>{t("campaign.dialog.autoIngest", { defaultValue: "验收后自动同步设定记忆" })}</span>
+              </label>
+            </div>
+            {cruiseMode && (
+              <label
+                data-testid="campaign-cruise-confirm-auto-accept-label"
+                className="flex items-start gap-1.5 cursor-pointer rounded border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning-foreground"
+              >
+                <input
+                  type="checkbox"
+                  data-testid="campaign-cruise-confirm-auto-accept"
+                  checked={confirmCruiseAutoAccept}
+                  disabled={isBusy}
+                  onChange={(e) => setConfirmCruiseAutoAccept(e.target.checked)}
+                  className="mt-0.5 rounded border-border text-primary focus:ring-primary"
+                />
+                <span>
+                  {t("campaign.dialog.confirmCruiseAutoAccept", {
+                    defaultValue:
+                      "二次确认：允许巡航在门控全绿后自动写入正式章节与事实库（未勾选时仅生成待审草稿）",
+                  })}
+                </span>
+              </label>
+            )}
           </div>
         </div>
 

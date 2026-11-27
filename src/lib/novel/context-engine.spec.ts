@@ -357,7 +357,13 @@ vi.mock("./related-chapters", () => ({
   findOverdueForeshadowing: hoisted.findOverdueForeshadowing,
   relatedChaptersToContextText: hoisted.relatedChaptersToContextText,
 }))
-vi.mock("./foreshadowing-tracker", () => ({ loadForeshadowingTracker: hoisted.loadForeshadowingTracker }))
+vi.mock("./foreshadowing-tracker", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./foreshadowing-tracker")>()
+  return {
+    ...actual,
+    loadForeshadowingTracker: hoisted.loadForeshadowingTracker,
+  }
+})
 vi.mock("./community-summary", () => ({
   loadPersistedCommunitySummaries: hoisted.loadPersistedCommunitySummaries,
   searchCommunitySummaries: hoisted.searchCommunitySummaries,
@@ -3777,5 +3783,173 @@ describe("R2-W06 & R2-W09 覆盖率收口：legacy gaps API / excludeCanonRulesB
     hoisted.buildRetrievalGraph.mockRejectedValueOnce(new Error("graph corrupt"))
     await searchGraphRelevantContent("/p", "图谱查询", 3, { buildSession: graphFailSession })
     expect(graphFailSession.collectGaps().some((g) => g.ref === "graphSearchResults")).toBe(true)
+  })
+})
+
+describe("TASK-004 伏笔持久化接线、book-rules 注入与 styleExemplars 渲染", () => {
+  it("将 foreshadowing-tracker 活跃伏笔注入 protected foreshadowingStates，过滤未来埋设章并与 relatedChaptersPromise 共享单次加载", async () => {
+    hoisted.loadAllImpl = async () => ({
+      ...fixtureRawData(),
+      snapshots: {
+        ...fixtureRawData().snapshots,
+        foreshadowingSignals: [],
+      },
+      fallbackForeshadowingStates: "",
+      searchResults: "",
+    })
+    hoisted.loadForeshadowingTracker.mockResolvedValue({
+      items: [
+        {
+          id: "f1",
+          name: "第一章玉佩",
+          description: "身世之谜",
+          status: "planted",
+          plantedChapter: 1,
+          advancedChapters: [],
+          relatedCharacters: [],
+          relatedEvents: [],
+          notes: "",
+        },
+        {
+          id: "f2",
+          name: "推进中暗线",
+          description: "密室钥匙线索",
+          status: "advanced",
+          plantedChapter: 3,
+          advancedChapters: [8],
+          relatedCharacters: [],
+          relatedEvents: [],
+          notes: "",
+        },
+        {
+          id: "f3",
+          name: "未来章伏笔",
+          description: "第15章才会埋设",
+          status: "planted",
+          plantedChapter: 15,
+          advancedChapters: [],
+          relatedCharacters: [],
+          relatedEvents: [],
+          notes: "",
+        },
+        {
+          id: "f4",
+          name: "同章未写伏笔",
+          description: "第10章本身",
+          status: "planted",
+          plantedChapter: 10,
+          advancedChapters: [],
+          relatedCharacters: [],
+          relatedEvents: [],
+          notes: "",
+        },
+        {
+          id: "f5",
+          name: "已回收伏笔",
+          description: "已完成",
+          status: "resolved",
+          plantedChapter: 2,
+          advancedChapters: [],
+          resolvedChapter: 6,
+          relatedCharacters: [],
+          relatedEvents: [],
+          notes: "",
+        },
+      ],
+      lastUpdated: "2026-11-27T00:00:00.000Z",
+    })
+    hoisted.relatedChaptersToContextText.mockReturnValue("关联章节文本")
+
+    const pack = await buildContextPack("/p", "写第10章", 10, {
+      novelConfig: mkNovelConfig({ relatedChaptersEnabled: true }),
+    })
+
+    // 与 relatedChaptersPromise 共享单次 loadForeshadowingTracker 调用
+    expect(hoisted.loadForeshadowingTracker).toHaveBeenCalledTimes(1)
+    expect(pack.foreshadowingStates).toContain("[已埋设] 第一章玉佩：身世之谜（第1章埋设）")
+    expect(pack.foreshadowingStates).toContain("[推进中] 推进中暗线：密室钥匙线索（第3章埋设）")
+    expect(pack.foreshadowingStates).not.toContain("未来章伏笔")
+    expect(pack.foreshadowingStates).not.toContain("同章未写伏笔")
+    expect(pack.foreshadowingStates).not.toContain("已回收伏笔")
+    expect(pack.relatedChapters).toBe("关联章节文本")
+  })
+
+  it("只读加载 .novel/book-rules.json 并合入 baseCanonRules（传播至 canonRulesBase / canonRules / mustAvoid），缺失或损坏安全降级为空", async () => {
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("/.novel/book-rules.json")) {
+        return JSON.stringify({
+          version: "1.0",
+          prohibitions: ["现代网络热梗", "穿越台词"],
+          allowedDeviations: [],
+          protagonist: {
+            name: "林动",
+            personalityLock: ["隐忍克制"],
+            behavioralConstraints: ["绝不背叛家人"],
+          },
+        })
+      }
+      return ""
+    })
+
+    const pack = await buildContextPack("/p", "写第5章", 5)
+    expect(pack.canonRulesBase).toContain("正史规则")
+    expect(pack.canonRulesBase).toContain("## 书籍治理规则（必须遵守）")
+    expect(pack.canonRulesBase).toContain("现代网络热梗")
+    expect(pack.canonRulesBase).toContain("林动 性格锁：隐忍克制")
+    expect(pack.canonRules).toContain("现代网络热梗")
+    expect(pack.mustAvoid).toContain("现代网络热梗")
+
+    // 损坏 JSON 静默降级为 ""，不抛错且不污染既有 canonRules
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("/.novel/book-rules.json")) return "{corrupt-json"
+      return ""
+    })
+    const corruptPack = await buildContextPack("/p", "写第5章", 5)
+    expect(corruptPack.canonRulesBase).toBe("正史规则")
+    expect(corruptPack.canonRules).toBe("正史规则")
+  })
+
+  it("contextPackToPrompt 渲染 styleExemplars（兜底标题、优先级 17.2 介于 writingStyle 与 voiceStyleGuide 之间，空数组不渲染）", () => {
+    const emptyBaseline = contextPackToPrompt({
+      ...basePack,
+      writingStyle: "冷峻克制",
+      voiceStyleGuide: "对白短促有力",
+      styleExemplars: [],
+    })
+    expect(emptyBaseline).not.toContain("风格示范锚点（正向参考）")
+
+    const withExemplars = contextPackToPrompt({
+      ...basePack,
+      writingStyle: "冷峻克制",
+      voiceStyleGuide: "对白短促有力",
+      styleExemplars: [
+        {
+          exemplarId: "ex-1",
+          chapterId: "chapter-001",
+          text: "雨点斜打在青石板上，像碎银砸进枯井。",
+          markType: "style",
+          note: "短句有画面感",
+          createdAt: "2026-11-27T00:00:00.000Z",
+        },
+        {
+          exemplarId: "ex-2",
+          chapterId: "chapter-002",
+          text: "刀出鞘时没有风声，只有灯芯骤然一矮。",
+          markType: "thrill",
+          createdAt: "2026-11-27T00:00:00.000Z",
+        },
+      ],
+    })
+    expect(withExemplars).toContain("## 风格示范锚点（正向参考）")
+    expect(withExemplars).toContain("- [文风] 雨点斜打在青石板上，像碎银砸进枯井。（注：短句有画面感）")
+    expect(withExemplars).toContain("- [爽感兑现] 刀出鞘时没有风声，只有灯芯骤然一矮。")
+    expect(withExemplars).not.toContain("[object Object]")
+
+    const styleIdx = withExemplars.indexOf("写作风格")
+    const exemplarIdx = withExemplars.indexOf("## 风格示范锚点（正向参考）")
+    const voiceIdx = withExemplars.indexOf("## 声音与风格指南")
+    expect(styleIdx).toBeGreaterThan(-1)
+    expect(exemplarIdx).toBeGreaterThan(styleIdx)
+    expect(voiceIdx).toBeGreaterThan(exemplarIdx)
   })
 })

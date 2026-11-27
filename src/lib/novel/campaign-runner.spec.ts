@@ -48,6 +48,8 @@ const mocks = vi.hoisted(() => ({
   loadSegmentSummaries: vi.fn(),
   getLatestSegmentSummaryText: vi.fn(),
   enrichWithEventPool: vi.fn(),
+  loadOutlineModel: vi.fn(),
+  getChapterVolumes: vi.fn(),
 }))
 
 vi.mock("./deep-chapter-generation", () => ({
@@ -136,6 +138,14 @@ vi.mock("./chapter-ingest", () => ({
 
 vi.mock("./canon-dual-write", () => ({
   defaultCanonDualWriteDeps: mocks.defaultCanonDualWriteDeps,
+}))
+
+vi.mock("./outline-model-store", () => ({
+  loadOutlineModel: mocks.loadOutlineModel,
+}))
+
+vi.mock("./volume", () => ({
+  getChapterVolumes: mocks.getChapterVolumes,
 }))
 
 const p0Findings: NovelReviewResult[] = [{
@@ -259,6 +269,10 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     mocks.enrichWithEventPool.mockImplementation(async (input: { request: string }) => `${input.request}\n\n【mock事件池】`)
     mocks.ingestChapter.mockReset()
     mocks.ingestChapter.mockResolvedValue({ snapshot: null, failReason: "no_llm" })
+    mocks.loadOutlineModel.mockReset()
+    mocks.loadOutlineModel.mockResolvedValue({ model: null, migratedFrom: null })
+    mocks.getChapterVolumes.mockReset()
+    mocks.getChapterVolumes.mockResolvedValue([])
   })
 
   it("连续调度多章批量生成，正确收集战役报告与前情传递", async () => {
@@ -489,6 +503,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       chapterCount: 2,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
       onProgress,
     })
 
@@ -520,7 +535,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     }))
 
     const report = await runAutonomousDraftCampaign({
-      projectPath: "/mock/project", startChapter: 1, chapterCount: 3, llmConfig: mockLlmConfig, cruiseMode: true,
+      projectPath: "/mock/project", startChapter: 1, chapterCount: 3, llmConfig: mockLlmConfig, cruiseMode: true, confirmAutoAccept: true,
     })
 
     expect(report.results.map((chapter) => [chapter.autoAccepted, chapter.autoIngested])).toEqual([
@@ -538,7 +553,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     const arbitrationProvider = vi.fn()
     const report = await runAutonomousDraftCampaign({
       projectPath: "/mock/project", startChapter: 1, chapterCount: 2, llmConfig: mockLlmConfig,
-      cruiseMode: true, onProgress, arbitrationProvider,
+      cruiseMode: true, confirmAutoAccept: true, onProgress, arbitrationProvider,
     })
 
     expect(mocks.runDeepChapterGeneration).toHaveBeenCalledOnce()
@@ -601,6 +616,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       chapterCount: 3,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
       onProgress,
     })
 
@@ -701,6 +717,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       chapterCount: 2,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
     })
 
     expect(report.results).toHaveLength(1)
@@ -730,6 +747,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       chapterCount: 1,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
       onProgress,
     })
 
@@ -993,6 +1011,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       chapterCount: 3,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
       onProgress,
     })
 
@@ -1064,6 +1083,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       chapterCount: 2,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
       buildChapterRequest: async (num: number) => `brief-${num}`,
       arbitrationProvider: provider,
       onProgress,
@@ -1129,6 +1149,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       chapterCount: 2,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
       arbitrationProvider: provider,
       onProgress,
     })
@@ -1157,7 +1178,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       .mockResolvedValueOnce(generatedBody("重跑正文未获复核凭证。", { decisionGates: buildDecisionGates([], 0) }))
     const onProgress = vi.fn()
     const report = await runAutonomousDraftCampaign({
-      projectPath: "/mock/project", startChapter: 1, chapterCount: 2, llmConfig: mockLlmConfig, cruiseMode: true,
+      projectPath: "/mock/project", startChapter: 1, chapterCount: 2, llmConfig: mockLlmConfig, cruiseMode: true, confirmAutoAccept: true,
       arbitrationProvider: async () => ({ action: "retry-rebrief", reason: "测试修订", revisedBrief: "重写本章" }),
       onProgress,
     })
@@ -1211,6 +1232,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       chapterCount: 2,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
       arbitrationProvider: provider,
       onProgress,
     })
@@ -1254,6 +1276,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       chapterCount: 2,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
       arbitrationProvider: provider,
       onProgress,
     })
@@ -1289,6 +1312,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       chapterCount: 1,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
     })
     expect(report.results[0].status).toBe("ready")
     const calls = mocks.runDeepChapterGeneration.mock.calls
@@ -1332,6 +1356,10 @@ describe("campaign-runner 覆盖率增补：F2 零成本约束/R3 遥测/仲裁�
     mocks.getLatestSegmentSummaryText.mockReturnValue("")
     mocks.enrichWithEventPool.mockReset()
     mocks.enrichWithEventPool.mockImplementation(async (input: { request: string }) => `${input.request}\n\n【mock事件池】`)
+    mocks.loadOutlineModel.mockReset()
+    mocks.loadOutlineModel.mockResolvedValue({ model: null, migratedFrom: null })
+    mocks.getChapterVolumes.mockReset()
+    mocks.getChapterVolumes.mockResolvedValue([])
   })
 
   function readyOnce(reviewed = false) {
@@ -1465,6 +1493,7 @@ describe("campaign-runner 覆盖率增补：F2 零成本约束/R3 遥测/仲裁�
       chapterCount: 2,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
       arbitrationProvider: async () => {
         throw new Error("arb down")
       },
@@ -1491,6 +1520,7 @@ describe("campaign-runner 覆盖率增补：F2 零成本约束/R3 遥测/仲裁�
       chapterCount: 2,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
       arbitrationProvider: async () => ({ action: "retry-rebrief", reason: "放宽门限" }),
       onProgress,
     })
@@ -1510,6 +1540,7 @@ describe("campaign-runner 覆盖率增补：F2 零成本约束/R3 遥测/仲裁�
       chapterCount: 1,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
     })
     expect(report.results).toHaveLength(1)
     expect(report.results[0].status).toBe("ready")
@@ -1570,6 +1601,10 @@ describe("campaign-runner 覆盖率增补第二轮：绑定无视点回退", () 
     mocks.getLatestSegmentSummaryText.mockReset()
     mocks.getLatestSegmentSummaryText.mockReturnValue("")
     mocks.enrichWithEventPool.mockReset()
+    mocks.loadOutlineModel.mockReset()
+    mocks.loadOutlineModel.mockResolvedValue({ model: null, migratedFrom: null })
+    mocks.getChapterVolumes.mockReset()
+    mocks.getChapterVolumes.mockResolvedValue([])
   })
 
   it("绑定对象无有效视点字段 → extractBindingPovName 回退 null（193）", async () => {
@@ -1681,6 +1716,7 @@ describe("campaign-runner 覆盖率增补第二轮：绑定无视点回退", () 
       chapterCount: 1,
       llmConfig: mockLlmConfig,
       cruiseMode: true,
+      confirmAutoAccept: true,
     })
 
     // 阶段4审初稿 + 阶段7.6复核润色终稿
@@ -1697,5 +1733,214 @@ describe("campaign-runner 覆盖率增补第二轮：绑定无视点回退", () 
         finalConsistencyReviewed: true,
       }),
     )
+  })
+
+  it("Draft-first 硬守卫：cruiseMode: true 但未传 confirmAutoAccept 时发出 cruise-draft-only 并保持 ready，不自动落盘", async () => {
+    mocks.runDeepChapterGeneration.mockResolvedValue(
+      generatedBody("门控全绿但未二次确认的正文。", {
+        decisionGates: buildDecisionGates([], 0),
+        finalConsistencyReviewed: true,
+      }),
+    )
+    const onProgress = vi.fn()
+
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      onProgress,
+    })
+
+    expect(report.completedChapters).toBe(2)
+    expect(report.summary.allPassed).toBe(true)
+    expect(report.results.every((r) => r.status === "ready" && r.autoAccepted === false && r.autoIngested === false)).toBe(true)
+    expect(report.results.every((r) => Boolean(r.reviewedBodySha256))).toBe(true)
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "cruise-draft-only" }),
+    )
+    expect(mocks.registerManagedCampaignDraft).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
+  })
+
+  it("弧末结算真实接线：outlineModel 命中弧尾时发出 stage: arc-settlement 并记录 arcSettlementTriggered", async () => {
+    mocks.loadOutlineModel.mockResolvedValueOnce({
+      migratedFrom: null,
+      model: {
+        schemaVersion: 2,
+        updatedAt: "2026-01-01",
+        volumes: [
+          {
+            number: 1,
+            title: "第一卷",
+            arc: "初出茅庐",
+            chapters: [
+              {
+                id: "v01c001", volume: 1, chapter: 1, title: "第一章", pov: "", arc: "入门篇",
+                entities: [], foreshadow: { plant: [], payoff: [] }, constraints: [],
+                prose: { goal: "", scenes: [], emotion: "" }, updatedAt: "2026-01-01",
+              },
+              {
+                id: "v01c002", volume: 1, chapter: 2, title: "第二章", pov: "", arc: "入门篇",
+                entities: [], foreshadow: { plant: [], payoff: [] }, constraints: [],
+                prose: { goal: "", scenes: [], emotion: "" }, updatedAt: "2026-01-01",
+              },
+              {
+                id: "v01c003", volume: 1, chapter: 3, title: "第三章", pov: "", arc: "宗门大比",
+                entities: [], foreshadow: { plant: [], payoff: [] }, constraints: [],
+                prose: { goal: "", scenes: [], emotion: "" }, updatedAt: "2026-01-01",
+              },
+            ],
+          },
+        ],
+      },
+    })
+    mocks.runDeepChapterGeneration.mockResolvedValue(generatedBody("正文", { decisionGates: previewGates() }))
+    const onProgress = vi.fn()
+
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      onProgress,
+    })
+
+    expect(report.results[0].arcSettlementTriggered).toBeUndefined()
+    expect(report.results[1].arcSettlementTriggered).toBe(true)
+    expect(report.results[1].arcEndChapter).toBe(2)
+    expect(report.arcSettlementTriggered).toBe(true)
+    expect(report.arcSettlementChapters).toEqual([2])
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: "arc-settlement",
+        current: 2,
+        total: 2,
+      }),
+    )
+  })
+
+  it("弧末结算真实接线：outlineModel 缺失时回退 getChapterVolumes；显式 arcEndChapters 可覆盖；读错非致命降级", async () => {
+    mocks.loadOutlineModel.mockResolvedValueOnce({ model: null, migratedFrom: null })
+    mocks.getChapterVolumes.mockResolvedValueOnce([
+      { volumeNumber: 1, title: "第一卷", summary: "", chapterRangeStart: 1, chapterRangeEnd: 5 },
+    ])
+    mocks.runDeepChapterGeneration.mockResolvedValue(generatedBody("正文", { decisionGates: previewGates() }))
+    const onProgressVol = vi.fn()
+
+    const volReport = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 5,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+      onProgress: onProgressVol,
+    })
+    expect(volReport.results[0].arcSettlementTriggered).toBe(true)
+    expect(volReport.arcSettlementTriggered).toBe(true)
+    expect(onProgressVol).toHaveBeenCalledWith(expect.objectContaining({ stage: "arc-settlement" }))
+
+    // 显式 arcEndChapters + 读盘失败非致命降级
+    mocks.loadOutlineModel.mockRejectedValueOnce(new Error("corrupt outline"))
+    mocks.getChapterVolumes.mockRejectedValueOnce(new Error("search down"))
+    const onProgressExplicit = vi.fn()
+    const explicitReport = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 3,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+      arcEndChapters: [3],
+      onProgress: onProgressExplicit,
+    })
+    expect(explicitReport.results[0].arcSettlementTriggered).toBe(true)
+    expect(explicitReport.arcSettlementChapters).toEqual([3])
+    expect(onProgressExplicit).toHaveBeenCalledWith(expect.objectContaining({ stage: "arc-settlement" }))
+  })
+
+  it("REV1-003：弧末章首跑失败经仲裁 retry 成功后，仍触发 arcSettlementTriggered、发出 stage: arc-settlement、携带段摘要且指标不重复写入", async () => {
+    mocks.loadSegmentSummaries.mockResolvedValue({ "1-1": "第一卷弧末段摘要" } as never)
+    mocks.getLatestSegmentSummaryText.mockReturnValue("第一卷弧末段摘要")
+    mocks.runDeepChapterGeneration
+      .mockResolvedValueOnce({
+        finalContent: "第一章首跑被 P0 阻断",
+        taskBrief: "brief1",
+        draftContent: "draft1",
+        reviewResults: [],
+        revised: false,
+        decisionGates: buildDecisionGates(p0Findings, 3, true),
+        manualReviewRequired: true,
+        retryCount: 3,
+        partial: false,
+        partialReason: null,
+      })
+      .mockResolvedValueOnce({
+        finalContent: "第一章重跑后门控全绿正文",
+        taskBrief: "revised-brief-1",
+        draftContent: "draft1-retry",
+        reviewResults: [],
+        revised: true,
+        decisionGates: buildDecisionGates([], 0),
+        finalConsistencyReviewed: true,
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+      })
+      .mockResolvedValueOnce({
+        finalContent: "第二章承接正文",
+        taskBrief: "brief2",
+        draftContent: "draft2",
+        reviewResults: [],
+        revised: false,
+        decisionGates: buildDecisionGates([], 0),
+        finalConsistencyReviewed: true,
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+      })
+
+    const provider = vi.fn(
+      async (_req: ArbitrationRequest): Promise<ArbitrationDirective | null> => ({
+        action: "retry-rebrief",
+        revisedBrief: "revised-brief-1",
+        reason: "修订任务书重跑弧末章",
+      }),
+    )
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      confirmAutoAccept: true,
+      arcEndChapters: [1],
+      buildChapterRequest: async (num: number) => `brief-${num}`,
+      arbitrationProvider: provider,
+      onProgress,
+    })
+
+    expect(report.results).toHaveLength(2)
+    expect(report.results[0].status).toBe("ready")
+    expect(report.results[0].arcSettlementTriggered).toBe(true)
+    expect(report.results[0].arcEndChapter).toBe(1)
+    expect(report.arcSettlementTriggered).toBe(true)
+    expect(report.arcSettlementChapters).toEqual([1])
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "arbitration-retry", current: 1, total: 2 }),
+    )
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "arc-settlement", current: 1, total: 2 }),
+    )
+    // 段摘要经公共后置路径注入第二章承接指令（dismantlingReferenceDirective）
+    const ch2Call = mocks.runDeepChapterGeneration.mock.calls[2][0] as {
+      dismantlingReferenceDirective?: string
+    }
+    expect(ch2Call.dismantlingReferenceDirective).toContain("第一卷弧末段摘要")
+    expect(ch2Call.dismantlingReferenceDirective).toContain("第一章重跑后门控全绿正文")
+    // R3 指标不因 retry 走公共后置路径而双写：2 章严格 2 条
+    expect(mocks.appendStageMetric).toHaveBeenCalledTimes(2)
   })
 })

@@ -194,6 +194,14 @@ describe("buildInteractiveIngestPrompt", () => {
     expect(zh).toContain('"chapterNumber": 12')
     expect(zh).toContain("beliefFacts")
     expect(zh).toContain("hypothesisFacts")
+    expect(zh).toContain("arcChange")
+    expect(zh).toContain('"holder"')
+    expect(zh).toContain('"previousHolders"')
+    expect(zh).toContain("新增伏笔：伏笔名称-伏笔描述")
+    expect(zh).toContain("推进伏笔：伏笔名称-推进进展")
+    expect(zh).toContain("回收伏笔：伏笔名称-回收结果")
+    expect(zh).toContain("characterDetails.<name>.arcChange")
+    expect(zh).toContain("itemDetails.<item>.holder")
 
     const en = buildInteractiveIngestPrompt({
       chapterNumber: 3,
@@ -203,6 +211,12 @@ describe("buildInteractiveIngestPrompt", () => {
     expect(en).toContain("chapter.read")
     expect(en).toContain("Do NOT call any write tools")
     expect(en).toContain('"chapterNumber": 3')
+    expect(en).toContain("characterDetails.<name>.arcChange")
+    expect(en).toContain("itemDetails.<item>.holder")
+    expect(en).toContain("itemDetails.<item>.previousHolders")
+    expect(en).toContain("新增伏笔：伏笔名称-伏笔描述")
+    expect(en).toContain("推进伏笔：伏笔名称-推进进展")
+    expect(en).toContain("回收伏笔：伏笔名称-回收结果")
   })
 
   it("非法章号或空路径抛错", () => {

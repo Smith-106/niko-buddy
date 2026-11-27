@@ -453,6 +453,41 @@ describe("M2-07 applyArrayFieldCaps / getStoreArrayFieldCaps / applyStoreArrayFi
     expect(getStoreArrayFieldCaps("m207-unregistered.json")).toBeUndefined()
     expect(applyStoreArrayFieldCaps("m207-unregistered.json", unregistered)).toBe(unregistered)
   })
+
+  it("支持对象规则 { cap, retain } 并在 save 与 applyStoreArrayFieldCaps 同源生效且强制 cap 上限", async () => {
+    const retain = vi.fn((items: readonly number[], cap: number) => {
+      // 故意返回超过 cap 的数组，验证 applyArrayFieldCaps 会 .slice(0, cap) 硬兜底
+      return [items[0], ...items.slice(-cap)]
+    })
+    const store = createAtomicJsonStore<{ entries: number[] }>(
+      "task004-retain-cap.json",
+      () => ({ entries: [] }),
+      { arrayFieldCaps: { entries: { cap: 3, retain } } },
+    )
+    const written: string[] = []
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    fsMocks.writeFileAtomic.mockImplementation(async (_p: string, c: string) => {
+      written.push(c)
+    })
+
+    const raw = { entries: [1, 2, 3, 4, 5] }
+    await store.save("/proj", raw)
+    const saved = JSON.parse(written[0]) as { entries: number[] }
+    expect(saved.entries).toEqual([1, 3, 4])
+    expect(raw.entries).toEqual([1, 2, 3, 4, 5])
+
+    // applyStoreArrayFieldCaps（drift 重放同源路径）与 save 结果逐元素一致
+    expect(applyStoreArrayFieldCaps("task004-retain-cap.json", raw)).toEqual(saved)
+
+    // 对象规则省略 retain 时向后兼容退化为 .slice(-cap)
+    expect(applyArrayFieldCaps({ entries: [10, 20, 30, 40] }, { entries: { cap: 2 } })).toEqual({
+      entries: [30, 40],
+    })
+    // 对象规则 cap=0 返回空数组
+    expect(applyArrayFieldCaps({ entries: [10, 20] }, { entries: { cap: 0, retain } })).toEqual({
+      entries: [],
+    })
+  })
 })
 
 describe("R2-M04 / R2-M11 isVolatileKey 遥测桶豁免与严格默认 isDefaultMissingFileError", () => {

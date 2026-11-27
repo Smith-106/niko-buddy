@@ -24,7 +24,8 @@ import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types"
 import type { TFunction } from "i18next"
 import i18n from "@/i18n"
-import { normalizePath } from "@/lib/path-utils"
+import { readFile } from "@/commands/fs"
+import { getFileStem, normalizePath } from "@/lib/path-utils"
 import { logger, toErrorMessage } from "@/lib/utils"
 import type { IngestFailReason, IngestResult } from "./chapter-ingest"
 import { ingestChapter, type IngestProjectionReceipt } from "./chapter-ingest"
@@ -34,6 +35,9 @@ import type {
   IngestSourceBinding,
 } from "./chapter-ingest-commit"
 import { defaultCanonDualWriteDeps } from "./canon-dual-write"
+import { externalDraftTargetKey, readDraftChapterNumber } from "./draft-manager"
+import { finalizeAcceptedChapter } from "./formal-writeback"
+import { markExternalDraftAcceptedInStatus } from "./novel-session-status"
 import { resolveNovelModel } from "./model-resolver"
 import { resolveReviewModel } from "./review-model"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -61,6 +65,14 @@ export interface AcceptDraftAndIngestInput {
   novelConfig: NovelConfig
   llmConfig: LlmConfig
   signal?: AbortSignal
+  /** 外部草稿（`.qm-drafts/`）ID；提供时采纳后同步 `.novel/status.json` 并执行共享 `finalizeAcceptedChapter` 后处理。 */
+  draftId?: string
+  /** 目标章号（未传时从 `chapterName` 或正式章文件名推导）。 */
+  chapterNumber?: number
+  /** 草稿章节名（用于计算持久熔断键与状态描述）。 */
+  chapterName?: string
+  /** 调用方若已在 `accept` seam 内执行过 `finalizeAcceptedChapter`（如 `commitAcceptedDeepChapterDraft`）可置 true 跳过重复后处理。 */
+  skipFinalize?: boolean
 }
 
 export interface AcceptDraftAndIngestResult extends MemoryIngestOutcome {
@@ -216,13 +228,67 @@ export async function acceptDraftAndIngest(
 ): Promise<AcceptDraftAndIngestResult> {
   await input.accept(input.formalChapterPath)
 
+  const shouldSyncExternal = Boolean(input.draftId)
+  const shouldFinalizeExternal = Boolean(input.draftId) && input.skipFinalize !== true
+  let acceptedContent = ""
+  if (shouldSyncExternal || shouldFinalizeExternal) {
+    try {
+      acceptedContent = await readFile(input.formalChapterPath)
+    } catch {
+      acceptedContent = ""
+    }
+  }
+  const stem = getFileStem(normalizePath(input.formalChapterPath))
+  const resolvedChapterNumber =
+    input.chapterNumber
+    ?? (input.chapterName ? readDraftChapterNumber(input.chapterName) : undefined)
+    ?? readDraftChapterNumber(stem)
+  const targetKey =
+    input.chapterName
+      ? externalDraftTargetKey(input.projectPath, input.chapterName)
+      : resolvedChapterNumber !== undefined
+        ? `chapter:${resolvedChapterNumber}`
+        : undefined
+
+  if (shouldSyncExternal) {
+    try {
+      await markExternalDraftAcceptedInStatus({
+        projectPath: input.projectPath,
+        draftId: input.draftId,
+        formalChapterPath: input.formalChapterPath,
+        chapterNumber: resolvedChapterNumber,
+        chapterName: input.chapterName,
+        targetKey,
+        finalChapterContent: acceptedContent,
+      })
+    } catch (statusError) {
+      logger.warn("Novel Session", "External draft accept status sync failed (non-fatal)", {
+        error: toErrorMessage(statusError),
+      })
+    }
+  }
+
+  const runFinalizeAfterAccept = async (fallbackChapterNumber?: number): Promise<void> => {
+    if (!shouldFinalizeExternal) return
+    const chapterNum = resolvedChapterNumber ?? fallbackChapterNumber
+    if (chapterNum === undefined || !Number.isInteger(chapterNum) || chapterNum < 1) return
+    await finalizeAcceptedChapter({
+      projectPath: input.projectPath,
+      chapterNumber: chapterNum,
+      formalChapterPath: input.formalChapterPath,
+      finalChapterContent: acceptedContent,
+    })
+  }
+
   if (input.novelConfig.autoIngestOnSave !== true) {
+    await runFinalizeAfterAccept()
     return { formalChapterPath: input.formalChapterPath, ingest: "skipped-config" }
   }
 
   try {
     const extract = resolveNovelModel(input.llmConfig, input.novelConfig, "extract")
     if (!hasUsableLlm(extract)) {
+      await runFinalizeAfterAccept()
       return { formalChapterPath: input.formalChapterPath, ingest: "skipped-no-model" }
     }
     const result = await ingestChapter(input.projectPath, input.formalChapterPath, resolveReviewModel(), input.signal, {
@@ -231,6 +297,7 @@ export async function acceptDraftAndIngest(
       llmConfig: input.llmConfig,
     })
     const memory = await readBackMemoryIngest(input.projectPath, input.formalChapterPath, result)
+    await runFinalizeAfterAccept(result.snapshot?.chapterNumber)
     return {
       formalChapterPath: input.formalChapterPath,
       ...memory,
@@ -241,6 +308,7 @@ export async function acceptDraftAndIngest(
     }
   } catch (error) {
     logger.warn("Chapter Ingest", "Automatic memory ingest failed after adoption", { error: toErrorMessage(error) })
+    await runFinalizeAfterAccept()
     return { formalChapterPath: input.formalChapterPath, ingest: "failed", failReason: "ingest_error" }
   }
 }

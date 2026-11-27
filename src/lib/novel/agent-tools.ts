@@ -8,9 +8,12 @@
  */
 
 import { readFile, writeFile, listDirectory } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { parseFrontmatter } from "@/lib/frontmatter"
+import { getFileStem, normalizePath } from "@/lib/path-utils"
 import { isSafeIngestPath } from "@/lib/ingest"
 import type { FileEditAction } from "./agent-parser"
+import { discardChapterDraft, writeDraft } from "./draft-manager"
+import { DRAFTS_DIR } from "./lifecycle-types"
 import { toErrorMessage } from "@/lib/utils"
 
 export interface FileEditResult {
@@ -21,6 +24,23 @@ export interface FileEditResult {
   originalContent?: string
   /** 修改后的完整内容 */
   newContent?: string
+  /** 是否因 Draft-first 边界改道写入待审草稿箱（.qm-drafts/）而非直写正式章 */
+  routedToDraft?: boolean
+  /** 改道写入草稿箱时生成的草稿 ID */
+  draftId?: string
+  /** 改道写入草稿箱时的草稿文件路径 */
+  draftPath?: string
+}
+
+function isSafeAgentEditPath(filePath: string): boolean {
+  if (isSafeIngestPath(filePath)) return true
+  if (typeof filePath !== "string" || filePath.trim().length === 0) return false
+  if (/[\x00-\x1f]/.test(filePath)) return false
+  if (filePath.startsWith("/") || filePath.startsWith("\\")) return false
+  if (/^[a-zA-Z]:/.test(filePath)) return false
+  const normalized = filePath.replace(/\\/g, "/")
+  if (!normalized.startsWith("QM/chapters/")) return false
+  return isSafeIngestPath(`wiki/${normalized.slice("QM/".length)}`)
 }
 
 /**
@@ -85,13 +105,13 @@ export async function applyFileEdit(
   
   // 🔴 ISS-20260731-001: 路径遍历守卫 (PAT-G2 twin mirror fix, 对齐 ingest.ts:253)
   // LLM 可构造 wiki/chapters/../../../../etc/passwd 绕过字符串包含检查
-  // isSafeIngestPath 拒绝：绝对路径 / .. segments / 控制字符 / 非 wiki/ 前缀
-  if (!isSafeIngestPath(edit.filePath)) {
+  // 拒绝：绝对路径 / .. segments / 控制字符 / 非 wiki/ 或 QM/chapters/ 前缀
+  if (!isSafeAgentEditPath(edit.filePath)) {
     console.warn(`[agent-tools] Blocked unsafe path: ${edit.filePath}`)
     return {
       filePath: edit.filePath,
       success: false,
-      error: "路径不安全：必须位于 wiki/ 下，禁止 '..'、绝对路径和控制字符",
+      error: "路径不安全：必须位于 wiki/ 或 QM/chapters/ 下，禁止 '..'、绝对路径和控制字符",
     }
   }
   
@@ -102,12 +122,15 @@ export async function applyFileEdit(
 
   const normalizedPath = normalizePath(fullPath)
 
-  // 检查路径是否在 wiki/chapters 或 wiki/outlines 下（双重防御）
-  if (!normalizedPath.includes("/wiki/chapters/") && !normalizedPath.includes("/wiki/outlines/")) {
+  // 检查路径是否在 wiki/chapters、QM/chapters 或 wiki/outlines 下（双重防御）
+  const isChapterTarget =
+    normalizedPath.includes("/wiki/chapters/") || normalizedPath.includes("/QM/chapters/")
+  const isOutlineTarget = normalizedPath.includes("/wiki/outlines/")
+  if (!isChapterTarget && !isOutlineTarget) {
     return {
       filePath: edit.filePath,
       success: false,
-      error: "只能修改 wiki/chapters/ 或 wiki/outlines/ 下的文件",
+      error: "只能修改 wiki/chapters/、QM/chapters/ 或 wiki/outlines/ 下的文件",
     }
   }
 
@@ -125,6 +148,31 @@ export async function applyFileEdit(
 
     // 替换所有匹配项（如果有多处相同内容）
     const newContent = originalContent.split(edit.search).join(edit.replace)
+
+    // Draft-first 边界：章节目标一律改道写入 .qm-drafts/ 待审草稿箱，禁止直写正式章节
+    if (isChapterTarget) {
+      const parsed = parseFrontmatter(newContent.replace(/^\uFEFF/, ""))
+      const draftBody = parsed.rawBlock
+        ? parsed.body.replace(/^(?:\r?\n)+/, "")
+        : newContent
+      const chapterName = getFileStem(normalizedPath).trim() || "chapter"
+      const draft = await writeDraft(pp, chapterName, draftBody, {
+        sourceConversationId: "agent:file-edit",
+      })
+      const root = pp.replace(/\/+$/, "")
+      const draftPath = `${root}/${DRAFTS_DIR}/${draft.id}.md`
+      return {
+        filePath: edit.filePath,
+        success: true,
+        originalContent,
+        newContent,
+        routedToDraft: true,
+        draftId: draft.id,
+        draftPath,
+      }
+    }
+
+    // wiki/outlines/ 维持直写，保持大纲对话体验不受影响
     await writeFile(normalizedPath, newContent)
 
     return {
@@ -132,6 +180,7 @@ export async function applyFileEdit(
       success: true,
       originalContent,
       newContent,
+      routedToDraft: false,
     }
   } catch (err) {
     return {
@@ -157,10 +206,23 @@ export async function applyFileEdits(
 }
 
 /**
- * 撤销文件修改（恢复原始内容）
+ * 撤销文件修改（恢复原始内容；改道草稿箱的章节修改仅丢弃草稿，绝不覆盖正式章节）
  */
-export async function undoFileEdit(result: FileEditResult): Promise<boolean> {
-  if (!result.success || !result.originalContent) return false
+export async function undoFileEdit(
+  result: FileEditResult,
+  projectPath?: string,
+): Promise<boolean> {
+  if (!result.success) return false
+  if (result.routedToDraft === true) {
+    if (!projectPath || !result.draftId) return false
+    try {
+      await discardChapterDraft(projectPath, result.draftId)
+      return true
+    } catch {
+      return false
+    }
+  }
+  if (!result.originalContent) return false
   try {
     const pp = result.filePath
     await writeFile(pp, result.originalContent)

@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import {
+  EMOTION_EXACT_RECENT_WINDOW,
+  EMOTION_HISTORY_DECAY,
+  EMOTION_HISTORY_WINDOW,
+  EMOTION_NET_VALUE_MAX,
+  EMOTION_NET_VALUE_MIN,
   applyEmotionDelta,
   calculateEmotionNetValue,
   checkEmotionCircuitBreaker,
@@ -12,6 +17,8 @@ import {
   getCircuitBreakerStatus,
   getTopEmotionalDebt,
   resolveSceneCharacterNames,
+  retainEmotionLedgerEntries,
+  saveEmotionLedger,
   updateEmotionLedgerFromChapter,
   evaluatePlayableEmotionPath,
   type EmotionLedgerEntry,
@@ -513,5 +520,95 @@ describe("evaluatePlayableEmotionPath (64 号实施：影游路径情感评估�
   it("确定性：同输入双跑全等", () => {
     const samples = [{ nodeId: "a", tag: "喜" }, { nodeId: "b", tag: "哀" }]
     expect(evaluatePlayableEmotionPath(samples)).toEqual(evaluatePlayableEmotionPath(samples))
+  })
+})
+
+describe("百章级情绪滑动窗口、衰减与有界钳制（TASK-004）", () => {
+  it("导出窗口、衰减与上下界常量精确匹配契约", () => {
+    expect(EMOTION_HISTORY_WINDOW).toBe(20)
+    expect(EMOTION_EXACT_RECENT_WINDOW).toBe(5)
+    expect(EMOTION_HISTORY_DECAY).toBe(0.85)
+    expect(EMOTION_NET_VALUE_MIN).toBe(-5)
+    expect(EMOTION_NET_VALUE_MAX).toBe(5)
+  })
+
+  it("最近 5 条历史保持精确权重 1.0，第 6 条起按 0.85^(age-4) 衰减，超出 20 条忽略", () => {
+    // 恰好 5 条历史：全权重 1.0
+    const recent5 = makeEntry(
+      "A",
+      0,
+      0,
+      0,
+      Array.from({ length: 5 }, (_, i) => ({ chapter: i + 1, delta: 0.2, reason: `r${i}` })),
+    )
+    expect(recent5.netValue).toBeCloseTo(1.0, 6)
+
+    // 7 条历史：索引 6..2（age 0..4）权重 1.0；索引 1（age 5）权重 0.85^1；索引 0（age 6）权重 0.85^2
+    const recent7 = makeEntry(
+      "A",
+      0,
+      0,
+      0,
+      Array.from({ length: 7 }, (_, i) => ({ chapter: i + 1, delta: 0.2, reason: `r${i}` })),
+    )
+    const expected7 = 5 * 0.2 + 0.2 * Math.pow(0.85, 1) + 0.2 * Math.pow(0.85, 2)
+    expect(recent7.netValue).toBeCloseTo(expected7, 6)
+
+    // 超出 20 条窗口的更早极大 delta 不会污染当前净值
+    const withOldOutlier = makeEntry("A", 0, 0, 0, [
+      { chapter: 1, delta: -100, reason: "远古创伤" },
+      ...Array.from({ length: 20 }, (_, i) => ({ chapter: i + 2, delta: 0, reason: "平稳" })),
+    ])
+    expect(withOldOutlier.netValue).toBe(0)
+  })
+
+  it("百章单调压抑/爽点累积时 history 锁定 <= 20 且 netValue 夹紧在 [-5, 5]", () => {
+    let depressed = makeEntry("承压主角", 0, 0, 0, [])
+    let euphoric = makeEntry("爽文主角", 0, 0, 0, [])
+    for (let ch = 1; ch <= 100; ch += 1) {
+      depressed = applyEmotionDelta(depressed, { valence: -0.8, arousal: -0.2, dominance: -0.8, reason: "连续低谷" }, ch)
+      euphoric = applyEmotionDelta(euphoric, { valence: 0.8, arousal: 0.6, dominance: 0.8, reason: "连续高潮" }, ch)
+    }
+    expect(depressed.history).toHaveLength(EMOTION_HISTORY_WINDOW)
+    expect(depressed.history[0].chapter).toBe(81)
+    expect(depressed.history[19].chapter).toBe(100)
+    expect(depressed.netValue).toBe(EMOTION_NET_VALUE_MIN)
+
+    expect(euphoric.history).toHaveLength(EMOTION_HISTORY_WINDOW)
+    expect(euphoric.netValue).toBe(EMOTION_NET_VALUE_MAX)
+  })
+
+  it("retainEmotionLedgerEntries 钉住索引 0 并优先保留近期与高债务条目，saveEmotionLedger 超 500 条同源生效", async () => {
+    const entries: EmotionLedgerEntry[] = [
+      { ...makeEntry("首位主角", 0, 0, 0), lastUpdatedChapter: 1, netValue: 0.1 },
+      { ...makeEntry("远古平稳路人", 0, 0, 0), lastUpdatedChapter: 2, netValue: 0.0 },
+      { ...makeEntry("同章高债务", -0.8, 0.2, -0.6), lastUpdatedChapter: 50, netValue: -3.5 },
+      { ...makeEntry("同章低载荷", 0.1, 0, 0), lastUpdatedChapter: 50, netValue: 0.1 },
+      { ...makeEntry("最近章节角色", 0.3, 0.2, 0.3), lastUpdatedChapter: 99, netValue: 0.8 },
+    ]
+    const retained = retainEmotionLedgerEntries(entries, 3)
+    expect(retained.map((e) => e.characterName)).toEqual(["首位主角", "同章高债务", "最近章节角色"])
+    expect(retainEmotionLedgerEntries(entries, 0)).toEqual([])
+    expect(retainEmotionLedgerEntries(entries, 1).map((e) => e.characterName)).toEqual(["首位主角"])
+
+    // 验证 saveEmotionLedger 超过 500 条时通过 arrayFieldCaps.retain 保留索引 0
+    fsMocks.files.clear()
+    const bigStore: EmotionLedgerStore = {
+      entries: [
+        { ...makeEntry("首位主角", 0, 0, 0), lastUpdatedChapter: 1, netValue: 0.0 },
+        ...Array.from({ length: 510 }, (_, i) => ({
+          ...makeEntry(`角色-${i + 1}`, 0, 0, 0),
+          lastUpdatedChapter: i + 2,
+          netValue: 0.2,
+        })),
+      ],
+      lastUpdated: "2026-11-27T00:00:00.000Z",
+    }
+    await saveEmotionLedger("E:/Novel", bigStore)
+    const saved = JSON.parse(fsMocks.files.get("E:/Novel/.novel/emotion-ledger.json")!) as EmotionLedgerStore
+    expect(saved.entries).toHaveLength(500)
+    expect(saved.entries[0].characterName).toBe("首位主角")
+    expect(saved.entries.some((e) => e.characterName === "角色-1")).toBe(false)
+    expect(saved.entries.some((e) => e.characterName === "角色-510")).toBe(true)
   })
 })

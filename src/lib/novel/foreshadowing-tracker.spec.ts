@@ -24,9 +24,11 @@ import {
   getForeshadowingWatermark,
   loadForeshadowingTracker,
   markAbandoned,
+  retainForeshadowingItems,
   saveForeshadowingTracker,
   type Foreshadowing,
 } from "./foreshadowing-tracker"
+import { applyStoreArrayFieldCaps } from "./projection-store"
 
 function shadow(overrides: Partial<Foreshadowing> = {}): Foreshadowing {
   return {
@@ -168,6 +170,61 @@ describe("foreshadowing-tracker", () => {
         shadow({ plantedChapter: 2, status: "advanced", advancedChapters: [5, 9] }),
         shadow({ plantedChapter: 1, status: "resolved", resolvedChapter: 7 }),
       ])).toBe(9)
+    })
+  })
+
+  describe("retainForeshadowingItems（百章级未回收伏笔不变量）", () => {
+    it("活跃伏笔数量 <= cap 时绝不驱逐任何 planted/advanced，并优先驱逐最旧 resolved/abandoned 且保原序", () => {
+      const items: Foreshadowing[] = [
+        shadow({ id: "active-ch1", name: "首章主线伏笔", status: "planted", plantedChapter: 1 }),
+        shadow({ id: "old-resolved", name: "旧已回收", status: "resolved", plantedChapter: 2, resolvedChapter: 5 }),
+        shadow({ id: "old-abandoned", name: "旧废弃", status: "abandoned", plantedChapter: 3 }),
+        shadow({ id: "active-adv", name: "推进中伏笔", status: "advanced", plantedChapter: 4, advancedChapters: [12] }),
+        shadow({ id: "new-resolved", name: "新已回收", status: "resolved", plantedChapter: 20, resolvedChapter: 88 }),
+      ]
+
+      const retained = retainForeshadowingItems(items, 3)
+      expect(retained.map((f) => f.id)).toEqual(["active-ch1", "active-adv", "new-resolved"])
+      expect(items).toHaveLength(5)
+      expect(retainForeshadowingItems(items, 0)).toEqual([])
+      expect(retainForeshadowingItems(items, 10)).toHaveLength(5)
+    })
+
+    it("活跃伏笔超过 cap 时按最近活动章号确定性留存且保原序", () => {
+      const items: Foreshadowing[] = [
+        shadow({ id: "a1", status: "planted", plantedChapter: 1 }),
+        shadow({ id: "a2", status: "advanced", plantedChapter: 2, advancedChapters: [50] }),
+        shadow({ id: "a3", status: "planted", plantedChapter: 30 }),
+      ]
+      expect(retainForeshadowingItems(items, 2).map((f) => f.id)).toEqual(["a2", "a3"])
+    })
+
+    it("saveForeshadowingTracker 超过 500 条时绝不驱逐第 1 章未回收伏笔并与 applyStoreArrayFieldCaps 同源", async () => {
+      fsMocks.createDirectory.mockResolvedValue(undefined)
+      fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+
+      const items: Foreshadowing[] = [
+        shadow({ id: "ch1-planted", name: "命运之钥", status: "planted", plantedChapter: 1 }),
+        ...Array.from({ length: 520 }, (_, i) =>
+          shadow({
+            id: `resolved-${i + 1}`,
+            name: `已回收-${i + 1}`,
+            status: "resolved",
+            plantedChapter: i + 2,
+            resolvedChapter: i + 3,
+          }),
+        ),
+      ]
+      const input = { items, lastUpdated: "2026-11-27T00:00:00.000Z" }
+      await saveForeshadowingTracker("C:/novel", input)
+      const saved = JSON.parse(fsMocks.writeFileAtomic.mock.calls[0][1] as string) as { items: Foreshadowing[] }
+      expect(saved.items).toHaveLength(500)
+      expect(saved.items[0].id).toBe("ch1-planted")
+      expect(saved.items.some((f) => f.id === "resolved-1")).toBe(false)
+      expect(saved.items.some((f) => f.id === "resolved-520")).toBe(true)
+
+      const replayed = applyStoreArrayFieldCaps("foreshadowing-tracker.json", input)
+      expect(replayed.items.map((f) => f.id)).toEqual(saved.items.map((f) => f.id))
     })
   })
 })

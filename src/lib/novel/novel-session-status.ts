@@ -10,7 +10,7 @@ import { checkCommitDiscipline } from "@/lib/quality/commit-discipline"
 import { computeCheckpointDigest } from "./checkpoint-digest"
 import { decideDraftAdoptionGate } from "./deep-chapter-decision-gates"
 import { readManagedChapterHeader } from "./chapter-save-strategy"
-import type { DraftAdoptionGate, DraftGateStatus } from "./lifecycle-types"
+import { DRAFTS_DIR as QM_DRAFTS_DIR, type DraftAdoptionGate, type DraftGateStatus } from "./lifecycle-types"
 import type {
   DeepChapterDecisionGates,
   DeepChapterGenerationResumeCheckpoint,
@@ -101,6 +101,34 @@ export interface NovelDraftArtifact {
   context_usage?: import("@/lib/context-usage").ContextUsage
   /** 采纳门 receipt：status + bodySha256（additive；旧草稿无此字段按未评估）。 */
   adoption_gate?: DraftAdoptionGate
+}
+
+/**
+ * 外部草稿（`.qm-drafts/`）在 `.novel/status.json` 唯一真源内的独立状态槽条目。
+ * 当应用内 Chat 深章会话处于 running 占用主槽时，外部草稿评审/修订状态写入此表，
+ * 避免覆盖正在进行的 Chat 深章会话，同时保持零第二份会话状态文件（HARD-1）。
+ */
+export interface ExternalDraftStatusEntry {
+  draft_id: string
+  file_path: string
+  chapter_name?: string
+  chapter_number?: number
+  target_key?: string
+  draft_status: NovelDraftStatus
+  decision_gates: DeepChapterDecisionGates
+  draft_auto_arm?: DraftAutoArmStatus
+  dimension_results?: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
+  revision_round?: number
+  updated_at: string
+  accepted_at?: string
+  formal_chapter_path?: string
+}
+
+export interface ArcSettlementRecord {
+  arc_review?: boolean
+  arc_summary?: boolean
+  volume_summary?: boolean
+  updated_at?: string
 }
 
 export interface NovelSessionStatus {
@@ -225,6 +253,26 @@ export interface NovelSessionStatus {
    * 旧 status.json 无本字段仍可加载 (additive 兼容, zod optional)。
    */
   draft_auto_arm?: DraftAutoArmStatus
+  /**
+   * 章节级外部草稿持久修订计数器（key = externalDraftTargetKey，value = 已修订轮次）。
+   * 跨 `chapter.write` 与 `draft.patch` 持久共享，阻止通过重调 `chapter.write` 重置 `HARD_FUSE_LIMIT`。
+   */
+  external_draft_revisions?: Record<string, number>
+  /**
+   * 外部草稿（`.qm-drafts/`）按 `draft_id` 索引的状态映射（additive-optional）。
+   * 当 Chat 深章会话正在运行占用主 `draft` 槽位时，外部草稿的评审/auto-arm/采纳态落在此处。
+   */
+  external_draft_states?: Record<string, ExternalDraftStatusEntry>
+  /** 待重写章节队列（route() Branch 4 输入，additive-optional）。 */
+  pending_rewrites?: number[]
+  /** 周期全局审阅间隔（每 N 章触发一次 global_review；0 或缺省为关闭，additive-optional）。 */
+  review_interval?: number
+  /** 上次完成周期全局审阅时的章号（global_review 去重水位，additive-optional）。 */
+  last_global_review_chapter?: number
+  /** 弧末结算完成记录（按边界键记录 arc_review / arc_summary / volume_summary，additive-optional）。 */
+  arc_settlement_completed?: Record<string, ArcSettlementRecord>
+  /** 全书完结标记（route() Branch 1 `phase: "complete"` 显式终态开关，additive-optional）。 */
+  book_completed?: boolean
 }
 
 /**
@@ -731,6 +779,13 @@ export function buildNextStatus(
     route_shell_mode?: NovelSessionStatus["route_shell_mode"]
     canon_migration?: NovelSessionStatus["canon_migration"]
     anti_ai_mode?: NovelSessionStatus["anti_ai_mode"]
+    external_draft_revisions?: NovelSessionStatus["external_draft_revisions"]
+    external_draft_states?: NovelSessionStatus["external_draft_states"]
+    pending_rewrites?: NovelSessionStatus["pending_rewrites"]
+    review_interval?: NovelSessionStatus["review_interval"]
+    last_global_review_chapter?: NovelSessionStatus["last_global_review_chapter"]
+    arc_settlement_completed?: NovelSessionStatus["arc_settlement_completed"]
+    book_completed?: NovelSessionStatus["book_completed"]
   },
 ): NovelSessionStatus {
   // Use `key in overrides` (not `!== undefined`) so a caller passing
@@ -780,6 +835,27 @@ export function buildNextStatus(
   const antiAiMode = "anti_ai_mode" in overrides
     ? overrides.anti_ai_mode
     : base.anti_ai_mode
+  const externalDraftRevisions = "external_draft_revisions" in overrides
+    ? overrides.external_draft_revisions
+    : base.external_draft_revisions
+  const externalDraftStates = "external_draft_states" in overrides
+    ? overrides.external_draft_states
+    : base.external_draft_states
+  const pendingRewrites = "pending_rewrites" in overrides
+    ? overrides.pending_rewrites
+    : base.pending_rewrites
+  const reviewInterval = "review_interval" in overrides
+    ? overrides.review_interval
+    : base.review_interval
+  const lastGlobalReviewChapter = "last_global_review_chapter" in overrides
+    ? overrides.last_global_review_chapter
+    : base.last_global_review_chapter
+  const arcSettlementCompleted = "arc_settlement_completed" in overrides
+    ? overrides.arc_settlement_completed
+    : base.arc_settlement_completed
+  const bookCompleted = "book_completed" in overrides
+    ? overrides.book_completed
+    : base.book_completed
   return {
     schema_version: base.schema_version,
     session_id: base.session_id,
@@ -804,6 +880,13 @@ export function buildNextStatus(
     route_shell_mode: routeShellMode,
     canon_migration: canonMigration,
     anti_ai_mode: antiAiMode,
+    ...(externalDraftRevisions !== undefined ? { external_draft_revisions: externalDraftRevisions } : {}),
+    ...(externalDraftStates !== undefined ? { external_draft_states: externalDraftStates } : {}),
+    ...(pendingRewrites !== undefined ? { pending_rewrites: pendingRewrites } : {}),
+    ...(reviewInterval !== undefined ? { review_interval: reviewInterval } : {}),
+    ...(lastGlobalReviewChapter !== undefined ? { last_global_review_chapter: lastGlobalReviewChapter } : {}),
+    ...(arcSettlementCompleted !== undefined ? { arc_settlement_completed: arcSettlementCompleted } : {}),
+    ...(bookCompleted !== undefined ? { book_completed: bookCompleted } : {}),
   }
 }
 
@@ -1252,6 +1335,38 @@ const novelSessionStatusLoadSchema = z
     // 波2-A additive: draft-autoarm 裁定落盘（strict 校验，缺省 optional →
     // 旧 status.json 无此字段不污染，回填 undefined）。
     draft_auto_arm: DRAFT_AUTO_ARM_SCHEMA.optional(),
+    // v2.34 additive: 外部草稿桥接、持久熔断与控制内核输入字段（均 optional + passthrough）
+    external_draft_revisions: z.record(z.string(), z.number().int().nonnegative()).optional(),
+    external_draft_states: z
+      .record(
+        z.string(),
+        z
+          .object({
+            draft_id: z.string(),
+            file_path: z.string(),
+            draft_status: z.enum(DRAFT_STATUS_ENUM),
+            updated_at: z.string(),
+          })
+          .passthrough(),
+      )
+      .optional(),
+    pending_rewrites: z.array(z.number().int().positive()).optional(),
+    review_interval: z.number().int().nonnegative().optional(),
+    last_global_review_chapter: z.number().int().nonnegative().optional(),
+    arc_settlement_completed: z
+      .record(
+        z.string(),
+        z
+          .object({
+            arc_review: z.boolean().optional(),
+            arc_summary: z.boolean().optional(),
+            volume_summary: z.boolean().optional(),
+            updated_at: z.string().optional(),
+          })
+          .passthrough(),
+      )
+      .optional(),
+    book_completed: z.boolean().optional(),
   })
   .passthrough()
 
@@ -2012,8 +2127,16 @@ async function acceptDeepChapterDraftWithinLock(
     // Mirror the other 4 lifecycle functions via the centralized helper.
     dimension_results: resolveDimensionResults(checkpoint, base),
   })
+  // 首次采纳时若 status.json 尚未初始化 chase_debt 台账，在调用 createChaseDebtFromHook 前先补齐空台账；
+  // 保持纯函数 createChaseDebtFromHook 对无 chase_debt 的独立旧对象仍原样返回的向后兼容语义。
+  const nextWithChaseLedger: NovelSessionStatus = next.chase_debt
+    ? next
+    : {
+        ...next,
+        chase_debt: { debts: [], debt_events: [], updated_at: now },
+      }
   const withChaseDebt = accrueAllChaseDebtInterest(
-    createChaseDebtFromHook(next, chapterNumber, draft.content.slice(-200)),
+    createChaseDebtFromHook(nextWithChaseLedger, chapterNumber, draft.content.slice(-200)),
     chapterNumber,
   )
   const rollback = await input.writeVerifiedChapter()
@@ -2357,5 +2480,361 @@ export async function subscribeStatusJson(
           error: toErrorMessage(err),
         })
       })
+  })
+}
+
+// ============================================================================
+// v2.34 外部草稿（.qm-drafts/）↔ .novel/status.json 唯一真源桥接
+// ============================================================================
+
+export interface SyncExternalDraftStatusInput {
+  projectPath: string
+  draftId: string
+  draftPath: string
+  chapterName: string
+  chapterNumber?: number
+  targetKey?: string
+  revisionRound?: number
+  sourceConversationId?: string
+  nowIso?: string
+}
+
+export interface MarkExternalDraftAcceptedInput {
+  projectPath: string
+  draftId?: string
+  formalChapterPath: string
+  chapterNumber?: number
+  chapterName?: string
+  targetKey?: string
+  finalChapterContent?: string
+  nowIso?: string
+}
+
+/**
+ * 判断 `.novel/status.json` 主槽当前是否被「正在运行的应用内 Chat 深章会话」占用。
+ * 仅当 `status === "running"`、草稿路径位于 `.novel/drafts/` 且草稿态为 `pending`/`ready` 时返回 true；
+ * `.qm-drafts/` 外部草稿或已完成/已采纳/空闲的 Chat 会话均返回 false，可安全重绑主槽。
+ */
+export function isActiveChatDeepChapterSession(status: NovelSessionStatus | null): boolean {
+  if (!status) return false
+  if (status.status !== "running") return false
+  const draftPath = normalizePath(status.draft?.file_path ?? "")
+  if (!/(?:^|\/)\.novel\/drafts\//.test(draftPath)) return false
+  return status.draft.draft_status === "pending" || status.draft.draft_status === "ready"
+}
+
+/** 读取指定章节目标键的持久外部修订轮次（缺省或非法值回退 0）。 */
+export function getExternalDraftRevisionCount(
+  status: NovelSessionStatus | null,
+  targetKey: string,
+): number {
+  const raw = status?.external_draft_revisions?.[targetKey]
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 0 ? raw : 0
+}
+
+/**
+ * 将 `.qm-drafts/` 外部草稿写入/修订同步至 `.novel/status.json` 唯一真源：
+ * - 持久化章节级修订计数 `external_draft_revisions[targetKey]`；
+ * - 记录 `external_draft_states[draftId]`；
+ * - 若主槽为空/旧 `.qm-drafts/`/已采纳空闲会话，则初始化或重绑主槽（并重置新草稿的门控与 auto-arm）；
+ * - 若主槽正被运行中 Chat `.novel/drafts/` 会话占用，严禁覆盖主槽，仅写入 `external_draft_states` 与 `external_draft_revisions`。
+ */
+export async function syncExternalDraftToSessionStatus(
+  input: SyncExternalDraftStatusInput,
+): Promise<NovelSessionStatus | null> {
+  const now = input.nowIso ?? new Date().toISOString()
+  const normalizedDraftPath = normalizePath(input.draftPath)
+  const conversationId = input.sourceConversationId || "mcp:chapter.write"
+
+  return updateNovelSessionStatus(input.projectPath, (existing) => {
+    const prevRevisions = existing?.external_draft_revisions ?? {}
+    let nextRevisions = existing?.external_draft_revisions
+    let effectiveRound = input.revisionRound
+
+    if (input.targetKey) {
+      const prevCount = getExternalDraftRevisionCount(existing, input.targetKey)
+      const hasPrevKey = Object.prototype.hasOwnProperty.call(prevRevisions, input.targetKey)
+      const nextCount =
+        input.revisionRound !== undefined
+          ? Math.max(prevCount, input.revisionRound)
+          : hasPrevKey
+            ? prevCount + 1
+            : 0
+      effectiveRound = nextCount
+      nextRevisions = { ...prevRevisions, [input.targetKey]: nextCount }
+    }
+
+    const entry: ExternalDraftStatusEntry = {
+      draft_id: input.draftId,
+      file_path: normalizedDraftPath,
+      chapter_name: input.chapterName,
+      ...(input.chapterNumber !== undefined ? { chapter_number: input.chapterNumber } : {}),
+      ...(input.targetKey ? { target_key: input.targetKey } : {}),
+      draft_status: "pending",
+      decision_gates: cloneDecisionGates(),
+      ...(effectiveRound !== undefined ? { revision_round: effectiveRound } : {}),
+      updated_at: now,
+    }
+    const nextExternalStates: Record<string, ExternalDraftStatusEntry> = {
+      ...(existing?.external_draft_states ?? {}),
+      [input.draftId]: entry,
+    }
+
+    if (existing === null) {
+      const sessionId = createNovelSessionId(new Date(now))
+      const base = createBaseStatus(
+        {
+          projectPath: input.projectPath,
+          conversationId,
+          userRequest: `外部草稿 ${input.chapterName}`,
+          chapterNumber: input.chapterNumber,
+        },
+        sessionId,
+        now,
+        normalizedDraftPath,
+      )
+      return {
+        ...base,
+        status: "running",
+        active_step_index: stageToActiveStepIndex("after_draft"),
+        current_task: {
+          ...base.current_task,
+          chapter_number: input.chapterNumber,
+          checkpoint_stage: "after_draft",
+          status: "running",
+        },
+        draft: {
+          draft_id: input.draftId,
+          file_path: normalizedDraftPath,
+          draft_status: "pending",
+          checkpoint_stage: "after_draft",
+          updated_at: now,
+        },
+        decision_gates: cloneDecisionGates(),
+        evidence_refs: mergeEvidenceRefs(normalizedDraftPath),
+        ...(nextRevisions ? { external_draft_revisions: nextRevisions } : {}),
+        external_draft_states: nextExternalStates,
+      }
+    }
+
+    if (isActiveChatDeepChapterSession(existing)) {
+      const nextBuilt = buildLifecycleStatus(existing, {
+        updated_at: now,
+        status: existing.status,
+        ...(nextRevisions ? { external_draft_revisions: nextRevisions } : {}),
+        external_draft_states: nextExternalStates,
+      })
+      return {
+        ...existing,
+        ...nextBuilt,
+      }
+    }
+
+    const nextBuilt = buildLifecycleStatus(existing, {
+      updated_at: now,
+      status: "running",
+      active_step_index: stageToActiveStepIndex("after_draft"),
+      current_task: {
+        task_id: taskIdForConversation(conversationId),
+        conversation_id: conversationId,
+        user_request: `外部草稿 ${input.chapterName}`,
+        chapter_number: input.chapterNumber,
+        checkpoint_stage: "after_draft",
+        status: "running",
+        last_error: undefined,
+      },
+      draft: {
+        draft_id: input.draftId,
+        file_path: normalizedDraftPath,
+        draft_status: "pending",
+        checkpoint_stage: "after_draft",
+        updated_at: now,
+        accepted_at: undefined,
+        rejected_at: undefined,
+        formal_chapter_path: undefined,
+      },
+      decision_gates: cloneDecisionGates(),
+      resume_checkpoint: undefined,
+      evidence_refs: mergeEvidenceRefs(...existing.evidence_refs, normalizedDraftPath),
+      ...(nextRevisions ? { external_draft_revisions: nextRevisions } : {}),
+      external_draft_states: nextExternalStates,
+    })
+    const merged: NovelSessionStatus = {
+      ...existing,
+      ...nextBuilt,
+    }
+    delete merged.draft_auto_arm
+    return merged
+  })
+}
+
+/**
+ * 外部草稿（`.qm-drafts/`）经人工确认采纳落盘后，同步 `.novel/status.json` 唯一真源：
+ * - 更新匹配主槽或 `external_draft_states[draftId]` 为 `accepted`（绝不覆盖运行中 Chat 会话主槽）；
+ * - 清理该章的 `external_draft_revisions[targetKey]` 与 `pending_rewrites` 对应项；
+ * - 若缺失 `chase_debt` 台账则先初始化空台账，再从结尾钩子创建追读债务并对旧债计息。
+ */
+export async function markExternalDraftAcceptedInStatus(
+  input: MarkExternalDraftAcceptedInput,
+): Promise<NovelSessionStatus | null> {
+  const now = input.nowIso ?? new Date().toISOString()
+  const normalizedFormalPath = normalizePath(input.formalChapterPath)
+  const root = normalizePath(input.projectPath).replace(/\/+$/, "")
+  const chapterNumber =
+    typeof input.chapterNumber === "number" && Number.isInteger(input.chapterNumber) && input.chapterNumber >= 1
+      ? input.chapterNumber
+      : undefined
+  const targetKey = input.targetKey ?? (chapterNumber !== undefined ? `chapter:${chapterNumber}` : undefined)
+  const fallbackDraftPath = input.draftId
+    ? `${root}/${QM_DRAFTS_DIR}/${input.draftId}.md`
+    : normalizedFormalPath
+
+  const applyChaseDebt = (status: NovelSessionStatus): NovelSessionStatus => {
+    const withLedger: NovelSessionStatus = status.chase_debt
+      ? status
+      : {
+          ...status,
+          chase_debt: { debts: [], debt_events: [], updated_at: now },
+        }
+    if (chapterNumber === undefined) return withLedger
+    const endingHook = (input.finalChapterContent ?? "").slice(-200)
+    return accrueAllChaseDebtInterest(
+      createChaseDebtFromHook(withLedger, chapterNumber, endingHook),
+      chapterNumber,
+    )
+  }
+
+  return updateNovelSessionStatus(input.projectPath, (existing) => {
+    let nextRevisions = existing?.external_draft_revisions
+    if (targetKey && nextRevisions && Object.prototype.hasOwnProperty.call(nextRevisions, targetKey)) {
+      const cloned = { ...nextRevisions }
+      delete cloned[targetKey]
+      nextRevisions = cloned
+    }
+
+    let nextPendingRewrites = existing?.pending_rewrites
+    if (chapterNumber !== undefined && Array.isArray(nextPendingRewrites) && nextPendingRewrites.includes(chapterNumber)) {
+      nextPendingRewrites = nextPendingRewrites.filter((n) => n !== chapterNumber)
+    }
+
+    let nextExternalStates = existing?.external_draft_states
+    if (input.draftId) {
+      const prevEntry = existing?.external_draft_states?.[input.draftId]
+      const updatedEntry: ExternalDraftStatusEntry = prevEntry
+        ? {
+            ...prevEntry,
+            draft_status: "accepted",
+            updated_at: now,
+            accepted_at: now,
+            formal_chapter_path: normalizedFormalPath,
+            ...(chapterNumber !== undefined ? { chapter_number: chapterNumber } : {}),
+            ...(input.chapterName ? { chapter_name: input.chapterName } : {}),
+          }
+        : {
+            draft_id: input.draftId,
+            file_path: fallbackDraftPath,
+            ...(input.chapterName ? { chapter_name: input.chapterName } : {}),
+            ...(chapterNumber !== undefined ? { chapter_number: chapterNumber } : {}),
+            ...(targetKey ? { target_key: targetKey } : {}),
+            draft_status: "accepted",
+            decision_gates: cloneDecisionGates(),
+            updated_at: now,
+            accepted_at: now,
+            formal_chapter_path: normalizedFormalPath,
+          }
+      nextExternalStates = {
+        ...(existing?.external_draft_states ?? {}),
+        [input.draftId]: updatedEntry,
+      }
+    }
+
+    if (existing === null) {
+      const sessionId = createNovelSessionId(new Date(now))
+      const conversationId = "mcp:draft.accept"
+      const base = createBaseStatus(
+        {
+          projectPath: input.projectPath,
+          conversationId,
+          userRequest: `采纳外部草稿 ${input.chapterName ?? input.draftId ?? ""}`.trim(),
+          chapterNumber,
+        },
+        sessionId,
+        now,
+        fallbackDraftPath,
+      )
+      const initialized: NovelSessionStatus = {
+        ...base,
+        status: "completed",
+        active_step_index: stageToActiveStepIndex("completed"),
+        current_task: {
+          ...base.current_task,
+          chapter_number: chapterNumber,
+          checkpoint_stage: "completed",
+          status: "completed",
+        },
+        draft: {
+          draft_id: input.draftId ?? (chapterNumber !== undefined ? `chapter-${chapterNumber}` : "external-draft"),
+          file_path: fallbackDraftPath,
+          draft_status: "accepted",
+          checkpoint_stage: "after_review",
+          updated_at: now,
+          accepted_at: now,
+          formal_chapter_path: normalizedFormalPath,
+        },
+        decision_gates: cloneDecisionGates(),
+        evidence_refs: mergeEvidenceRefs(fallbackDraftPath, normalizedFormalPath),
+        ...(nextRevisions !== undefined ? { external_draft_revisions: nextRevisions } : {}),
+        ...(nextExternalStates !== undefined ? { external_draft_states: nextExternalStates } : {}),
+        ...(nextPendingRewrites !== undefined ? { pending_rewrites: nextPendingRewrites } : {}),
+      }
+      return applyChaseDebt(initialized)
+    }
+
+    const activeChat = isActiveChatDeepChapterSession(existing)
+    if (activeChat && (!input.draftId || existing.draft.draft_id !== input.draftId)) {
+      const nextBuilt = buildLifecycleStatus(existing, {
+        updated_at: now,
+        status: existing.status,
+        evidence_refs: mergeEvidenceRefs(...existing.evidence_refs, normalizedFormalPath),
+        ...(nextRevisions !== undefined ? { external_draft_revisions: nextRevisions } : {}),
+        ...(nextExternalStates !== undefined ? { external_draft_states: nextExternalStates } : {}),
+        ...(nextPendingRewrites !== undefined ? { pending_rewrites: nextPendingRewrites } : {}),
+      })
+      return applyChaseDebt({
+        ...existing,
+        ...nextBuilt,
+      })
+    }
+
+    const nextBuilt = buildLifecycleStatus(existing, {
+      updated_at: now,
+      status: "completed",
+      active_step_index: stageToActiveStepIndex("completed"),
+      current_task: {
+        chapter_number: chapterNumber ?? existing.current_task.chapter_number,
+        checkpoint_stage: "completed",
+        status: "completed",
+        last_error: undefined,
+      },
+      draft: {
+        draft_id: input.draftId ?? existing.draft.draft_id,
+        file_path: input.draftId && existing.draft.draft_id !== input.draftId
+          ? fallbackDraftPath
+          : existing.draft.file_path,
+        draft_status: "accepted",
+        updated_at: now,
+        accepted_at: now,
+        rejected_at: undefined,
+        formal_chapter_path: normalizedFormalPath,
+      },
+      evidence_refs: mergeEvidenceRefs(...existing.evidence_refs, normalizedFormalPath),
+      ...(nextRevisions !== undefined ? { external_draft_revisions: nextRevisions } : {}),
+      ...(nextExternalStates !== undefined ? { external_draft_states: nextExternalStates } : {}),
+      ...(nextPendingRewrites !== undefined ? { pending_rewrites: nextPendingRewrites } : {}),
+    })
+    return applyChaseDebt({
+      ...existing,
+      ...nextBuilt,
+    })
   })
 }

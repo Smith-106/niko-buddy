@@ -147,6 +147,7 @@ vi.mock("../segment-summary", () => ({
 }))
 
 vi.mock("../arc-settlement", () => ({
+  resolveArcEndChapterForChapter: vi.fn(() => null),
   shouldTriggerArcSettlement: mocks.shouldTriggerArcSettlement,
 }))
 

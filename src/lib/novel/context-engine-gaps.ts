@@ -36,6 +36,7 @@ export const SECTION_PRIORITY: Record<string, number> = {
   "修改反馈": 15,
   "下一章推进建议": 16,
   "写作风格": 17,
+  "风格示范锚点（正向参考）": 17.2,
   "语音风格指南": 17.5,
   "曾成立的事实（已失效，仅供人物误信/发现变化/回忆对照，禁止作为当前叙述事实）": 18,
   // P2-IMP-10 (M2): stateDelta 键控子表紧随「最近剧情摘要」呈现（6 → 6.1）。
@@ -71,6 +72,7 @@ export const SECTION_PRIORITY_BY_FIELD: Record<string, number> = {
   revisionDirectives: 15,
   nextChapterAdvice: 16,
   writingStyle: 17,
+  styleExemplars: 17.2,
   voiceStyleGuide: 17.5,
   formerFacts: 18,
   worldBlueprint: 19,

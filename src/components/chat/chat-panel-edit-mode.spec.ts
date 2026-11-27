@@ -13,17 +13,13 @@ const mocks = vi.hoisted(() => ({
   findChapterFileByNumber: vi.fn(),
   validateStructuredChapterEditResult: vi.fn(),
   normalizeChapterEditFile: vi.fn(),
-  backupChapterFile: vi.fn(),
-  appendChapterWorkspaceSnapshot: vi.fn(),
-  invalidateChapterCache: vi.fn(),
-  parseChapterMeta: vi.fn(),
+  writeDraft: vi.fn(),
   readFile: vi.fn(),
   writeFileAtomic: vi.fn(),
   streamChat: vi.fn(),
   resolveUserVisibleReasoning: vi.fn(() => "reasoning"),
   refreshProjectState: vi.fn(),
   setSelectedFile: vi.fn(),
-  clearFinalChapterSaveForPath: vi.fn(),
 }))
 
 vi.mock("@/lib/novel", () => ({
@@ -32,10 +28,7 @@ vi.mock("@/lib/novel", () => ({
   findChapterFileByNumber: mocks.findChapterFileByNumber,
   validateStructuredChapterEditResult: mocks.validateStructuredChapterEditResult,
   normalizeChapterEditFile: mocks.normalizeChapterEditFile,
-  backupChapterFile: mocks.backupChapterFile,
-  appendChapterWorkspaceSnapshot: mocks.appendChapterWorkspaceSnapshot,
-  invalidateChapterCache: mocks.invalidateChapterCache,
-  parseChapterMeta: mocks.parseChapterMeta,
+  writeDraft: mocks.writeDraft,
 }))
 
 vi.mock("@/commands/fs", () => ({
@@ -59,7 +52,6 @@ vi.mock("@/stores/wiki-store", () => ({
   useWikiStore: {
     getState: () => ({
       setSelectedFile: mocks.setSelectedFile,
-      clearFinalChapterSaveForPath: mocks.clearFinalChapterSaveForPath,
     }),
   },
 }))
@@ -118,8 +110,13 @@ describe("runChatEditMode", () => {
     resetChapterWriteCoordinator()
     mocks.resolveUserVisibleReasoning.mockReturnValue("reasoning")
     mocks.readSelectedChapterNumberForFile.mockResolvedValue(3)
-    mocks.backupChapterFile.mockResolvedValue(undefined)
-    mocks.appendChapterWorkspaceSnapshot.mockResolvedValue(undefined)
+    mocks.writeDraft.mockResolvedValue({
+      id: "draft_chat_1",
+      chapterName: "第3章",
+      content: "新正文",
+      createdAt: 1,
+      status: "draft",
+    })
     mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.refreshProjectState.mockResolvedValue(undefined)
   })
@@ -144,11 +141,14 @@ describe("runChatEditMode", () => {
     expect(mocks.streamChat).not.toHaveBeenCalled()
   })
 
-  it("单章成功：backup → 快照 → 原子写入顺序不变，最终回传成功文案并写入选中文件", async () => {
+  it("单章成功：剥离 frontmatter 后改道 writeDraft 写入待审草稿箱，绝不直写正式章", async () => {
     mocks.resolveChatEditTarget.mockReturnValue({ ok: true, target: { mode: "single", chapterNumbers: [3] } })
     mocks.findChapterFileByNumber.mockResolvedValue("D:/novel/第3章.md")
-    mocks.readFile.mockResolvedValue("旧正文")
-    mocks.normalizeChapterEditFile.mockReturnValue({ ok: true, content: "新正文" })
+    mocks.readFile.mockResolvedValue("---\ntype: chapter\nchapter_number: 3\n---\n\n旧正文")
+    mocks.normalizeChapterEditFile.mockReturnValue({
+      ok: true,
+      content: "---\ntype: chapter\nchapter_number: 3\n---\n\n新正文",
+    })
     mocks.streamChat.mockImplementation(async (_cfg, _msgs, handlers) => {
       handlers.onToken("新")
       handlers.onToken("正文")
@@ -160,26 +160,60 @@ describe("runChatEditMode", () => {
     expect(mocks.streamChat).toHaveBeenCalledTimes(1)
     expect(appendStreamToken).toHaveBeenNthCalledWith(1, "新", "conv-1")
     expect(abortControllersRef.current["conv-1"]).toBeUndefined()
-    expect(mocks.backupChapterFile).toHaveBeenCalledWith({
-      projectPath: "D:/novel",
-      chapterPath: "D:/novel/第3章.md",
-      chapterNumber: 3,
-      content: "旧正文",
-      source: "manual",
+    expect(mocks.writeDraft).toHaveBeenCalledTimes(1)
+    expect(mocks.writeDraft).toHaveBeenCalledWith("D:/novel", "第3章", "新正文", {
+      sourceConversationId: "conv-1",
     })
-    expect(mocks.appendChapterWorkspaceSnapshot).toHaveBeenCalledWith("D:/novel", 3, "新正文")
-    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("D:/novel/第3章.md", "新正文")
-    expect(mocks.invalidateChapterCache).toHaveBeenCalledWith("D:/novel")
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(mocks.refreshProjectState).toHaveBeenCalledWith("D:/novel")
     expect(mocks.setSelectedFile).toHaveBeenCalledWith("D:/novel/第3章.md")
-    expect(finalizeStream).toHaveBeenCalledWith("已完成第3章修改，并已自动备份原内容。", [], "conv-1")
+    expect(finalizeStream).toHaveBeenCalledWith(
+      expect.stringContaining("待审草稿箱"),
+      [],
+      "conv-1",
+    )
+    expect(finalizeStream).toHaveBeenCalledWith(
+      expect.stringContaining("采纳"),
+      [],
+      "conv-1",
+    )
+  })
 
-    const order = [
-      mocks.backupChapterFile.mock.invocationCallOrder[0],
-      mocks.appendChapterWorkspaceSnapshot.mock.invocationCallOrder[0],
-      mocks.writeFileAtomic.mock.invocationCallOrder[0],
-    ]
-    expect(order).toEqual([...order].sort((a, b) => a - b))
+  it("多章批量修改：每章剥离 frontmatter 写入 writeDraft，零正式章覆写", async () => {
+    mocks.resolveChatEditTarget.mockReturnValue({ ok: true, target: { mode: "multi", chapterNumbers: [3, 4] } })
+    mocks.findChapterFileByNumber.mockImplementation(async (_pp: string, n: number) => `D:/novel/wiki/chapters/chapter-00${n}.md`)
+    mocks.readFile.mockResolvedValue("旧正文")
+    mocks.validateStructuredChapterEditResult.mockReturnValue({
+      ok: true,
+      files: [
+        { chapterNumber: 3, content: "第三章改稿" },
+        { chapterNumber: 4, content: "第四章改稿" },
+      ],
+    })
+    mocks.normalizeChapterEditFile.mockImplementation((input: { targetChapterNumber: number; content: string }) => ({
+      ok: true,
+      content: `---\ntype: chapter\nchapter_number: ${input.targetChapterNumber}\n---\n\n${input.content}`,
+    }))
+    mocks.streamChat.mockImplementation(async (_cfg, _msgs, handlers) => {
+      handlers.onToken("批量结果")
+      handlers.onDone()
+    })
+    const { ctx, finalizeStream } = makeCtx()
+    await runChatEditMode(ctx)
+
+    expect(mocks.writeDraft).toHaveBeenCalledTimes(2)
+    expect(mocks.writeDraft).toHaveBeenNthCalledWith(1, "D:/novel", "chapter-003", "第三章改稿", {
+      sourceConversationId: "conv-1",
+    })
+    expect(mocks.writeDraft).toHaveBeenNthCalledWith(2, "D:/novel", "chapter-004", "第四章改稿", {
+      sourceConversationId: "conv-1",
+    })
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(finalizeStream).toHaveBeenCalledWith(
+      expect.stringContaining("2 个章节的批量修改并存入待审草稿箱"),
+      [],
+      "conv-1",
+    )
   })
 
   it("流式失败：回传「修改失败：」前缀错误并清理控制器", async () => {
@@ -193,6 +227,7 @@ describe("runChatEditMode", () => {
     await runChatEditMode(ctx)
     expect(finalizeStream).toHaveBeenCalledWith("修改失败：Error: network down", [], "conv-1")
     expect(abortControllersRef.current["conv-1"]).toBeUndefined()
+    expect(mocks.writeDraft).not.toHaveBeenCalled()
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
@@ -208,7 +243,7 @@ describe("runChatEditMode", () => {
     const { ctx, finalizeStream } = makeCtx()
     await runChatEditMode(ctx)
     expect(finalizeStream).toHaveBeenCalledWith("缺少【第4章】段落", [], "conv-1")
-    expect(mocks.backupChapterFile).not.toHaveBeenCalled()
+    expect(mocks.writeDraft).not.toHaveBeenCalled()
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
@@ -224,6 +259,7 @@ describe("runChatEditMode", () => {
     const { ctx, finalizeStream } = makeCtx()
     await runChatEditMode(ctx)
     expect(finalizeStream).toHaveBeenCalledWith("模型返回了空的章节正文", [], "conv-1")
+    expect(mocks.writeDraft).not.toHaveBeenCalled()
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
@@ -239,10 +275,11 @@ describe("runChatEditMode", () => {
     const { ctx, finalizeStream } = makeCtx()
     await runChatEditMode(ctx)
     expect(finalizeStream).toHaveBeenCalledWith("第3章缺少修改结果，已停止写回。", [], "conv-1")
+    expect(mocks.writeDraft).not.toHaveBeenCalled()
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
-  it("R2-U01 中止安全：流式阶段外部 AbortController 中止后绝不写回正式章，并完成会话与控制器清理", async () => {
+  it("R2-U01 中止安全：流式阶段外部 AbortController 中止后绝不调用 writeDraft，并完成会话与控制器清理", async () => {
     const controller = new AbortController()
     mocks.resolveChatEditTarget.mockReturnValue({ ok: true, target: { mode: "single", chapterNumbers: [3] } })
     mocks.findChapterFileByNumber.mockResolvedValue("D:/novel/第3章.md")
@@ -258,8 +295,7 @@ describe("runChatEditMode", () => {
 
     await runChatEditMode(ctx)
 
-    expect(mocks.backupChapterFile).not.toHaveBeenCalled()
-    expect(mocks.appendChapterWorkspaceSnapshot).not.toHaveBeenCalled()
+    expect(mocks.writeDraft).not.toHaveBeenCalled()
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(finalizeStream).not.toHaveBeenCalled()
     expect(ctx.streamSessionGuardRef.current.finish).toHaveBeenCalledTimes(1)
@@ -281,7 +317,7 @@ describe("runChatEditMode", () => {
     expect(activeStreamSessionsRef.current["conv-1"]).toBeUndefined()
   })
 
-  it("R2-U01 写入协调：章节处于采纳栅栏期时拒绝写盘并如实提示", async () => {
+  it("R2-U01 写入协调：章节处于采纳栅栏期时拒绝写入草稿并如实提示", async () => {
     const chapterPath = "D:/novel/wiki/chapters/ch3.md"
     const begin = getChapterWriteCoordinator().beginAdoption(chapterPath, {})
     expect(begin.ok).toBe(true)
@@ -298,7 +334,7 @@ describe("runChatEditMode", () => {
 
     await runChatEditMode(ctx)
 
-    expect(mocks.backupChapterFile).not.toHaveBeenCalled()
+    expect(mocks.writeDraft).not.toHaveBeenCalled()
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(finalizeStream).toHaveBeenCalledWith(expect.stringContaining("正在被保存或采纳"), [], "conv-1")
     if (begin.ok && begin.lease) {

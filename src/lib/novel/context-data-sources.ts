@@ -39,6 +39,10 @@ import {
   selectLookbackChapterNumbers,
   joinNonEmpty,
 } from "./context-task-brief-builders"
+import { tieredSlice } from "./context-engine-gaps"
+import type { CharacterState, CharacterStateStore } from "./character-state"
+
+const FALLBACK_CHARACTER_STATES_MAX_CHARS = 3000
 
 const RECENT_CHAPTER_CONTENT_MAX_CHARS = 6000
 const RECENT_CHAPTER_CONTENT_HEAD_CHARS = 2200
@@ -457,6 +461,93 @@ export const fallbackPreviousEndingDataSource: DataSource<string> = {
   },
 }
 
+function recordFallbackCharacterTruncated(
+  context: ContextLoadContext,
+  fullText: string,
+  retainedLength: number,
+): void {
+  if (retainedLength >= fullText.length) return
+  if (context.buildSession) {
+    context.buildSession.recordTruncated(
+      "fallbackCharacterStates",
+      "protected",
+      fullText.length,
+      retainedLength,
+    )
+    return
+  }
+  tieredSlice(fullText, "protected", retainedLength, "fallbackCharacterStates")
+}
+
+function slicePrioritizedCharacterStates(
+  store: CharacterStateStore,
+  characters: readonly CharacterState[],
+  characterStatesToContextText: (input: CharacterStateStore) => string,
+  context: ContextLoadContext,
+): string {
+  if (characters.length === 0) return ""
+  const fullText = characterStatesToContextText({ ...store, characters: [...characters] })
+  if (!fullText.trim()) return ""
+  if (fullText.length <= FALLBACK_CHARACTER_STATES_MAX_CHARS) return fullText
+
+  const protagonistName = store.characters[0]?.characterName
+  const taskText = context.task ?? ""
+  const scored = characters.map((character, index) => {
+    const isProtagonist = Boolean(protagonistName && character.characterName === protagonistName)
+    const isTaskMentioned = Boolean(character.characterName && taskText.includes(character.characterName))
+    const seen =
+      typeof character.lastSeenChapter === "number" && Number.isFinite(character.lastSeenChapter)
+        ? character.lastSeenChapter
+        : 0
+    const updated =
+      typeof character.lastUpdatedChapter === "number" && Number.isFinite(character.lastUpdatedChapter)
+        ? character.lastUpdatedChapter
+        : 0
+    const recency = Math.max(seen, updated)
+    const alive = character.isAlive !== false && character.deathChapter == null ? 1 : 0
+    return { character, index, isProtagonist, isTaskMentioned, recency, alive }
+  })
+
+  scored.sort((a, b) => {
+    if (a.isProtagonist !== b.isProtagonist) return a.isProtagonist ? -1 : 1
+    if (a.isTaskMentioned !== b.isTaskMentioned) return a.isTaskMentioned ? -1 : 1
+    if (b.recency !== a.recency) return b.recency - a.recency
+    if (b.alive !== a.alive) return b.alive - a.alive
+    return a.index - b.index
+  })
+
+  const selectedLines: string[] = []
+  let usedChars = 0
+  for (const item of scored) {
+    const line = characterStatesToContextText({ ...store, characters: [item.character] }).trim()
+    if (!line) continue
+    const separatorLen = selectedLines.length > 0 ? 1 : 0
+    if (usedChars + separatorLen + line.length <= FALLBACK_CHARACTER_STATES_MAX_CHARS) {
+      selectedLines.push(line)
+      usedChars += separatorLen + line.length
+    } else if (selectedLines.length === 0) {
+      // 首位优先角色单行即超上限：保底截断并记录完整 originalLength 截断账本
+      const truncatedHead = line.slice(0, FALLBACK_CHARACTER_STATES_MAX_CHARS)
+      selectedLines.push(truncatedHead)
+      usedChars = truncatedHead.length
+      break
+    }
+  }
+
+  const retained = selectedLines.join("\n")
+  if (retained.length > FALLBACK_CHARACTER_STATES_MAX_CHARS) {
+    return tieredSlice(
+      retained,
+      "protected",
+      FALLBACK_CHARACTER_STATES_MAX_CHARS,
+      "fallbackCharacterStates",
+      context.buildSession,
+    )
+  }
+  recordFallbackCharacterTruncated(context, fullText, retained.length)
+  return retained
+}
+
 export const fallbackCharacterStatesDataSource: DataSource<string> = {
   name: "fallbackCharacterStates",
   priority: 7,
@@ -485,10 +576,28 @@ export const fallbackCharacterStatesDataSource: DataSource<string> = {
         if (characters.length === 0 || characters.length < store.characters.length) {
           context.recordGap?.("fallbackCharacterStates", "temporal_history_unavailable")
         }
-        return characterStatesToContextText({ ...store, characters }).slice(0, 3000)
+        return slicePrioritizedCharacterStates(store, characters, characterStatesToContextText, context)
       }
-      const structured = characterStatesToContextText(store)
-      if (structured.trim()) return structured.slice(0, 3000)
+      if (Array.isArray(store?.characters)) {
+        const prioritized = slicePrioritizedCharacterStates(
+          store,
+          store.characters,
+          characterStatesToContextText,
+          context,
+        )
+        if (prioritized.trim()) return prioritized
+      } else {
+        const structured = characterStatesToContextText(store)
+        if (structured.trim()) {
+          return tieredSlice(
+            structured,
+            "protected",
+            FALLBACK_CHARACTER_STATES_MAX_CHARS,
+            "fallbackCharacterStates",
+            context.buildSession,
+          )
+        }
+      }
     } catch {
       if (beforeChapter !== undefined) {
         context.recordGap?.("fallbackCharacterStates", "datasource_error")
@@ -500,7 +609,14 @@ export const fallbackCharacterStatesDataSource: DataSource<string> = {
       const results = await searchWiki(context.projectPath, "type:entity character")
       if (results.length > 0) {
         const contents = await Promise.all(results.slice(0, 5).map(r => readFile(r.path).catch(() => "")))
-        return contents.filter(Boolean).join("\n---\n").slice(0, 3000)
+        const joined = contents.filter(Boolean).join("\n---\n")
+        return tieredSlice(
+          joined,
+          "compressible",
+          FALLBACK_CHARACTER_STATES_MAX_CHARS,
+          "fallbackCharacterStates",
+          context.buildSession,
+        )
       }
     } catch {
       context.recordGap?.("fallbackCharacterStates", "datasource_error")

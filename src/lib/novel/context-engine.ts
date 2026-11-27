@@ -75,7 +75,9 @@ import {
   findOverdueForeshadowing,
   relatedChaptersToContextText,
 } from "./related-chapters"
-import { loadForeshadowingTracker } from "./foreshadowing-tracker"
+import * as foreshadowingTracker from "./foreshadowing-tracker"
+import type { ForeshadowingStore } from "./foreshadowing-tracker"
+import { bookRulesToPromptFragment, normalizeBookRules } from "./book-rules"
 import { } from "./chapter-utils"
 // P1-IMP-13 (A1a): reference-binding 素材用途绑定进 ContextPack（additive
 // pack.referenceBindings，零绑定字节级不变）。
@@ -248,11 +250,19 @@ async function buildContextPackUnlocked(
 
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
   const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
+  // 共享单次 foreshadowing-tracker.json 读取 Promise，同时供给 protected foreshadowingStates 与 relatedChaptersPromise
+  const foreshadowingLoadPromise = foreshadowingTracker.loadForeshadowingTracker(pp)
+  void foreshadowingLoadPromise.catch(() => undefined)
+  const foreshadowingStorePromise: Promise<ForeshadowingStore | null> = foreshadowingLoadPromise.catch((error) => {
+    logDegradation("foreshadowing tracker load failed, skipping structured injection", error, { sourceFailed: true })
+    session.recordGap("foreshadowingStates", "datasource_error")
+    return null
+  })
   const relatedChaptersPromise =
     novelConfig.relatedChaptersEnabled
       ? (async (): Promise<string> => {
           try {
-            const foreshadowing = await loadForeshadowingTracker(pp)
+            const foreshadowing = await foreshadowingLoadPromise
             const snapshots = await loadAllSnapshots(pp).catch(() => [] as ChapterSnapshot[])
             return buildRelatedChaptersContext({
               currentChapter: context.chapterNumber ?? 0,
@@ -311,7 +321,7 @@ async function buildContextPackUnlocked(
   const [pack, exemplars, activeEntities, relatedChaptersText, referencesResult, hardInjectResult] = await Promise.all([
     // ISS-20260709-035: loadAll 产出 Record<string, unknown>，经显式 cast
     // 收敛到 ContextRawData 契约（键集合一致，收窄语义由 normalize 入口保证）。
-    buildContextPackFromRawData(rawData as ContextRawData, context, temporalFactsPreloaded),
+    buildContextPackFromRawData(rawData as ContextRawData, context, temporalFactsPreloaded, foreshadowingStorePromise),
     // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
     novelConfig.exemplarEnabled
       ? loadStyleExemplars(pp).then((all) => pickTopKExemplars(all)) /* token budget: prefer keeping thril/pull exemplar slots when present */.catch((error) => {
@@ -637,15 +647,50 @@ export function resolveTimelineSection(rawData: ContextRawData, snapshots: RawSn
   ], "\n\n")
 }
 
-/** 职责 3b：伏笔状态（原内联 mergeForeshadowingSignals 调用逐字搬迁）。 */
-export function resolveForeshadowingSection(rawData: ContextRawData, snapshots: RawSnapshotView): string {
+function formatForeshadowingTrackerForChapter(
+  store: ForeshadowingStore | null | undefined,
+  chapterNumber?: number,
+): string {
+  if (!store || !Array.isArray(store.items) || store.items.length === 0) return ""
+  const filteredStore: ForeshadowingStore =
+    typeof chapterNumber === "number" && Number.isFinite(chapterNumber) && chapterNumber > 0
+      ? {
+          ...store,
+          items: store.items.filter(
+            (item) => Number.isFinite(item.plantedChapter) && item.plantedChapter < chapterNumber,
+          ),
+        }
+      : store
+  return typeof foreshadowingTracker.foreshadowingToContextText === "function"
+    ? foreshadowingTracker.foreshadowingToContextText(filteredStore)
+    : ""
+}
+
+async function loadBookRulesPromptFragment(projectPath: string): Promise<string> {
+  try {
+    const raw = await readFile(`${normalizePath(projectPath)}/.novel/book-rules.json`)
+    if (!raw || !raw.trim()) return ""
+    const rules = normalizeBookRules(JSON.parse(raw))
+    return rules ? bookRulesToPromptFragment(rules) : ""
+  } catch {
+    return ""
+  }
+}
+
+/** 职责 3b：伏笔状态（持久化 foreshadowing-tracker + 快照信号/搜索合并）。 */
+export function resolveForeshadowingSection(
+  rawData: ContextRawData,
+  snapshots: RawSnapshotView,
+  trackerText = "",
+): string {
   const snapshotForeshadowingSignals = rawStrArrField(snapshots.foreshadowingSignals)
-  return mergeForeshadowingSignals(
+  const mergedSignals = mergeForeshadowingSignals(
     snapshotForeshadowingSignals.length > 0
       ? snapshotForeshadowingSignals
       : [rawStrField(rawData.fallbackForeshadowingStates)].filter(Boolean),
     rawStrField(rawData.searchResults),
   )
+  return joinNonEmpty([trackerText, mergedSignals], "\n\n")
 }
 
 
@@ -773,6 +818,7 @@ async function buildContextPackFromRawData(
   rawData: ContextRawData,
   context: ContextLoadContext,
   temporalFactsPreloaded: TemporalFact[] | null,
+  foreshadowingStorePromise?: Promise<ForeshadowingStore | null>,
 ): Promise<ContextPack> {
   // ISS-20260709-035: rawData 已是类型化契约 —— 动态载荷经 normalize 入口
   // 收窄（行为与 any 时代字节级一致：缺失/非 string → ""/[]）。下沉 helper
@@ -783,16 +829,23 @@ async function buildContextPackFromRawData(
   const { recentSummaries, recentChapterContents, recentStateDeltas, previousChapterEnding } =
     resolveSummaryBasics(rawData, snapshots)
 
-  // 职责 2：投影预取 + 人物状态拼装
-  const projections = await loadProjectionTexts(context.projectPath, {
-    beforeChapter: context.chapterNumber,
-    recordGap: context.recordGap,
-  })
+  // 职责 2：投影预取 + 伏笔库预取并行 + 人物状态拼装
+  const [projections, foreshadowingStore] = await Promise.all([
+    loadProjectionTexts(context.projectPath, {
+      beforeChapter: context.chapterNumber,
+      recordGap: context.recordGap,
+    }),
+    foreshadowingStorePromise ?? Promise.resolve(null),
+  ])
   const characterStates = resolveCharacterStates(rawData, snapshots, projections)
   
-  // 职责 3：时间线 + 伏笔
+  // 职责 3：时间线 + 伏笔（持久化 foreshadowing-tracker 过滤未来埋设章并入 protected foreshadowingStates）
   const timeline = resolveTimelineSection(rawData, snapshots)
-  const foreshadowingStates = resolveForeshadowingSection(rawData, snapshots)
+  const trackerForeshadowingText = formatForeshadowingTrackerForChapter(
+    foreshadowingStore,
+    context.chapterNumber,
+  )
+  const foreshadowingStates = resolveForeshadowingSection(rawData, snapshots, trackerForeshadowingText)
 
   // 职责 4：章节目标 + 合并大纲 + 修订指令
   const { chapterGoal, mergedOutline, revisionDirectives } =
@@ -807,19 +860,24 @@ async function buildContextPackFromRawData(
     return ""
   })
 
-  // 职责 5：时序 canon 基线 + 社区摘要并发（temporal 预载直传消费）。
+  // 职责 5：时序 canon 基线（含只读 .novel/book-rules.json 治理约束）+ 社区摘要并发（temporal 预载直传消费）。
   const targetChapter = context.chapterNumber ?? 0
-  const baseCanonRules = rawStrField(rawData.canonRules)
+  const rawCanonRules = rawStrField(rawData.canonRules)
   const temporalFactsPromise = Promise.resolve(temporalFactsPreloaded)
   const communityPromise = loadCommunitySummaryText(context.projectPath, {
     novelConfig: context.novelConfig,
   })
+  const bookRulesPromise = loadBookRulesPromptFragment(context.projectPath)
 
-  const [characterAuras, temporalFacts, communitySummaries] = await Promise.all([
+  const [characterAuras, temporalFacts, communitySummaries, bookRulesFragment] = await Promise.all([
     characterAuraPromise,
     temporalFactsPromise,
     communityPromise,
+    bookRulesPromise,
   ])
+  const baseCanonRules = bookRulesFragment
+    ? joinNonEmpty([rawCanonRules, bookRulesFragment], "\n\n")
+    : rawCanonRules
   const canonRules = applyTemporalFactsToCanonRules(baseCanonRules, temporalFacts, targetChapter)
 
   // 职责 7：派生 stores（世界骨架/叙事可见性）

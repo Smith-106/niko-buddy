@@ -12,6 +12,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const writeDraft = vi.hoisted(() => vi.fn())
+const loadNovelSessionStatus = vi.hoisted(() => vi.fn(async () => null as Record<string, unknown> | null))
+const syncExternalDraftToSessionStatus = vi.hoisted(() => vi.fn(async () => null))
 const fsMocks = vi.hoisted(() => ({
   writeFile: vi.fn(async () => undefined),
   createDirectory: vi.fn(async () => undefined),
@@ -20,11 +22,38 @@ const fsMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/novel", () => ({
   writeDraft,
+  loadNovelSessionStatus,
+  syncExternalDraftToSessionStatus,
+  HARD_FUSE_LIMIT: 5,
   // 故意给一个和 `.novel/drafts` 不同的值：如果实现里手拼路径，下面就会挂。
   DRAFTS_DIR: ".qm-drafts",
   // 这里只验"是否委托给了应用自己的正式章路径规则"，规则本身由
   // draft-manager 的 spec 负责。所以 mock 出一个能区分委托与否的实现即可。
   formalChapterPathForDraft: (pp: string, name: string) => `${pp}/wiki/chapters/${name}.md`,
+  readDraftChapterNumber: (name: string) => {
+    const cnMap: Record<string, number> = { 一: 1, 二: 2, 三: 3 }
+    const cn = /第([一二三])章/.exec(name)?.[1]
+    if (cn && cnMap[cn]) return cnMap[cn]
+    const num = /第(\d+)章|^chapter[- ](\d+)/i.exec(name)
+    const raw = num?.[1] ?? num?.[2]
+    return raw ? Number(raw) : undefined
+  },
+  externalDraftTargetKey: (_pp: string, name: string) => {
+    const cnMap: Record<string, number> = { 一: 1, 二: 2, 三: 3 }
+    const cn = /第([一二三])章/.exec(name)?.[1]
+    if (cn && cnMap[cn]) return `chapter:${cnMap[cn]}`
+    const num = /第(\d+)章|^chapter[- ](\d+)/i.exec(name)
+    const raw = num?.[1] ?? num?.[2]
+    if (raw) return `chapter:${Number(raw)}`
+    return `path:wiki/chapters/${name.replace(/[\\/]/g, "").trim().toLowerCase()}.md`
+  },
+  getExternalDraftRevisionCount: (
+    status: { external_draft_revisions?: Record<string, number> } | null,
+    key: string,
+  ) => {
+    const v = status?.external_draft_revisions?.[key]
+    return typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : 0
+  },
 }))
 
 vi.mock("@/commands/fs", () => fsMocks)
@@ -33,6 +62,8 @@ import { resolveFormalPath, writeChapterDraft } from "./draft-actions"
 
 beforeEach(() => {
   writeDraft.mockReset()
+  loadNovelSessionStatus.mockReset().mockResolvedValue(null)
+  syncExternalDraftToSessionStatus.mockReset().mockResolvedValue(null)
   fsMocks.writeFile.mockClear()
   fsMocks.createDirectory.mockClear()
   fsMocks.fileExists.mockClear()
@@ -86,6 +117,61 @@ describe("writeChapterDraft", () => {
       /content/,
     )
     expect(writeDraft).not.toHaveBeenCalled()
+  })
+
+  it("首次写入同步 .novel/status.json（targetKey 归一且 revisionRound=0）；同章重调 chapter.write 递增持久轮次", async () => {
+    writeDraft.mockResolvedValue({
+      id: "draft_ch1_v0",
+      chapterName: "第一章",
+      content: "初稿",
+      sourceConversationId: "mcp:chapter.write",
+    })
+    await writeChapterDraft("/proj", { chapterName: "第一章", content: "初稿" })
+    expect(syncExternalDraftToSessionStatus).toHaveBeenCalledWith({
+      projectPath: "/proj",
+      draftId: "draft_ch1_v0",
+      draftPath: "/proj/.qm-drafts/draft_ch1_v0.md",
+      chapterName: "第一章",
+      chapterNumber: 1,
+      targetKey: "chapter:1",
+      revisionRound: 0,
+      sourceConversationId: "mcp:chapter.write",
+    })
+
+    // 换标题写法重调 chapter.write（仍归到 chapter:1）→ 轮次 0 → 1
+    loadNovelSessionStatus.mockResolvedValueOnce({
+      external_draft_revisions: { "chapter:1": 0 },
+    })
+    writeDraft.mockResolvedValueOnce({
+      id: "draft_ch1_v1",
+      chapterName: "第1章-重写",
+      content: "二稿",
+      sourceConversationId: "mcp:chapter.write",
+      revisionRound: 1,
+    })
+    await writeChapterDraft("/proj", { chapterName: "第1章-重写", content: "二稿" })
+    expect(writeDraft).toHaveBeenLastCalledWith("/proj", "第1章-重写", "二稿", {
+      sourceConversationId: "mcp:chapter.write",
+      revisionRound: 1,
+    })
+    expect(syncExternalDraftToSessionStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        draftId: "draft_ch1_v1",
+        targetKey: "chapter:1",
+        revisionRound: 1,
+      }),
+    )
+  })
+
+  it("达到章节级持久 HARD_FUSE_LIMIT=5 时拒绝 chapter.write（封堵重调重置熔断绕过）", async () => {
+    loadNovelSessionStatus.mockResolvedValueOnce({
+      external_draft_revisions: { "chapter:1": 5 },
+    })
+    await expect(
+      writeChapterDraft("/proj", { chapterName: "第1章-换标题重来", content: "绕过正文" }),
+    ).rejects.toThrow(/HARD_FUSE_LIMIT_EXCEEDED/)
+    expect(writeDraft).not.toHaveBeenCalled()
+    expect(syncExternalDraftToSessionStatus).not.toHaveBeenCalled()
   })
 })
 

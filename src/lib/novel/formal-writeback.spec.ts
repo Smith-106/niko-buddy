@@ -46,6 +46,7 @@ const statusMocks = vi.hoisted(() => {
   const afterWrite = vi.fn(async () => {})
   return {
     afterWrite,
+    markExternalDraftAcceptedInStatus: vi.fn(async () => null),
     acceptDeepChapterDraft: vi.fn(async (input: AcceptDeepChapterDraftInput) => {
       if (!input.writeVerifiedChapter) throw new Error("Missing verified writer")
       const rollback = await input.writeVerifiedChapter()
@@ -79,6 +80,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 
 vi.mock("./novel-session-status", () => ({
   acceptDeepChapterDraft: statusMocks.acceptDeepChapterDraft,
+  markExternalDraftAcceptedInStatus: statusMocks.markExternalDraftAcceptedInStatus,
 }))
 
 vi.mock("./emotion-ledger", () => ({
@@ -98,6 +100,7 @@ vi.mock("@/lib/utils", async (importOriginal) => ({
 import {
   buildManagedChapterDocument,
   commitAcceptedDeepChapterDraft,
+  finalizeAcceptedChapter,
   finalizeChapterFrontmatterBlock,
   readManagedChapterForWrite,
 } from "./formal-writeback"
@@ -446,5 +449,78 @@ describe("finalizeChapterFrontmatterBlock", () => {
     ["malformed header", "---\n: [invalid\n---\n"],
   ])("fails loud on %s", (_label, raw) => {
     expect(() => finalizeChapterFrontmatterBlock(raw)).toThrow("Could not finalize the existing chapter header")
+  })
+})
+
+describe("finalizeAcceptedChapter", () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    fsMocks.files.clear()
+  })
+
+  it("按需同步外部草稿状态并执行 emotion-ledger 与 formal-writeback promote", async () => {
+    await finalizeAcceptedChapter({
+      projectPath: "E:/Novel",
+      chapterNumber: 4,
+      formalChapterPath: "E:/Novel/wiki/chapters/chapter-004.md",
+      finalChapterContent: "第四章正文，他必须在天亮前回来。",
+      syncExternalStatus: {
+        draftId: "draft_4",
+        chapterName: "第4章",
+        targetKey: "chapter:4",
+      },
+    })
+
+    expect(statusMocks.markExternalDraftAcceptedInStatus).toHaveBeenCalledWith({
+      projectPath: "E:/Novel",
+      draftId: "draft_4",
+      formalChapterPath: "E:/Novel/wiki/chapters/chapter-004.md",
+      chapterNumber: 4,
+      chapterName: "第4章",
+      targetKey: "chapter:4",
+      finalChapterContent: "第四章正文，他必须在天亮前回来。",
+    })
+    expect(ledgerMocks.updateEmotionLedgerFromChapter).toHaveBeenCalledWith(
+      "E:/Novel",
+      4,
+      "第四章正文，他必须在天亮前回来。",
+    )
+    expect(promote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "formal-writeback",
+        projectPath: "E:/Novel",
+        chapterId: "chapter-4",
+        chapterNumber: 4,
+      }),
+    )
+  })
+
+  it("各派生步骤失败均 non-fatal 隔离：状态同步或账本失败不阻断后续 promote 且不抛错", async () => {
+    statusMocks.markExternalDraftAcceptedInStatus.mockRejectedValueOnce(new Error("status locked"))
+    ledgerMocks.updateEmotionLedgerFromChapter.mockRejectedValueOnce(new Error("ledger io err"))
+    vi.mocked(promote).mockRejectedValueOnce(new Error("promote io err"))
+
+    await expect(
+      finalizeAcceptedChapter({
+        projectPath: "E:/Novel",
+        chapterNumber: 5,
+        formalChapterPath: "E:/Novel/wiki/chapters/chapter-005.md",
+        finalChapterContent: "第五章正文。",
+        syncExternalStatus: { draftId: "draft_5" },
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(ledgerMocks.loggerWarn).toHaveBeenCalledWith(
+      "Novel Session",
+      expect.stringContaining("status locked"),
+    )
+    expect(ledgerMocks.loggerWarn).toHaveBeenCalledWith(
+      "emotion-ledger",
+      expect.stringContaining("ledger io err"),
+    )
+    expect(ledgerMocks.loggerWarn).toHaveBeenCalledWith(
+      "promotion-bridge",
+      expect.stringContaining("promote io err"),
+    )
   })
 })

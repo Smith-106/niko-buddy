@@ -171,4 +171,32 @@ describe("adoptMainControlDraft", () => {
     )
     expect(out.formalChapterPath).toBe("/proj/QM/chapters/chapter-003.md")
   })
+
+  it("向 acceptDraftAndIngest 透传 draftId、chapterName 与解析后的 chapterNumber", async () => {
+    const adoptAndIngest = vi.fn(async () => ({
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      ingest: "skipped-config" as const,
+    }))
+    await adoptMainControlDraft(
+      {
+        projectPath: "/proj",
+        draftId: "draft_forward_3",
+        chapterName: "第3章",
+        confirmed: true,
+        novelConfig: novelConfig(),
+        llmConfig,
+      },
+      { adoptAndIngest },
+    )
+
+    expect(adoptAndIngest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectPath: "/proj",
+        formalChapterPath: "/proj/wiki/chapters/第3章.md",
+        draftId: "draft_forward_3",
+        chapterName: "第3章",
+        chapterNumber: 3,
+      }),
+    )
+  })
 })

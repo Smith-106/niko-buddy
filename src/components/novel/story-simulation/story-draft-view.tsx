@@ -32,7 +32,6 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
   const setTransientError = useStorySimulationStore((s) => s.setTransientError)
   const setTransientInfoMessage = useStorySimulationStore((s) => s.setTransientInfoMessage)
   const setActiveView = useWikiStore((s) => s.setActiveView)
-  const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const [copied, setCopied] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -41,6 +40,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
     count: number
     startChapter: number
     paths: string[]
+    draftIds: string[]
     backedUpCount: number
   } | null>(null)
   const [startChapter, setStartChapter] = useState(1)
@@ -124,14 +124,11 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
         count: result.importedCount,
         startChapter: result.startChapter,
         paths: result.chapterPaths,
+        draftIds: result.draftIds ?? [],
         backedUpCount: result.backedUpPaths.length,
       })
-      // 刷新项目状态
+      // 刷新项目状态（Draft-first：绝不将 .qm-drafts/ 路径设为正式选中章节）
       await refreshProjectState(projectPath)
-      // 选中第一个导入的章节
-      if (result.chapterPaths.length > 0) {
-        setSelectedFile(result.chapterPaths[0])
-      }
     } catch (err) {
       setTransientError(formatOperationError(t, err), 5000)
     } finally {
@@ -315,6 +312,15 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                     {t("storySimulation.autoBackupCount", { count: importResult.backedUpCount })}
                   </div>
                 )}
+              </div>
+              <div
+                data-testid="story-draft-inbox-guidance"
+                className="rounded-lg border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground"
+              >
+                {t("storySimulation.importDraftInboxGuidance", {
+                  defaultValue:
+                    "章节已存入待审草稿箱（.qm-drafts/），尚未覆盖正式章节。请前往草稿箱审阅并采纳后再写入正式章节库。",
+                })}
               </div>
             </div>
           ) : (

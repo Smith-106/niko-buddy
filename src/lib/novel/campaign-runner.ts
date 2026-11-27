@@ -29,7 +29,7 @@ import { DEFAULT_NOVEL_CONFIG, type NovelConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
 import { recordModuleHit } from "./module-heat"
 import { createDirectory } from "@/commands/fs"
-import { toErrorMessage } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 
 function countWords(text: string): number {
   return text.replace(/\s/g, "").length
@@ -37,8 +37,11 @@ function countWords(text: string): number {
 import { buildCarryoverContext } from "./campaign-memory"
 // C6 接线（B2 段摘要滚动最小版）：最新段摘要文本来源；load 失败降级 "" 不阻断巡航。
 import { getLatestSegmentSummaryText, loadSegmentSummaries } from "./segment-summary"
-// B2 弧结算可观测（P1-6）：纯函数 import，失败不阻断（模块无 IO）。
-import { shouldTriggerArcSettlement } from "./arc-settlement"
+// B2 弧结算真实边界（P1-6）：纯函数边界解析 + 大纲模型/卷册元数据读取（失败非致命）。
+import { resolveArcEndChapterForChapter, shouldTriggerArcSettlement } from "./arc-settlement"
+import type { OutlineModel } from "./outline-model"
+import { loadOutlineModel } from "./outline-model-store"
+import { getChapterVolumes, type VolumeMeta } from "./volume"
 import {
   assembleChapterRequest,
   buildBaseRequest,
@@ -106,6 +109,10 @@ export interface CampaignChapterResult {
   autoAccepted?: boolean
   /** 全自动巡航模式下是否已有可验证的事实库摄取回执 */
   autoIngested?: boolean
+  /** 本章是否命中弧末结算边界并触发了 arc-settlement 信号 */
+  arcSettlementTriggered?: boolean
+  /** 本章命中的弧尾章号（未命中时 undefined） */
+  arcEndChapter?: number
 }
 
 export interface CampaignRunOptions {
@@ -121,12 +128,19 @@ export interface CampaignRunOptions {
   incubationSkeletons?: ReadonlyMap<string, string>
   /**
    * 全自动巡航推进模式 (Autonomous Cruise Mode)
-   * 当为 true 时，单章经过三级门控自愈全绿通过（status === "ready" 且无阻断缺陷）后，
-   * 系统将自动原地正式提交该章并执行事实库摄取与双写，
-   * 随后无缝读取最新事实库继续推进下一章；
-   * 若某章未正式接受，巡航自动安全挂起待人工介入。
+   * 仅当同时显式提供 `confirmAutoAccept: true` 二次硬确认时，单章门控全绿才会
+   * 自动原地提交正式章节并执行事实库摄取；否则降级为草稿模式，保留在 ready 态。
    */
   cruiseMode?: boolean
+  /**
+   * Draft-first 二次硬确认：必须与 `cruiseMode: true` 同时为 true 才允许巡航自动
+   * 调用 batchAcceptCampaignDrafts 写入正式章节；缺省或 false 时仅保留 ready 草稿。
+   */
+  confirmAutoAccept?: boolean
+  /**
+   * 可选显式弧尾章号列表（1-based）；缺省时自动从 outline-model.json 与卷册元数据解析。
+   */
+  arcEndChapters?: readonly number[]
   /**
    * F3 仲裁执行闭环：cruise-paused 分支的仲裁指令提供者。
    * 缺省 undefined → 保持现有 paused 行为（安全挂起待人工介入）；
@@ -159,6 +173,10 @@ export interface CampaignReport {
   startTime: string
   endTime: string
   results: CampaignChapterResult[]
+  /** 本次战役是否命中至少一个弧末结算边界 */
+  arcSettlementTriggered?: boolean
+  /** 本次战役触发弧末结算边界的章号列表 */
+  arcSettlementChapters?: number[]
   summary: {
     allPassed: boolean
     readyCount: number
@@ -236,6 +254,8 @@ export async function runAutonomousDraftCampaign(
     llmConfig,
     novelConfig = CRUISE_FULL_CONFIG,
     cruiseMode = false,
+    confirmAutoAccept = false,
+    arcEndChapters,
     incubationSkeletons,
     arbitrationProvider,
     buildChapterRequest,
@@ -249,11 +269,39 @@ export async function runAutonomousDraftCampaign(
   const pp = normalizePath(projectPath)
   const startTime = new Date().toISOString()
   const results: CampaignChapterResult[] = []
+  const arcSettlementChapters: number[] = []
   let totalWords = 0
   let previousDraftSummary = ""
 
   const total = Math.max(1, chapterCount)
   const endChapter = startChapter + total - 1
+  const canAutoAccept = cruiseMode === true && confirmAutoAccept === true
+
+  if (cruiseMode && !canAutoAccept) {
+    logger.warn(
+      "campaign-runner",
+      "cruiseMode requested without confirmAutoAccept; keeping campaign drafts in ready state",
+      { projectPath: pp, startChapter, chapterCount: total },
+    )
+    onProgress?.({
+      stage: "cruise-draft-only",
+      current: 0,
+      total,
+      message: "已开启巡航但未提供 confirmAutoAccept 二次确认，Draft-first 边界已降级为草稿模式：通过门控的章节仅保持 ready 待审态，不自动写入正式章节。",
+    })
+  }
+
+  let outlineModel: OutlineModel | null = null
+  try {
+    const loadedOutline = await loadOutlineModel(pp)
+    outlineModel = loadedOutline?.model ?? null
+  } catch (outlineErr) {
+    logger.warn("campaign-runner", "loadOutlineModel failed during campaign init (non-fatal)", {
+      projectPath: pp,
+      error: toErrorMessage(outlineErr),
+    })
+    outlineModel = null
+  }
 
   // R3：战役起笔顶层指针（running + active_step_index=startChapter，经 buildNextStatus 工厂；失败非致命，永不阻断巡航）
   try {
@@ -376,8 +424,8 @@ export async function runAutonomousDraftCampaign(
 
       let isAutoAccepted = false
       let isAutoIngested = false
-      // 全自动巡航推进：门控全绿时自动原地提交晋升正式章节，并自动摄取事实库
-      if (cruiseMode && reviewedBodySha256) {
+      // 全自动巡航推进：仅在同时满足 cruiseMode === true && confirmAutoAccept === true 且门控全绿时自动提交晋升
+      if (canAutoAccept && reviewedBodySha256) {
         onProgress?.({
           stage: "auto-accepting",
           current: idx + 1,
@@ -432,20 +480,25 @@ export async function runAutonomousDraftCampaign(
     }
 
     try {
-      const chapterResult = await attemptChapter(userRequest)
+      let activeResult = await attemptChapter(userRequest)
+      let stageMetricRecorded = false
       recordModuleHit({
         path: "src/lib/novel/campaign-runner.ts",
         at: Date.now(),
-        ok: chapterResult.status === "ready",
-        detail: `巡航第${currentChapterNum}章 ${chapterResult.status}`,
+        ok: activeResult.status === "ready",
+        detail: `巡航第${currentChapterNum}章 ${activeResult.status}`,
       })
 
-      results.push(chapterResult)
-      onChapterComplete?.(currentChapterNum, chapterResult)
+      results.push(activeResult)
+      onChapterComplete?.(currentChapterNum, activeResult)
 
-      // 草稿生成就绪不等于正式落盘。未通过门控可仲裁；就绪但未正式采纳则直接暂停。
-      if (cruiseMode && (chapterResult.status !== "ready" || chapterResult.autoAccepted !== true)) {
-        const arbitrationRequest = chapterResult.status === "ready" ? null : buildArbitrationRequest(chapterResult)
+      // 草稿生成就绪不等于正式落盘。已确认自动落盘时未采纳即暂停；草稿巡航模式下就绪草稿保持 ready 继续推进。
+      if (
+        (canAutoAccept && (activeResult.status !== "ready" || activeResult.autoAccepted !== true))
+        || (cruiseMode && !canAutoAccept && activeResult.status !== "ready")
+      ) {
+        let retrySucceeded = false
+        const arbitrationRequest = activeResult.status === "ready" ? null : buildArbitrationRequest(activeResult)
         if (arbitrationRequest) {
           onProgress?.({ stage: "arbitration-pending", current: idx + 1, total, message: JSON.stringify(arbitrationRequest) })
         }
@@ -487,7 +540,8 @@ export async function runAutonomousDraftCampaign(
             // 以重跑结局覆盖首跑记录（单章在报告中只保留最终处置）
             results[results.length - 1] = retryResult
             onChapterComplete?.(currentChapterNum, retryResult)
-            // R3：retry 终局 1 条（成功 continue / 失败 break 共用，首跑不写；attemptChapter 内禁写盘；吞错永不阻断主链）
+            // R3：retry 终局 1 条（成功流经下方承接与弧结算、失败 break 共用，首跑不写；attemptChapter 内禁写盘；吞错永不阻断主链）
+            stageMetricRecorded = true
             try {
               if (typeof appendStageMetric === "function") {
                 await appendStageMetric(pp, {
@@ -502,32 +556,31 @@ export async function runAutonomousDraftCampaign(
             } catch {
               /* non-fatal: telemetry never blocks cruise */
             }
-            if (retryResult.status === "ready" && retryResult.autoAccepted === true) {
-              previousDraftSummary = buildCarryoverContext({
-                chapterNumber: currentChapterNum,
-                content: retryResult.content,
+            if (retryResult.status === "ready" && (!canAutoAccept || retryResult.autoAccepted === true)) {
+              activeResult = retryResult
+              retrySucceeded = true
+            } else {
+              onProgress?.({
+                stage: "cruise-paused",
+                current: idx + 1,
+                total,
+                message: `[第 ${currentChapterNum} 章] 重跑后：${describeCruisePause(retryResult)}，全自动巡航已安全挂起并等待人工审阅。`,
               })
-              continue
+              break
             }
-            onProgress?.({
-              stage: "cruise-paused",
-              current: idx + 1,
-              total,
-              message: `[第 ${currentChapterNum} 章] 重跑后：${describeCruisePause(retryResult)}，全自动巡航已安全挂起并等待人工审阅。`,
-            })
-            break
           }
 
           // skip：标记跳过并继续下一章（跳过章不污染后章前情承接）
-          if (decision?.disposition === "skip") {
+          if (!retrySucceeded && decision?.disposition === "skip") {
             const skippedResult: CampaignChapterResult = {
-              ...chapterResult,
+              ...activeResult,
               skipped: true,
               autoAccepted: false,
             }
             results[results.length - 1] = skippedResult
             onChapterComplete?.(currentChapterNum, skippedResult)
             // R3：skip 终局 1 条（partial:true，chapterId 保留原章号；吞错永不阻断主链）
+            stageMetricRecorded = true
             try {
               if (typeof appendStageMetric === "function") {
                 await appendStageMetric(pp, {
@@ -554,7 +607,7 @@ export async function runAutonomousDraftCampaign(
           // B1 可观测性（零风险 additive）：arbitrationProvider 缺省 → warn + arbitration-no-provider 事件。
           // 默认行为不变：仍落到下方 cruise-paused 安全挂起（人工介入），不自动重试/跳章，不碰晋升通道。
           console.warn(
-            `[campaign-runner] 第 ${currentChapterNum} 章门控未通过(${chapterResult.status})，未配置 arbitrationProvider，保持安全挂起待人工审阅。`,
+            `[campaign-runner] 第 ${currentChapterNum} 章门控未通过(${activeResult.status})，未配置 arbitrationProvider，保持安全挂起待人工审阅。`,
           )
           onProgress?.({
             stage: "arbitration-no-provider",
@@ -564,44 +617,49 @@ export async function runAutonomousDraftCampaign(
           })
         }
 
-        onProgress?.({
-          stage: "cruise-paused",
-          current: idx + 1,
-          total,
-          message: `[第 ${currentChapterNum} 章] ${describeCruisePause(chapterResult)}，全自动巡航已安全挂起并等待人工审阅。`,
-        })
-        // R3：暂停挂起章终局 1 条（原始 chapterResult 为终局；retry/skip 已写过的不重复；吞错永不阻断主链）
+        if (!retrySucceeded) {
+          onProgress?.({
+            stage: "cruise-paused",
+            current: idx + 1,
+            total,
+            message: `[第 ${currentChapterNum} 章] ${describeCruisePause(activeResult)}，全自动巡航已安全挂起并等待人工审阅。`,
+          })
+          // R3：暂停挂起章终局 1 条（原始 activeResult 为终局；retry/skip 已写过的不重复；吞错永不阻断主链）
+          stageMetricRecorded = true
+          try {
+            if (typeof appendStageMetric === "function") {
+              await appendStageMetric(pp, {
+                stage: "campaign:chapter",
+                chapterId: `chapter-${String(currentChapterNum).padStart(3, "0")}`,
+                tokenCost: activeResult.wordCount,
+                latencyMs: stageLatencyMs(chapterT0),
+                partial: campaignPartial(activeResult.status, activeResult.skipped),
+                timestamp: new Date().toISOString(),
+              })
+            }
+          } catch {
+            /* non-fatal: telemetry never blocks cruise */
+          }
+          break
+        }
+      }
+
+      // R3：直通章终局 1 条（cruise ready + 非 cruise 全量；仲裁改写章已记终局的不重复写；吞错永不阻断主链）
+      if (!stageMetricRecorded) {
         try {
           if (typeof appendStageMetric === "function") {
             await appendStageMetric(pp, {
               stage: "campaign:chapter",
               chapterId: `chapter-${String(currentChapterNum).padStart(3, "0")}`,
-              tokenCost: chapterResult.wordCount,
+              tokenCost: activeResult.wordCount,
               latencyMs: stageLatencyMs(chapterT0),
-              partial: campaignPartial(chapterResult.status, chapterResult.skipped),
+              partial: campaignPartial(activeResult.status, activeResult.skipped),
               timestamp: new Date().toISOString(),
             })
           }
         } catch {
           /* non-fatal: telemetry never blocks cruise */
         }
-        break
-      }
-
-      // R3：直通章终局 1 条（cruise ready + 非 cruise 全量；仲裁改写章不在此写，避免一章两条；吞错永不阻断主链）
-      try {
-        if (typeof appendStageMetric === "function") {
-          await appendStageMetric(pp, {
-            stage: "campaign:chapter",
-            chapterId: `chapter-${String(currentChapterNum).padStart(3, "0")}`,
-            tokenCost: chapterResult.wordCount,
-            latencyMs: stageLatencyMs(chapterT0),
-            partial: campaignPartial(chapterResult.status, chapterResult.skipped),
-            timestamp: new Date().toISOString(),
-          })
-        }
-      } catch {
-        /* non-fatal: telemetry never blocks cruise */
       }
 
       // 更新前情记忆给下一章沙箱消费（结构化承接：承接章号 + 任务简报? + 远期段摘要? + 末段收束 + 开端锚点；
@@ -614,22 +672,39 @@ export async function runAutonomousDraftCampaign(
       }
       previousDraftSummary = buildCarryoverContext({
         chapterNumber: currentChapterNum,
-        content: chapterResult.content,
+        content: activeResult.content,
         segmentSummary: latestSegmentSummary,
       })
-      // B2 弧结算可观测（P1-6：只发事件，不自动结算）。
-      // arcEndChapter 暂无生产来源（传入 null）故默认不触发，仅保留事件形状供后续接线。
-      // TODO(B2-arc)：arcEndChapter 来源 + 结算执行。
-      /* v8 ignore start -- 台账 campaign-runner.ts L595-602：arcEndChapter 字面量 null 使守卫恒假，待 TODO(B2-arc) 接入真实边界 */
-      if (shouldTriggerArcSettlement(currentChapterNum, null)) {
+      // B2 弧结算真实边界接线（显式 arcEndChapters → outlineModel → 卷册元数据，读取失败非致命降级）。
+      let chapterVolumes: VolumeMeta[] = []
+      try {
+        chapterVolumes = await getChapterVolumes(pp, currentChapterNum)
+      } catch (volErr) {
+        logger.warn("campaign-runner", "getChapterVolumes failed during arc settlement check (non-fatal)", {
+          projectPath: pp,
+          chapterNumber: currentChapterNum,
+          error: toErrorMessage(volErr),
+        })
+        chapterVolumes = []
+      }
+      const arcEndChapter = resolveArcEndChapterForChapter(currentChapterNum, {
+        outlineModel,
+        volumes: chapterVolumes,
+        explicitArcEnds: arcEndChapters,
+      })
+      if (shouldTriggerArcSettlement(currentChapterNum, arcEndChapter)) {
+        activeResult.arcSettlementTriggered = true
+        if (arcEndChapter !== null) {
+          activeResult.arcEndChapter = arcEndChapter
+        }
+        arcSettlementChapters.push(currentChapterNum)
         onProgress?.({
           stage: "arc-settlement",
           current: idx + 1,
           total,
-          message: `[第 ${currentChapterNum} 章] 弧边界到达，待结算（当前仅可观测，不自动执行）。`,
+          message: `[第 ${currentChapterNum} 章] 弧边界（第 ${arcEndChapter} 章）到达，待结算（当前仅可观测，不自动执行）。`,
         })
       }
-      /* v8 ignore stop */
     } catch (err) {
       const errorMsg = toErrorMessage(err)
       const failedResult: CampaignChapterResult = {
@@ -669,7 +744,7 @@ export async function runAutonomousDraftCampaign(
   const readyCount = results.filter((r) => r.status === "ready").length
   const failedCount = results.filter((r) => r.status === "failed" || r.status === "blocked").length
   const allPassed = failedCount === 0 && readyCount === total
-    && (!cruiseMode || results.every((result) => result.autoAccepted === true))
+    && (!canAutoAccept || results.every((result) => result.autoAccepted === true))
 
   // R3：战役收笔顶层指针（completed/blocked + active_step_index=endChapter；paused 仍由人工挂起路径写入，本轮只用二值）
   try {
@@ -696,6 +771,8 @@ export async function runAutonomousDraftCampaign(
     startTime,
     endTime,
     results,
+    arcSettlementTriggered: arcSettlementChapters.length > 0,
+    arcSettlementChapters,
     summary: {
       allPassed,
       readyCount,

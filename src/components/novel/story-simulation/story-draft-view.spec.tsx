@@ -256,15 +256,17 @@ describe("StoryDraftView 导入对话框", () => {
     expect(useStorySimulationStore.getState().error).toBeNull()
   })
 
-  it("导入成功：进度回调、结果视图、刷新项目、选中首章", async () => {
+  it("导入成功：进度回调、结果视图展示草稿箱审阅引导、刷新项目、绝不将 .qm-drafts/ 设为选中正式章", async () => {
     vi.mocked(getNextChapterNumber).mockResolvedValue(5)
     vi.mocked(importDraftToChapters).mockImplementation(async (_p, _f, _d, opts) => {
       opts?.onProgress?.(1, 2, "第一章·启程")
       return {
         importedCount: 2,
         startChapter: 5,
-        chapterPaths: ["/ch5.md", "/ch6.md"],
-        backedUpPaths: ["/ch5.bak.md"],
+        chapterPaths: ["C:/proj/.qm-drafts/draft_5.md", "C:/proj/.qm-drafts/draft_6.md"],
+        draftIds: ["draft_5", "draft_6"],
+        routedToDrafts: true,
+        backedUpPaths: [],
       } as never
     })
     vi.mocked(refreshProjectState).mockResolvedValue(undefined)
@@ -293,9 +295,11 @@ describe("StoryDraftView 导入对话框", () => {
         T.chapterRange.replace("{{start}}", "5").replace("{{end}}", "6"),
       ),
     ).toBeTruthy()
-    expect(screen.getByText(T.autoBackupCount.replace("{{count}}", "1"))).toBeTruthy()
+    const guidance = screen.getByTestId("story-draft-inbox-guidance")
+    expect(guidance.textContent).toContain("待审草稿箱")
+    expect(guidance.textContent).toContain(".qm-drafts/")
     expect(vi.mocked(refreshProjectState)).toHaveBeenCalledWith("C:/proj")
-    expect(useWikiStore.getState().selectedFile).toBe("/ch5.md")
+    expect(useWikiStore.getState().selectedFile).toBeNull()
   })
 
   it("导入失败写 error", async () => {
