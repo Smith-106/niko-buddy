@@ -20,6 +20,15 @@ export const SKILL_BUNDLE_SCHEMA_VERSION = 1
 /** 导入器盖章值。 */
 export const SKILL_BUNDLE_TRUST_UNTRUSTED = "untrusted"
 
+/** 人工复核通过后由独立收据文件背书的信任级别（不采信 `manifest.json` 自述）。 */
+export const SKILL_BUNDLE_TRUST_REVIEWED = "reviewed"
+
+/** 技能包信任级别。 */
+export type SkillBundleTrustLevel =
+  | typeof SKILL_BUNDLE_TRUST_UNTRUSTED
+  | typeof SKILL_BUNDLE_TRUST_REVIEWED
+  | (string & {})
+
 /** 条目数上限（与 Rust `MAX_ENTRIES` 同值）。 */
 export const SKILL_BUNDLE_MAX_ENTRIES = 512
 
@@ -105,6 +114,69 @@ export interface SkillBundleImportResult {
   readable_state: string[]
   writable_artifacts: string[]
   warnings: string[]
+}
+
+/** 已安装技能包清单条目（对应 Rust `skill_bundle_list_installed` 返回）。 */
+export interface SkillBundleInstalledEntry {
+  id: string
+  name: string
+  version: string
+  installed_dir: string
+  trust_level: SkillBundleTrustLevel
+  content_hash: string
+  manifest_sha256: string
+  file_count: number
+  reviewed_at: string | null
+  reviewer_note: string | null
+  skill_ids: string[]
+  integrity_ok: boolean
+}
+
+/** 人工复核状态更新结果（对应 Rust `skill_bundle_mark_reviewed` 返回）。 */
+export interface SkillBundleReviewResult {
+  ok: boolean
+  bundle_id: string
+  bundle_version: string
+  trust_level: SkillBundleTrustLevel
+  content_hash: string
+  manifest_sha256: string
+  receipt_path: string
+  reviewed_at: string | null
+}
+
+/** 单向声明式 `SKILL.md` 导出结果（对应 Rust `skill_bundle_export_declarative_skill_md` 返回）。 */
+export interface SkillBundleDeclarativeExportResult {
+  ok: boolean
+  bundle_id: string
+  bundle_version: string
+  source_skill_id: string
+  exported_skill_name: string
+  trust_level: SkillBundleTrustLevel
+  content_hash: string
+  manifest_sha256: string
+  skill_md_sha256: string
+  export_dir: string
+  skill_md_path: string
+  written_files: string[]
+  skipped_non_md_files: string[]
+  declarative_only: boolean
+}
+
+/** 单向声明式 `SKILL.md` 导出门禁输入（兼容 camelCase 与 snake_case 字段）。 */
+export interface DeclarativeSkillMdExportGateInput {
+  trustLevel?: string | null
+  trust_level?: string | null
+  integrityOk?: boolean
+  integrity_ok?: boolean
+  rejected?: readonly string[]
+  mismatched?: readonly string[]
+}
+
+/** 单向声明式 `SKILL.md` 导出前置门禁结论（fail-closed）。 */
+export interface DeclarativeSkillMdExportGate {
+  canExport: boolean
+  trustLevel: SkillBundleTrustLevel
+  reasons: string[]
 }
 
 /** 条目安全体检结论。 */
@@ -226,5 +298,99 @@ export async function importSkillBundle(
     bundlePath,
     destRoot,
     confirmed,
+  })
+}
+
+/**
+ * 单向声明式 `SKILL.md` 导出前置门禁判定（fail-closed，零触盘）。
+ * 仅当 `trustLevel === "reviewed"`、完整性未失败且无 `rejected`/`mismatched` 项时放行。
+ */
+export function canExportDeclarativeSkillMd(
+  input: DeclarativeSkillMdExportGateInput | null | undefined,
+): DeclarativeSkillMdExportGate {
+  const reasons: string[] = []
+  if (!input) {
+    return {
+      canExport: false,
+      trustLevel: SKILL_BUNDLE_TRUST_UNTRUSTED,
+      reasons: ["bundle metadata missing"],
+    }
+  }
+  const rawTrust = (input.trustLevel ?? input.trust_level ?? "").trim()
+  const trustLevel: SkillBundleTrustLevel = rawTrust || SKILL_BUNDLE_TRUST_UNTRUSTED
+  if (trustLevel !== SKILL_BUNDLE_TRUST_REVIEWED) {
+    reasons.push(
+      `bundle trust_level is ${trustLevel} (requires human-confirmed ${SKILL_BUNDLE_TRUST_REVIEWED})`,
+    )
+  }
+  const integrityOk = input.integrityOk ?? input.integrity_ok
+  if (integrityOk === false) {
+    reasons.push("bundle integrity check failed")
+  }
+  if (Array.isArray(input.rejected) && input.rejected.length > 0) {
+    reasons.push(...input.rejected)
+  }
+  if (Array.isArray(input.mismatched) && input.mismatched.length > 0) {
+    reasons.push(`hash mismatches: ${input.mismatched.join(", ")}`)
+  }
+  return {
+    canExport: reasons.length === 0,
+    trustLevel,
+    reasons,
+  }
+}
+
+/** 列出 `<destRoot>/skill_bundle/<id>/<version>` 下已安装的技能包及其核验后信任状态。 */
+export async function listInstalledSkillBundles(
+  destRoot: string,
+): Promise<SkillBundleInstalledEntry[]> {
+  return invoke<SkillBundleInstalledEntry[]>("skill_bundle_list_installed", {
+    destRoot,
+  })
+}
+
+/**
+ * 标记或撤销已安装技能包的人工复核收据（`<installedDir>/.nb-review-receipt.json`）。
+ * fail-closed：未显式人工确认（`confirmed !== true`）时在客户端即拒绝，绝不触发 IPC。
+ */
+export async function setSkillBundleReviewStatus(
+  installedDir: string,
+  reviewed: boolean,
+  confirmed: boolean,
+  reviewerNote?: string,
+): Promise<SkillBundleReviewResult> {
+  if (!confirmed) {
+    throw new Error(
+      "[skill_bundle] human confirmation (confirmed=true) is required to update review status",
+    )
+  }
+  return invoke<SkillBundleReviewResult>("skill_bundle_mark_reviewed", {
+    installedDir,
+    reviewed,
+    confirmed,
+    reviewerNote,
+  })
+}
+
+/**
+ * 将已人工复核通过的 `nbskill/1` 包单向导出为声明式 `SKILL.md`（+ `references/*.md`）。
+ * 严守 C-007 零脚本与 fail-closed 信任门：若调用方传入 `options.trustLevel` 且非 `reviewed`，
+ * 客户端先拒绝不调用 IPC；最终权威校验由 Rust 侧重算哈希并验证独立收据执行。
+ */
+export async function exportDeclarativeSkillMd(
+  installedDir: string,
+  destRoot: string,
+  options?: { skillId?: string; overwrite?: boolean; trustLevel?: string },
+): Promise<SkillBundleDeclarativeExportResult> {
+  if (options?.trustLevel !== undefined && options.trustLevel !== SKILL_BUNDLE_TRUST_REVIEWED) {
+    throw new Error(
+      `[skill_bundle] declarative SKILL.md export requires trust_level=${SKILL_BUNDLE_TRUST_REVIEWED} (got ${options.trustLevel || SKILL_BUNDLE_TRUST_UNTRUSTED})`,
+    )
+  }
+  return invoke<SkillBundleDeclarativeExportResult>("skill_bundle_export_declarative_skill_md", {
+    installedDir,
+    destRoot,
+    skillId: options?.skillId,
+    overwrite: options?.overwrite,
   })
 }

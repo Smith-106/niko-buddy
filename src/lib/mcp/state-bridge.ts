@@ -144,6 +144,10 @@ import {
   runDraftRecordReview,
   runWorkflowNext,
 } from "./workflow-draft-tools"
+import {
+  runAuditLongformHealth,
+  runDraftDiff,
+} from "./phase3-read-tools"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
@@ -185,6 +189,8 @@ export type StateOp =
   | "outline-read"
   | "style-exemplars"
   | "chapter-search"
+  | "draft-diff"
+  | "audit-longform-health"
 
 export interface StateRequestPayload {
   id: string
@@ -335,6 +341,9 @@ export interface StateBridgeDeps {
   outlineRead?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
   styleExemplars?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
   chapterSearch?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  /** Phase 3 零 LLM 只读工具依赖注入点（缺省走默认实现）。 */
+  draftDiff?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  auditLongformHealth?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
 }
 
 const defaultDeps: StateBridgeDeps = {
@@ -1917,6 +1926,36 @@ export async function handleStateRequest(
               listChapters: deps.listChapters,
               listDrafts: deps.listDrafts ?? defaultDeps.listDrafts!,
               readFileText: deps.readFileText,
+            }))
+        const value = await runner(projectPath, params)
+        return { ok: true, value }
+      }
+
+      case "draft-diff": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.draftDiff
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runDraftDiff(pp, p, {
+              listDrafts: deps.listDrafts ?? defaultDeps.listDrafts!,
+              listChapters: deps.listChapters,
+              readFileText: deps.readFileText,
+            }))
+        const value = await runner(projectPath, params)
+        return { ok: true, value }
+      }
+
+      case "audit-longform-health": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.auditLongformHealth
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runAuditLongformHealth(pp, p, {
+              loadStatus: async (path) => (await deps.loadStatus(path)) as NovelSessionStatus | null,
+              listDrafts: deps.listDrafts ?? defaultDeps.listDrafts!,
+              listChapters: deps.listChapters,
             }))
         const value = await runner(projectPath, params)
         return { ok: true, value }

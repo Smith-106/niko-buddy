@@ -2565,4 +2565,58 @@ describe("handleStateRequest — P2-B4 (8 个新操作 / mcp:draft.patch 元数�
     const mod = await import("./state-bridge")
     expect(Object.keys(mod).filter((name) => /^(set|write|remove|delete|update)/i.test(name))).toEqual([])
   })
+
+  it("6) Phase 3 只读 op（draft-diff / audit-longform-health）未打开项目报错、正常转发 DI 且永不触发 onDraftWritten", async () => {
+    const noProj = deps({ readProjectPath: () => "" })
+    for (const op of ["draft-diff", "audit-longform-health"] as const) {
+      const res = await handleStateRequest(request({ op }), noProj)
+      expect(res.ok).toBe(false)
+      expect(res.error).toContain("未打开项目")
+    }
+
+    const onDraftWritten = vi.fn()
+    const called: string[] = []
+    const d = deps({
+      onDraftWritten,
+      draftDiff: async (pp, params) => {
+        called.push(`draft-diff:${pp}:${String(params?.draftId ?? "")}`)
+        return { mode: "draft_vs_formal", identical: false }
+      },
+      auditLongformHealth: async (pp, params) => {
+        called.push(`audit-longform-health:${pp}:${String(params?.currentChapter ?? "")}`)
+        return { overallStatus: "healthy", degradedSignals: [] }
+      },
+    })
+
+    const rDiff = await handleStateRequest(
+      request({ op: "draft-diff", params: { draftId: "draft_ch3" } }),
+      d,
+    )
+    const rAudit = await handleStateRequest(
+      request({ op: "audit-longform-health", params: { currentChapter: 8 } }),
+      d,
+    )
+
+    expect(rDiff.ok).toBe(true)
+    expect(rDiff.value).toEqual({ mode: "draft_vs_formal", identical: false })
+    expect(rAudit.ok).toBe(true)
+    expect(rAudit.value).toEqual({ overallStatus: "healthy", degradedSignals: [] })
+    expect(called).toEqual([
+      "draft-diff:/proj:draft_ch3",
+      "audit-longform-health:/proj:8",
+    ])
+    expect(onDraftWritten).not.toHaveBeenCalled()
+
+    // 抛错捕获为 { ok: false, error }
+    const failing = deps({
+      onDraftWritten,
+      draftDiff: async () => {
+        throw new Error("draft.diff: 找不到草稿")
+      },
+    })
+    const errRes = await handleStateRequest(request({ op: "draft-diff", params: { draftId: "missing" } }), failing)
+    expect(errRes.ok).toBe(false)
+    expect(errRes.error).toContain("找不到草稿")
+    expect(onDraftWritten).not.toHaveBeenCalled()
+  })
 })

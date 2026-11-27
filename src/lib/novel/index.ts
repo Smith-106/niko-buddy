@@ -177,9 +177,17 @@ export { acceptChapterDraft, discardChapterDraft, draftNeedsGateReview, formalCh
 export type { DraftManagerDeps } from "./draft-manager"
 export type { ChapterDraft, DraftAdoptionGate, DraftGateStatus, DraftStatus } from "./lifecycle-types"
 export { DRAFTS_DIR } from "./lifecycle-types"
-export { calculateEmotionNetValue, evaluatePlayableEmotionPath, getCircuitBreakerStatus, getTopEmotionalDebt, loadEmotionLedger } from "./emotion-ledger"
-export type { EmotionLedgerEntry } from "./emotion-ledger"
+export {
+  calculateEmotionNetValue,
+  checkEmotionCircuitBreaker,
+  evaluatePlayableEmotionPath,
+  getCircuitBreakerStatus,
+  getTopEmotionalDebt,
+  loadEmotionLedger,
+} from "./emotion-ledger"
+export type { EmotionLedgerEntry, EmotionLedgerStore } from "./emotion-ledger"
 export { loadEmotionalArcs } from "./emotional-arcs"
+export type { EmotionalArcBeat, EmotionalArcStore } from "./emotional-arcs"
 export { exportEvidenceChainForReview } from "./evidence-chain-export"
 export {
   countFinalChapters,
@@ -278,13 +286,25 @@ export type {
 } from "./mechanical-slop-detector"
 export { loadMemoryCenterData } from "./memory-center"
 export type { MemoryCenterData, MemoryCenterFilePreview, MemoryCenterSnapshotCard } from "./memory-center"
-export { resolveDefaultModel, resolveModelConfig, resolveNovelModel } from "./model-resolver"
-export type { ModelResolverStoreSnapshot, NovelTaskType } from "./model-resolver"
+export {
+  NOVEL_ROLE_TEMPERATURES,
+  getNovelRoleTemperature,
+  resolveDefaultModel,
+  resolveModelConfig,
+  resolveNovelModel,
+  resolveOptionalRoleModel,
+} from "./model-resolver"
+export type {
+  ModelResolverStoreSnapshot,
+  NovelRoleTemperatureKey,
+  NovelTaskType,
+  OptionalNovelRoleTask,
+} from "./model-resolver"
 export { configureMonaco } from "./monaco-loader"
 export { testNovelModel } from "./novel-model-test"
 export type { TestableNovelModelTask } from "./novel-model-test"
 export { acceptFindingRewriteDraft, blockDeepChapterSession, buildLifecycleStatus, buildNextStatus, completeDeepChapterSession, computeChaseDebtState, createNovelSessionId, getManagedDraftAdoptionGate, loadNovelSessionStatus, markSessionInterrupted, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, rejectFindingRewriteDraft, requireManagedDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, resolveStatusResumeCheckpoint, saveNovelSessionStatus, startDeepChapterSession, subscribeStatusJson, updateChaseDebtStatus, writeFindingRewriteDraft, appendStageMetric } from "./novel-session-status"
-export type { ChaseDebt, ChaseDebtEvent, NovelSessionStatus, StageMetricEntry, RouteShellMode, AntiAiMode, CanonMigrationMode } from "./novel-session-status"
+export type { ChaseDebt, ChaseDebtEvent, ChaseDebtStatus, ChaseDebtType, NovelSessionStatus, StageMetricEntry, RouteShellMode, AntiAiMode, CanonMigrationMode } from "./novel-session-status"
 export { OUTLINE_FIND_CHAPTER_INTENTS, buildOutlineFindProtocol, shouldIncludeOutlineFindProtocol, stripOutlineFindProtocol } from "./outline-find-protocol"
 export { OUTLINE_SECTION_GENERATION_CONFIGS, addOutlineTaskToSourceList, buildOutlineGenerationPrompt, createOutlineIngestTask, hasOutlineForRefinement, openGeneratedOutline, runBulkOutlineIngest, runOutlineGenerationTask, runOutlineIngestTask, runOutlineRefinementTask, startOutlineIngestTask } from "./outline-generation"
 export type { OutlineRefinementWriteMode, OutlineSectionGenerationKey } from "./outline-generation"
@@ -523,8 +543,7 @@ export type {
   EpistemicCheckResult,
 } from "./ollama-slm-adapter"
 
-// F-002 技能包离线协议客户端（TASK-005/006）：app 层只能经 barrel 进入 novel 领域，
-// 故两个 UI 客户端在此公开。
+// F-002 技能包离线协议客户端（TASK-005/006 + Phase 3 人工复核与声明式 SKILL.md 导出）：app 层只能经 barrel 进入 novel 领域。
 export {
   SKILL_BUNDLE_ALLOWED_EXTENSIONS,
   SKILL_BUNDLE_EXECUTABLE_EXTENSIONS,
@@ -532,11 +551,16 @@ export {
   SKILL_BUNDLE_MAX_ENTRIES,
   SKILL_BUNDLE_SCHEMA,
   SKILL_BUNDLE_SCHEMA_VERSION,
+  SKILL_BUNDLE_TRUST_REVIEWED,
   SKILL_BUNDLE_TRUST_UNTRUSTED,
+  canExportDeclarativeSkillMd,
+  exportDeclarativeSkillMd,
   exportSkillBundle,
   hasExecutableExtension,
   importSkillBundle,
   isAllowedBundleEntry,
+  listInstalledSkillBundles,
+  setSkillBundleReviewStatus,
   summarizeImportGate,
   validateBundleEntryName,
   validateManifestShape,
@@ -545,10 +569,16 @@ export {
 export type {
   BundleEntryVerdict,
   BundleFileRef,
+  DeclarativeSkillMdExportGate,
+  DeclarativeSkillMdExportGateInput,
   SkillBundleAllowlist,
+  SkillBundleDeclarativeExportResult,
   SkillBundleExportResult,
   SkillBundleImportResult,
+  SkillBundleInstalledEntry,
   SkillBundleManifest,
+  SkillBundleReviewResult,
+  SkillBundleTrustLevel,
   SkillBundleVerifyResult,
 } from "./skill-bundle-client"
 
@@ -1733,3 +1763,12 @@ export type {
   CommitInteractiveSnapshotMemoryStatus,
   CommitInteractiveSnapshotResult,
 } from "./antigravity-hybrid-ingest"
+
+// ── P3-B5：Phase 3 零 LLM 差异比对 / 长篇健康审计 / 共识正典摘要显式命名导出（零 export *，零深导入）──
+export { computeMyersDiff } from "./diff"
+export type { DiffChange, DiffChangeType } from "./diff"
+export { EMOTION_CB_THRESHOLD } from "./deep-chapter-runtime-support"
+export { loadSubplotBoard } from "./subplot-board"
+export type { Subplot, SubplotBoardStore, SubplotStatus } from "./subplot-board"
+export { CONSENSUS_CANON_DIGEST_MAX_CHARS, buildConsensusCanonDigest } from "./consensus-aggregate"
+export type { ConsensusCanonDigestInput } from "./consensus-aggregate"
