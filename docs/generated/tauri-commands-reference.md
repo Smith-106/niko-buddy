@@ -1,9 +1,9 @@
 # Tauri 命令参考（自动生成）
 
 > 生成时间：2026-11-27（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**146**（`generate_handler!` 块）；未注册声明（死命令）：**0**
+> 注册数：**147**（`generate_handler!` 块）；未注册声明（死命令）：**0**
 
-## 注册命令（146）
+## 注册命令（147）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
@@ -20,6 +20,7 @@
 | `antigravity_acp_respond_permission` | antigravity_acp | ✓ |
 | `antigravity_acp_set_config_option` | antigravity_acp | ✓ |
 | `antigravity_acp_status` | antigravity_acp | ✓ |
+| `antigravity_acp_switch_slot` | antigravity_acp | ✓ |
 | `antigravity_cli_detect` | antigravity_cli | ✓ |
 | `app_lock_set_passphrase` | app_lock::api | ✓ |
 | `app_lock_state` | app_lock::api | ✓ |

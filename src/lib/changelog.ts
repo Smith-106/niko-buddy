@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.35.0（2026-11-28）：主控自主化闭环 Wave 2 深化（零 LLM 技能/正典只读 MCP 桥与插件 v1.4.0、嵌入式 ACP 三角色槽池与非破坏性审校交接、canon.db 写侧 world_fact/known_by 物化与受控 dual 迁移读链激活）。
+    version: "2.35.0",
+    date: "2026-11-28",
+    highlights: {
+      en: [
+        "Added a zero-LLM, zero-disk-write Skills Read Bridge (skills-read-tools.ts) and four strictly read-only Rust MCP tools (skills.list, skills.get, canon.facts_known_by, and canon.episodes), expanding ToolProfiles to 50 full-legacy, 36 writer-sub, 28 architect, and 25 strictly read-only reviewer tools (keeping privileged tools locked at 22 and never exposing draft.accept), upgraded the pure-declarative niko-buddy-writer plugin to v1.4.0 (14 declarative files plus dual-profile Antigravity MCP config helper), expanded MainControl local MCP facades from 6 to 8 (22 total tools), and replaced empty outline multi-agent contextPack stubs and bare skill IDs with real buildContextPack and skill body injection.",
+        "Refactored the embedded Antigravity ACP backend into a multi-role slot session pool (writer, reviewer [RO] hard-locked to ToolProfile Reviewer and effective SessionScope Read, and architect) over one unmodified agy acp stdio connection, registered antigravity_acp_switch_slot (147 registered Tauri commands, 0 dead commands) while preserving triple conn_epoch fences, poison-safe exit guards, and slot-scoped permission draining, and delivered a memory-only multi-slot frontend store, keyboard-accessible slot switcher bar, non-destructive pre-fill-only Reviewer handoff flow, skills.list/skills.get quick-action hints, and 4,854 1:1 zh/en localization keys.",
+        "Upgraded canon.db write-side materialization so finalized chapter snapshots emit queryable world_fact edges with normalized known_by POV handles and real conflicting prior old_edge_ids for clean supersede transitions into formerFacts, eliminated O(N^2) canon-legacy.jsonl per-fact rewrites via snapshotLegacyBatchWriter, narrowed pre-write conflict queries to non-empty targeted CanonEdgeFilter predicates, and drained promotion-retry.jsonl safely after chapter commits without nested locks.",
+        "Activated the controlled canon_migration dual lifecycle via setCanonMigrationMode and activateCanonDualMigration with non-fatal post-commit auto-promotion and deterministic .novel/facts.json fallback in loadCanonSourceFacts when canon.db is empty or unavailable, deduplicated 3x foldBeforeChapter disk snapshot replays into a single shared lazy preload per context build, and unblocked temporally safe active subplots in readSubplotBoardText without violating anti-leakage boundaries.",
+      ],
+      zh: [
+        "新增零 LLM、零写盘技能只读桥（skills-read-tools.ts）与 4 项严格只读 Rust MCP 工具（skills.list、skills.get、canon.facts_known_by、canon.episodes），4 档 ToolProfile 同步演进为完整兼容 50 / 主笔精简 36 / 策划大纲 28 / 责编严格全只读 25（特权工具严格锁定 22、始终严禁 draft.accept），纯声明式 niko-buddy-writer 插件升至 v1.4.0（14 份声明式文件并内置双 Profile Antigravity MCP 配置助手），应用内主控本地门面由 6 扩至 8（总计 22 项工具），同步修复大纲多智能体空 contextPack 桩与裸技能 ID 注入缺陷。",
+        "重构嵌入式 Antigravity ACP 后端为单进程多角色槽会话池（writer、硬锁 ToolProfile Reviewer 与 SessionScope Read 的 reviewer [RO]、architect），注册新命令 antigravity_acp_switch_slot（全仓 147 条注册 Tauri 命令、0 死命令）并完整守恒三处 conn_epoch 围栏、防毒化退出守卫与按槽权限排空；前端落地纯内存多槽 Store、无障碍槽位切换条、非破坏性仅预填审校交接、skills.list/skills.get 快捷指令提示与 4,854 键中英 1:1 完整对齐。",
+        "升级 canon.db 写侧物化管道：正式章快照直接产出可查询的 world_fact 边、归一化 known_by 视角持有人与真实先序冲突 old_edge_ids 以驱动 formerFacts 演化；通过 snapshotLegacyBatchWriter 消除 canon-legacy.jsonl 逐事实 O(N^2) 整文件重写；收窄写前冲突查询为非空目标 CanonEdgeFilter，并在章节提交后非致命排空 promotion-retry.jsonl 且无嵌套锁。",
+        "激活受控 canon_migration dual 双轨生命周期（setCanonMigrationMode、activateCanonDualMigration 与干净双写后的非致命自动晋升），为 loadCanonSourceFacts 补齐 canon.db 为空或不可用时的确定性 .novel/facts.json 回退；将单次上下文装配中 3 次重复 foldBeforeChapter 盘上快照重放收敛为 1 次共享惰性预加载，并在严守防未来剧透边界下解锁 readSubplotBoardText 活跃支线。",
+      ],
+    },
+  },
+  {
     // 2.34.0（2026-11-27）：主控自主化闭环（状态桥与 Draft-first 封堵、6 项零 LLM 规划 MCP 工具、百章记忆留存与主控 20 工具面、ACP 减摩擦抽屉与核心视图扶正、模块索引诚实化）。
     version: "2.34.0",
     date: "2026-11-27",
