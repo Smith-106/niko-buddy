@@ -3,6 +3,7 @@
 
 import {
   ArchiveRestore,
+  BookMarked,
   BookOpen,
   Bot,
   Brain,
@@ -16,6 +17,7 @@ import {
   FileText,
   FolderOpen,
   Gauge,
+  Globe2,
   Layers,
   LayoutDashboard,
   Library,
@@ -23,7 +25,6 @@ import {
   PenTool,
   Play,
   Plug,
-  Radar,
   Route,
   ScrollText,
   Search,
@@ -56,11 +57,11 @@ export interface NavItem {
 
 /**
  * 导航六组（作家语言，纯展示层；content-area.tsx 的 switch 零改动）。按作者的工作顺序排：
- * - si 开书：工作台/书架/导演/故事模拟/拆文库（题材库、故事模式收进 More）——没有书时默认展开
+ * - si 开书：工作台/导演/故事模拟/拆文库（书架、题材库、故事模式收进 More）——没有书时默认展开
  * - ma 写作：章节库/主控（AI 实况已并入主控页签，不再单列）
  * - review 审改：审查中心/跟进中心（记忆中心、去 AI 规则收进 More）
- * - shen 设定资料：资料源/图谱/角色灵魂/设定编辑
- * - tools 创作工具：创作中枢/书名工坊/Antigravity 面板 (ACP)（风格引擎、技能库、市场雷达收进 More）
+ * - shen 设定资料：资料源/图谱/状态总览/角色灵魂/设定编辑（世界蓝图、资产库收进 More）
+ * - tools 创作工具：创作中枢/书名工坊/Antigravity 面板 (ACP)（风格引擎、技能库收进 More；永久空壳 marketRadar 不进导航）
  * - maint 维护：备份（导出中心、诊断、数据、模型路由、运行模板与记录（只读）、MCP、帮助收进 More，共 8 项）
  *
  * UX 审计批次三·10：旧「设置」组 14 项拆成「创作工具」与「维护」，组名改「维护」，
@@ -71,7 +72,7 @@ export interface NavItem {
  */
 export const NAV_ITEMS: NavItem[] = [
   { view: "workbench", icon: LayoutDashboard, labelKey: "novel.nav.workbench", group: "si", tier: "primary" },
-  { view: "bookshelf", icon: Library, labelKey: "novel.nav.bookshelf", group: "si", tier: "primary" },
+  { view: "bookshelf", icon: Library, labelKey: "novel.nav.bookshelf", group: "si", tier: "secondary" },
   { view: "director", icon: Clapperboard, labelKey: "novel.nav.director", group: "si", tier: "primary" },
   { view: "storySimulation", icon: Play, labelKey: "novel.nav.storySimulation", group: "si", tier: "primary" },
   { view: "bookAnalysis", icon: BookOpen, labelKey: "novel.nav.dismantling", group: "si", tier: "primary" },
@@ -88,12 +89,13 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "statusDashboard", icon: Gauge, labelKey: "novel.nav.statusDashboard", group: "shen", tier: "primary" },
   { view: "soul", icon: UserRound, labelKey: "novel.nav.soul", group: "shen", tier: "primary" },
   { view: "canonEditor", icon: ScrollText, labelKey: "novel.nav.canonEditor", group: "shen", tier: "primary" },
+  { view: "worldLibrary", icon: Globe2, labelKey: "novel.nav.worldLibrary", group: "shen", tier: "secondary" },
+  { view: "knowledgeLibrary", icon: BookMarked, labelKey: "novel.nav.knowledgeLibrary", group: "shen", tier: "secondary" },
   { view: "creativeHub", icon: Compass, labelKey: "novel.nav.creativeHub", group: "tools", tier: "primary" },
   { view: "titleStudio", icon: PenTool, labelKey: "novel.nav.titleStudio", group: "tools", tier: "primary" },
   { view: "antigravityAcp", icon: Bot, labelKey: "novel.nav.antigravityAcp", group: "tools", tier: "primary" },
   { view: "styleEngine", icon: SlidersHorizontal, labelKey: "novel.nav.styleEngine", group: "tools", tier: "secondary" },
   { view: "skillLibrary", icon: Wrench, labelKey: "novel.nav.skillLibrary", group: "tools", tier: "secondary" },
-  { view: "marketRadar", icon: Radar, labelKey: "novel.nav.marketRadar", group: "tools", tier: "secondary" },
   { view: "backupExport", icon: ArchiveRestore, labelKey: "novel.nav.backupExport", group: "maint", tier: "primary" },
   { view: "exportCenter", icon: Download, labelKey: "novel.nav.exportCenter", group: "maint", tier: "secondary" },
   { view: "diagnosticsCenter", icon: Stethoscope, labelKey: "novel.nav.diagnosticsCenter", group: "maint", tier: "secondary" },

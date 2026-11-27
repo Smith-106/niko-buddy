@@ -5,11 +5,14 @@
  * 策略：vi.mock store / hooks / 子组件 / 外部依赖，断言对照源码实现。
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
+import * as jestDomMatchers from "@testing-library/jest-dom/matchers"
 import { cleanup } from "@testing-library/react"
 import { act, fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import { BookAnalysisView } from "./book-analysis-view"
 import type { BookAnalysisConfig, BookAnalysisMetadata, BookAnalysisProgress, BookAnalysisResult, RecognizedCharacter, SplitChaptersResult } from "@/lib/novel"
 import type { ChapterSelectionData, UseCharacterExtractionParams } from "./hooks/use-character-extraction"
+
+expect.extend(jestDomMatchers)
 
 const CH1 = { id: "ch-1", title: "第一章", order: 1, wordCount: 1000, path: "/p/book-analysis/book-1/chapters/ch-1.md" }
 const CH2 = { id: "ch-2", title: "第二章", order: 2, wordCount: 1200, path: "/p/book-analysis/book-1/chapters/ch-2.md" }
@@ -96,6 +99,7 @@ const mocks = vi.hoisted(() => {
   const handleLibraryExtractStyle = vi.fn()
   const handleLibraryToggleStyle = vi.fn()
   const handleLibraryAddSkillsToSoul = vi.fn()
+  const handleLibraryBindCharacter = vi.fn()
   const handleLibraryDeleteBook = vi.fn()
   const handleLibraryReextractCharacters = vi.fn()
   const handleChapterSelectionConfirm = vi.fn()
@@ -112,10 +116,13 @@ const mocks = vi.hoisted(() => {
     return {
       styleExtracting: false,
       addingToSoul: false,
+      bindingCharacter: false,
+      bindableCharacters: ["主角甲"],
       reloadLibraryState,
       handleLibraryExtractStyle,
       handleLibraryToggleStyle,
       handleLibraryAddSkillsToSoul,
+      handleLibraryBindCharacter,
       handleLibraryDeleteBook,
       handleLibraryReextractCharacters,
     }
@@ -146,6 +153,7 @@ const mocks = vi.hoisted(() => {
     handleLibraryExtractStyle,
     handleLibraryToggleStyle,
     handleLibraryAddSkillsToSoul,
+    handleLibraryBindCharacter,
     handleLibraryDeleteBook,
     handleLibraryReextractCharacters,
     handleChapterSelectionConfirm,
@@ -237,6 +245,8 @@ vi.mock("./book-analysis-library-layout", () => ({
       <span data-testid="layout-extracting-style">{String(props.extractingStyle)}</span>
       <span data-testid="layout-extracting-chars">{String(props.extractingCharacters)}</span>
       <span data-testid="layout-adding-soul">{String(props.addingToSoul)}</span>
+      <span data-testid="layout-binding-char">{String(props.bindingCharacter)}</span>
+      <span data-testid="layout-bindable-count">{String(Array.isArray(props.bindableCharacters) ? props.bindableCharacters.length : 0)}</span>
       <button data-testid="layout-import" onClick={() => (props.onImportNovel as () => void)()}>import</button>
       <button data-testid="layout-select-book" onClick={() => (props.onSelectBook as (id: string) => void)("book-1")}>select</button>
       <button data-testid="layout-select-missing" onClick={() => (props.onSelectBook as (id: string) => void)("missing")}>select-missing</button>
@@ -244,6 +254,7 @@ vi.mock("./book-analysis-library-layout", () => ({
       <button data-testid="layout-extract-style" onClick={() => (props.onExtractStyle as () => void)()}>extract-style</button>
       <button data-testid="layout-toggle-style" onClick={() => (props.onToggleStyle as () => void)()}>toggle-style</button>
       <button data-testid="layout-add-skill" onClick={() => (props.onAddSelectedSkillsToSoul as (id: string) => void)("skill-1")}>add-skill</button>
+      <button data-testid="layout-bind-char" onClick={() => (props.onBindCharacter as ((id: string, target?: string) => void) | undefined)?.("char-1", "主角甲")}>bind-char</button>
       <button data-testid="layout-reextract" onClick={() => (props.onReextractCharacters as () => void)()}>reextract</button>
     </div>
   ),
@@ -982,6 +993,16 @@ describe("BookAnalysisView 渲染覆盖", () => {
     await clickAndFlush("dialog-submit")
     await waitFor(() => expect(screen.getByTestId("chapter-panel")).toBeTruthy())
     expect(screen.getByTestId("panel-status")).toHaveTextContent("idle")
+  })
+
+  it("TASK-008：向 BookAnalysisLibraryLayout 透传 bindingCharacter / bindableCharacters / onBindCharacter", async () => {
+    mocks.wikiState.project = PROJECT
+    render(<BookAnalysisView />)
+    await flushAsync()
+    expect(screen.getByTestId("layout-binding-char")).toHaveTextContent("false")
+    expect(screen.getByTestId("layout-bindable-count")).toHaveTextContent("1")
+    await clickAndFlush("layout-bind-char")
+    expect(mocks.handleLibraryBindCharacter).toHaveBeenCalledWith("char-1", "主角甲")
   })
 })
 

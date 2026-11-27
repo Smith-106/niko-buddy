@@ -23,6 +23,8 @@ function normalizeProjectKey(projectPath: string): string {
   return projectPath ? normalizePath(projectPath).replace(/\/+$/, "") : ""
 }
 
+export type MainControlLaunchDialog = "campaign" | "incubator"
+
 export interface MainControlRuntimeState {
   projectPath: string
   deepRunning: boolean
@@ -33,6 +35,12 @@ export interface MainControlRuntimeState {
   deepCancelledAt: number | null
   deepActivities: AgentActivityEvent[]
   deepAbortController: AbortController | null
+  /** 当前深章产出已幂等落盘至 `.qm-drafts/` 的草稿 ID（纯内存，杜绝重复保存）。 */
+  deepSavedDraftId: string | null
+  /** 当前深章产出自动存草稿失败时的错误信息（供用户手动重试）。 */
+  deepAutoSaveError: string | null
+  /** 由外部入口（如 Ctrl+K 命令面板）请求在主控挂载后立即打开的自治弹窗（纯内存）。 */
+  pendingLaunchDialog: MainControlLaunchDialog | null
 
   /** 同步当前项目路径；路径变更时立即中止旧任务并清零运行态。 */
   syncProject: (projectPath: string) => void
@@ -47,6 +55,10 @@ export interface MainControlRuntimeState {
   appendDeepActivity: (controller: AbortController, activity: AgentActivityEvent) => void
   /** 记录深章任务成功产出（仅当 controller 仍为当前活跃句柄时生效）。 */
   finishDeepRunSuccess: (controller: AbortController, output: DeepChapterGenerationResult) => void
+  /** 记录深章产出已落入 `.qm-drafts/`（按 output 引用核验，防过期异步回调串台）。 */
+  markDeepDraftSaved: (output: DeepChapterGenerationResult, draftId: string) => void
+  /** 记录深章自动存草稿失败（按 output 引用核验，仅当尚未保存成功时生效）。 */
+  markDeepAutoSaveError: (output: DeepChapterGenerationResult, errorMessage: string) => void
   /** 记录深章任务取消（仅当 controller 仍为当前活跃句柄时生效）。 */
   finishDeepRunCancelled: (controller: AbortController, cancelledAt?: number) => void
   /** 记录深章任务异常（仅当 controller 仍为当前活跃句柄时生效）。 */
@@ -55,6 +67,10 @@ export interface MainControlRuntimeState {
   abortDeepRun: (cancelledAt?: number) => void
   /** 清理已展示的深章产出与错误提示。 */
   clearDeepOutput: () => void
+  /** 请求在主控视图打开指定自治弹窗（纯内存，不落盘）。 */
+  requestLaunchDialog: (dialog: MainControlLaunchDialog) => void
+  /** 消费并清零待打开的自治弹窗请求。 */
+  consumePendingLaunchDialog: () => MainControlLaunchDialog | null
   /** 重置整个内存 store（供项目关闭或单测隔离使用）。 */
   reset: () => void
 }
@@ -68,6 +84,9 @@ const INITIAL_DEEP_STATE = {
   deepCancelledAt: null as number | null,
   deepActivities: [] as AgentActivityEvent[],
   deepAbortController: null as AbortController | null,
+  deepSavedDraftId: null as string | null,
+  deepAutoSaveError: null as string | null,
+  pendingLaunchDialog: null as MainControlLaunchDialog | null,
 }
 
 export const useMainControlRuntimeStore = create<MainControlRuntimeState>((set, get) => ({
@@ -78,10 +97,12 @@ export const useMainControlRuntimeStore = create<MainControlRuntimeState>((set, 
     const normalized = normalizeProjectKey(nextProjectPath)
     const current = get()
     if (normalized === current.projectPath) return
+    const isColdStartBind = current.projectPath === "" && normalized !== ""
     current.deepAbortController?.abort()
     set({
       projectPath: normalized,
       ...INITIAL_DEEP_STATE,
+      pendingLaunchDialog: isColdStartBind ? current.pendingLaunchDialog : null,
     })
   },
 
@@ -101,6 +122,8 @@ export const useMainControlRuntimeStore = create<MainControlRuntimeState>((set, 
       deepCancelledAt: null,
       deepActivities: [],
       deepAbortController: controller,
+      deepSavedDraftId: null,
+      deepAutoSaveError: null,
     })
   },
 
@@ -120,6 +143,27 @@ export const useMainControlRuntimeStore = create<MainControlRuntimeState>((set, 
         deepRunning: false,
         deepOutput: output,
         deepAbortController: null,
+        deepSavedDraftId: null,
+        deepAutoSaveError: null,
+      }
+    })
+  },
+
+  markDeepDraftSaved: (output, draftId) => {
+    set((state) => {
+      if (state.deepOutput !== output) return state
+      return {
+        deepSavedDraftId: draftId,
+        deepAutoSaveError: null,
+      }
+    })
+  },
+
+  markDeepAutoSaveError: (output, errorMessage) => {
+    set((state) => {
+      if (state.deepOutput !== output || state.deepSavedDraftId !== null) return state
+      return {
+        deepAutoSaveError: errorMessage,
       }
     })
   },
@@ -161,7 +205,20 @@ export const useMainControlRuntimeStore = create<MainControlRuntimeState>((set, 
       deepOutput: null,
       deepError: null,
       deepCancelledAt: null,
+      deepSavedDraftId: null,
+      deepAutoSaveError: null,
     })
+  },
+
+  requestLaunchDialog: (dialog) => {
+    set({ pendingLaunchDialog: dialog })
+  },
+
+  consumePendingLaunchDialog: () => {
+    const pending = get().pendingLaunchDialog
+    if (pending === null) return null
+    set({ pendingLaunchDialog: null })
+    return pending
   },
 
   reset: () => {

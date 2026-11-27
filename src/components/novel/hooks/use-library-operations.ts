@@ -1,7 +1,17 @@
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { analyzeWritingStyle, importBookAnalysisSkillsAsAuras, deleteOrphanAurasForBook, loadBookAnalysisLibraryState, bindCharacterAura, listBindableNovelCharacters, setEnabledWritingStyle, upsertWritingStylePreset } from "@/lib/novel"
+import {
+  analyzeWritingStyle,
+  importBookAnalysisSkillsAsAuras,
+  deleteOrphanAurasForBook,
+  loadBookAnalysisLibraryState,
+  bindCharacterAura,
+  listBindableNovelCharacters,
+  listCharacterAuras,
+  setEnabledWritingStyle,
+  upsertWritingStylePreset,
+} from "@/lib/novel"
 import type { BookAnalysisLibraryState, BookAnalysisLibraryBook, AnalysisDepth, BookAnalysisConfig } from "@/lib/novel"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { readFile, listDirectory, deleteFile } from "@/commands/fs"
@@ -42,11 +52,35 @@ export function useLibraryOperations({
 }: UseLibraryOperationsParams) {
   const [styleExtracting, setStyleExtracting] = useState(false)
   const [addingToSoul, setAddingToSoul] = useState(false)
+  const [bindingCharacter, setBindingCharacter] = useState(false)
+  const [bindableCharacters, setBindableCharacters] = useState<string[]>([])
+  const importedAuraIdByCharacterRef = useRef<Record<string, string>>({})
+
+  useEffect(() => {
+    importedAuraIdByCharacterRef.current = {}
+  }, [currentProjectPath])
+
+  const refreshBindableCharacters = useCallback(async () => {
+    if (!currentProjectPath) {
+      setBindableCharacters([])
+      return [] as string[]
+    }
+    try {
+      const names = await listBindableNovelCharacters(currentProjectPath)
+      setBindableCharacters(names)
+      return names
+    } catch {
+      setBindableCharacters([])
+      return [] as string[]
+    }
+  }, [currentProjectPath])
 
   const reloadLibraryState = useCallback(async () => {
     if (!currentProjectPath) {
       setLibraryState({ books: [], enabledStyle: null, bindings: [] })
       setSelectedBookId(null)
+      setBindableCharacters([])
+      importedAuraIdByCharacterRef.current = {}
       return
     }
     const next = await loadBookAnalysisLibraryState(currentProjectPath)
@@ -56,7 +90,8 @@ export function useLibraryOperations({
         ? current
         : next.books[0]?.id ?? null,
     )
-  }, [currentProjectPath, setLibraryState, setSelectedBookId])
+    await refreshBindableCharacters()
+  }, [currentProjectPath, setLibraryState, setSelectedBookId, refreshBindableCharacters])
 
   const handleLibraryExtractStyle = useCallback(async () => {
     if (!currentProjectPath || !selectedLibraryBook || styleExtracting) return
@@ -185,6 +220,19 @@ export function useLibraryOperations({
       if (imported.length === 0) {
         toast.info(`「${selectedCharacter.name}」已加入自定义灵魂库，无需重复加入。`)
       } else {
+        for (const item of imported) {
+          if (item.auraId) {
+            const charKey = item.characterId || selectedCharacter.id
+            importedAuraIdByCharacterRef.current[`${selectedLibraryBook.id}:${charKey}`] = item.auraId
+            if (
+              item.characterId
+              && item.characterId !== selectedCharacter.id
+              && item.characterName === selectedCharacter.name
+            ) {
+              importedAuraIdByCharacterRef.current[`${selectedLibraryBook.id}:${selectedCharacter.id}`] = item.auraId
+            }
+          }
+        }
         await refreshProjectState(currentProjectPath)
         toast.success(`已将「${imported[0]?.characterName ?? selectedCharacter.name}」加入自定义灵魂库。`)
       }
@@ -198,26 +246,54 @@ export function useLibraryOperations({
     }
   }, [currentProjectPath, selectedLibraryBook, addingToSoul, reloadLibraryState])
 
-  const handleLibraryBindCharacter = useCallback(async (characterId: string) => {
-    if (!currentProjectPath || !selectedLibraryBook) return
+  const handleLibraryBindCharacter = useCallback(async (characterId: string, targetCharacterName?: string) => {
+    if (!currentProjectPath || !selectedLibraryBook || bindingCharacter) return
     const character = selectedLibraryBook.characters.find((item) => item.id === characterId)
     if (!character) return
-    const bindableCharacters = await listBindableNovelCharacters(currentProjectPath)
-    if (bindableCharacters.length === 0) {
-      toast.info("请先在大纲中添加人物小传或人物设定，再绑定角色技能。")
-      return
+    setBindingCharacter(true)
+    try {
+      const nextBindableCharacters = await listBindableNovelCharacters(currentProjectPath)
+      setBindableCharacters(nextBindableCharacters)
+      if (nextBindableCharacters.length === 0) {
+        toast.info("请先在大纲中添加人物小传或人物设定，再绑定角色技能。")
+        return
+      }
+      // 解除鸡生蛋死锁并隔离跨书同名/同 ID：
+      // 1. 优先命中当前书目作用域缓存 `${bookId}:${characterId}`；
+      // 2. 其次在自定义灵魂库中按当前书名《title》精确匹配，防止被他书同名绑定串台；
+      // 3. 未命中书目归属时再回退已有 bindings 或同名 custom aura。
+      const cacheKey = `${selectedLibraryBook.id}:${character.id}`
+      let resolvedAuraId: string | undefined = importedAuraIdByCharacterRef.current[cacheKey]
+
+      if (!resolvedAuraId) {
+        const allAuras = await listCharacterAuras(currentProjectPath).catch(() => [])
+        const customMatches = allAuras.filter((item) => !item.builtIn && item.name === character.name)
+        const bookScopedAura = customMatches.find((item) =>
+          item.sourceNote?.includes(`《${selectedLibraryBook.metadata.title}》`),
+        )
+        resolvedAuraId =
+          bookScopedAura?.id
+          ?? libraryState.bindings.find((binding) => binding.auraName === character.name)?.auraId
+          ?? customMatches[0]?.id
+      }
+      if (!resolvedAuraId) {
+        toast.info("请先将该角色技能加入自定义灵魂库，再绑定到小说人物。")
+        return
+      }
+      const targetName =
+        targetCharacterName && nextBindableCharacters.includes(targetCharacterName)
+          ? targetCharacterName
+          : nextBindableCharacters[0]
+      await bindCharacterAura(currentProjectPath, { characterName: targetName, auraId: resolvedAuraId })
+      await refreshProjectState(currentProjectPath)
+      toast.success(`已将「${character.name}」绑定到小说人物「${targetName}」。`)
+      await reloadLibraryState()
+    } catch (err) {
+      toast.error(`绑定失败：${toErrorMessage(err)}`)
+    } finally {
+      setBindingCharacter(false)
     }
-    const aura = libraryState.bindings.find((binding) => binding.auraName === character.name)
-    if (!aura) {
-      toast.info("请先将该角色技能加入自定义灵魂库，再绑定到小说人物。")
-      return
-    }
-    const targetName = bindableCharacters[0]
-    await bindCharacterAura(currentProjectPath, { characterName: targetName, auraId: aura.auraId })
-    await refreshProjectState(currentProjectPath)
-    toast.success(`已将「${character.name}」绑定到小说人物「${targetName}」。`)
-    await reloadLibraryState()
-  }, [currentProjectPath, selectedLibraryBook, libraryState.bindings, reloadLibraryState])
+  }, [currentProjectPath, selectedLibraryBook, bindingCharacter, libraryState.bindings, reloadLibraryState])
 
   const handleLibraryDeleteBook = useCallback(async (bookId: string, selectedBookId: string | null) => {
     if (!currentProjectPath) return
@@ -316,6 +392,8 @@ export function useLibraryOperations({
   return {
     styleExtracting,
     addingToSoul,
+    bindingCharacter,
+    bindableCharacters,
     reloadLibraryState,
     handleLibraryExtractStyle,
     handleLibraryToggleStyle,

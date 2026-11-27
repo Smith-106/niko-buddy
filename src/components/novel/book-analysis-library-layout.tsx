@@ -1,7 +1,9 @@
-import { Plus, RefreshCw, Users } from "lucide-react"
+import { useState } from "react"
+import { Library, Plus, RefreshCw, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryState } from "@/lib/novel"
 import { BookAnalysisActiveContext } from "./book-analysis-active-context"
+import { BookAnalysisBookshelfSwitcher } from "./book-analysis-bookshelf-switcher"
 import { BookAnalysisCharacterPanel } from "./book-analysis-character-panel"
 import { BookAnalysisStyleCard } from "./book-analysis-style-card"
 import { useTranslation } from "react-i18next"
@@ -13,12 +15,15 @@ interface BookAnalysisLibraryLayoutProps {
   extractingStyle: boolean
   extractingCharacters: boolean
   addingToSoul: boolean
+  bindingCharacter?: boolean
+  bindableCharacters?: readonly string[]
   onSelectBook: (bookId: string) => void
   onSelectCharacter: (characterId: string) => void
   onImportNovel: () => void
   onExtractStyle: () => void
   onToggleStyle: () => void
   onAddSelectedSkillsToSoul: (skillId: string) => void
+  onBindCharacter?: (characterId: string, targetCharacterName?: string) => void
   onReextractCharacters: () => void
   onDeleteBook: (bookId: string) => void
 }
@@ -30,25 +35,41 @@ export function BookAnalysisLibraryLayout({
   extractingStyle,
   extractingCharacters,
   addingToSoul,
+  bindingCharacter = false,
+  bindableCharacters,
+  onSelectBook,
   onSelectCharacter,
   onImportNovel,
   onExtractStyle,
   onToggleStyle,
   onAddSelectedSkillsToSoul,
+  onBindCharacter,
   onReextractCharacters,
+  onDeleteBook,
 }: BookAnalysisLibraryLayoutProps) {
   const { t } = useTranslation()
+  const [bookshelfOpen, setBookshelfOpen] = useState(false)
   const selectedBook = state.books.find((book) => book.id === selectedBookId) ?? state.books[0] ?? null
 
   return (
     <div className="flex h-full min-h-0 bg-muted/20">
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 items-center justify-between border-b bg-background px-5 py-3">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-background px-5 py-3">
           <div>
             <h2 className="text-xl font-semibold">拆文库</h2>
             <p className="mt-1 text-xs text-muted-foreground">{t("bookAnalysis.libraryManageHint")}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant={bookshelfOpen ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => setBookshelfOpen((open) => !open)}
+              aria-expanded={bookshelfOpen}
+              data-testid="book-analysis-toggle-bookshelf"
+            >
+              <Library className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              {t("bookAnalysis.bookshelfToggle", { count: state.books.length })}
+            </Button>
             {selectedBook && (
               <>
                 <Button variant="outline" size="sm" onClick={onReextractCharacters} disabled={extractingCharacters}>
@@ -67,6 +88,19 @@ export function BookAnalysisLibraryLayout({
             </Button>
           </div>
         </header>
+        {bookshelfOpen ? (
+          <BookAnalysisBookshelfSwitcher
+            books={state.books}
+            selectedBookId={selectedBook?.id ?? null}
+            onSelectBook={(bookId) => {
+              onSelectBook(bookId)
+              setBookshelfOpen(false)
+            }}
+            onDeleteBook={onDeleteBook}
+            onImportNovel={onImportNovel}
+            onClose={() => setBookshelfOpen(false)}
+          />
+        ) : null}
         {selectedBook ? (
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
             <div>
@@ -85,8 +119,11 @@ export function BookAnalysisLibraryLayout({
               book={selectedBook}
               selectedCharacterId={selectedCharacterId}
               addingToSoul={addingToSoul}
+              bindingCharacter={bindingCharacter}
+              bindableCharacters={bindableCharacters}
               onSelectCharacter={onSelectCharacter}
               onAddSelectedSkillsToSoul={onAddSelectedSkillsToSoul}
+              onBindCharacter={onBindCharacter}
             />
           </div>
         ) : (

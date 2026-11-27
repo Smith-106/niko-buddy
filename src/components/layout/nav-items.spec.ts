@@ -57,17 +57,33 @@ describe("nav 六组（批次三·10）", () => {
 })
 
 describe("nav tier 分层", () => {
-  it("32 项总量（含 Antigravity ACP 官方交互面板），主次分层 18/14，maint 保持 8 项", () => {
-    expect(NAV_ITEMS).toHaveLength(32)
+  it("33 项总量（移除 marketRadar、补齐 worldLibrary/knowledgeLibrary、bookshelf 降级 secondary），主次分层 17/16，maint 保持 8 项", () => {
+    expect(NAV_ITEMS).toHaveLength(33)
     const primary = NAV_ITEMS.filter(isNavPrimaryTier)
     const secondary = NAV_ITEMS.filter((i) => !isNavPrimaryTier(i))
-    expect(primary).toHaveLength(18)
-    expect(secondary).toHaveLength(14)
+    expect(primary).toHaveLength(17)
+    expect(secondary).toHaveLength(16)
     expect(NAV_ITEMS.some((i) => i.view === "liveExecution")).toBe(false)
+    expect(NAV_ITEMS.some((i) => i.view === "marketRadar")).toBe(false)
 
     const acpEntry = NAV_ITEMS.find((i) => i.view === "antigravityAcp")
     expect(acpEntry?.group).toBe("tools")
     expect(acpEntry?.tier).toBe("primary")
+
+    const worldEntry = NAV_ITEMS.find((i) => i.view === "worldLibrary")
+    expect(worldEntry?.group).toBe("shen")
+    expect(worldEntry?.tier).toBe("secondary")
+    expect(worldEntry?.labelKey).toBe("novel.nav.worldLibrary")
+
+    const knowledgeEntry = NAV_ITEMS.find((i) => i.view === "knowledgeLibrary")
+    expect(knowledgeEntry?.group).toBe("shen")
+    expect(knowledgeEntry?.tier).toBe("secondary")
+    expect(knowledgeEntry?.labelKey).toBe("novel.nav.knowledgeLibrary")
+
+    const bookshelfEntry = NAV_ITEMS.find((i) => i.view === "bookshelf")
+    expect(bookshelfEntry?.group).toBe("si")
+    expect(bookshelfEntry?.tier).toBe("secondary")
+
     expect(NAV_ITEMS.filter((i) => i.group === "maint")).toHaveLength(8)
   })
 
@@ -84,7 +100,7 @@ describe("nav tier 分层", () => {
   it("高频入口常驻 primary，低频收进 secondary", () => {
     const byView = new Map<NavView, string>(NAV_ITEMS.map((i) => [i.view, i.tier ?? "primary"]))
     const primaryViews: NavView[] = ["wiki", "reviewCenter", "mainControl", "workbench", "sources", "graph", "soul", "creativeHub", "storySimulation"]
-    const secondaryViews: NavView[] = ["marketRadar", "antiAiRules", "workflowEditor", "mcpManager", "help", "exportCenter"]
+    const secondaryViews: NavView[] = ["bookshelf", "worldLibrary", "knowledgeLibrary", "antiAiRules", "workflowEditor", "mcpManager", "help", "exportCenter"]
     for (const v of primaryViews) {
       expect(byView.get(v)).toBe("primary")
     }

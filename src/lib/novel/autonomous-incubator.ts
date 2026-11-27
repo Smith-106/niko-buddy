@@ -53,6 +53,16 @@ import {
   type WorldBlueprint,
   type WorldLayer,
 } from "./world-blueprint"
+import {
+  advanceDirectorPhase,
+  createDirectorPipeline,
+  type DirectorPipelineState,
+  type PhaseGateInput,
+} from "./director-pipeline"
+import {
+  saveDirectorPersisted,
+  type DirectorIdeaInput,
+} from "./director-pipeline-store"
 
 export interface NovelIncubatorOptions {
   projectPath: string
@@ -643,6 +653,96 @@ function stageLatencyMs(t0: number): number {
 }
 
 /**
+ * 确定性分卷规划生成（零 LLM）：从书名、流派、目标章数与宏观大纲派生 `wiki/outlines/volume-plan.md`，
+ * 确保 `wiki/outlines/` 至少有 2 个 `.md` 文件以对齐 `director-orchestrator.ts` 的
+ * `frameworkChosen` 与 `volumesPlanned` 门控判据。
+ */
+function buildDeterministicVolumePlanMarkdown(
+  title: string,
+  genre: string,
+  targetChapters: number,
+  outlineContent: string,
+): string {
+  const headingMatches: string[] = []
+  const headingRe =
+    /^(?:#{1,6}\s+|\*{2}|[-*+]\s+|\d+\.\s+)?((?:第\s*[0-9零〇一二两三四五六七八九十百千万]+\s*[章节回]|Chapter\s*[0-9]+)[^\r\n]*)/gim
+  let match: RegExpExecArray | null
+  while ((match = headingRe.exec(outlineContent)) !== null) {
+    const cleaned = match[1].replace(/\*{2}\s*$/, "").trim()
+    if (cleaned) headingMatches.push(cleaned)
+  }
+
+  const totalChapters = Math.max(1, Number.isFinite(targetChapters) && targetChapters > 0
+    ? Math.floor(targetChapters)
+    : headingMatches.length || 10)
+  const volumeSpan = totalChapters <= 20 ? totalChapters : 20
+  const volumeCount = Math.max(1, Math.ceil(totalChapters / volumeSpan))
+
+  const lines: string[] = [
+    "---",
+    "type: 卷纲",
+    `title: ${title}`,
+    `genre: ${genre}`,
+    `targetChapters: ${totalChapters}`,
+    `volumeCount: ${volumeCount}`,
+    "---",
+    "",
+    `# 《${title}》分卷规划`,
+    "",
+    `- 流派：${genre}`,
+    `- 规划总章数：${totalChapters} 章`,
+    `- 分卷总数：${volumeCount} 卷`,
+    "",
+  ]
+
+  for (let v = 0; v < volumeCount; v += 1) {
+    const startCh = v * volumeSpan + 1
+    const endCh = Math.min(totalChapters, (v + 1) * volumeSpan)
+    lines.push(`## 第 ${v + 1} 卷（第 ${startCh}-${endCh} 章）`)
+    const slice = headingMatches.slice(startCh - 1, endCh)
+    if (slice.length > 0) {
+      for (const heading of slice) {
+        lines.push(`- ${heading}`)
+      }
+    } else {
+      lines.push(`- 覆盖章节：第 ${startCh} 章 至 第 ${endCh} 章`)
+    }
+    lines.push("")
+  }
+
+  return lines.join("\n")
+}
+
+/**
+ * 确定性导演管线推进：孵化阶段 1–6 完成后，沿 `idea → world → character → outline`
+ * 逐门推进，使最终持久化状态处于 `currentPhase: "chapters"` 且前四阶段为 `"done"`、
+ * `"chapters"` 为 `"running"`。
+ */
+function buildIncubatedDirectorState(
+  ideaInput: DirectorIdeaInput,
+  worldBlueprint: WorldBlueprint,
+  characters: readonly IncubatedCharacter[],
+): DirectorPipelineState {
+  const gateInput: PhaseGateInput = {
+    idea: ideaInput,
+    worldComplete: validateWorldBlueprint(worldBlueprint).verdict === "complete",
+    protagonistNamed: characters.length >= 1,
+    antagonistNamed: characters.length >= 2,
+    frameworkChosen: true,
+    volumesPlanned: true,
+    firstChapterReady: false,
+  }
+  let state = createDirectorPipeline()
+  for (const expectedPhase of ["idea", "world", "character", "outline"] as const) {
+    if (state.currentPhase !== expectedPhase) break
+    const step = advanceDirectorPhase(state, gateInput)
+    state = step.state
+    if (!step.advanced) break
+  }
+  return state
+}
+
+/**
  * 启动全自动小说冷启动孵化流水线 (Autonomous Novel Incubator)
  */
 export async function runAutonomousNovelIncubator(
@@ -731,6 +831,13 @@ export async function runAutonomousNovelIncubator(
   const outlineDir = `${pp}/wiki/outlines`
   await createDirectory(outlineDir)
   await writeFileAtomic(`${outlineDir}/story-outline.md`, outlineContent)
+  const volumePlanContent = buildDeterministicVolumePlanMarkdown(
+    title,
+    genre,
+    targetChapters,
+    outlineContent,
+  )
+  await writeFileAtomic(`${outlineDir}/volume-plan.md`, volumePlanContent)
   // R3：孵化 4/6 遥测
   await appendStageMetric(pp, { stage: "incubator:outline", tokenCost: incubatorTokenCost(outlineContent), latencyMs: stageLatencyMs(t0Outline), partial: false, timestamp: new Date().toISOString() })
   recordModuleHit({ path: "src/lib/novel/autonomous-incubator.ts", at: Date.now(), ok: true, detail: `孵化 4/6 大纲推演 ${title}` })
@@ -774,6 +881,28 @@ export async function runAutonomousNovelIncubator(
   // R3：孵化 6/6 遥测
   await appendStageMetric(pp, { stage: "incubator:framework-binding", tokenCost: incubatorTokenCost(activeBinding), latencyMs: stageLatencyMs(t0Binding), partial: false, timestamp: new Date().toISOString() })
   recordModuleHit({ path: "src/lib/novel/story-simulation/framework-binding.ts", at: Date.now(), ok: true, detail: `孵化 6/6 框架绑定 ${title}` })
+
+  // 导演管线持久化兼容：确定性推进 idea → world → character → outline 并落盘 .novel/director-pipeline.json（非致命）
+  const directorIdeaInput: DirectorIdeaInput = {
+    title,
+    genre,
+    coreConflict:
+      worldBlueprint.layers.conflicts?.find((item) => item.trim().length > 0)?.trim()
+      || idea.trim()
+      || `${title}核心冲突`,
+  }
+  const directorState = buildIncubatedDirectorState(directorIdeaInput, worldBlueprint, characters)
+  try {
+    await saveDirectorPersisted(pp, {
+      fileVersion: 1,
+      state: directorState,
+      ideaInput: directorIdeaInput,
+    })
+  } catch (err) {
+    logger.warn("autonomous-incubator", "persist director-pipeline.json failed (non-fatal)", {
+      error: toErrorMessage(err),
+    })
+  }
 
   onProgress?.({
     stage: "complete",
@@ -824,7 +953,7 @@ export async function runEndToEndAutonomousNovelProduction(
       chapterCount: Math.min(cruiseChapterCount, options.targetChapters || 10),
       llmConfig: options.llmConfig,
       novelConfig: options.novelConfig || DEFAULT_NOVEL_CONFIG,
-      cruiseMode: true,
+      cruiseMode: false,
       incubationSkeletons: incubation.unpackedSkeletons.createdSkeletons,
       onProgress: options.onProgress,
       signal: options.signal,

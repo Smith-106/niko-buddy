@@ -14,6 +14,14 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { useWikiStore } from "@/stores/wiki-store"
+import {
+  resolveBindingActionTarget,
+  resolveBlockingGateActionTarget,
+  resolveDiagnosisActionTarget,
+  resolveFindingActionTarget,
+  resolveNextStepActionTarget,
+} from "./creative-hub-actions"
 import { CreativeHubView, deriveCreativeNext } from "./creative-hub-view"
 
 const mocks = vi.hoisted(() => ({
@@ -47,6 +55,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 
 afterEach(() => {
   cleanup()
+  useWikiStore.getState().setActiveView("creativeHub")
   mocks.fileExists.mockReset()
   mocks.readFile.mockReset()
   mocks.listDirectory.mockReset()
@@ -395,5 +404,65 @@ describe("CreativeHubView 分支覆盖补齐", () => {
     resolveExists(true)
     await new Promise((r) => setTimeout(r, 50))
     expect(container.innerHTML).toBe("")
+  })
+
+  it("TASK-008：下一步 / 诊断卡 / 门控卡 / 绑定卡 / 诊断发现行均提供一键跳转修复视图", async () => {
+    mocks.runProjectDoctor.mockResolvedValueOnce({
+      verdict: "critical",
+      findings: [
+        { id: "status-json", name: "会话状态", severity: "error", message: "missing" },
+        { id: "fts-index", name: "FTS 索引", severity: "warn", message: "stale" },
+      ],
+    } as never)
+    routeFiles({ meta: true, status: false, ledger: `${gateFailLine()}\n` })
+    render(<CreativeHubView projectPath={PROJECT} />)
+
+    // 下一步首项（blockingGate=consistency）→ reviewCenter
+    fireEvent.click(await screen.findByTestId("creative-next-action-0"))
+    expect(useWikiStore.getState().activeView).toBe("reviewCenter")
+
+    // 下一步第二项（verdict=critical）→ diagnosticsCenter
+    fireEvent.click(screen.getByTestId("creative-next-action-1"))
+    expect(useWikiStore.getState().activeView).toBe("diagnosticsCenter")
+
+    // 诊断卡 + 门控卡
+    fireEvent.click(screen.getByTestId("creative-gate-action"))
+    expect(useWikiStore.getState().activeView).toBe("reviewCenter")
+    fireEvent.click(screen.getByTestId("creative-diagnosis-action"))
+    expect(useWikiStore.getState().activeView).toBe("diagnosticsCenter")
+
+    // 小说状态绑定卡（meta 正常 → wiki）
+    fireEvent.click(screen.getByTestId("creative-binding-action"))
+    expect(useWikiStore.getState().activeView).toBe("wiki")
+
+    // 诊断发现行（status-json → director；fts-index → search）
+    fireEvent.click(screen.getByTestId("creative-finding-action-status-json"))
+    expect(useWikiStore.getState().activeView).toBe("director")
+    fireEvent.click(screen.getByTestId("creative-finding-action-fts-index"))
+    expect(useWikiStore.getState().activeView).toBe("search")
+  })
+
+  it("TASK-008：creative-hub-actions 纯路由函数覆盖已知与回退映射", () => {
+    expect(resolveFindingActionTarget("canon-dual-write").view).toBe("canonEditor")
+    expect(resolveFindingActionTarget("chapter-backups").view).toBe("backupExport")
+    expect(resolveFindingActionTarget("volume-arc").view).toBe("sources")
+    expect(resolveFindingActionTarget("play-graph").view).toBe("storySimulation")
+    expect(resolveFindingActionTarget("unknown-finding").view).toBe("diagnosticsCenter")
+
+    expect(resolveBlockingGateActionTarget("anti_ai").view).toBe("antiAiRules")
+    expect(resolveBlockingGateActionTarget("unknown-gate").view).toBe("reviewCenter")
+    expect(resolveBlockingGateActionTarget(null).view).toBe("mainControl")
+
+    expect(resolveNextStepActionTarget("meta=null").view).toBe("director")
+    expect(resolveNextStepActionTarget("meta=corrupt").view).toBe("diagnosticsCenter")
+    expect(resolveNextStepActionTarget("other").view).toBe("wiki")
+    expect(resolveNextStepActionTarget().view).toBe("wiki")
+
+    expect(resolveDiagnosisActionTarget("healthy").view).toBe("statusDashboard")
+    expect(resolveDiagnosisActionTarget("degraded").view).toBe("diagnosticsCenter")
+
+    expect(resolveBindingActionTarget(true, false).view).toBe("wiki")
+    expect(resolveBindingActionTarget(false, false).view).toBe("director")
+    expect(resolveBindingActionTarget(false, true).view).toBe("diagnosticsCenter")
   })
 })

@@ -5,9 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { CornerDownLeft, FileText, Search } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { useMainControlRuntimeStore } from "@/stores/main-control-runtime-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
-import { NAV_ITEMS, SEARCH_NAV_ITEM, type NavItem } from "./nav-items"
+import { NAV_ITEMS, SEARCH_NAV_ITEM, type NavItem, type NavView } from "./nav-items"
 
 /**
  * 命令面板（Ctrl/⌘+K）。
@@ -35,6 +36,12 @@ interface PaletteEntry {
   hint: string
   keywords: string
   run: () => void
+}
+
+/** 关键视图的双语检索别名补充，确保中英文自然词均可一步命中。 */
+const NAV_EXTRA_KEYWORDS: Partial<Record<NavView, string>> = {
+  worldLibrary: "世界蓝图 世界样本库 世界观 五层蓝图 world blueprint worldLibrary",
+  knowledgeLibrary: "资产库 知识资料库 知识库 素材库 asset library knowledge library knowledgeLibrary",
 }
 
 function isChapterFile(node: FileNode): boolean {
@@ -97,19 +104,41 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     setActiveIndex(0)
   }, [open])
 
-  const { focusEntry, navEntries, chapterEntries } = useMemo(() => {
-    const focus: PaletteEntry = {
-      id: "action:focus-mode",
-      label: t(focusMode ? "layout.focusMode.exit" : "layout.focusMode.enter"),
-      hint: t("commandPalette.kindAction", { defaultValue: "操作" }),
-      keywords: `focus zen ${t("layout.focusMode.label")} ${t("layout.focusMode.enter")} ${t("layout.focusMode.exit")}`,
-      run: () => setFocusMode(!focusMode),
-    }
+  const { actionEntries, navEntries, chapterEntries } = useMemo(() => {
+    const actions: PaletteEntry[] = [
+      {
+        id: "action:focus-mode",
+        label: t(focusMode ? "layout.focusMode.exit" : "layout.focusMode.enter"),
+        hint: t("commandPalette.kindAction", { defaultValue: "操作" }),
+        keywords: `focus zen ${t("layout.focusMode.label")} ${t("layout.focusMode.enter")} ${t("layout.focusMode.exit")}`,
+        run: () => setFocusMode(!focusMode),
+      },
+      {
+        id: "action:launch-campaign",
+        label: t("commandPalette.launchCampaign", { defaultValue: "启动长程战役" }),
+        hint: t("commandPalette.kindAction", { defaultValue: "操作" }),
+        keywords: `campaign batch cruise 长程战役 批量写作 自主战役 自动写章 ${t("commandPalette.launchCampaign", { defaultValue: "启动长程战役" })} ${t("commandPalette.launchCampaign", { lng: "en", defaultValue: "Launch Autonomous Campaign" })}`,
+        run: () => {
+          useMainControlRuntimeStore.getState().requestLaunchDialog("campaign")
+          setActiveView("mainControl")
+        },
+      },
+      {
+        id: "action:launch-incubator",
+        label: t("commandPalette.launchIncubator", { defaultValue: "冷启动孵化新书" }),
+        hint: t("commandPalette.kindAction", { defaultValue: "操作" }),
+        keywords: `incubator coldstart bootstrap 冷启动 孵化新书 一键开书 自动孵化 ${t("commandPalette.launchIncubator", { defaultValue: "冷启动孵化新书" })} ${t("commandPalette.launchIncubator", { lng: "en", defaultValue: "Launch Novel Incubator" })}`,
+        run: () => {
+          useMainControlRuntimeStore.getState().requestLaunchDialog("incubator")
+          setActiveView("mainControl")
+        },
+      },
+    ]
     const navs: PaletteEntry[] = NAV_ITEMS.map((item: NavItem) => ({
       id: `view:${item.view}`,
       label: t(item.labelKey),
       hint: t("commandPalette.kindView", { defaultValue: "视图" }),
-      keywords: `${item.view} ${t(item.labelKey)} ${t(item.labelKey, { lng: "en" })}`,
+      keywords: `${item.view} ${t(item.labelKey)} ${t(item.labelKey, { lng: "en" })} ${NAV_EXTRA_KEYWORDS[item.view] ?? ""}`,
       run: () => setActiveView(item.view),
     }))
     navs.push({
@@ -136,16 +165,16 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         setSelectedFile(chapter.path)
       },
     }))
-    return { focusEntry: focus, navEntries: navs, chapterEntries: chapters }
+    return { actionEntries: actions, navEntries: navs, chapterEntries: chapters }
   }, [fileTree, focusMode, setActiveView, setFocusMode, setSelectedFile, t])
 
   const filtered = useMemo(() => {
     const q = normalizeQuery(query)
-    if (!q) return [focusEntry, ...navEntries, ...chapterEntries.slice(0, 20)]
-    return [focusEntry, ...navEntries, ...chapterEntries]
+    if (!q) return [...actionEntries, ...navEntries, ...chapterEntries.slice(0, 20)]
+    return [...actionEntries, ...navEntries, ...chapterEntries]
       .filter((entry) => normalizeQuery(`${entry.label}${entry.keywords}`).includes(q))
       .slice(0, 40)
-  }, [focusEntry, navEntries, chapterEntries, query])
+  }, [actionEntries, navEntries, chapterEntries, query])
 
   const runEntry = useCallback(
     (entry: PaletteEntry | undefined) => {

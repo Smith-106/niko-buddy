@@ -82,9 +82,14 @@ const mocks = vi.hoisted(() => ({
   streamChat: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
+vi.mock("@/commands/fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/commands/fs")>()),
   createDirectory: mocks.createDirectory,
   writeFileAtomic: mocks.writeFileAtomic,
+  fileExists: vi.fn(async () => false),
+  readFile: vi.fn(async () => {
+    throw new Error("ENOENT")
+  }),
 }))
 
 vi.mock("./soul-doc", () => ({

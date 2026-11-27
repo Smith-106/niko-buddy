@@ -1,4 +1,5 @@
-import { Plus, User } from "lucide-react"
+import { useState } from "react"
+import { Link2, Plus, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryBook } from "@/lib/novel"
 import { useTranslation } from "react-i18next"
@@ -7,8 +8,11 @@ interface BookAnalysisCharacterPanelProps {
   book: BookAnalysisLibraryBook
   selectedCharacterId: string | null
   addingToSoul: boolean
+  bindingCharacter?: boolean
+  bindableCharacters?: readonly string[]
   onSelectCharacter: (characterId: string) => void
   onAddSelectedSkillsToSoul: (skillId: string) => void
+  onBindCharacter?: (characterId: string, targetCharacterName?: string) => void
 }
 
 const categoryLabels: Record<string, string> = {
@@ -22,10 +26,14 @@ export function BookAnalysisCharacterPanel({
   book,
   selectedCharacterId,
   addingToSoul,
+  bindingCharacter = false,
+  bindableCharacters,
   onSelectCharacter,
   onAddSelectedSkillsToSoul,
+  onBindCharacter,
 }: BookAnalysisCharacterPanelProps) {
   const { t } = useTranslation()
+  const [selectedTargetName, setSelectedTargetName] = useState("")
   const selectedCharacter = book.characters.find((character) => character.id === selectedCharacterId) ?? book.characters[0] ?? null
   const selectedSkill = selectedCharacter
     ? book.skills.find((skill) => skill.characterId === selectedCharacter.id || skill.characterName === selectedCharacter.name) ?? null
@@ -36,25 +44,63 @@ export function BookAnalysisCharacterPanel({
     : selectedAuraAdded
       ? "已加入自定义灵魂库"
       : "加入自定义灵魂库"
+  const resolvedTargetName =
+    bindableCharacters && bindableCharacters.length > 0
+      ? bindableCharacters.includes(selectedTargetName)
+        ? selectedTargetName
+        : bindableCharacters[0]
+      : ""
 
   const profile = selectedCharacter?.personalityProfile
 
   return (
     <section className="min-h-0 flex-1 rounded-lg border bg-background">
-      <div className="flex items-center justify-between border-b px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
         <div>
           <h3 className="text-sm font-semibold">{t("bookAnalysis.characterSkill")}</h3>
           <p className="mt-1 text-xs text-muted-foreground">{t("bookAnalysis.characterSkillHint")}</p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => selectedSkill && !selectedAuraAdded && onAddSelectedSkillsToSoul(selectedSkill.id)}
-          disabled={addingToSoul || !selectedSkill || selectedAuraAdded}
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          {addButtonLabel}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => selectedSkill && !selectedAuraAdded && onAddSelectedSkillsToSoul(selectedSkill.id)}
+            disabled={addingToSoul || !selectedSkill || selectedAuraAdded}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            {addButtonLabel}
+          </Button>
+          {selectedCharacter && selectedAuraAdded && onBindCharacter ? (
+            <>
+              {bindableCharacters && bindableCharacters.length > 0 ? (
+                <select
+                  aria-label={t("bookAnalysis.bindTargetLabel")}
+                  data-testid="book-analysis-bind-target-select"
+                  value={resolvedTargetName}
+                  onChange={(event) => setSelectedTargetName(event.target.value)}
+                  disabled={bindingCharacter}
+                  className="h-8 rounded-md border bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {bindableCharacters.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <Button
+                size="sm"
+                variant="default"
+                data-testid="book-analysis-bind-character-btn"
+                onClick={() => onBindCharacter(selectedCharacter.id, resolvedTargetName || undefined)}
+                disabled={bindingCharacter}
+              >
+                <Link2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                {bindingCharacter ? t("bookAnalysis.bindingToCharacter") : t("bookAnalysis.bindToCharacter")}
+              </Button>
+            </>
+          ) : null}
+        </div>
       </div>
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: "minmax(220px, 320px) 1fr" }}>
         <div className="min-h-0 space-y-2 overflow-y-auto border-r p-3">

@@ -115,9 +115,19 @@ export function BookshelfView({ projectPath }: BookshelfViewProps) {
       title="书架"
       description="已导入的拆书作品。先选一本，再打开拆书分析。"
       actions={
-        entries !== null && entries.length > 0 ? (
-          <span className="text-xs text-muted-foreground">共 {entries.length} 本拆书作品</span>
-        ) : null
+        <div className="flex items-center gap-2">
+          {entries !== null && entries.length > 0 ? (
+            <span className="text-xs text-muted-foreground">共 {entries.length} 本拆书作品</span>
+          ) : null}
+          <button
+            type="button"
+            data-testid="bookshelf-open-library-view"
+            onClick={() => setActiveView("bookAnalysis")}
+            className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            前往拆文库视图
+          </button>
+        </div>
       }
     >
       {entries === null ? (

@@ -7,12 +7,14 @@ import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { listDirectory, readFile } from "@/commands/fs"
 import * as mainControl from "./main-control"
 import {
+  MAIN_CONTROL_SYSTEM_PROMPT,
   MAIN_CONTROL_TOOLS,
   loadOutlineConversations,
   parseDraftReceipts,
   resolveWikiPath,
   runMainControlAgent,
 } from "./main-control"
+import { MAIN_CONTROL_MCP_TOOL_NAMES } from "./main-control-mcp-tools"
 import type { RunMainControlOptions } from "./main-control"
 import { routeTask } from "./task-router"
 // 真实交接文案的生产者（纯字符串函数，无 React 依赖）：用例锁「生产者 → 门控」整条链。
@@ -126,7 +128,7 @@ describe("runMainControlAgent", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
-  it("注册白名单：只有只读工具 + 草稿写入，正式记忆/大纲写工具不注册", async () => {
+  it("注册白名单：包含只读/门控/技能/大纲节点/草稿写入共 20 项，正式记忆写工具严格排除", async () => {
     const registry = new ToolRegistry()
     await runMainControlAgent({
       projectPath: "/proj",
@@ -138,8 +140,13 @@ describe("runMainControlAgent", () => {
     const names = registry.list().map((tool) => tool.name)
     expect(names).toContain("read_chapter")
     expect(names).toContain("write_chapter")
+    expect(names).toContain("apply_skill")
+    expect(names).toContain("write_outline_node")
+    for (const mcpName of MAIN_CONTROL_MCP_TOOL_NAMES) {
+      expect(names).toContain(mcpName)
+      expect(registry.get(mcpName)?.category).toBe("read")
+    }
     expect(names).not.toContain("write_memory")
-    expect(names).not.toContain("write_outline_node")
     // run_chapter_workflow 需要注入深章流水线，阶段 1 未注入 → 不注册
     expect(names).not.toContain("run_chapter_workflow")
     for (const name of names) expect(MAIN_CONTROL_TOOLS).toContain(name)
@@ -305,7 +312,7 @@ describe("深章流水线工具注入", () => {
     const names = registry.list().map((t) => t.name)
     expect(names).toContain("run_chapter_workflow")
     expect(names).not.toContain("write_memory")
-    expect(names).not.toContain("write_outline_node")
+    expect(names).toContain("write_outline_node")
     expect(names).toContain("write_chapter")
   })
 
@@ -339,7 +346,7 @@ describe("工具白名单收窄", () => {
     expect(MAIN_CONTROL_TOOLS).not.toContain("trim_context")
   })
 
-  it("F05：主控内 route_task 不再注册（结果零消费者），白名单总数不增长", async () => {
+  it("F05 + TASK-005：主控内 route_task / trim_context / write_memory 不注册，基础白名单固定 20 项", async () => {
     const registry = new ToolRegistry()
     await runMainControlAgent({
       projectPath: "/proj",
@@ -351,11 +358,10 @@ describe("工具白名单收窄", () => {
     const names = registry.list().map((tool) => tool.name)
     expect(names).not.toContain("route_task")
     expect(names).not.toContain("trim_context")
-    // RV-10：钉死字面量。旧写法 `toHaveLength(MAIN_CONTROL_TOOLS.length)` 两边同源，
-    // 白名单增长时断言自动跟着长，测不出边界被放大。
-    // 白名单条目 13 → 12（移除 route_task），实际注册数 12 → 12：
-    // 移除 route_task（−1）与 load_context 真正注册（+1）相抵，边界没有放大。
-    expect(names).toHaveLength(12)
+    expect(names).not.toContain("write_memory")
+    // RV-10：钉死字面量（12 原有 + apply_skill + write_outline_node + 6 零 LLM MCP 门面 = 20）
+    expect(MAIN_CONTROL_TOOLS).toHaveLength(20)
+    expect(names).toHaveLength(20)
   })
 
   it("显式点名工具后只注册这些（含依赖工具）", async () => {
@@ -529,9 +535,9 @@ describe("质量闭环工具注入", () => {
     const names = registry.list().map((tool) => tool.name)
     expect(names).toContain("score_chapter")
     expect(names).toContain("revise_chapter")
-    // 仍然不含正式写入工具（Draft-first 边界不因注入而放宽）
+    // 仍然不含正式记忆写入工具（Draft-first 边界不因注入而放宽）
     expect(names).not.toContain("write_memory")
-    expect(names).not.toContain("write_outline_node")
+    expect(names).toContain("write_outline_node")
 
     const scoreTool = registry.get("score_chapter")
     const scored = await scoreTool!.execute({ content: "正文内容" })
@@ -913,5 +919,76 @@ describe("RV-01 门控武装：结构化 gateIntent，无文本推断", () => {
       chapterNumber: 12,
       planBlueprint: "会话层计划",
     })
+  })
+})
+
+describe("TASK-005：技能预加载、apply_skill 空参列表与系统提示词文档", () => {
+  it("显式注入 getUserSkills / getSkillConfig 后 apply_skill 可返回模板，空参返回排序清单", async () => {
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "润色第 5 章对话",
+      llmConfig: LLM,
+      getSkillConfig: () => null,
+      getUserSkills: () => [
+        {
+          id: "skill:b",
+          name: "白描对白",
+          description: "",
+          kind: ["style"],
+          stages: ["drafting"],
+          modes: ["standard"],
+          content: "对白简短克制，拒绝说明书式台词。",
+          source: "project",
+        },
+        {
+          id: "skill:a",
+          name: "暗流铺垫",
+          description: "",
+          kind: ["structure"],
+          stages: ["planning"],
+          modes: ["standard"],
+          content: "每场戏结尾留一个未闭合信息差。",
+          source: "project",
+        },
+      ] as any,
+      deps: { runner: fakeRunner([]), registry },
+    })
+
+    const applyTool = registry.get("apply_skill")
+    expect(applyTool).toBeDefined()
+
+    const listOutput = await applyTool!.execute({})
+    expect(listOutput).not.toContain("undefined")
+    expect(listOutput).toContain("暗流铺垫")
+    expect(listOutput).toContain("白描对白")
+    expect(listOutput).toContain("skill:a")
+    expect(listOutput).toContain("skill:b")
+
+    const blankOutput = await applyTool!.execute({ skillName: "   ", skillId: "" })
+    expect(blankOutput).toContain("当前可用写作 Skill")
+    expect(blankOutput).not.toContain("未找到 Skill「undefined」")
+
+    const templateOutput = await applyTool!.execute({ skillName: "白描对白" })
+    expect(templateOutput).toContain("对白简短克制，拒绝说明书式台词。")
+  })
+
+  it("MAIN_CONTROL_SYSTEM_PROMPT 列出新增只读/门控/技能/大纲工具并保留 Draft-first 禁令", () => {
+    for (const toolName of [
+      "workflow_next",
+      "canon_query",
+      "character_read",
+      "foreshadowing_list",
+      "audit_longform_health",
+      "gate_check_mechanical",
+      "apply_skill",
+      "write_outline_node",
+      "write_chapter",
+    ]) {
+      expect(MAIN_CONTROL_SYSTEM_PROMPT).toContain(toolName)
+    }
+    expect(MAIN_CONTROL_SYSTEM_PROMPT).toContain("草稿区")
+    expect(MAIN_CONTROL_SYSTEM_PROMPT).toContain("严禁直写正式记忆")
   })
 })

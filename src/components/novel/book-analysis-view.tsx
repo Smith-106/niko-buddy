@@ -101,10 +101,13 @@ export function BookAnalysisView() {
   const {
     styleExtracting,
     addingToSoul,
+    bindingCharacter,
+    bindableCharacters,
     reloadLibraryState,
     handleLibraryExtractStyle,
     handleLibraryToggleStyle,
     handleLibraryAddSkillsToSoul,
+    handleLibraryBindCharacter,
     handleLibraryDeleteBook,
     handleLibraryReextractCharacters,
   } = useLibraryOperations({
@@ -348,18 +351,24 @@ export function BookAnalysisView() {
       extractingStyle={styleExtracting}
       extractingCharacters={chapterSelectionData !== null}
       addingToSoul={addingToSoul}
+      bindingCharacter={bindingCharacter}
+      bindableCharacters={bindableCharacters}
       onSelectBook={(bookId) => {
         const book = libraryState.books.find((item) => item.id === bookId)
         setSelectedBookId(bookId)
         setSelectedCharacterId(null)
         clearRecognition()
-        if (book) useBookAnalysisStore.getState().setCurrentResult(toBookAnalysisResult(book))
+        if (book) {
+          useBookAnalysisStore.getState().setSelectedLibraryBookId?.(book.id)
+          useBookAnalysisStore.getState().setCurrentResult(toBookAnalysisResult(book))
+        }
       }}
       onSelectCharacter={setSelectedCharacterId}
       onImportNovel={() => setInputDialogOpen(true)}
       onExtractStyle={handleLibraryExtractStyle}
       onToggleStyle={handleLibraryToggleStyle}
       onAddSelectedSkillsToSoul={handleLibraryAddSkillsToSoul}
+      onBindCharacter={handleLibraryBindCharacter}
       onReextractCharacters={handleLibraryReextractCharacters}
       onDeleteBook={(bookId) => handleLibraryDeleteBook(bookId, selectedBookId)}
     />
