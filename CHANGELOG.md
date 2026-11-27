@@ -7,6 +7,33 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.34.0] - 2026-11-27
+
+> 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
+
+### Added
+
+- **6 项零 LLM 规划/治理 MCP 工具与 4 档 Profile 矩阵升级**：在 Rust 静态注册表与 TS `planning-write-tools.ts` / `state-bridge.ts` 新增 `director.upsert_world`、`director.commit_phase`、`rules.upsert_book_rules`、`compass.update`、`foreshadowing.upsert`、`subplot.upsert`（全部归入 `SessionScope::Project`，零写前缀导出，始终不暴露 `draft.accept`），MCP 总工具数由 40 升至 46（特权 22），4 档 `ToolProfile` 演进为 `full-legacy`（46）、`writer-sub`（32）、`architect`（24）、`reviewer`（21，100% `SessionScope::Read` 严格只读）；同步为 `book-rules.ts` 补齐 `.novel/book-rules.json` 原子持久化并将纯声明式 `niko-buddy-writer` 插件升至 `v1.3.0`。
+- **主控 Agent 工具面对等扩展（20 基础工具 + 6 项零 LLM 本地门面）**：新增 `main-control-mcp-tools.ts`（惰性动态导入 `@/lib/mcp/*` 防静态循环，输出上限 12,000 字符），向 `runMainControlAgent` 注入 `gate_check_mechanical`、`audit_longform_health`、`canon_query`、`foreshadowing_list`、`character_read`、`workflow_next` 以及 `apply_skill` / `write_outline_node`（保持排除 `write_memory`/`route_task`/`trim_context`），并让冷启动孵化器产出兼容 `DirectorOrchestrator` 的 `wiki/outlines/volume-plan.md` 与 `.novel/director-pipeline.json`。
+- **ACP 内联草稿抽屉、消息级一键只读快照 JSON 预览与主控自主化顶栏**：新增 `antigravity-acp-snapshot-helpers.ts` 与 `antigravity-acp-draft-drawer.tsx`，在 `AntigravityAcpView` 内联封装 `ChapterDraftDock`（严格保留两步人工确认后才传 `confirmed: true` 调 `acceptDraftAndIngest`）及消息级一键只读预览 `AntigravitySnapshotIngestDialog`（Step 3 提交仍需人工点击）；新增 `MainControlAutonomyBar` 将长程战役与冷启动孵化扶正至 `MainControlView` 顶栏与 `Ctrl+K` 命令面板。
+- **核心工作区导航收敛与拆书/创作总览可行动化**：恢复 `worldLibrary` 与 `knowledgeLibrary` 进入侧栏与 `Ctrl+K` 搜索，将 `bookshelf` 移至次级并隐藏永久空壳 `marketRadar`（保留既有路由向后兼容）；新增 `creative-hub-actions.ts` 让创作总览全部下一步、诊断、绑定与体检卡片支持一键跳转修复；新增 `book-analysis-bookshelf-switcher.tsx` 实现拆书内联书架切换，并修复加入灵魂库后经 barrel `listCharacterAuras` 即时绑定；中英双语对齐至 4,840 键 1:1 匹配。
+
+### Changed
+
+- **`.qm-drafts` 与 `.novel/status.json` 状态桥接及共享采纳总闸**：抽出共享 `finalizeAcceptedChapter`（状态更新、追读债初始化、摄取后情绪账本与 `promote("formal-writeback")`），以增量可选字段在不覆写运行中对话会话的前提下桥接外部草稿修订与状态，无第二份会话状态文件；`MainControlView` 深章完成后幂等自动落入 `.qm-drafts/` 消除重复手动存草稿。
+- **百章级投影留存策略与写作上下文装配升级**：`projection-store.ts` 支持领域感知 `ArrayFieldCapRule`（固定索引 0 主角、活跃 `planted`/`advanced` 伏笔优先保留）；`emotion-ledger.ts` 实施近 5 章精确、20 章窗口 0.85 衰减与 `[-5, 5]` 钳位；`context-engine` 正式接入 `foreshadowingToContextText`、`styleExemplars`、`.novel/book-rules.json` 与优先级角色切片（配 `ContextGap` 计账），`load_context` 改为完整调用 `contextPackToPrompt` 渲染预算上下文。
+- **Module Atlas 符号级 BFS 诚实化与纯内存 ToS 触发监测**：修复 `scripts/gen-module-atlas.mjs` 穿透纯 re-export barrel 掩蔽未消费 `specOnly` 模块的统计失真（1,208 模块、4,891 条边达成 0 条 `r && x` 矛盾）；将 `tos-trigger-monitor.ts` 纯内存无写盘接入 `antigravity-acp-store.ts`，并无损保留 `src/lib/quality/*` 与 `src/lib/user-memory-learning/*` 历史治理套件。
+
+### Fixed
+
+- **封堵 4 条 Draft-first 绕过路径并接入真实弧末结算边界**：将对话修改模式（`chat-panel-edit-mode.ts`）、`<file_edit>` 章节目标（`agent-tools.ts`）与推演导入（`draft-importer.ts` / `story-draft-view.tsx`）统一改道 `writeDraft`（零正式章直写、零提前 `ingestChapter`）；`campaign-runner.ts` 要求 `cruiseMode && confirmAutoAccept` 二次硬确认并接入真实 `resolveArcEndChapterForChapter` 弧末结算边界，`autonomous-incubator.ts` 默认巡航改为 `cruiseMode: false`。
+- **导演 Phase 2 世界观死锁、审校反自证与 Hybrid/Pure-ACP 摄取修复**：修复 `world-blueprint.ts` 与 `director-auto-advance.ts` 缺失 `axioms`/`background` 层映射导致的 Phase 2 数学死锁；加固 `draft.record_review`（调用确定性 `runMechanicalGateForMcp`、`quality === "fail"` 阻断自动挂单 `ready`、章节级持久 5 轮熔断与通过清陈旧告警）及 `workflow.next` 完整控制核入参；修复 `chapter-ingest-projections.ts` 黄金混合社区摘要 `extract` 模型回退及 `antigravity-hybrid-ingest.ts` 交互快照提示词字段完整性。
+
+### 交付与分支说明
+
+- 本版为基于纯净 `HEAD 77c2ac34` 在独立工作树 `QMAI-v234-autonomy`（分支 `feat/v234-autonomy-wave01`）完成的主控自主化闭环 Wave 0–4（`TASK-001`..`TASK-009`）源码版本登记，对应 A-34 决策日志见 `docs/decision-log/20261127-v234-master-agent-autonomy-wave01.md`。
+- 本次仅登记源码版本号、变更日志、生成产物与决策日志，尚未创建或推送签名 Release Tag `v2.34.0`，不宣称已产出或真机验收新签名安装包。
+
 ## [2.33.0] - 2026-11-27
 
 > 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。

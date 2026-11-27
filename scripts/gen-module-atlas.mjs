@@ -344,6 +344,20 @@ function collectSpecifiers(cleanCode) {
   return [...found]
 }
 
+/**
+ * 剥离纯重导出语句（`export { ... } from ...`、`export * as ... from ...`、`export * from ...`）
+ * 后再收集说明符，仅保留真实的直接 `import`（静态/bare/动态 import）。
+ * 用于区分带业务代码的 `index.ts`（如 `src/i18n/index.ts`、`src/lib/agent/tools/index.ts`）
+ * 的真实直接导入与纯 barrel 重导出暴露。
+ */
+function collectDirectImportSpecifiers(cleanCode) {
+  const withoutReExports = cleanCode
+    .replace(NAMED_EXPORT_FROM_RE, "")
+    .replace(STAR_AS_EXPORT_FROM_RE, "")
+    .replace(STAR_EXPORT_FROM_RE, "")
+  return collectSpecifiers(withoutReExports)
+}
+
 /** 解析 specifier → 仓内绝对路径；外部包返回 null 并把包名写进 externals。 */
 function resolveSpecifier(spec, fromFile, externals) {
   let base
@@ -551,6 +565,7 @@ function buildAtlas() {
       loc: code.split("\n").length,
       stage: STAGE_INDEX.get(stageOf(rel)) ?? STAGE_INDEX.get("other"),
       out: new Set(),
+      bfsOut: new Set(),
       externals: new Set(),
       importers: new Set(),
       viaIndex: new Set(),
@@ -560,12 +575,29 @@ function buildAtlas() {
 
   for (const mod of modules) {
     const cleanCode = cleanSources.get(mod.file) ?? ""
+    const barrel = isBarrelFile(mod.file)
     for (const spec of collectSpecifiers(cleanCode)) {
       const target = resolveSpecifier(spec, mod.file, mod.externals)
       if (!target) continue
       const targetIndex = ids.get(target)
       if (targetIndex === undefined) continue
       mod.out.add(targetIndex)
+      if (!barrel) mod.bfsOut.add(targetIndex)
+    }
+    if (barrel) {
+      for (const spec of collectDirectImportSpecifiers(cleanCode)) {
+        const target = resolveSpecifier(spec, mod.file, new Set())
+        if (!target) continue
+        const targetIndex = ids.get(target)
+        if (targetIndex === undefined) continue
+        mod.bfsOut.add(targetIndex)
+      }
+    } else {
+      for (const targetAbs of collectBarrelResolvedTargets(cleanCode, mod.file, barrelExportMap)) {
+        const targetIndex = ids.get(targetAbs)
+        if (targetIndex === undefined) continue
+        mod.bfsOut.add(targetIndex)
+      }
     }
   }
 
@@ -600,6 +632,13 @@ function buildAtlas() {
     if (!cleanCode) continue
     const spec = isTestOrHelperFile(file)
     const barrel = isBarrelFile(file)
+    const directImportTargets = barrel
+      ? new Set(
+          collectDirectImportSpecifiers(cleanCode)
+            .map((raw) => resolveSpecifier(raw, file, new Set()))
+            .filter((target) => target !== null),
+        )
+      : null
     for (const raw of collectSpecifiers(cleanCode)) {
       const target = resolveSpecifier(raw, file, new Set())
       if (!target) continue
@@ -608,9 +647,10 @@ function buildAtlas() {
       const mod = modules[targetIndex]
       if (spec) mod.specImporters.add(file)
       else if (ids.get(file) !== targetIndex) {
-        // barrel（index.ts/tsx）只代表「暴露」，不代表「有调用者」——分开统计；
-        // 真实调用者通过下方 barrel 符号解析归因到实际消费的子模块。
-        if (barrel) mod.viaIndex.add(file)
+        // 纯 barrel 重导出（export ... from ...）只代表「暴露」，不代表「有调用者」——分开统计；
+        // 带业务代码的 index.ts（如 src/lib/agent/tools/index.ts、src/i18n/index.ts）中的
+        // 直接 import 属于真实运行时消费，归入 importers；真实 barrel 调用者通过下方符号解析归因。
+        if (barrel && !directImportTargets.has(target)) mod.viaIndex.add(file)
         else mod.importers.add(file)
       }
     }
@@ -625,13 +665,13 @@ function buildAtlas() {
     }
   }
 
-  // 入口可达性 BFS
+  // 入口可达性 BFS（沿真实消费边 bfsOut 推进，避免纯 barrel 重导出扇出污染可达性）
   const entryIndexes = ENTRY_FILES.map((rel) => ids.get(join(ROOT, rel))).filter((i) => i !== undefined)
   const reachable = new Set(entryIndexes)
   const queue = [...entryIndexes]
   while (queue.length > 0) {
     const current = modules[queue.shift()]
-    for (const next of current.out) {
+    for (const next of current.bfsOut) {
       if (reachable.has(next)) continue
       reachable.add(next)
       queue.push(next)

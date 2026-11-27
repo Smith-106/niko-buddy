@@ -36,6 +36,39 @@ describe("MODULE_ATLAS 生成物", () => {
       expect(m.p.length).toBeGreaterThan(0)
     }
   })
+
+  it("纯 barrel 重导出不污染入口可达性：零模块同时满足 r===true && x===true", () => {
+    const falseReachable = MODULE_ATLAS.modules.filter((m) => m.r && m.x)
+    expect(falseReachable).toEqual([])
+  })
+
+  it("带代码 index.ts 的直接导入目标与 tos-trigger-monitor 安全阀均为 r===true && x===false", () => {
+    const index = buildAtlasIndex()
+    for (const path of [
+      "src/lib/agent/tools/load-context.ts",
+      "src/lib/agent/tools/read-chapter.ts",
+      "src/lib/tos-trigger-monitor.ts",
+    ]) {
+      const entry = index.get(path)
+      expect(entry, `atlas 应收录 ${path}`).toBeDefined()
+      expect(entry!.r, `${path} 应入口可达`).toBe(true)
+      expect(entry!.x, `${path} 不应被误判为 specOnly`).toBe(false)
+      expect(entry!.o, `${path} 不应被误判为孤立模块`).toBe(false)
+    }
+  })
+
+  it("仅经纯 barrel 暴露且无生产消费的 specOnly 模块如实标为 r===false", () => {
+    const index = buildAtlasIndex()
+    for (const path of [
+      "src/lib/novel/quality-iteration.ts",
+      "src/lib/novel/wish-drive.ts",
+    ]) {
+      const entry = index.get(path)
+      expect(entry, `atlas 应收录 ${path}`).toBeDefined()
+      expect(entry!.r, `${path} 不应经纯 barrel 误判为入口可达`).toBe(false)
+      expect(entry!.x, `${path} 仍为 specOnly`).toBe(true)
+    }
+  })
 })
 
 describe("buildAtlasIndex", () => {

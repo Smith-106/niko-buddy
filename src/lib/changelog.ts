@@ -15,6 +15,27 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.34.0（2026-11-27）：主控自主化闭环（状态桥与 Draft-first 封堵、6 项零 LLM 规划 MCP 工具、百章记忆留存与主控 20 工具面、ACP 减摩擦抽屉与核心视图扶正、模块索引诚实化）。
+    version: "2.34.0",
+    date: "2026-11-27",
+    highlights: {
+      en: [
+        "Unified .qm-drafts with .novel/status.json without clobbering active Chat sessions, extracted the shared finalizeAcceptedChapter post-accept pipeline (status sync, chase-debt initialization, post-ingest emotion ledger, and formal-writeback promotion), hardened draft.record_review with deterministic mechanical gate verification, quality-fail auto-arm blocking, and chapter-scoped 5-round fuse limits, and closed 4 Draft-first bypasses across Chat edit mode, chapter file_edit targets, Story Simulation import, and Campaign/Incubator cruiseMode secondary confirmation with real arc-settlement boundary wiring.",
+        "Resolved the Director Phase 2 world blueprint deadlock with axioms and background layer mapping plus optional seed filling, added atomic book-rules.json persistence, registered 6 zero-LLM planning and governance MCP tools (director.upsert_world, director.commit_phase, rules.upsert_book_rules, compass.update, foreshadowing.upsert, and subplot.upsert), expanded ToolProfiles to 46 full-legacy, 32 writer-sub, 24 architect, and 21 strictly read-only reviewer tools (never exposing draft.accept), and upgraded the pure-declarative niko-buddy-writer plugin to v1.3.0.",
+        "Hardened 100-chapter memory retention with domain-aware projection caps that pin the protagonist and preserve active foreshadowing, bounded and decayed emotion ledger history, wired foreshadowing context, style exemplars, book rules, and prioritized character slicing into prompt assembly, repaired Golden Hybrid community-summary extract fallback and Pure-ACP snapshot schemas, restored full budgeted context rendering in load_context, equipped the in-app MainControl Agent with 20 base tools plus 6 zero-LLM local MCP facades, and aligned Autonomous Incubator outputs with DirectorOrchestrator.",
+        "Reduced Antigravity ACP review friction with an inline ChapterDraftDock drawer (preserving mandatory two-step human confirmation) and per-message one-click read-only snapshot JSON preview, eliminated duplicate deep-chapter draft saves in MainControlView, promoted Campaign and Autonomous Incubator launches into MainControlView and the Ctrl+K command palette, restored World Library and Knowledge Library navigation while hiding the empty Market Radar placeholder, made CreativeHub diagnostic cards jump directly to repair views, and added inline Bookshelf switching plus immediate soul character binding in Book Analysis across 4,840 1:1 zh/en localization keys.",
+        "Fixed barrel re-export false reachability in Module Atlas generation so unconsumed spec-only modules are no longer masked as reachable (0 barrel-masked contradictions across 1,208 modules and 4,891 edges), and wired the memory-only Google Antigravity ToS trigger monitor into antigravity-acp-store without disk writes while preserving historical quality and user-memory-learning governance suites.",
+      ],
+      zh: [
+        "打通 .qm-drafts 草稿目录与 .novel/status.json 会话状态桥接且不覆写运行中对话会话，抽出共享的 finalizeAcceptedChapter 采纳后处理总闸（状态同步、追读债初始化、摄取后情绪账本与正式写回晋升），加固 draft.record_review 确定性机械门禁复核、质量失败禁自动挂单与章节级 5 轮持久熔断，并封堵对话修改模式、章节 file_edit 目标、推演导入及战役/孵化器巡航模式二次确认共 4 条 Draft-first 旁路且接入真实弧末结算边界。",
+        "修复开书导演第二阶段世界观蓝图死锁（补齐 axioms/background 映射与可选种子填充），新增 book-rules.json 原子持久化，注册 6 项零 LLM 规划与治理 MCP 工具（director.upsert_world、director.commit_phase、rules.upsert_book_rules、compass.update、foreshadowing.upsert、subplot.upsert），4 档 ToolProfile 同步演进为完整兼容 46 / 主笔精简 32 / 策划大纲 24 / 责编严格全只读 21（始终严禁 draft.accept），纯声明式 niko-buddy-writer 插件升级至 v1.3.0。",
+        "加固百章级记忆留存不变量：引入领域感知投影截断以固定索引 0 主角并保留活跃伏笔，为情绪账本补齐窗口衰减与区间钳位，将伏笔上下文、风格示范锚点、书规约束与优先级角色切片接入提示词装配，修复黄金混合社区摘要提取回退与纯 ACP 快照字段约束；同步修复 load_context 完整预算渲染，为主控智能体补齐 20 项基础工具与 6 项零 LLM 本地只读门面，并让冷启动孵化器产出兼容开书导演的卷纲与管线状态。",
+        "落地 Antigravity ACP 极速减摩擦体验：内嵌草稿审阅抽屉（严格保留两步人工确认）并新增消息级一键只读快照 JSON 预览，消除主控深章生成后的重复手动存草稿；将长程战役与冷启动孵化扶正至主控顶栏与 Ctrl+K 命令面板，恢复世界观蓝图库与知识资产库导航并隐藏空壳市场雷达，为创作总览诊断卡片增加一键跳转修复，打通拆书视图内联书架切换与加入灵魂库后即时绑定，保持中英双语 4,840 键 1:1 对齐。",
+        "修复模块索引生成器穿透纯 re-export barrel 导致的假可达统计盲区（1,208 个模块、4,891 条边实现 0 条 barrel 掩蔽矛盾），将纯内存 Google Antigravity 服务条款触发监测无写盘接入 antigravity-acp-store，并无损保留历史质量与记忆学习治理测试套件。",
+      ],
+    },
+  },
+  {
     // 2.33.0（2026-11-27）：原生 API 分角色锁温与可选角色模型槽、共识正典摘要、draft.diff / audit.longform_health 与 nbskill/1 单向声明式 SKILL.md 导出。
     version: "2.33.0",
     date: "2026-11-27",
