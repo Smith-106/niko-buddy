@@ -1760,6 +1760,20 @@ const CHAPTER_SEARCH_MAX_QUERY_CHARS: usize = 256;
 const CHAPTER_SEARCH_MAX_LIMIT: u64 = 50;
 const CHAPTER_SEARCH_MIN_CONTEXT_CHARS: u64 = 40;
 const CHAPTER_SEARCH_MAX_CONTEXT_CHARS: u64 = 400;
+const DRAFT_DIFF_MAX_CONTEXT_LINES: u64 = 10;
+const DRAFT_DIFF_MAX_HUNKS: u64 = 200;
+const DRAFT_DIFF_MIN_MAX_CHARS: u64 = 500;
+const DRAFT_DIFF_MAX_MAX_CHARS: u64 = 50_000;
+const AUDIT_LONGFORM_HEALTH_SECTIONS: [&str; 5] = [
+    "foreshadowing",
+    "chaseDebt",
+    "emotion",
+    "drafts",
+    "canonRisk",
+];
+const AUDIT_LONGFORM_HEALTH_MAX_TOP_K: u64 = 50;
+const AUDIT_LONGFORM_HEALTH_MIN_BREAKER: f64 = -10.0;
+const AUDIT_LONGFORM_HEALTH_MAX_BREAKER: f64 = 0.0;
 
 fn build_workflow_next_query(args: &Value) -> Result<StateQuery, ToolError> {
     let tool = "workflow.next";
@@ -2557,6 +2571,426 @@ impl super::registry::McpTool for ChapterSearchTool {
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
             let query = build_chapter_search_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_draft_diff_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "draft.diff";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "baseDraftId",
+            "targetDraftId",
+            "draftId",
+            "chapterNumber",
+            "compareToFormal",
+            "contextLines",
+            "maxHunks",
+            "maxChars",
+        ],
+        &[],
+    )?);
+
+    let base_draft_id = match normalized.get("baseDraftId") {
+        None => None,
+        Some(v) => {
+            let raw = v.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `baseDraftId` 必须是字符串，收到 {v}"))
+            })?;
+            Some(validate_ascii_id(raw, tool, "baseDraftId")?)
+        }
+    };
+    let target_draft_id = match normalized.get("targetDraftId") {
+        None => None,
+        Some(v) => {
+            let raw = v.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `targetDraftId` 必须是字符串，收到 {v}"))
+            })?;
+            Some(validate_ascii_id(raw, tool, "targetDraftId")?)
+        }
+    };
+    let draft_id = match normalized.get("draftId") {
+        None => None,
+        Some(v) => {
+            let raw = v.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `draftId` 必须是字符串，收到 {v}"))
+            })?;
+            Some(validate_ascii_id(raw, tool, "draftId")?)
+        }
+    };
+    let chapter_number = optional_int_in_range(
+        &normalized,
+        tool,
+        "chapterNumber",
+        1,
+        ATOMIC_READ_MAX_CHAPTER,
+    )?;
+    let compare_to_formal = optional_bool(&normalized, tool, "compareToFormal")?;
+    let context_lines = optional_int_in_range(
+        &normalized,
+        tool,
+        "contextLines",
+        0,
+        DRAFT_DIFF_MAX_CONTEXT_LINES,
+    )?;
+    let max_hunks = optional_int_in_range(&normalized, tool, "maxHunks", 1, DRAFT_DIFF_MAX_HUNKS)?;
+    let max_chars = optional_int_in_range(
+        &normalized,
+        tool,
+        "maxChars",
+        DRAFT_DIFF_MIN_MAX_CHARS,
+        DRAFT_DIFF_MAX_MAX_CHARS,
+    )?;
+
+    let mut params = json!({});
+    if base_draft_id.is_some() || target_draft_id.is_some() {
+        let (Some(base), Some(target)) = (base_draft_id, target_draft_id) else {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: 草稿对比模式必须同时提供 `baseDraftId` 与 `targetDraftId`"
+            )));
+        };
+        if draft_id.is_some() {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `baseDraftId`/`targetDraftId` 与 `draftId` 互斥"
+            )));
+        }
+        if chapter_number.is_some() {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `baseDraftId`/`targetDraftId` 模式下不得传入 `chapterNumber`"
+            )));
+        }
+        if compare_to_formal == Some(true) {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `baseDraftId`/`targetDraftId` 模式下不得设置 `compareToFormal: true`"
+            )));
+        }
+        params["baseDraftId"] = json!(base);
+        params["targetDraftId"] = json!(target);
+        if compare_to_formal == Some(false) {
+            params["compareToFormal"] = json!(false);
+        }
+    } else if let Some(draft) = draft_id {
+        if compare_to_formal == Some(false) {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `draftId` 与正式章对比模式下不得设置 `compareToFormal: false`"
+            )));
+        }
+        params["draftId"] = json!(draft);
+        params["compareToFormal"] = json!(true);
+        if let Some(ch) = chapter_number {
+            params["chapterNumber"] = json!(ch);
+        }
+    } else {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: 必须提供 `baseDraftId`+`targetDraftId`（双草稿对比）或 `draftId`（草稿与正式章对比）"
+        )));
+    }
+
+    if let Some(lines) = context_lines {
+        params["contextLines"] = json!(lines);
+    }
+    if let Some(hunks) = max_hunks {
+        params["maxHunks"] = json!(hunks);
+    }
+    if let Some(chars) = max_chars {
+        params["maxChars"] = json!(chars);
+    }
+
+    Ok(StateQuery::new("draft-diff").with_params(params))
+}
+
+/// `draft.diff` —— 零 LLM、只读行级草稿差异比对（草稿 vs 草稿，或草稿 vs 正式章）。
+pub struct DraftDiffTool;
+
+impl super::registry::McpTool for DraftDiffTool {
+    fn name(&self) -> &'static str {
+        "draft.diff"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM read-only Myers line-level diff between two drafts (baseDraftId + targetDraftId) or between a draft and its formal chapter (draftId with optional chapterNumber). Returns bounded unified hunks, line stats, and SHA-256 digests without modifying files."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "baseDraftId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+                    "description": "Base draft ID for draft-vs-draft comparison (must be paired with targetDraftId; mutually exclusive with draftId/chapterNumber/compareToFormal=true)"
+                },
+                "targetDraftId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+                    "description": "Target draft ID for draft-vs-draft comparison (must be paired with baseDraftId)"
+                },
+                "draftId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+                    "description": "Draft ID to compare against the corresponding formal chapter (mutually exclusive with baseDraftId/targetDraftId/compareToFormal=false)"
+                },
+                "chapterNumber": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": ATOMIC_READ_MAX_CHAPTER,
+                    "description": "Optional 1-based formal chapter number override when using draftId mode (1..=100000)"
+                },
+                "compareToFormal": {
+                    "type": "boolean",
+                    "description": "Explicitly select draft-vs-formal (true, with draftId) or draft-vs-draft (false, with baseDraftId+targetDraftId)"
+                },
+                "contextLines": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": DRAFT_DIFF_MAX_CONTEXT_LINES,
+                    "description": "Context lines around each diff hunk (0..=10, default 2)"
+                },
+                "maxHunks": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": DRAFT_DIFF_MAX_HUNKS,
+                    "description": "Maximum unified diff hunks to return (1..=200, default 50)"
+                },
+                "maxChars": {
+                    "type": "integer",
+                    "minimum": DRAFT_DIFF_MIN_MAX_CHARS,
+                    "maximum": DRAFT_DIFF_MAX_MAX_CHARS,
+                    "description": "Maximum serialized diff character budget (500..=50000, default 16000)"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_draft_diff_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_audit_longform_health_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "audit.longform_health";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "currentChapter",
+            "chapterStart",
+            "chapterEnd",
+            "volume",
+            "sections",
+            "topK",
+            "includeDetails",
+            "emotionBreakerThreshold",
+        ],
+        &[],
+    )?);
+
+    let current_chapter = optional_int_in_range(
+        &normalized,
+        tool,
+        "currentChapter",
+        1,
+        ATOMIC_READ_MAX_CHAPTER,
+    )?;
+    let chapter_start = optional_int_in_range(
+        &normalized,
+        tool,
+        "chapterStart",
+        1,
+        ATOMIC_READ_MAX_CHAPTER,
+    )?;
+    let chapter_end =
+        optional_int_in_range(&normalized, tool, "chapterEnd", 1, ATOMIC_READ_MAX_CHAPTER)?;
+    let volume = optional_int_in_range(&normalized, tool, "volume", 1, OUTLINE_READ_MAX_VOLUME)?;
+
+    if volume.is_some() && (chapter_start.is_some() || chapter_end.is_some()) {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `volume` 与 `chapterStart`/`chapterEnd` 互斥"
+        )));
+    }
+    if let (Some(start), Some(end)) = (chapter_start, chapter_end) {
+        if start > end {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `chapterStart` ({start}) 不能大于 `chapterEnd` ({end})"
+            )));
+        }
+    }
+
+    let mut params = json!({});
+    if let Some(ch) = current_chapter {
+        params["currentChapter"] = json!(ch);
+    }
+    if let Some(start) = chapter_start {
+        params["chapterStart"] = json!(start);
+    }
+    if let Some(end) = chapter_end {
+        params["chapterEnd"] = json!(end);
+    }
+    if let Some(vol) = volume {
+        params["volume"] = json!(vol);
+    }
+    if let Some(v) = normalized.get("sections") {
+        let arr = v.as_array().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `sections` 必须是非空数组"))
+        })?;
+        if arr.is_empty() {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `sections` 不能为空数组"
+            )));
+        }
+        if arr.len() > AUDIT_LONGFORM_HEALTH_SECTIONS.len() {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `sections` 最多包含 {} 项，收到 {}",
+                AUDIT_LONGFORM_HEALTH_SECTIONS.len(),
+                arr.len()
+            )));
+        }
+        let mut deduped = Vec::with_capacity(arr.len());
+        let mut seen = HashSet::with_capacity(arr.len());
+        for (idx, item) in arr.iter().enumerate() {
+            let raw = item.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!(
+                    "{tool}: `sections[{idx}]` 必须是字符串，收到 {item}"
+                ))
+            })?;
+            let matched = AUDIT_LONGFORM_HEALTH_SECTIONS
+                .iter()
+                .copied()
+                .find(|allowed| *allowed == raw)
+                .ok_or_else(|| {
+                    ToolError::invalid_params(format!(
+                        "{tool}: `sections[{idx}]` 只接受 {}，收到 {raw}",
+                        AUDIT_LONGFORM_HEALTH_SECTIONS.join(" / ")
+                    ))
+                })?;
+            if seen.insert(matched) {
+                deduped.push(matched);
+            }
+        }
+        params["sections"] = json!(deduped);
+    }
+    if let Some(top_k) = optional_int_in_range(
+        &normalized,
+        tool,
+        "topK",
+        1,
+        AUDIT_LONGFORM_HEALTH_MAX_TOP_K,
+    )? {
+        params["topK"] = json!(top_k);
+    }
+    if let Some(details) = optional_bool(&normalized, tool, "includeDetails")? {
+        params["includeDetails"] = json!(details);
+    }
+    if let Some(threshold) = optional_finite_f64_in_range(
+        &normalized,
+        tool,
+        "emotionBreakerThreshold",
+        AUDIT_LONGFORM_HEALTH_MIN_BREAKER,
+        AUDIT_LONGFORM_HEALTH_MAX_BREAKER,
+    )? {
+        let normalized_threshold = if threshold == 0.0 { 0.0 } else { threshold };
+        params["emotionBreakerThreshold"] = json!(normalized_threshold);
+    }
+
+    Ok(StateQuery::new("audit-longform-health").with_params(params))
+}
+
+/// `audit.longform_health` —— 零 LLM、只读长篇健康诊断（伏笔债 / 追读债 / 情绪熔断 / 草稿队列 / 正典风险）。
+pub struct AuditLongformHealthTool;
+
+impl super::registry::McpTool for AuditLongformHealthTool {
+    fn name(&self) -> &'static str {
+        "audit.longform_health"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM read-only long-form novel health audit aggregating foreshadowing debt, chase/subplot debt, emotion circuit-breaker trends, pending draft queue status, and deterministic P0 canon risks across a book, volume, or chapter window. Never writes to disk."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "currentChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": ATOMIC_READ_MAX_CHAPTER,
+                    "description": "Optional 1-based reference chapter number for overdue debt calculation (1..=100000)"
+                },
+                "chapterStart": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": ATOMIC_READ_MAX_CHAPTER,
+                    "description": "Optional inclusive 1-based window start chapter (1..=100000; mutually exclusive with volume; <= chapterEnd)"
+                },
+                "chapterEnd": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": ATOMIC_READ_MAX_CHAPTER,
+                    "description": "Optional inclusive 1-based window end chapter (1..=100000; mutually exclusive with volume)"
+                },
+                "volume": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": OUTLINE_READ_MAX_VOLUME,
+                    "description": "Optional 1-based volume number filter (1..=1000; mutually exclusive with chapterStart/chapterEnd)"
+                },
+                "sections": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": AUDIT_LONGFORM_HEALTH_SECTIONS.len(),
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "enum": AUDIT_LONGFORM_HEALTH_SECTIONS
+                    },
+                    "description": "Optional subset of diagnostic sections: foreshadowing, chaseDebt, emotion, drafts, canonRisk (default all 5)"
+                },
+                "topK": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": AUDIT_LONGFORM_HEALTH_MAX_TOP_K,
+                    "description": "Maximum top findings per section (1..=50, default 10)"
+                },
+                "includeDetails": {
+                    "type": "boolean",
+                    "description": "Include per-item diagnostic details alongside aggregate counters (default false)"
+                },
+                "emotionBreakerThreshold": {
+                    "type": "number",
+                    "minimum": AUDIT_LONGFORM_HEALTH_MIN_BREAKER,
+                    "maximum": AUDIT_LONGFORM_HEALTH_MAX_BREAKER,
+                    "description": "Finite emotion circuit-breaker threshold in [-10.0, 0.0] (default -0.6)"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_audit_longform_health_query(args)?;
             ctx.bridge_query(query).await
         })
     }
@@ -5146,6 +5580,8 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(OutlineReadTool));
     r.register(Arc::new(StyleExemplarsTool));
     r.register(Arc::new(ChapterSearchTool));
+    r.register(Arc::new(DraftDiffTool));
+    r.register(Arc::new(AuditLongformHealthTool));
     r.register(Arc::new(PipelineRunChapterTool));
     r.register(Arc::new(PipelineStatusTool));
     r.register(Arc::new(GateRunTool));
@@ -5235,6 +5671,8 @@ mod tests {
                 "outline.read",
                 "style.exemplars",
                 "chapter.search",
+                "draft.diff",
+                "audit.longform_health",
                 "pipeline.run_chapter",
                 "pipeline.status",
                 "gate.run",
@@ -7419,7 +7857,7 @@ mod tests {
     #[test]
     fn phase2_eight_tools_have_expected_scopes_descriptions_and_no_draft_accept() {
         let r = build_registry();
-        assert_eq!(r.len(), 38);
+        assert_eq!(r.len(), 40);
         assert_eq!(r.privileged_tools().len(), 16);
         assert!(!r.names().contains(&"draft.accept"));
 
@@ -7430,6 +7868,8 @@ mod tests {
             "outline.read",
             "style.exemplars",
             "chapter.search",
+            "draft.diff",
+            "audit.longform_health",
         ] {
             assert_eq!(
                 r.required_scope(read_name),
@@ -8009,5 +8449,225 @@ mod tests {
             dim_desc.contains("thrill, consistency, pacing, character, continuity, pull"),
             "dimensionScores description missing canonical six keys: {dim_desc}"
         );
+    }
+
+    #[tokio::test]
+    async fn draft_diff_validates_modes_bounds_and_null_tolerance_strictly() {
+        // Mode 1: draft vs draft (baseDraftId + targetDraftId), optional compareToFormal=false & null-stripped fields.
+        let q_mode1 = build_draft_diff_query(&json!({
+            "baseDraftId": "draft_base-1",
+            "targetDraftId": "draft_target-2",
+            "draftId": null,
+            "chapterNumber": null,
+            "compareToFormal": false,
+            "contextLines": 0,
+            "maxHunks": 200,
+            "maxChars": 50_000
+        }))
+        .expect("mode 1 valid");
+        assert_eq!(q_mode1.op, "draft-diff");
+        let p1 = q_mode1.params.expect("params");
+        assert_eq!(p1["baseDraftId"], json!("draft_base-1"));
+        assert_eq!(p1["targetDraftId"], json!("draft_target-2"));
+        assert_eq!(p1["compareToFormal"], json!(false));
+        assert_eq!(p1["contextLines"], json!(0));
+        assert_eq!(p1["maxHunks"], json!(200));
+        assert_eq!(p1["maxChars"], json!(50_000));
+        assert!(p1.get("draftId").is_none());
+
+        // Mode 1 without compareToFormal
+        let q_mode1_min = build_draft_diff_query(&json!({
+            "baseDraftId": "d1",
+            "targetDraftId": "d2",
+            "contextLines": 10,
+            "maxHunks": 1,
+            "maxChars": 500
+        }))
+        .expect("mode 1 min valid");
+        let p1_min = q_mode1_min.params.expect("params");
+        assert!(p1_min.get("compareToFormal").is_none());
+
+        // Mode 2: draft vs formal (draftId + optional chapterNumber), normalizes compareToFormal=true.
+        let q_mode2 = build_draft_diff_query(&json!({
+            "draftId": "draft_003",
+            "chapterNumber": 3,
+            "baseDraftId": null,
+            "targetDraftId": null,
+            "compareToFormal": null
+        }))
+        .expect("mode 2 valid");
+        assert_eq!(q_mode2.op, "draft-diff");
+        let p2 = q_mode2.params.expect("params");
+        assert_eq!(p2["draftId"], json!("draft_003"));
+        assert_eq!(p2["chapterNumber"], json!(3));
+        assert_eq!(p2["compareToFormal"], json!(true));
+
+        let q_mode2_explicit = build_draft_diff_query(&json!({
+            "draftId": "draft_003",
+            "compareToFormal": true
+        }))
+        .expect("mode 2 explicit compareToFormal=true valid");
+        assert_eq!(
+            q_mode2_explicit.params.expect("params")["compareToFormal"],
+            json!(true)
+        );
+
+        let schema = DraftDiffTool.input_schema();
+        assert_eq!(schema["additionalProperties"], json!(false));
+        assert_eq!(schema["properties"]["contextLines"]["maximum"], json!(10));
+        assert_eq!(schema["properties"]["maxHunks"]["maximum"], json!(200));
+        assert_eq!(schema["properties"]["maxChars"]["minimum"], json!(500));
+        assert_eq!(schema["properties"]["maxChars"]["maximum"], json!(50_000));
+
+        let ctx = ToolContext::for_test();
+        for bad in [
+            // Neither mode present / orphan fields / all null
+            json!({}),
+            json!({ "chapterNumber": 5 }),
+            json!({ "compareToFormal": true }),
+            json!({ "compareToFormal": false }),
+            json!({ "baseDraftId": null, "targetDraftId": null, "draftId": null }),
+            // Partial mode 1
+            json!({ "baseDraftId": "d1" }),
+            json!({ "targetDraftId": "d2" }),
+            // Forbidden cross-field combinations in mode 1
+            json!({ "baseDraftId": "d1", "targetDraftId": "d2", "draftId": "d3" }),
+            json!({ "baseDraftId": "d1", "targetDraftId": "d2", "chapterNumber": 1 }),
+            json!({ "baseDraftId": "d1", "targetDraftId": "d2", "compareToFormal": true }),
+            // Forbidden cross-field combination in mode 2
+            json!({ "draftId": "d1", "compareToFormal": false }),
+            // Bad ASCII IDs & bounds
+            json!({ "draftId": "" }),
+            json!({ "draftId": "bad/id" }),
+            json!({ "draftId": "a".repeat(129) }),
+            json!({ "baseDraftId": "bad id", "targetDraftId": "d2" }),
+            json!({ "baseDraftId": "d1", "targetDraftId": "../x" }),
+            json!({ "draftId": "d1", "chapterNumber": 0 }),
+            json!({ "draftId": "d1", "chapterNumber": 100_001 }),
+            json!({ "draftId": "d1", "compareToFormal": "true" }),
+            json!({ "draftId": "d1", "contextLines": -1 }),
+            json!({ "draftId": "d1", "contextLines": 11 }),
+            json!({ "draftId": "d1", "maxHunks": 0 }),
+            json!({ "draftId": "d1", "maxHunks": 201 }),
+            json!({ "draftId": "d1", "maxChars": 499 }),
+            json!({ "draftId": "d1", "maxChars": 50_001 }),
+            // Unknown keys even when null
+            json!({ "draftId": "d1", "unknown": null }),
+            json!({ "draftId": "d1", "extra": 1 }),
+        ] {
+            let err = DraftDiffTool.call(&ctx, &bad).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "draft.diff must reject bad args: {bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn audit_longform_health_validates_bounds_sections_and_exclusivity_strictly() {
+        // Empty {} is valid!
+        let q_empty = build_audit_longform_health_query(&json!({})).expect("empty ok");
+        assert_eq!(q_empty.op, "audit-longform-health");
+        assert_eq!(q_empty.params, Some(json!({})));
+
+        // Full valid query with section dedup, chapter window, null-stripped volume, and boundary threshold.
+        let q_win = build_audit_longform_health_query(&json!({
+            "currentChapter": 50,
+            "chapterStart": 10,
+            "chapterEnd": 50,
+            "volume": null,
+            "sections": ["foreshadowing", "emotion", "foreshadowing", "canonRisk"],
+            "topK": 50,
+            "includeDetails": true,
+            "emotionBreakerThreshold": -0.6
+        }))
+        .expect("window query valid");
+        let p_win = q_win.params.expect("params");
+        assert_eq!(p_win["currentChapter"], json!(50));
+        assert_eq!(p_win["chapterStart"], json!(10));
+        assert_eq!(p_win["chapterEnd"], json!(50));
+        assert!(p_win.get("volume").is_none());
+        assert_eq!(
+            p_win["sections"],
+            json!(["foreshadowing", "emotion", "canonRisk"])
+        );
+        assert_eq!(p_win["topK"], json!(50));
+        assert_eq!(p_win["includeDetails"], json!(true));
+        assert_eq!(p_win["emotionBreakerThreshold"], json!(-0.6));
+
+        // Volume mode + threshold boundary extremes (-10.0 and 0.0)
+        let q_vol = build_audit_longform_health_query(&json!({
+            "volume": 1000,
+            "sections": ["chaseDebt", "drafts"],
+            "topK": 1,
+            "includeDetails": false,
+            "emotionBreakerThreshold": -10.0
+        }))
+        .expect("volume query valid");
+        assert_eq!(q_vol.params.as_ref().unwrap()["volume"], json!(1000));
+        assert_eq!(
+            q_vol.params.as_ref().unwrap()["emotionBreakerThreshold"],
+            json!(-10.0)
+        );
+
+        let q_zero = build_audit_longform_health_query(&json!({
+            "chapterStart": 5,
+            "chapterEnd": 5,
+            "emotionBreakerThreshold": 0
+        }))
+        .expect("zero threshold & equal range valid");
+        assert_eq!(
+            q_zero.params.as_ref().unwrap()["emotionBreakerThreshold"],
+            json!(0.0)
+        );
+
+        let schema = AuditLongformHealthTool.input_schema();
+        assert_eq!(schema["additionalProperties"], json!(false));
+        assert_eq!(schema["properties"]["volume"]["maximum"], json!(1000));
+        assert_eq!(schema["properties"]["topK"]["maximum"], json!(50));
+        assert_eq!(
+            schema["properties"]["emotionBreakerThreshold"]["minimum"],
+            json!(-10.0)
+        );
+        assert_eq!(
+            schema["properties"]["emotionBreakerThreshold"]["maximum"],
+            json!(0.0)
+        );
+
+        let ctx = ToolContext::for_test();
+        for bad in [
+            json!({ "currentChapter": 0 }),
+            json!({ "currentChapter": 100_001 }),
+            json!({ "chapterStart": 0 }),
+            json!({ "chapterStart": 100_001 }),
+            json!({ "chapterEnd": 0 }),
+            json!({ "chapterEnd": 100_001 }),
+            json!({ "chapterStart": 12, "chapterEnd": 11 }),
+            json!({ "volume": 0 }),
+            json!({ "volume": 1001 }),
+            json!({ "volume": 1, "chapterStart": 1 }),
+            json!({ "volume": 1, "chapterEnd": 10 }),
+            json!({ "volume": 1, "chapterStart": 1, "chapterEnd": 10 }),
+            json!({ "sections": [] }),
+            json!({ "sections": "emotion" }),
+            json!({ "sections": [123] }),
+            json!({ "sections": ["unknown"] }),
+            json!({ "sections": ["foreshadowing", "chaseDebt", "emotion", "drafts", "canonRisk", "emotion"] }),
+            json!({ "topK": 0 }),
+            json!({ "topK": 51 }),
+            json!({ "includeDetails": "true" }),
+            json!({ "emotionBreakerThreshold": 0.01 }),
+            json!({ "emotionBreakerThreshold": -10.01 }),
+            json!({ "emotionBreakerThreshold": "-0.6" }),
+            json!({ "unknown": null }),
+        ] {
+            let err = AuditLongformHealthTool.call(&ctx, &bad).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "audit.longform_health must reject bad args: {bad}"
+            );
+        }
     }
 }

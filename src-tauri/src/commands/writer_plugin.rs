@@ -33,7 +33,7 @@ use crate::agent_gate_policy::{
 };
 
 pub const WRITER_PLUGIN_NAME: &str = "niko-buddy-writer";
-pub const WRITER_PLUGIN_VERSION: &str = "1.1.0";
+pub const WRITER_PLUGIN_VERSION: &str = "1.2.0";
 const WRITER_PLUGIN_AUTHOR: &str = "Niko Buddy";
 const WRITER_PLUGIN_DESCRIPTION: &str = "Pure-declarative long-form novel writing workspace plugin for Antigravity + Niko Buddy MCP (Draft-first, zero-LLM mechanical gates, 6 skills, 5 editorial role playbooks).";
 
@@ -53,7 +53,7 @@ Long-form fiction workspace managed by **Niko Buddy** (not a code repo). Stay st
 ## Safety Boundaries
 - **Draft-first**: Create drafts via `chapter.write`, patch via `draft.patch` (`expectedSha256` from `draft.read`, `HARD_FUSE_LIMIT=5`), and record gates via `draft.record_review` (at most `pending -> ready`, NEVER accepts; formal acceptance happens exclusively via human click inside Niko Buddy UI). Never overwrite formal chapters/memory.
 - **Gate Priority**: `Consistency(P0) > Anti-AI(P1) > Quality(P2)`. Quality never overrides P0 failure.
-- **Zero-LLM Loop**: `workflow.next` -> `context.prepare_write` (`prepareId` + `page`) + `rules.get(compact:true)` + ledgers (`foreshadowing.list`, `character.read`, `outline.read`, `style.exemplars`, `chapter.search`) -> host model -> `chapter.write`/`draft.patch` -> `gate.check_mechanical` -> `draft.record_review`.
+- **Zero-LLM Loop**: `workflow.next` -> `context.prepare_write` (`prepareId` + `page`) + `rules.get(compact:true)` + ledgers (`foreshadowing.list`, `character.read`, `outline.read`, `style.exemplars`, `chapter.search`, `audit.longform_health`) -> host model -> `chapter.write`/`draft.patch` -> `draft.diff` + `gate.check_mechanical` -> `draft.record_review`.
 
 ## Skills (`skills/*/SKILL.md`)
 - `nb-book-architect` — Premise, outlines, characters
@@ -84,7 +84,7 @@ Use this skill when designing or updating book setup, volume outlines, or charac
 
 ## Steps
 1. Call `workflow.next`, `director.check`, `project.state`, and `rules.get(compact:true)` to inspect current phase gates and book rules.
-2. Read existing planning state with `outline.read` (by volume/chapter window or safe `.md` filename), `character.read`, `foreshadowing.list`, `canon.query`, `chapter.list`, `draft.list`, and `chapter.search`.
+2. Read existing planning state with `outline.read` (by volume/chapter window or safe `.md` filename), `character.read`, `foreshadowing.list`, `audit.longform_health`, `canon.query`, `chapter.list`, `draft.list`, and `chapter.search`.
 3. Assemble planning context via `context.prepare_write(includePlanningView:true)` when expanding an ongoing book; reuse `prepareId` + `page` for paged context without rebuilding.
 4. Author structured outlines or character cards directly using the host subscription model — do not invoke legacy internal LLM generators.
 5. Persist planning artifacts safely with `outline.write` (safe `.md` filename under `wiki/outlines/`) and `character.upsert`.
@@ -151,7 +151,7 @@ Use this skill to refine prose texture and eliminate AI writing habits without b
 1. Fetch active prose rules and author benchmarks via `rules.get(sections: ["writingStyle", "antiAi"], compact: true)` and `style.exemplars(markTypes: ["style", "voice", "pacing"])`.
 2. Read the target draft via `draft.read` (capture `bodySha256` and 1-based line numbers) and inspect flagged tells via `gate.check_mechanical(draftId, detailLevel: "full")`.
 3. Apply targeted rewrites via `draft.patch(draftId, expectedSha256, edits)` (preserving `parentDraftId`, respecting `HARD_FUSE_LIMIT=5`) to restore natural sentence cadence, concrete sensory detail, and character-specific dialogue while keeping every canon fact and plot beat intact.
-4. Re-run `gate.check_mechanical(draftId, detailLevel: "compact")` to confirm both P0 Continuity and P1 Anti-AI pass — never trade P0 continuity for style.
+4. Verify surgical deltas via `draft.diff` and re-run `gate.check_mechanical(draftId, detailLevel: "compact")` to confirm both P0 Continuity and P1 Anti-AI pass — never trade P0 continuity for style.
 5. Record the updated review status via `draft.record_review(draftId, expectedSha256, gates, ...)` (promotes at most `pending -> ready`, never accepts).
 "#;
 
@@ -170,7 +170,7 @@ Use this skill to produce a structured diagnostic review across Niko Buddy's six
 ## Steps
 1. Run `gate.check_mechanical(draftId|chapter, detailLevel: "compact")` first to establish the Track A hard gate (`Consistency(P0)` and `Anti-AI(P1)`).
 2. Read the chapter or draft via `chapter.read` / `draft.read` (note `bodySha256`) and load dimension prompts via `context.prepare_write` (reuse `prepareId` + `page` across all six dimensions: `thrill`, `consistency`, `pacing`, `character`, `continuity`, `pull`) or `context.inspect`.
-3. Cross-reference author benchmarks and narrative ledgers via `style.exemplars`, `foreshadowing.list`, `character.read`, `outline.read`, and `chapter.search`.
+3. Cross-reference author benchmarks, revision deltas, and narrative ledgers via `style.exemplars`, `draft.diff`, `foreshadowing.list`, `character.read`, `outline.read`, and `chapter.search`.
 4. Score each dimension with grounded textual evidence and return structured `gates`, `overallScore`, `dimensionScores`, `summary`, and `blockingIssues` so `writer-sub` can persist them via `draft.record_review`.
 5. Keep Track A (P0/P1 hard gates) strictly separate from Track B (literary quality scores): a high literary score never overrides a P0 consistency failure. Never modify files during review.
 "#;
@@ -190,7 +190,7 @@ Use this skill for fast read-only situational awareness, ledger diagnostics, and
 ## Steps
 1. Call `app.status` and `workflow.next` to confirm active MCP `scope`, frozen `profile`, and deterministic next recommended step.
 2. Call `project.state`, `director.check`, `chapter.list`, and `draft.list` to inspect `.novel/status.json` progress, blocked director gates, published chapters, and pending/ready drafts awaiting author acceptance.
-3. Query narrative health via `foreshadowing.list(includeDebt: true)`, `character.read(includeState: true)`, `outline.read(includeSummaryOnly: true)`, and `chapter.search` as needed.
+3. Query narrative health via `audit.longform_health`, `foreshadowing.list(includeDebt: true)`, `character.read(includeState: true)`, `outline.read(includeSummaryOnly: true)`, and `chapter.search` as needed.
 4. **Interactive `ChapterSnapshot` JSON Preparation (Read-Only)**: When an author asks to ingest an already accepted formal chapter into formal memory without internal API LLM calls, read the chapter via `chapter.read` plus existing ledgers (`character.read`, `foreshadowing.list`, `canon.query`), then generate a clean structured `ChapterSnapshot` JSON candidate (summary, character state deltas, foreshadowing updates, new canon facts) for the human author to inspect and confirm inside Niko Buddy via `commitPreparedChapterIngest`.
 5. Never write formal memory or accept drafts directly from this workflow.
 "#;
@@ -205,7 +205,7 @@ Declarative editorial-room persona for book structure, worldbuilding, outlines, 
 
 ## Responsibilities
 - Route and audit setup readiness with `workflow.next`, `director.check`, `project.state`, and `rules.get(compact:true)`.
-- Inspect existing outlines, characters, foreshadowing, and prior chapters via `outline.read`, `character.read`, `foreshadowing.list`, `canon.query`, and `chapter.search`.
+- Inspect existing outlines, characters, foreshadowing, book-wide health, and prior chapters via `outline.read`, `character.read`, `foreshadowing.list`, `audit.longform_health`, `canon.query`, and `chapter.search`.
 - Prepare planning context with `context.prepare_write(includePlanningView:true)` (reusing `prepareId` + `page` when paging).
 - Author outlines and character docs directly with the host model and save via `outline.write` and `character.upsert`.
 
@@ -226,7 +226,7 @@ Declarative editorial-room persona for scene-level long-form chapter drafting an
 - Start with `workflow.next` and assemble context via `context.prepare_write(targetChapter, includePlanningView:true)` (reuse `prepareId` + `page` instead of rebuilding) and `rules.get(compact:true)`.
 - Check character state, foreshadowing threads, outlines, style exemplars, and canon edges via `character.read`, `foreshadowing.list`, `outline.read`, `style.exemplars`, `chapter.search`, and `canon.query`.
 - Draft full chapters in the host subscription model and save initial drafts strictly to `.qm-drafts/` via `chapter.write`.
-- Self-check every draft via `gate.check_mechanical(draftId, detailLevel:"compact")`, apply surgical fixes via `draft.patch(draftId, expectedSha256, edits)` (`HARD_FUSE_LIMIT=5`, using `bodySha256` from `draft.read`), and record verified outcomes via `draft.record_review` (promotes at most `pending -> ready`, never accepts).
+- Self-check every draft via `gate.check_mechanical(draftId, detailLevel:"compact")`, apply surgical fixes via `draft.patch(draftId, expectedSha256, edits)` (`HARD_FUSE_LIMIT=5`, using `bodySha256` from `draft.read`), verify changes via `draft.diff`, and record verified outcomes via `draft.record_review` (promotes at most `pending -> ready`, never accepts).
 
 ## Boundaries
 - Draft-first: never write formal chapters or formal memory directly; the human author accepts drafts in Niko Buddy.
@@ -258,7 +258,7 @@ Declarative editorial-room persona for prose naturalness, voice differentiation,
 - Load active prose guidelines and author benchmarks via `rules.get(sections:["writingStyle","antiAi"], compact:true)` and `style.exemplars`.
 - Inspect draft text via `draft.read` (`bodySha256` + line numbers) and mechanical tells via `gate.check_mechanical(draftId, detailLevel:"full")`.
 - Rewrite AI clichés and monotonous cadence using surgical `draft.patch(draftId, expectedSha256, edits)` (`HARD_FUSE_LIMIT=5`) while preserving 100% of canon facts, character knowledge, and plot beats.
-- Re-verify via `gate.check_mechanical(draftId, detailLevel:"compact")` and update draft status via `draft.record_review` (never accepts).
+- Inspect revision deltas via `draft.diff`, re-verify via `gate.check_mechanical(draftId, detailLevel:"compact")`, and update draft status via `draft.record_review` (never accepts).
 
 ## Boundaries
 - Never alter established canon facts for stylistic flair; `Consistency(P0)` always outranks `Anti-AI(P1)` and `Quality(P2)`.
@@ -274,13 +274,13 @@ Strictly **read-only** editorial-room persona for six-dimension literary critiqu
 ## Responsibilities
 - Verify Track A hard gate status first via `gate.check_mechanical(draftId|chapter, detailLevel:"compact")`.
 - Read chapter/draft text and dimension prompts via `chapter.read`, `draft.read` (`bodySha256`), `context.prepare_write` (reuse `prepareId` + `page` across dimensions), and `context.inspect`.
-- Ground critique in author benchmarks and story ledgers via `style.exemplars`, `foreshadowing.list`, `character.read`, `outline.read`, and `chapter.search`.
+- Ground critique in author benchmarks, draft diffs, and story ledgers via `style.exemplars`, `draft.diff`, `foreshadowing.list`, `character.read`, `outline.read`, and `chapter.search`.
 - Score all six dimensions with line-level evidence and hand structured `gates` / `overallScore` / `dimensionScores` / `blockingIssues` back to `writer-sub` for `draft.record_review`.
 - Respect gate priority: literary quality scores never override a P0 consistency failure.
 "#;
 
 const PROJECT_AGENTS_MD_BLOCK: &str = r#"<!-- niko-buddy-writer:start -->
-<!-- niko-buddy-writer:version=1.1.0 -->
+<!-- niko-buddy-writer:version=1.2.0 -->
 # Niko Buddy Novel Workspace
 This directory is a long-form fiction project managed by Niko Buddy (not a code repository).
 - Use `niko-buddy-writer` (`.agents/plugins.json`) and Niko Buddy MCP (`writer-sub` / `reviewer` / `architect`), starting with `workflow.next`.
@@ -289,7 +289,7 @@ This directory is a long-form fiction project managed by Niko Buddy (not a code 
 <!-- niko-buddy-writer:end -->"#;
 
 const PROJECT_CLAUDE_MD_BLOCK: &str = r#"<!-- niko-buddy-writer:start -->
-<!-- niko-buddy-writer:version=1.1.0 -->
+<!-- niko-buddy-writer:version=1.2.0 -->
 @AGENTS.md
 <!-- niko-buddy-writer:end -->"#;
 
@@ -1103,6 +1103,24 @@ mod tests {
         let mut agent_count = 0usize;
         let mut total_frontmatter_words = 0usize;
 
+        for (block_name, block_content) in [
+            ("PROJECT_AGENTS_MD_BLOCK", PROJECT_AGENTS_MD_BLOCK),
+            ("PROJECT_CLAUDE_MD_BLOCK", PROJECT_CLAUDE_MD_BLOCK),
+        ] {
+            for forbidden in [
+                "agy -p",
+                "--dangerously-skip-permissions",
+                "--override_user_agent_name",
+                "--yolo",
+                "draft.accept",
+            ] {
+                assert!(
+                    !block_content.contains(forbidden),
+                    "{block_name} contains forbidden string `{forbidden}`"
+                );
+            }
+        }
+
         for (rel_path, content) in &bundle {
             // C-007: strictly ONLY .json and .md, ZERO hooks.json, ZERO scripts!
             assert!(
@@ -1197,8 +1215,8 @@ mod tests {
         assert!(RULES_AGENTS_MD.contains("SessionScope::Read"));
         assert!(RULES_AGENTS_MD.contains("Consistency(P0) > Anti-AI(P1) > Quality(P2)"));
 
-        // Phase 2 v1.1.0 canonical tools and interactive ChapterSnapshot ingest prep must be taught.
-        assert_eq!(WRITER_PLUGIN_VERSION, "1.1.0");
+        // Phase 2/3 v1.2.0 canonical tools and interactive ChapterSnapshot ingest prep must be taught.
+        assert_eq!(WRITER_PLUGIN_VERSION, "1.2.0");
         for needle in [
             "workflow.next",
             "prepareId",
@@ -1212,16 +1230,30 @@ mod tests {
             "outline.read",
             "style.exemplars",
             "chapter.search",
+            "draft.diff",
+            "audit.longform_health",
         ] {
             assert!(
                 RULES_AGENTS_MD.contains(needle),
-                "rules/AGENTS.md missing Phase 2 canonical token `{needle}`"
+                "rules/AGENTS.md missing Phase 2/3 canonical token `{needle}`"
             );
         }
+        assert!(SKILL_DE_AI_POLISH.contains("draft.diff"));
+        assert!(SKILL_SIX_DIM_REVIEW.contains("draft.diff"));
+        assert!(AGENT_NOVEL_WRITER.contains("draft.diff"));
+        assert!(AGENT_DE_AI_STYLIST.contains("draft.diff"));
+        assert!(AGENT_LITERARY_CRITIC.contains("draft.diff"));
+        assert!(
+            !AGENT_NOVEL_ARCHITECT.contains("draft.diff"),
+            "novel-architect playbook must NEVER recommend hidden tool draft.diff"
+        );
+        assert!(SKILL_STORY_OPS.contains("audit.longform_health"));
+        assert!(SKILL_BOOK_ARCHITECT.contains("audit.longform_health"));
+        assert!(AGENT_NOVEL_ARCHITECT.contains("audit.longform_health"));
         assert!(SKILL_STORY_OPS.contains("ChapterSnapshot"));
         assert!(SKILL_STORY_OPS.contains("commitPreparedChapterIngest"));
-        assert!(PROJECT_AGENTS_MD_BLOCK.contains("version=1.1.0"));
-        assert!(PROJECT_CLAUDE_MD_BLOCK.contains("version=1.1.0"));
+        assert!(PROJECT_AGENTS_MD_BLOCK.contains("version=1.2.0"));
+        assert!(PROJECT_CLAUDE_MD_BLOCK.contains("version=1.2.0"));
     }
 
     #[test]
@@ -1301,14 +1333,14 @@ mod tests {
         assert!(claude_text.contains(MARKER_START));
         assert!(claude_text.contains(MARKER_END));
 
-        // Outdated version marker (v1.0.0 -> v1.1.0) in AGENTS.md triggers `needs_update` and upgrades cleanly.
+        // Outdated version marker (v1.1.0 -> v1.2.0) in AGENTS.md triggers `needs_update` and upgrades cleanly.
         let current_marker = format!("version={WRITER_PLUGIN_VERSION}");
         assert!(agents_text.contains(&current_marker));
-        let stale_agents = agents_text.replace(&current_marker, "version=1.0.0");
+        let stale_agents = agents_text.replace(&current_marker, "version=1.1.0");
         fs::write(project.0.join("AGENTS.md"), stale_agents).unwrap();
         let stale_status = status_in(&home.0, Some(&project.0.to_string_lossy())).expect("stale");
         assert_eq!(stale_status.project_state, "needs_update");
-        assert_eq!(stale_status.project_version.as_deref(), Some("1.0.0"));
+        assert_eq!(stale_status.project_version.as_deref(), Some("1.1.0"));
 
         let upgraded =
             sync_project_in(&home.0, &project.0.to_string_lossy(), false).expect("upgrade");

@@ -2672,6 +2672,8 @@ mod tests {
             "outline.read",
             "style.exemplars",
             "chapter.search",
+            "draft.diff",
+            "audit.longform_health",
         ] {
             assert!(all_names.contains(&phase2_read));
             assert_eq!(
@@ -3001,7 +3003,7 @@ mod tests {
             Some(ToolProfile::WriterSub)
         );
 
-        // 3) 后续请求不带 profile 时沿用冻结的 `writer-sub`：`tools/list` 仅返回 24 工具。
+        // 3) 后续请求不带 profile 时沿用冻结的 `writer-sub`：`tools/list` 仅返回 26 工具。
         let list_resp = client
             .post(&base_url)
             .bearer_auth("secret-token")
@@ -3018,11 +3020,13 @@ mod tests {
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert_eq!(list_names.len(), 24);
+        assert_eq!(list_names.len(), 26);
         assert!(list_names.contains(&"chapter.write"));
         assert!(list_names.contains(&"workflow.next"));
         assert!(list_names.contains(&"draft.patch"));
         assert!(list_names.contains(&"draft.record_review"));
+        assert!(list_names.contains(&"draft.diff"));
+        assert!(list_names.contains(&"audit.longform_health"));
         assert!(!list_names.contains(&"pipeline.run_chapter"));
         assert!(!list_names.contains(&"settings.get"));
 
@@ -3126,7 +3130,7 @@ mod tests {
         let unknown = http_call_tool(&client, &base_url, &sid, "nope.unknown", json!({})).await;
         assert_eq!(unknown["error"]["code"], json!(METHOD_NOT_FOUND));
 
-        // 6) `reviewer` 会话即便在 Project 服务端下也仅可见 19 个 Read 工具，且调写工具报 TOOL_HIDDEN_BY_PROFILE。
+        // 6) `reviewer` 会话即便在 Project 服务端下也仅可见 21 个 Read 工具，且调写工具报 TOOL_HIDDEN_BY_PROFILE。
         let rev_init = client
             .post(format!("{base_url}?profile=reviewer"))
             .bearer_auth("secret-token")
@@ -3158,9 +3162,11 @@ mod tests {
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert_eq!(rev_names.len(), 19);
+        assert_eq!(rev_names.len(), 21);
         assert!(rev_names.contains(&"workflow.next"));
         assert!(rev_names.contains(&"style.exemplars"));
+        assert!(rev_names.contains(&"draft.diff"));
+        assert!(rev_names.contains(&"audit.longform_health"));
         assert!(!rev_names.contains(&"draft.patch"));
         assert!(!rev_names.contains(&"draft.record_review"));
 
@@ -3178,7 +3184,7 @@ mod tests {
             assert_eq!(rev_hidden_json["activeProfile"], json!("reviewer"));
         }
 
-        // 7) `architect` 会话可见 17 个工具，隐藏 draft.patch / draft.record_review / style.exemplars。
+        // 7) `architect` 会话可见 18 个工具，放行 audit.longform_health，隐藏 draft.patch / draft.record_review / style.exemplars / draft.diff。
         let arch_init = client
             .post(format!("{base_url}?profile=architect"))
             .bearer_auth("secret-token")
@@ -3210,15 +3216,22 @@ mod tests {
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert_eq!(arch_names.len(), 17);
+        assert_eq!(arch_names.len(), 18);
         assert!(arch_names.contains(&"workflow.next"));
         assert!(arch_names.contains(&"outline.read"));
         assert!(arch_names.contains(&"character.read"));
+        assert!(arch_names.contains(&"audit.longform_health"));
         assert!(!arch_names.contains(&"draft.patch"));
         assert!(!arch_names.contains(&"draft.record_review"));
         assert!(!arch_names.contains(&"style.exemplars"));
+        assert!(!arch_names.contains(&"draft.diff"));
 
-        for hidden_in_architect in ["draft.patch", "draft.record_review", "style.exemplars"] {
+        for hidden_in_architect in [
+            "draft.patch",
+            "draft.record_review",
+            "style.exemplars",
+            "draft.diff",
+        ] {
             let arch_hidden = http_call_tool(
                 &client,
                 &base_url,
@@ -3236,6 +3249,17 @@ mod tests {
             assert_eq!(arch_hidden_json["code"], json!("TOOL_HIDDEN_BY_PROFILE"));
             assert_eq!(arch_hidden_json["tool"], json!(hidden_in_architect));
             assert_eq!(arch_hidden_json["activeProfile"], json!("architect"));
+            if hidden_in_architect == "draft.diff" {
+                assert_eq!(
+                    arch_hidden_json["replacementTools"],
+                    json!([
+                        "audit.longform_health",
+                        "draft.list",
+                        "chapter.read",
+                        "context.prepare_write"
+                    ])
+                );
+            }
         }
 
         server.stop();
@@ -3433,5 +3457,152 @@ mod tests {
         }
 
         project_server.stop();
+    }
+
+    /// Phase 3 端到端 HTTP `POST /mcp` 测试：覆盖 `draft.diff` 与 `audit.longform_health`
+    /// （合法参数直达状态桥、非法参数协议层 `INVALID_PARAMS`、以及 `architect` 放行 `audit.longform_health` 且隐藏 `draft.diff`）。
+    #[tokio::test]
+    async fn http_post_mcp_covers_phase3_draft_diff_and_audit_longform_health() {
+        let client = reqwest::Client::new();
+        let read_server = start_test_server().await;
+        let read_url = format!("http://127.0.0.1:{}/mcp", read_server.port);
+        let read_sid = http_initialize(&read_server).await;
+
+        // 1) Read 会话下合法调用全部到达状态桥。
+        for (name, args) in [
+            (
+                "draft.diff",
+                json!({ "baseDraftId": "draft_a", "targetDraftId": "draft_b", "contextLines": 2 }),
+            ),
+            (
+                "draft.diff",
+                json!({ "draftId": "draft_a", "chapterNumber": 4, "maxHunks": 20, "maxChars": 8000 }),
+            ),
+            ("audit.longform_health", json!({})),
+            (
+                "audit.longform_health",
+                json!({
+                    "currentChapter": 25,
+                    "chapterStart": 1,
+                    "chapterEnd": 25,
+                    "sections": ["foreshadowing", "chaseDebt", "emotion", "drafts", "canonRisk"],
+                    "topK": 10,
+                    "includeDetails": true,
+                    "emotionBreakerThreshold": -0.6
+                }),
+            ),
+        ] {
+            let body = http_call_tool(&client, &read_url, &read_sid, name, args).await;
+            assert!(
+                body["error"].is_null(),
+                "{name} 合法参数不应触发协议层 error: {body}"
+            );
+            assert_eq!(body["result"]["isError"], json!(true), "{name}: {body}");
+            let text = body["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default();
+            assert!(!text.contains("权限不足"), "{name} 不应被权限拦截: {text}");
+            assert!(
+                text.contains("状态桥"),
+                "{name} 合法入参应到达状态桥: {text}"
+            );
+        }
+
+        // 2) 非法参数在桥前被拒绝为协议层 INVALID_PARAMS。
+        for (name, bad_args) in [
+            ("draft.diff", json!({})),
+            (
+                "draft.diff",
+                json!({ "baseDraftId": "d1", "targetDraftId": "d2", "draftId": "d3" }),
+            ),
+            (
+                "draft.diff",
+                json!({ "draftId": "d1", "compareToFormal": false }),
+            ),
+            (
+                "audit.longform_health",
+                json!({ "volume": 1, "chapterStart": 1 }),
+            ),
+            (
+                "audit.longform_health",
+                json!({ "chapterStart": 10, "chapterEnd": 5 }),
+            ),
+            ("audit.longform_health", json!({ "sections": [] })),
+            (
+                "audit.longform_health",
+                json!({ "emotionBreakerThreshold": 0.5 }),
+            ),
+        ] {
+            let body = http_call_tool(&client, &read_url, &read_sid, name, bad_args).await;
+            assert_eq!(
+                body["error"]["code"],
+                json!(protocol::INVALID_PARAMS),
+                "{name} 非法参数必须返回 INVALID_PARAMS: {body}"
+            );
+        }
+
+        // 3) `architect` Profile 会话：放行 `audit.longform_health` 至状态桥，隐藏 `draft.diff` 并返回 Architect 允许的替代工具。
+        let arch_init = client
+            .post(format!("{read_url}?profile=architect"))
+            .bearer_auth("secret-token")
+            .body(r#"{"jsonrpc":"2.0","id":101,"method":"initialize","params":{}}"#)
+            .send()
+            .await
+            .expect("init architect");
+        assert_eq!(arch_init.status(), 200);
+        let arch_sid = arch_init
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("arch sid")
+            .to_string();
+
+        let arch_health = http_call_tool(
+            &client,
+            &read_url,
+            &arch_sid,
+            "audit.longform_health",
+            json!({ "volume": 1, "sections": ["foreshadowing", "canonRisk"] }),
+        )
+        .await;
+        assert!(arch_health["error"].is_null(), "{arch_health}");
+        let arch_health_text = arch_health["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            arch_health_text.contains("状态桥"),
+            "architect 调用 audit.longform_health 应放行至状态桥: {arch_health_text}"
+        );
+
+        let arch_diff = http_call_tool(
+            &client,
+            &read_url,
+            &arch_sid,
+            "draft.diff",
+            json!({ "draftId": "d1" }),
+        )
+        .await;
+        assert!(arch_diff["error"].is_null(), "{arch_diff}");
+        assert_eq!(arch_diff["result"]["isError"], json!(true));
+        let arch_diff_json: Value = serde_json::from_str(
+            arch_diff["result"]["content"][0]["text"]
+                .as_str()
+                .expect("hidden text"),
+        )
+        .expect("hidden json");
+        assert_eq!(arch_diff_json["code"], json!("TOOL_HIDDEN_BY_PROFILE"));
+        assert_eq!(arch_diff_json["tool"], json!("draft.diff"));
+        assert_eq!(arch_diff_json["activeProfile"], json!("architect"));
+        assert_eq!(
+            arch_diff_json["replacementTools"],
+            json!([
+                "audit.longform_health",
+                "draft.list",
+                "chapter.read",
+                "context.prepare_write"
+            ])
+        );
+
+        read_server.stop();
     }
 }
