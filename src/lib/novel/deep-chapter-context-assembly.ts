@@ -76,6 +76,7 @@ import {
   resolveTaskExtraPrompt,
   resolveTaskSkillNames,
 } from "./task-customization"
+import { getNovelRoleTemperature } from "./model-resolver"
 import type {
   WatchdogState,
 } from "./watchdog"
@@ -519,7 +520,7 @@ export async function generateTaskBrief(
         deps,
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
-        undefined,
+        { temperature: getNovelRoleTemperature("planner") },
         stageBudget.cachePrefix,
         undefined,
         undefined,
@@ -562,7 +563,7 @@ export async function generateTaskBrief(
           deps,
           signal,
           (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
-          undefined,
+          { temperature: getNovelRoleTemperature("planner") },
           stageBudget.cachePrefix,
           undefined,
           undefined,
@@ -633,7 +634,7 @@ export async function generateTaskBrief(
         deps,
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段2.5：任务书纠偏", partial)),
-        undefined,
+        { temperature: getNovelRoleTemperature("planner") },
         stageBudget.cachePrefix,
         undefined,
         undefined,
@@ -757,7 +758,7 @@ export async function generateDraft(
       deps,
       signal,
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文初稿", partial)),
-      { max_tokens: lengthSpec.maxOutputTokens },
+      { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("writing") },
       stageCachePrefix,
       notePartial,
       // CORR-107: 初稿完整成功（无 partial-preserve）时清除早期 partial（first-wins + 成功清除；
@@ -787,7 +788,7 @@ export async function generateDraft(
         deps,
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文扩写补足", partial)),
-        { max_tokens: lengthSpec.maxOutputTokens },
+        { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("writing") },
         stageCachePrefix,
         notePartial,
         clearPartial,
@@ -825,7 +826,7 @@ export async function generateDraft(
       deps,
       signal,
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段3.5：草稿纠偏", partial)),
-      { max_tokens: lengthSpec.maxOutputTokens },
+      { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("writing") },
       stageCachePrefix,
       notePartial,
       // CORR-107: 纠偏重写完整成功时清除早期 partial（同上；兜底 fallback/空回退不调 clear）。
@@ -854,7 +855,7 @@ export async function generateDraft(
         deps,
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文扩写补足", partial)),
-        { max_tokens: lengthSpec.maxOutputTokens },
+        { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("writing") },
         stageCachePrefix,
         notePartial,
         clearPartial,

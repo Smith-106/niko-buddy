@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   aggregateReviewDimension,
   anonymousId,
+  buildConsensusCanonDigest,
+  CONSENSUS_CANON_DIGEST_MAX_CHARS,
   CONSENSUS_DISPUTE_THRESHOLD,
   pickBestDraft,
   type DebateBallot,
@@ -109,5 +111,51 @@ describe("pickBestDraft", () => {
 
   it("空候选集 fail-loud：不给幽灵稿胜出", () => {
     expect(() => pickBestDraft([], [])).toThrow("consensus aggregate: no candidates")
+  })
+})
+
+describe("buildConsensusCanonDigest", () => {
+  it("returns empty string when all inputs are absent or taskBrief is tiny placeholder", () => {
+    expect(buildConsensusCanonDigest(null)).toBe("")
+    expect(buildConsensusCanonDigest({})).toBe("")
+    expect(buildConsensusCanonDigest({ taskBrief: "tb" })).toBe("")
+    expect(buildConsensusCanonDigest({ canonRules: "   ", taskBrief: "短占位" })).toBe("")
+  })
+
+  it("assembles priority sections (canonRulesBase > canonRules, worldBlueprint, mustAvoid, planBlueprint > outline, taskBrief)", () => {
+    const digest = buildConsensusCanonDigest({
+      canonRulesBase: "主角不可凭空知晓幕后真凶",
+      canonRules: "被 base 覆盖的旧规则",
+      worldBlueprint: "低魔民国背景，灵气枯竭",
+      mustAvoid: "禁止出现现代智能手机",
+      planBlueprint: "第8章潜入祠堂核对族谱",
+      outline: "被 planBlueprint 覆盖的大纲",
+      taskBrief: "普通描述行\n约束：必须承接上一章门缝冷光\n红线：不得提前揭露小晴真实身份",
+    })
+    expect(digest).toContain("[正典规则] 主角不可凭空知晓幕后真凶")
+    expect(digest).not.toContain("被 base 覆盖的旧规则")
+    expect(digest).toContain("[世界蓝图] 低魔民国背景，灵气枯竭")
+    expect(digest).toContain("[禁止项] 禁止出现现代智能手机")
+    expect(digest).toContain("[计划/大纲] 第8章潜入祠堂核对族谱")
+    expect(digest).not.toContain("被 planBlueprint 覆盖的大纲")
+    expect(digest).toContain("[任务书约束]")
+    expect(digest).toContain("必须承接上一章门缝冷光")
+    expect(digest.length).toBeLessThanOrEqual(CONSENSUS_CANON_DIGEST_MAX_CHARS)
+  })
+
+  it("strictly bounds output length to maxChars", () => {
+    const huge = "甲".repeat(3000)
+    const defaultBound = buildConsensusCanonDigest({
+      canonRules: huge,
+      worldBlueprint: huge,
+      mustAvoid: huge,
+      outline: huge,
+    })
+    expect(defaultBound.length).toBeLessThanOrEqual(CONSENSUS_CANON_DIGEST_MAX_CHARS)
+    expect(defaultBound.length).toBeGreaterThan(0)
+
+    const customBound = buildConsensusCanonDigest({ canonRules: huge }, 120)
+    expect(customBound.length).toBeLessThanOrEqual(120)
+    expect(buildConsensusCanonDigest({ canonRules: huge }, 0)).toBe("")
   })
 })

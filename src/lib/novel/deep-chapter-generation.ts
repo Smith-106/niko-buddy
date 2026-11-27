@@ -2,6 +2,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, isRequestCancelledError, setMetricsFilePath, setMetricsTraceId, flushMetrics, setContinuityMetricsFilePath, flushContinuityMetrics, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { logger, setLogTraceId, toErrorMessage } from "@/lib/utils"
 import { resolveTaskExtraPrompt } from "./task-customization"
+import { getNovelRoleTemperature, resolveOptionalRoleModel } from "./model-resolver"
 import { useWikiStore } from "@/stores/wiki-store"
 import {
   buildContextPack,
@@ -531,9 +532,13 @@ export async function runDeepChapterGeneration(
     /* v8 ignore stop */
   }
 
+  // 可选角色模型槽位解析：槽位留空时原样返回 writingConfig（零行为变更、零 store 读取）。
+  const plannerConfig = resolveOptionalRoleModel(writingConfig, novelConfig, "planner")
+  const polishConfig = resolveOptionalRoleModel(writingConfig, novelConfig, "polish")
+
   // 阶段0：前情分析
   const previousChaptersAnalysis = await runPreviousChaptersAnalysis(
-    input, writingConfig, novelConfig, resumeCheckpoint, callbacks, signal,
+    input, plannerConfig, novelConfig, resumeCheckpoint, callbacks, signal,
   )
   assertNotAborted(signal, USER_ABORT_MESSAGE)
   pollWatchdogAtBoundary()
@@ -593,7 +598,7 @@ export async function runDeepChapterGeneration(
 
   // 阶段2 + 2.5：任务书生成 + 纠偏
   const taskBrief = await generateTaskBrief(
-    input, writingConfig, deps, signal, callbacks,
+    input, plannerConfig, deps, signal, callbacks,
     outlinePrompt, stageContextPrompt, lengthSpec, resumeCheckpoint, contextPack, cachePrefix,
     watchdog,
   )
@@ -719,7 +724,7 @@ export async function runDeepChapterGeneration(
 
   // 阶段7：简单审查与去AI味
   const finalContent = await finalPolishChapter(
-    writingConfig,
+    polishConfig,
     outlinePrompt,
     contextPrompt,
     taskBrief,
@@ -1276,7 +1281,7 @@ async function finalPolishChapter(
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段6：简单审查与去AI味", partial)),
-    { max_tokens: lengthSpec.maxOutputTokens },
+    { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("polish") },
     cachePrefix,
     onPartial,
     undefined,

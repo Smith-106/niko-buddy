@@ -2,6 +2,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "@/lib/llm-client"
 import { logger, toErrorMessage } from "@/lib/utils"
+import { getNovelRoleTemperature } from "./model-resolver"
 
 export interface PreviousChapterAnalysis {
   chapterNumber: number
@@ -64,6 +65,7 @@ export async function analyzePreviousChapters(
       onError: (err) => { logger.error("Previous Chapters", "LLM error", { error: toErrorMessage(err) }) },
     },
     combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)),
+    { temperature: getNovelRoleTemperature("planner") },
   )
 
   return analysis.trim()

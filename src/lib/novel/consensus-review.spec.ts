@@ -86,6 +86,10 @@ describe("runDimensionConsensus", () => {
     expect(out.result.score).toBe(7.5)
     expect(out.result.summary).toContain("debated")
     expect(out.disputed).toBe(false)
+    // 辩论轮锁定审稿温度 0.15
+    for (const call of streamChatMock.mock.calls) {
+      expect(call[4]).toMatchObject({ temperature: 0.15 })
+    }
   })
 
   it("single model degrades to pass-through with no debate calls", async () => {
@@ -271,5 +275,36 @@ describe("辩论席位流中断与 R2-REV-004 强化", () => {
         debateRounds: 1,
       }),
     ).rejects.toThrow("Request cancelled")
+  })
+
+  it("P3-B2: 辩论轮注入有界正典摘要并锁定 canon_audit 温度 0.15", async () => {
+    const capturedUserPrompts: string[] = []
+    streamChatMock.mockImplementation(async (_cfg, msgs, callbacks) => {
+      const userMsg = (msgs as Array<{ role: string; content: string }>).find((m) => m.role === "user")?.content ?? ""
+      capturedUserPrompts.push(userMsg)
+      callbacks.onToken?.(chapterJson(8.0, "aligned"))
+    })
+
+    await runDimensionConsensus({
+      models: [cfg("m7"), cfg("m8")],
+      dimension: SIX_REVIEW_DIMENSIONS.consistency,
+      contextPack: {
+        canonRulesBase: "灵气枯竭时代严禁瞬移法术",
+        mustAvoid: "不可提前揭露小晴身份",
+        outline: "第8章：祠堂核对族谱",
+      } as never,
+      chapterContent: "章",
+      debateRounds: 1,
+    })
+
+    expect(capturedUserPrompts).toHaveLength(2)
+    for (const p of capturedUserPrompts) {
+      expect(p).toContain("【正典约束摘要（互评对齐基线）】")
+      expect(p).toContain("灵气枯竭时代严禁瞬移法术")
+      expect(p).toContain("不可提前揭露小晴身份")
+    }
+    for (const call of streamChatMock.mock.calls) {
+      expect(call[4]).toMatchObject({ temperature: 0.15 })
+    }
   })
 })

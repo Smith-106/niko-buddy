@@ -31,6 +31,7 @@ type UsableLlmConfig = Pick<LlmConfig, "provider" | "apiKey" | "model"> &
   Partial<Pick<LlmConfig, "customEndpoint" | "ollamaUrl">>
 
 const mocks = vi.hoisted(() => ({
+  resolveNovelModelMock: vi.fn((config: LlmConfig, _novelCfg?: unknown, _task?: string) => config),
   streamChatMock: vi.fn(),
   buildContextPackMock: vi.fn(),
   hasUsableLlmMock: vi.fn<(cfg: UsableLlmConfig) => boolean>(() => true),
@@ -145,11 +146,16 @@ vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
   }
 })
 
-vi.mock("./model-resolver", () => ({
-  resolveNovelModel: (config: LlmConfig) => config,
-  resolveConsensusModels: (...args: unknown[]) =>
-    (mocks.resolveConsensusModelsMock as (...a: unknown[]) => unknown)(...args),
-}))
+vi.mock("./model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./model-resolver")>()
+  return {
+    ...actual,
+    resolveNovelModel: (config: LlmConfig, novelConfig: unknown, task: string) =>
+      (mocks.resolveNovelModelMock as (c: LlmConfig, n: unknown, t: string) => LlmConfig)(config, novelConfig, task),
+    resolveConsensusModels: (...args: unknown[]) =>
+      (mocks.resolveConsensusModelsMock as (...a: unknown[]) => unknown)(...args),
+  }
+})
 
 vi.mock("./consensus-review", () => ({
   runDimensionConsensus: (...args: unknown[]) =>
@@ -2126,5 +2132,51 @@ describe("R2-W09 & R2-REV-004: continuity 机械短路严重度分级 / CED 真�
         skillHookPromptFragments: ["Anti-AI 软提示片段", "CED 密度提示"],
       }),
     )
+  })
+
+  it("P3-B2: consistency/continuity 在配置 canonAuditModel 时走 canon_audit 槽位，其余维度走 review，且全六维锁定 temperature=0.15", async () => {
+    mocks.resolveNovelModelMock.mockClear()
+    mocks.resolveNovelModelMock.mockImplementation((cfg: LlmConfig, novelCfg?: unknown, task?: string) => {
+      const nc = novelCfg as { canonAuditModel?: string; reviewModel?: string } | undefined
+      return {
+        ...cfg,
+        model: task === "canon_audit" ? (nc?.canonAuditModel || "canon-fallback") : (nc?.reviewModel || cfg.model),
+      }
+    })
+    streamChatMock.mockImplementation(async (_cfg: LlmConfig, _msgs: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onToken?.(JSON.stringify({ score: 8.5, status: "pass", summary: "通过", issues: [] }))
+      callbacks.onDone?.()
+    })
+
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "主角在雨夜走进祠堂检查族谱。",
+      chapterNumber: 8,
+      dimensionKeys: ["consistency", "continuity", "thrill"],
+      novelConfig: {
+        reviewModel: "review-dedicated",
+        canonAuditModel: "canon-dedicated",
+        reviewReasoningEffort: "low",
+        consensusEnabled: false,
+        consensusReviewModels: {},
+      } as never,
+      llmConfig,
+      novelMode: true,
+    })
+
+    expect(results.consistency?.model).toBe("canon-dedicated")
+    expect(results.continuity?.model).toBe("canon-dedicated")
+    expect(results.thrill?.model).toBe("review-dedicated")
+    expect(mocks.resolveNovelModelMock).toHaveBeenCalledWith(llmConfig, expect.anything(), "review")
+    expect(mocks.resolveNovelModelMock).toHaveBeenCalledWith(llmConfig, expect.anything(), "canon_audit")
+    // 每个维度 2 阶段 × 3 维度 = 6 次 streamChat，全部锁定 temperature=0.15
+    expect(streamChatMock).toHaveBeenCalledTimes(6)
+    for (const call of streamChatMock.mock.calls) {
+      expect(call[4]).toEqual({
+        temperature: 0.15,
+        reasoning: { mode: "low" },
+      })
+    }
+    mocks.resolveNovelModelMock.mockImplementation((cfg: LlmConfig) => cfg)
   })
 })

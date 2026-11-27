@@ -2,7 +2,14 @@ import { streamChat } from "@/lib/llm-client"
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 
-export type TestableNovelModelTask = "writing" | "review" | "summary" | "extract"
+export type TestableNovelModelTask =
+  | "writing"
+  | "review"
+  | "summary"
+  | "extract"
+  | "planner"
+  | "polish"
+  | "canon_audit"
 
 export interface NovelModelTestResult {
   model: string
@@ -15,6 +22,19 @@ const TEST_PROMPTS: Record<TestableNovelModelTask, string> = {
   review: "你正在执行小说审稿模型测试。请只回复“审稿模型测试成功”。",
   summary: "你正在执行小说摘要模型测试。请只回复“摘要模型测试成功”。",
   extract: "你正在执行小说资料提取模型测试。请只回复“提取模型测试成功”。",
+  planner: "你正在执行小说规划模型测试。请只回复“规划模型测试成功”。",
+  polish: "你正在执行小说润色模型测试。请只回复“润色模型测试成功”。",
+  canon_audit: "你正在执行小说正典审计模型测试。请只回复“正典审计模型测试成功”。",
+}
+
+const HAS_DEDICATED_TASK_MODEL: Record<TestableNovelModelTask, (cfg: NovelConfig) => boolean> = {
+  writing: () => false,
+  review: (cfg) => Boolean(cfg.reviewModel?.trim()),
+  summary: (cfg) => Boolean(cfg.summaryModel?.trim()),
+  extract: (cfg) => Boolean(cfg.extractModel?.trim()),
+  planner: (cfg) => Boolean(cfg.plannerModel?.trim()),
+  polish: (cfg) => Boolean(cfg.polishModel?.trim()),
+  canon_audit: (cfg) => Boolean(cfg.canonAuditModel?.trim()),
 }
 
 export async function testNovelModel(
@@ -57,10 +77,8 @@ export async function testNovelModel(
   }
 
   // writing 任务没有独立模型字段（`writingModel` 已从 NovelConfig 删除），始终视为回退到 AI 会话模型；
-  // 其余任务类型按 `<taskType>Model` 字段是否配置判定。
-  const usedFallbackModel = taskType === "writing"
-    ? true
-    : !novelConfig[`${taskType}Model`].trim()
+  // 其余任务类型按显式字段映射表判定对应专用槽位是否已配置（canon_audit → canonAuditModel）。
+  const usedFallbackModel = !HAS_DEDICATED_TASK_MODEL[taskType](novelConfig)
 
   return {
     model,

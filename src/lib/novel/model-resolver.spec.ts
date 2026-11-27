@@ -36,7 +36,15 @@ vi.mock("@/lib/llm-config/preset-resolver", async (importOriginal) => {
   }
 })
 
-import { resolveConsensusModels, resolveDefaultModel, resolveModelConfig, resolveNovelModel } from "./model-resolver"
+import {
+  NOVEL_ROLE_TEMPERATURES,
+  getNovelRoleTemperature,
+  resolveConsensusModels,
+  resolveDefaultModel,
+  resolveModelConfig,
+  resolveNovelModel,
+  resolveOptionalRoleModel,
+} from "./model-resolver"
 
 const baseConfig: LlmConfig = {
   provider: "custom",
@@ -327,6 +335,173 @@ describe("model-resolver", () => {
       const resolved = resolveConsensusModels(["  ", ""], baseConfig, novelConfig, { providerConfigs: {} })
       expect(resolved).toHaveLength(1)
       expect(resolved[0]!.model).toBe("review-model")
+    })
+  })
+
+  describe("NOVEL_ROLE_TEMPERATURES & getNovelRoleTemperature", () => {
+    it("locks exact role temperatures and freezes the constant map", () => {
+      expect(Object.isFrozen(NOVEL_ROLE_TEMPERATURES)).toBe(true)
+      expect(NOVEL_ROLE_TEMPERATURES).toEqual({
+        planner: 0.5,
+        writing: 0.8,
+        polish: 0.6,
+        review: 0.15,
+        canon_audit: 0.15,
+      })
+      expect(getNovelRoleTemperature("planner")).toBe(0.5)
+      expect(getNovelRoleTemperature("writing")).toBe(0.8)
+      expect(getNovelRoleTemperature("polish")).toBe(0.6)
+      expect(getNovelRoleTemperature("review")).toBe(0.15)
+      expect(getNovelRoleTemperature("canon_audit")).toBe(0.15)
+    })
+  })
+
+  describe("resolveNovelModel optional roles & resolveOptionalRoleModel", () => {
+    it("planner: uses plannerModel when set, else falls back to aiChatModel -> defaultLlmModel -> llmConfig", () => {
+      const withPlanner = {
+        reviewModel: "review-m",
+        summaryModel: "",
+        extractModel: "",
+        plannerModel: " anthropic/claude-sonnet-4 ",
+      } as NovelConfig
+      expect(
+        resolveNovelModel(baseConfig, withPlanner, "planner", {
+          providerConfigs: { anthropic: overrideWithSaved },
+          aiChatModel: "chat-m",
+        }).model,
+      ).toBe("claude-sonnet-4")
+
+      const withoutPlanner = {
+        reviewModel: "review-m",
+        summaryModel: "",
+        extractModel: "",
+        plannerModel: "   ",
+      } as NovelConfig
+      expect(
+        resolveNovelModel(baseConfig, withoutPlanner, "planner", {
+          providerConfigs: {},
+          aiChatModel: "chat-m",
+          defaultLlmModel: "default-m",
+        }).model,
+      ).toBe("chat-m")
+      expect(
+        resolveNovelModel(baseConfig, withoutPlanner, "planner", {
+          providerConfigs: {},
+          aiChatModel: "",
+          defaultLlmModel: "default-m",
+        }).model,
+      ).toBe("default-m")
+      expect(
+        resolveNovelModel(baseConfig, withoutPlanner, "planner", {
+          providerConfigs: {},
+          aiChatModel: "",
+          defaultLlmModel: "",
+        }),
+      ).toBe(baseConfig)
+    })
+
+    it("polish: uses polishModel when set, else falls back to main model chain", () => {
+      const withPolish = {
+        reviewModel: "review-m",
+        summaryModel: "",
+        extractModel: "",
+        polishModel: "claude-opus-4",
+      } as NovelConfig
+      expect(
+        resolveNovelModel(baseConfig, withPolish, "polish", {
+          providerConfigs: { anthropic: overrideWithSaved },
+          aiChatModel: "chat-m",
+        }).model,
+      ).toBe("claude-opus-4")
+
+      const withoutPolish = {
+        reviewModel: "review-m",
+        summaryModel: "",
+        extractModel: "",
+        polishModel: "",
+      } as NovelConfig
+      expect(
+        resolveNovelModel(baseConfig, withoutPolish, "polish", {
+          providerConfigs: {},
+          aiChatModel: "chat-m",
+        }).model,
+      ).toBe("chat-m")
+    })
+
+    it("canon_audit: uses canonAuditModel -> reviewModel -> aiChatModel -> defaultLlmModel -> llmConfig", () => {
+      const both = {
+        reviewModel: "review-m",
+        summaryModel: "",
+        extractModel: "",
+        canonAuditModel: "canon-m",
+      } as NovelConfig
+      expect(
+        resolveNovelModel(baseConfig, both, "canon_audit", { providerConfigs: {}, aiChatModel: "chat-m" }).model,
+      ).toBe("canon-m")
+
+      const reviewOnly = {
+        reviewModel: " review-m ",
+        summaryModel: "",
+        extractModel: "",
+        canonAuditModel: "  ",
+      } as NovelConfig
+      expect(
+        resolveNovelModel(baseConfig, reviewOnly, "canon_audit", { providerConfigs: {}, aiChatModel: "chat-m" }).model,
+      ).toBe("review-m")
+
+      const neither = {
+        reviewModel: "  ",
+        summaryModel: "",
+        extractModel: "",
+        canonAuditModel: "",
+      } as NovelConfig
+      expect(
+        resolveNovelModel(baseConfig, neither, "canon_audit", {
+          providerConfigs: {},
+          aiChatModel: "chat-m",
+        }).model,
+      ).toBe("chat-m")
+    })
+
+    it("resolveOptionalRoleModel returns fallbackConfig by identity without reading store when slot is empty", () => {
+      const seatConfig: LlmConfig = { ...baseConfig, model: "consensus-seat-1" }
+      const emptyNovel = {
+        reviewModel: "review-m",
+        summaryModel: "",
+        extractModel: "",
+        plannerModel: "",
+        polishModel: "  ",
+        canonAuditModel: undefined,
+      } as NovelConfig
+
+      expect(resolveOptionalRoleModel(seatConfig, emptyNovel, "planner")).toBe(seatConfig)
+      expect(resolveOptionalRoleModel(seatConfig, emptyNovel, "polish")).toBe(seatConfig)
+      expect(resolveOptionalRoleModel(seatConfig, emptyNovel, "canon_audit")).toBe(seatConfig)
+      expect(mocks.getState).not.toHaveBeenCalled()
+    })
+
+    it("resolveOptionalRoleModel resolves through resolveNovelModel when optional slot is non-empty", () => {
+      const seatConfig: LlmConfig = { ...baseConfig, model: "consensus-seat-1" }
+      const configuredNovel = {
+        reviewModel: "review-m",
+        summaryModel: "",
+        extractModel: "",
+        plannerModel: "anthropic/claude-sonnet-4",
+        polishModel: "polish-m",
+        canonAuditModel: "canon-m",
+      } as NovelConfig
+
+      expect(
+        resolveOptionalRoleModel(seatConfig, configuredNovel, "planner", {
+          providerConfigs: { anthropic: overrideWithSaved },
+        }).model,
+      ).toBe("claude-sonnet-4")
+      expect(
+        resolveOptionalRoleModel(seatConfig, configuredNovel, "polish", { providerConfigs: {} }).model,
+      ).toBe("polish-m")
+      expect(
+        resolveOptionalRoleModel(seatConfig, configuredNovel, "canon_audit", { providerConfigs: {} }).model,
+      ).toBe("canon-m")
     })
   })
 })

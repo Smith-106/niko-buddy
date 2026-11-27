@@ -627,6 +627,29 @@ describe("novel config", () => {
     expect((await loadNovelConfig())?.journalTtlMs).toBeUndefined()
   })
 
+  it("P3-B1：可选角色模型槽位 plannerModel / polishModel / canonAuditModel 持久化透传与缺省回退", async () => {
+    await saveNovelConfig({
+      plannerModel: "anthropic/claude-sonnet-4",
+      polishModel: "openai/gpt-5",
+      canonAuditModel: "google/gemini-2.5-pro",
+    } as never)
+    const loaded = await loadNovelConfig()
+    expect(loaded?.plannerModel).toBe("anthropic/claude-sonnet-4")
+    expect(loaded?.polishModel).toBe("openai/gpt-5")
+    expect(loaded?.canonAuditModel).toBe("google/gemini-2.5-pro")
+
+    // 缺席与非字符串脏值一律归一化为空字符串
+    await mocks.store.set("novelConfig", {
+      searchTopK: 5,
+      plannerModel: 123,
+      polishModel: null,
+    })
+    const normalized = await loadNovelConfig()
+    expect(normalized?.plannerModel).toBe("")
+    expect(normalized?.polishModel).toBe("")
+    expect(normalized?.canonAuditModel).toBe("")
+  })
+
   // ── DEC-R5=A：writingModel 废弃迁移日志。
   //   契约：只告警不阻断、不改返回结构、命中才 warn、同作用域进程内只 warn 一次。
   it("含旧键 writingModel → warn 一条中文迁移提示，且不阻断载入、不带回该键", async () => {

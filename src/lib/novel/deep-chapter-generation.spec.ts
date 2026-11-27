@@ -5802,4 +5802,61 @@ describe("R2-W05 & R2-W03：StateDelta 真阻断 / 容错损坏 JSON / Stage 6.6
     expect(capturedStagePrompts[1]).toContain("## 阶段1.5：场景拆解蓝图")
     expect(capturedStagePrompts[1]).toContain("逼问旧账本下落")
   })
+
+  it("P3-B2: 原生管线按角色锁定温度（planner 0.5 / writing 0.8 / polish 0.6）并路由可选 plannerModel / polishModel 槽位", async () => {
+    const draft = chapterText("主角在雨夜走进祠堂，发现族谱缺页并听到门外动静。", 2600)
+    const calls: Array<{ model: string; temperature?: number }> = []
+    let callIdx = 0
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async (_pp, _c, _ch, opts) => {
+        opts?.onSemanticReviewCompleted?.()
+        return []
+      }),
+      runSixDimensionReview: vi.fn(async () => ({})),
+      streamChat: vi.fn(async (cfg: LlmConfig, _messages: ChatMessage[], callbacks: StreamCallbacks, _signal, overrides) => {
+        calls.push({ model: cfg.model, temperature: overrides?.temperature })
+        callIdx += 1
+        if (callIdx === 1) {
+          callbacks.onToken("【写作任务书】\n1. 开场承接门缝冷光\n2. 发现族谱缺页\n3. 留下危险钩子")
+        } else {
+          callbacks.onToken(draft)
+        }
+        callbacks.onDone()
+      }),
+    }
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig: { ...llmConfig, model: "main-writer-model" },
+        novelConfig: {
+          ...novelConfig,
+          deepPreviousChaptersAnalysis: true,
+          plannerModel: "planner-slot-model",
+          polishModel: "polish-slot-model",
+          autoGenerateChapterTitle: false,
+        },
+      },
+      {},
+      deps,
+    )
+
+    // 阶段0 前情分析使用 plannerModel
+    expect(vi.mocked(analyzePreviousChapters)).toHaveBeenCalledWith(
+      "E:/Novel",
+      3,
+      expect.objectContaining({ model: "planner-slot-model" }),
+      3,
+      undefined,
+    )
+    // 阶段2 任务书 (planner 0.5) → 阶段3 初稿 (writing 0.8) → 阶段6 润色 (polish 0.6)
+    expect(calls.length).toBeGreaterThanOrEqual(3)
+    expect(calls[0]).toEqual({ model: "planner-slot-model", temperature: 0.5 })
+    expect(calls[1]).toEqual({ model: "main-writer-model", temperature: 0.8 })
+    expect(calls[calls.length - 1]).toEqual({ model: "polish-slot-model", temperature: 0.6 })
+  })
 })

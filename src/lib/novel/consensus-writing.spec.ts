@@ -307,4 +307,37 @@ describe("R2-REV-004: Track A 门控先筛 / 真辩论他席注入 / streamError
       runDeepChapterGenerationConsensus(input(true, ["mA", "mB"])),
     ).rejects.toThrow("Request cancelled")
   })
+
+  it("P3-B2: 互评锁定 temperature=0.15，buildEvaluationPrompt 支持第 4 参正典摘要并在有真实计划/任务书约束时自动注入", async () => {
+    // 3 参向后兼容：不注入摘要段
+    const legacyPrompt = buildEvaluationPrompt(input(true, ["mA", "mB"]), "正文内容", [])
+    expect(legacyPrompt).not.toContain("【正典与计划约束摘要（互评对齐基线）】")
+
+    // 4 参显式注入
+    const withDigest = buildEvaluationPrompt(input(true, ["mA", "mB"]), "正文内容", [], "[计划/大纲] 祠堂潜入")
+    expect(withDigest).toContain("【正典与计划约束摘要（互评对齐基线）】")
+    expect(withDigest).toContain("[计划/大纲] 祠堂潜入")
+
+    // 端到端：planBlueprint 存在时互评注入正典摘要并锁温 0.15
+    const capturedUserPrompts: string[] = []
+    streamChatMock.mockImplementation(async (_cfg, msgs, callbacks) => {
+      const userMsg = (msgs as Array<{ role: string; content: string }>).find((m) => m.role === "user")?.content ?? ""
+      capturedUserPrompts.push(userMsg)
+      callbacks.onToken?.('{"score": 8.5, "rationale": "ok"}')
+    })
+    const inpWithPlan = {
+      ...input(true, ["mA", "mB"]),
+      planBlueprint: "必须保持祠堂雨夜氛围，不得提前揭露真凶",
+    }
+    await runDeepChapterGenerationConsensus(inpWithPlan)
+
+    expect(streamChatMock).toHaveBeenCalledTimes(2)
+    for (const call of streamChatMock.mock.calls) {
+      expect(call[4]).toMatchObject({ temperature: 0.15 })
+    }
+    for (const p of capturedUserPrompts) {
+      expect(p).toContain("【正典与计划约束摘要（互评对齐基线）】")
+      expect(p).toContain("必须保持祠堂雨夜氛围，不得提前揭露真凶")
+    }
+  })
 })

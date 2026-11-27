@@ -57,6 +57,7 @@ const contextPack: ContextPack = {
 
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
+  resolveNovelModel: vi.fn((...args: unknown[]) => args[0]),
   readFile: vi.fn(async (_path: string): Promise<string> => ""),
   writeFileAtomic: vi.fn(async (_path: string, _contents: string): Promise<void> => {}),
   createDirectory: vi.fn(async (_path: string): Promise<void> => {}),
@@ -145,9 +146,13 @@ vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
   }
 })
 
-vi.mock("./model-resolver", () => ({
-  resolveNovelModel: (config: typeof llmConfig) => config,
-}))
+vi.mock("./model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./model-resolver")>()
+  return {
+    ...actual,
+    resolveNovelModel: (...args: unknown[]) => mocks.resolveNovelModel(...args),
+  }
+})
 
 // fs mocks — scene-breakdown + novel-session-status import chain both reach
 // writeFileAtomic/createDirectory/readFile/deleteFile (Tauri invoke).
@@ -211,6 +216,8 @@ function streamTokens(stream: string, callbacks: StreamCallbacks): void {
 
 beforeEach(() => {
   streamChatMock.mockReset()
+  mocks.resolveNovelModel.mockReset()
+  mocks.resolveNovelModel.mockImplementation((config: unknown) => config)
   mocks.readFile.mockReset()
   mocks.writeFileAtomic.mockReset()
   mocks.createDirectory.mockReset()
@@ -395,8 +402,10 @@ describe("EPIC-002 / ADR-30 / TASK-011: runSceneBreakdown", () => {
       novelConfig: { reviewReasoningEffort: undefined } as unknown as NovelConfig, // 部分 fixture：仅测 reviewReasoningEffort 读取路径
     })
     expect(result.scenes).toHaveLength(1)
-    const opts = streamChatMock.mock.calls[0]?.[4] as { reasoning: { mode: string } }
+    const opts = streamChatMock.mock.calls[0]?.[4] as { reasoning: { mode: string }; temperature?: number }
     expect(opts.reasoning.mode).toBe("high")
+    expect(opts.temperature).toBe(0.5)
+    expect(mocks.resolveNovelModel).toHaveBeenCalledWith(llmConfig, expect.any(Object), "planner")
   })
 
   it("abort mid-stream drops later tokens and throws user-cancelled", async () => {

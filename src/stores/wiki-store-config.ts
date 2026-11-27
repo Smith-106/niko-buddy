@@ -358,6 +358,12 @@ export interface NovelConfig {
   reviewModel: string
   summaryModel: string
   extractModel: string
+  /** 可选角色模型槽位：规划/分镜/前情分析与任务书（留空则沿用主会话模型，零行为变更）。 */
+  plannerModel?: string
+  /** 可选角色模型槽位：修订与润色阶段（留空则沿用当前写作/会话模型，零行为变更）。 */
+  polishModel?: string
+  /** 可选角色模型槽位：正典/一致性/连续性审查（留空依次回退 reviewModel → 主会话模型）。 */
+  canonAuditModel?: string
   /** 多模型共识总开关（default off）。开启后审查六维分维与章节生成走共识执行器；关闭=单模型现状行为逐字节等价。 */
   consensusEnabled: boolean
   /** 审查共识：每维独立模型组（"providerId/modelId"）；空数组回退 reviewModel 单模型。 */
@@ -467,6 +473,9 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   reviewModel: "",
   summaryModel: "",
   extractModel: "",
+  plannerModel: "",
+  polishModel: "",
+  canonAuditModel: "",
   consensusEnabled: false,
   consensusReviewModels: {},
   consensusWritingModels: [],

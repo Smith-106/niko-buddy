@@ -82,6 +82,10 @@ import {
   resolveTaskExtraPrompt,
 } from "./task-customization"
 import {
+  getNovelRoleTemperature,
+  resolveOptionalRoleModel,
+} from "./model-resolver"
+import {
   buildTrackBMultiObjectiveConstraint,
   createDefaultTrackBMultiObjectivePolicy,
   shouldAcceptTrackBPolishText,
@@ -189,6 +193,7 @@ export async function runReviewAndRepair(
   recheckStateDelta?: (content: string) => Promise<NovelReviewResult[]>,
 ): Promise<ReviewAndRepairResult> {
   const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
+  const polishConfig = resolveOptionalRoleModel(writingConfig, novelConfig, "polish")
   const effectiveGenre = input.genre ?? novelConfig.genre
   let reviewResults = hasCheckpointReview(resumeCheckpoint) ? resumeCheckpoint.reviewResults : []
   let decisionGates = resumeCheckpoint?.decisionGates ?? emptyDecisionGates()
@@ -603,7 +608,7 @@ export async function runReviewAndRepair(
       ...repairIssues.filter((i) => blockingIssues.every((b) => b.message !== i.message)),
     ]
     const revisedContent = await collectModelText(
-      writingConfig,
+      polishConfig,
       [{
         role: "user",
         content: buildDeepChapterRevisionPrompt(
@@ -622,7 +627,7 @@ export async function runReviewAndRepair(
       deps,
       signal,
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段5：自动返修", partial)),
-      { max_tokens: lengthSpec.maxOutputTokens },
+      { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("polish") },
       cachePrefix,
       notePartial,
       undefined,
@@ -886,7 +891,7 @@ export async function runReviewAndRepair(
         )
       }
       const polishedContent = await collectModelText(
-        writingConfig,
+        polishConfig,
         [{
           role: "user",
           content: buildDeepChapterRevisionPrompt(
@@ -905,7 +910,7 @@ export async function runReviewAndRepair(
         deps,
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段5.7：Track B 文学抛光", partial)),
-        { max_tokens: lengthSpec.maxOutputTokens },
+        { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("polish") },
         cachePrefix,
         notePartial,
         undefined,

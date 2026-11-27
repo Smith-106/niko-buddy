@@ -10,6 +10,7 @@ import { buildDecisionGates } from "./deep-chapter-decision-gates"
 import type { TemporalFact } from "./temporal-memory"
 
 const mocks = vi.hoisted(() => ({
+  resolveNovelModelMock: vi.fn((config: LlmConfig) => config),
   streamChatMock: vi.fn(),
   collectContinuityMetricMock: vi.fn(),
   fsWriteFileAtomicMock: vi.fn(async () => undefined),
@@ -179,9 +180,14 @@ vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
   }
 })
 
-vi.mock("./model-resolver", () => ({
-  resolveNovelModel: (config: LlmConfig) => config,
-}))
+vi.mock("./model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./model-resolver")>()
+  return {
+    ...actual,
+    resolveNovelModel: (config: LlmConfig, novelConfig: NovelConfig, task: string) =>
+      (mocks.resolveNovelModelMock as (c: LlmConfig, n: NovelConfig, t: string) => LlmConfig)(config, novelConfig, task),
+  }
+})
 
 // REV-CE-003 test-gen: partial mock for ./deterministic-continuity-engine。
 // PAT-G2 spec-mock mirror: factory spreads real module (via vi.importActual) so
@@ -1941,5 +1947,32 @@ describe("B1 零 LLM 机械降级与只读预检契约", () => {
 
     expect(results).toEqual([])
     expect(streamChatMock).not.toHaveBeenCalled()
+  })
+
+  it("P3-B2: reviewChapter 解析 canon_audit 模型槽位并锁定 temperature=0.15", async () => {
+    mocks.resolveNovelModelMock.mockClear()
+    streamChatMock.mockImplementationOnce(async (_cfg, _msgs, callbacks: StreamCallbacks) => {
+      callbacks.onToken?.("[]")
+      callbacks.onDone?.()
+    })
+
+    const results = await reviewChapter("E:/Novel", "主角推开祠堂木门，雨声落在青石阶上。", 8, {
+      contextPack,
+      novelConfig: {
+        reviewModel: "review-m",
+        canonAuditModel: "canon-m",
+        reviewReasoningEffort: "medium",
+      } as NovelConfig,
+      llmConfig,
+      novelMode: true,
+    })
+
+    expect(results).toEqual([])
+    expect(mocks.resolveNovelModelMock).toHaveBeenCalledWith(llmConfig, expect.objectContaining({ canonAuditModel: "canon-m" }), "canon_audit")
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    expect(streamChatMock.mock.calls[0]?.[4]).toEqual({
+      temperature: 0.15,
+      reasoning: { mode: "medium" },
+    })
   })
 })

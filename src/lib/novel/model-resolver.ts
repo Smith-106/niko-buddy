@@ -2,7 +2,42 @@ import { useWikiStore, type LlmConfig, type NovelConfig, type ProviderOverride, 
 import { LLM_PRESETS } from "@/lib/llm-config/llm-presets"
 import { resolveConfig } from "@/lib/llm-config/preset-resolver"
 
-export type NovelTaskType = "writing" | "review" | "summary" | "extract" | "lint"
+export type NovelTaskType =
+  | "writing"
+  | "review"
+  | "summary"
+  | "extract"
+  | "lint"
+  | "planner"
+  | "polish"
+  | "canon_audit"
+
+/** 原生 API 写作管线分角色锁定温度键。 */
+export type NovelRoleTemperatureKey =
+  | "planner"
+  | "writing"
+  | "polish"
+  | "review"
+  | "canon_audit"
+
+/**
+ * 原生 API 分角色锁定温度常量：
+ * - planner (0.5): 前情分析、分镜拆解、任务书规划与修补
+ * - writing (0.8): 正文初稿、扩写与草稿修补
+ * - polish (0.6): 审查返修、Track B / 残差润色与终稿润色
+ * - review / canon_audit (0.15): 正典/一致性审查、六维审稿与多模型共识互评
+ */
+export const NOVEL_ROLE_TEMPERATURES: Readonly<Record<NovelRoleTemperatureKey, number>> = Object.freeze({
+  planner: 0.5,
+  writing: 0.8,
+  polish: 0.6,
+  review: 0.15,
+  canon_audit: 0.15,
+})
+
+export function getNovelRoleTemperature(role: NovelRoleTemperatureKey): number {
+  return NOVEL_ROLE_TEMPERATURES[role]
+}
 
 export function resolveModelConfig(
   targetModel: string,
@@ -75,10 +110,13 @@ export function resolveNovelModel(
 ): LlmConfig {
   const modelMap: Record<NovelTaskType, string> = {
     writing: "", // 写作模型已移除，始终使用 AI 会话当前模型
-    review: novelConfig.reviewModel,
-    summary: novelConfig.summaryModel,
-    extract: novelConfig.extractModel,
-    lint: novelConfig.reviewModel,
+    review: novelConfig.reviewModel?.trim() ?? "",
+    summary: novelConfig.summaryModel?.trim() ?? "",
+    extract: novelConfig.extractModel?.trim() ?? "",
+    lint: novelConfig.reviewModel?.trim() ?? "",
+    planner: novelConfig.plannerModel?.trim() ?? "",
+    polish: novelConfig.polishModel?.trim() ?? "",
+    canon_audit: novelConfig.canonAuditModel?.trim() || novelConfig.reviewModel?.trim() || "",
   }
 
   const { providerConfigs, defaultLlmModel, aiChatModel } = storeSnapshot
@@ -100,6 +138,32 @@ export function resolveNovelModel(
   }
 
   return resolveModelConfig(taskModel, llmConfig, providerConfigs)
+}
+
+export type OptionalNovelRoleTask = "planner" | "polish" | "canon_audit"
+
+const OPTIONAL_ROLE_SLOT_GETTERS: Record<OptionalNovelRoleTask, (cfg: NovelConfig) => string> = {
+  planner: (cfg) => cfg.plannerModel?.trim() ?? "",
+  polish: (cfg) => cfg.polishModel?.trim() ?? "",
+  canon_audit: (cfg) => cfg.canonAuditModel?.trim() ?? "",
+}
+
+/**
+ * 可选角色模型解析：仅当对应角色槽位（plannerModel / polishModel / canonAuditModel）
+ * 非空时才调用 `resolveNovelModel`；留空时原样返回 `fallbackConfig`（同一对象引用、零 store 读取），
+ * 确保共识席位配置与外部注入的 `llmConfig` 不被覆盖，实现零行为变更回退。
+ */
+export function resolveOptionalRoleModel(
+  fallbackConfig: LlmConfig,
+  novelConfig: NovelConfig,
+  role: OptionalNovelRoleTask,
+  storeSnapshot?: ModelResolverStoreSnapshot,
+): LlmConfig {
+  const slotValue = OPTIONAL_ROLE_SLOT_GETTERS[role](novelConfig)
+  if (!slotValue) {
+    return fallbackConfig
+  }
+  return resolveNovelModel(fallbackConfig, novelConfig, role, storeSnapshot)
 }
 
 /**

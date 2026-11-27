@@ -8,9 +8,15 @@ import {
   type DeepChapterGenerationInput,
   type DeepChapterGenerationResult,
 } from "./deep-chapter-generation"
-import { anonymousId, pickBestDraft, type DraftCandidate, type PeerEvaluation } from "./consensus-aggregate"
+import {
+  anonymousId,
+  buildConsensusCanonDigest,
+  pickBestDraft,
+  type DraftCandidate,
+  type PeerEvaluation,
+} from "./consensus-aggregate"
 import { logger, toErrorMessage } from "@/lib/utils"
-import { resolveConsensusModels } from "./model-resolver"
+import { getNovelRoleTemperature, resolveConsensusModels } from "./model-resolver"
 
 /**
  * 写作共识执行器（consensus feature，consensusEnabled=true 旁路）：
@@ -95,8 +101,12 @@ export function buildEvaluationPrompt(
   input: DeepChapterGenerationInput,
   candidateContent: string,
   peerOpinions?: readonly PeerEvaluation[],
+  canonDigest?: string,
 ): string {
   const chapterLabel = input.chapterNumber ? `第${input.chapterNumber}章` : "本章"
+  const canonSection = canonDigest?.trim()
+    ? `\n\n【正典与计划约束摘要（互评对齐基线）】\n${canonDigest.trim()}`
+    : ""
   const peerSection =
     peerOpinions && peerOpinions.length > 0
       ? `\n\n【多模型共识辩论】其他席位对该候选稿的上轮匿名评分与理由：\n${peerOpinions
@@ -104,7 +114,7 @@ export function buildEvaluationPrompt(
           .join("\n")}\n请综合参考上述他席意见后重新独立评分，并在 rationale 中说明维持原判或调整分数的依据。`
       : ""
   return `写作目标：
-${input.userRequest}
+${input.userRequest}${canonSection}
 
 候选${chapterLabel}稿件全文：
 ${candidateContent}${peerSection}
@@ -119,11 +129,12 @@ async function evaluateDraft(
   candidateContent: string,
   signal: AbortSignal | undefined,
   peerOpinions?: readonly PeerEvaluation[],
+  canonDigest?: string,
 ): Promise<PeerEvaluation> {
   if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const messages: ChatMessage[] = [
     { role: "system", content: EVAL_SYSTEM_PROMPT },
-    { role: "user", content: buildEvaluationPrompt(input, candidateContent, peerOpinions) },
+    { role: "user", content: buildEvaluationPrompt(input, candidateContent, peerOpinions, canonDigest) },
   ]
   let text = ""
   let streamError: unknown = null
@@ -142,7 +153,10 @@ async function evaluateDraft(
       },
     },
     combineAbortSignals(signal, AbortSignal.timeout(120000)),
-    { reasoning: { mode: input.novelConfig.reviewReasoningEffort ?? "high" } },
+    {
+      temperature: getNovelRoleTemperature("review"),
+      reasoning: { mode: input.novelConfig.reviewReasoningEffort ?? "high" },
+    },
   )
   if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const readStreamError = (): unknown => streamError
@@ -240,6 +254,9 @@ export async function runDeepChapterGenerationConsensus(
     anonymousId: s.anonymousId,
     content: s.result.finalContent,
   }))
+  const candidateTaskBriefById = new Map<string, string>(
+    eligibleSeats.map((s) => [s.anonymousId, s.result.taskBrief ?? ""]),
+  )
   let evaluations: PeerEvaluation[] = []
   const rounds = Math.max(1, cfg.consensusDebateRounds)
   for (let round = 0; round < rounds; round++) {
@@ -255,7 +272,11 @@ export async function runDeepChapterGenerationConsensus(
               round > 0
                 ? evaluations.filter((e) => e.voter !== voterId && e.candidate === c.anonymousId)
                 : []
-            const base = await evaluateDraft(seat.llmConfig, input, c.content, signal, peerOpinions)
+            const canonDigest = buildConsensusCanonDigest({
+              planBlueprint: input.planBlueprint,
+              taskBrief: candidateTaskBriefById.get(c.anonymousId),
+            })
+            const base = await evaluateDraft(seat.llmConfig, input, c.content, signal, peerOpinions, canonDigest)
             const adjusted =
               round > 0 && peerOpinions.length > 0
                 ? {

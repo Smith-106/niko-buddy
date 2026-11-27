@@ -5,7 +5,7 @@ import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { bytesToHex, logger, toErrorMessage, validateSeverity } from "@/lib/utils"
 import { buildContextPack, type ContextPack } from "./context-engine"
 import { buildCharacterAuraContext } from "./character-aura"
-import { resolveNovelModel } from "./model-resolver"
+import { getNovelRoleTemperature, resolveNovelModel } from "./model-resolver"
 import { slopScore, classifySlop, slopReportToText, detectCharacterActions, characterActionsToText } from "./mechanical-slop-detector"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 // TASK-008 (GRL-011 Decision 4.3): deterministic-continuity-engine 是纯函数零 IO 零 LLM
@@ -656,7 +656,7 @@ export async function reviewChapter(
   const llmConfig = resolveNovelModel(
     options.llmConfig ?? useWikiStore.getState().llmConfig,
     options.novelConfig ?? useWikiStore.getState().novelConfig,
-    "review",
+    "canon_audit",
   )
   if (!hasUsableLlm(llmConfig)) {
     return [...continuityResults, ...slopBlocking, ...behaviorReview]
@@ -915,7 +915,10 @@ async function runReviewStage(
       messages,
       streamCallbacks,
       combinedSignal,
-      { reasoning: { mode: reasoningMode } },
+      {
+        temperature: getNovelRoleTemperature("canon_audit"),
+        reasoning: { mode: reasoningMode },
+      },
     )
     clearTimeout(timeoutId)
     // F-4/PAT-G2: final flush so the caller's last thinking view reflects the

@@ -146,14 +146,17 @@ describe("analyzePreviousChapters", () => {
     expect(loggerErrorMock).toHaveBeenCalledWith("Previous Chapters", "LLM error", expect.objectContaining({ error: "string-error" }))
   })
 
-  it("passes a combined abort signal to streamChat", async () => {
+  it("passes a combined abort signal and planner temperature lock (0.5) to streamChat", async () => {
     const { analyzePreviousChapters } = await import("./previous-chapters-analysis")
     const controller = new AbortController()
     let receivedSignal: AbortSignal | undefined
-    streamChatMock.mockImplementation(async (_cfg, _messages, _callbacks, signal?: AbortSignal) => {
+    let receivedOverrides: { temperature?: number } | undefined
+    streamChatMock.mockImplementation(async (_cfg, _messages, _callbacks, signal?: AbortSignal, overrides?: { temperature?: number }) => {
       receivedSignal = signal
+      receivedOverrides = overrides
     })
     await analyzePreviousChapters("/p", 3, llmConfig, 3, controller.signal)
     expect(receivedSignal).toBeDefined()
+    expect(receivedOverrides).toEqual({ temperature: 0.5 })
   })
 })

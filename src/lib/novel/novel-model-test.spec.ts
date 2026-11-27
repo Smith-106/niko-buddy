@@ -11,9 +11,13 @@ vi.mock("@/lib/llm-client", async (importOriginal) => {
 })
 
 const resolveNovelModelMock = vi.fn()
-vi.mock("./model-resolver", () => ({
-  resolveNovelModel: (...args: unknown[]) => resolveNovelModelMock(...args),
-}))
+vi.mock("./model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./model-resolver")>()
+  return {
+    ...actual,
+    resolveNovelModel: (...args: unknown[]) => resolveNovelModelMock(...args),
+  }
+})
 
 import { testNovelModel } from "./novel-model-test"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
@@ -113,5 +117,52 @@ describe("novel-model-test testNovelModel", () => {
     )
     expect(extract.usedFallbackModel).toBe(false)
     expect(streamChatMock.mock.calls[1][1][0].content).toContain("提取模型测试")
+  })
+
+  it("works for planner, polish, and canon_audit tasks with explicit field mapping (no undefined crash)", async () => {
+    streamWith(["规划模型测试成功"])
+    const plannerFallback = await testNovelModel(llmConfig, novelConfig(), "planner")
+    expect(plannerFallback.usedFallbackModel).toBe(true)
+    expect(plannerFallback.model).toBe("planner-resolved")
+    expect(streamChatMock.mock.calls[0][1][0].content).toContain("规划模型测试")
+
+    streamWith(["规划模型测试成功"])
+    const plannerConfigured = await testNovelModel(
+      llmConfig,
+      novelConfig({ plannerModel: "planner-m" }),
+      "planner",
+    )
+    expect(plannerConfigured.usedFallbackModel).toBe(false)
+
+    streamWith(["润色模型测试成功"])
+    const polishFallback = await testNovelModel(llmConfig, novelConfig({ polishModel: "   " }), "polish")
+    expect(polishFallback.usedFallbackModel).toBe(true)
+    expect(streamChatMock.mock.calls[2][1][0].content).toContain("润色模型测试")
+
+    streamWith(["润色模型测试成功"])
+    const polishConfigured = await testNovelModel(
+      llmConfig,
+      novelConfig({ polishModel: "polish-m" }),
+      "polish",
+    )
+    expect(polishConfigured.usedFallbackModel).toBe(false)
+
+    // canon_audit checks canonAuditModel explicitly (even when reviewModel is set)
+    streamWith(["正典审计模型测试成功"])
+    const canonFallback = await testNovelModel(
+      llmConfig,
+      novelConfig({ reviewModel: "review-m", canonAuditModel: undefined }),
+      "canon_audit",
+    )
+    expect(canonFallback.usedFallbackModel).toBe(true)
+    expect(streamChatMock.mock.calls[4][1][0].content).toContain("正典审计模型测试")
+
+    streamWith(["正典审计模型测试成功"])
+    const canonConfigured = await testNovelModel(
+      llmConfig,
+      novelConfig({ canonAuditModel: "canon-m" }),
+      "canon_audit",
+    )
+    expect(canonConfigured.usedFallbackModel).toBe(false)
   })
 })

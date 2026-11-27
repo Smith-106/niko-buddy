@@ -7,7 +7,13 @@ import {
   reviewChapterDimension,
   type SixReviewDimensionDefinition,
 } from "./dimension-review-adapter"
-import { aggregateReviewDimension, anonymousId, type ReviewConsensusOutcome } from "./consensus-aggregate"
+import {
+  aggregateReviewDimension,
+  anonymousId,
+  buildConsensusCanonDigest,
+  type ReviewConsensusOutcome,
+} from "./consensus-aggregate"
+import { getNovelRoleTemperature, type NovelRoleTemperatureKey } from "./model-resolver"
 import { resolveTaskExtraPrompt } from "./task-customization"
 import { appendTaskExtraSection } from "./deep-chapter-prompts"
 import { logger, toErrorMessage } from "@/lib/utils"
@@ -47,15 +53,22 @@ const DEBATE_SYSTEM_PROMPT =
   "你是专业网文审稿编辑，当前只负责多评审共识辩论中你这一席的重新评分。输出必须使用中文。"
 const CONSENSUS_ABORT_MESSAGE = "已停止生成"
 
-/** 辩论轮附加段：展示其他席位的匿名评分与理由（不含身份信息），明确沿用上方同一 JSON schema。 */
-function buildDebateSection(ballots: { anonymousId: string; score: number; summary: string }[], selfId: string): string {
+/** 辩论轮附加段：展示其他席位的匿名评分与理由（不含身份信息），可选注入有界正典摘要，明确沿用上方同一 JSON schema。 */
+function buildDebateSection(
+  ballots: { anonymousId: string; score: number; summary: string }[],
+  selfId: string,
+  canonDigest?: string,
+): string {
   const others = ballots
     .filter((b) => b.anonymousId !== selfId)
     .map((b) => `- 评审${b.anonymousId}：${b.score} 分 —— ${b.summary}`)
+  const digestBlock = canonDigest?.trim()
+    ? `\n\n【正典约束摘要（互评对齐基线）】\n${canonDigest.trim()}`
+    : ""
   return `
 
 【多模型共识辩论】其他独立评审对本维度的匿名意见：
-${others.join("\n")}
+${others.join("\n")}${digestBlock}
 
 辩论裁决说明：综合参考他席匿名意见后重新独立裁决，保持上文同一 JSON 输出 schema，仅输出最终 JSON 对象（不要输出额外解释、标题或 markdown 代码块）。若你维持原判，请在 summary 中重申你的评分与理由；若意见改变，请说明被说服的关键依据。`
 }
@@ -65,6 +78,7 @@ async function debateCall(
   debatePrompt: string,
   signal: AbortSignal | undefined,
   novelConfig: NovelConfig | undefined,
+  roleKey: NovelRoleTemperatureKey,
 ): Promise<string> {
   if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const messages: ChatMessage[] = [
@@ -91,7 +105,10 @@ async function debateCall(
       },
     },
     combineAbortSignals(signal, AbortSignal.timeout(120000)),
-    { reasoning: { mode: (novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" } },
+    {
+      temperature: getNovelRoleTemperature(roleKey),
+      reasoning: { mode: (novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" },
+    },
   )
   if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const readStreamError = (): unknown => streamError
@@ -124,6 +141,10 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
   if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const usable = models.filter((m) => hasUsableLlm(m))
   if (usable.length === 0) throw new Error(`${dimension.label}共识模型均不可用`)
+
+  const roleKey: NovelRoleTemperatureKey =
+    dimension.key === "consistency" || dimension.key === "continuity" ? "canon_audit" : "review"
+  const canonDigest = buildConsensusCanonDigest(contextPack)
 
   // 第 1 轮：N 路独立评审（静默，不串台 callbacks）
   const firstRound = await Promise.all(
@@ -162,8 +183,8 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
             skillHookPromptFragments,
             hardInjectEnabled: novelConfig?.hardInjectEnabled,
           })
-          const debatePrompt = basePrompt + buildDebateSection(ballots, seat)
-          const text = await debateCall(llmConfig, debatePrompt, signal, novelConfig)
+          const debatePrompt = basePrompt + buildDebateSection(ballots, seat, canonDigest)
+          const text = await debateCall(llmConfig, debatePrompt, signal, novelConfig, roleKey)
           const parsed = parseDimensionReviewResult(dimension, text, `${dimension.label}辩论轮${round + 1}`)
           return { anonymousId: seat, score: parsed.score, status: parsed.status, summary: parsed.summary, issues: parsed.issues }
         } catch (err) {

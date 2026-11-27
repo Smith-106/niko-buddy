@@ -23,7 +23,7 @@ import { logger, toErrorMessage } from "@/lib/utils"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { buildMeasurementFingerprint } from "./measurement-fingerprint"
 import { createLiteraryExperimentProtocol } from "./literary-experiment-protocol"
-import { resolveConsensusModels, resolveNovelModel } from "./model-resolver"
+import { getNovelRoleTemperature, resolveConsensusModels, resolveNovelModel, resolveOptionalRoleModel } from "./model-resolver"
 import { resolveTaskExtraPrompt } from "./task-customization"
 import { appendTaskExtraSection } from "./deep-chapter-prompts"
 import { runDimensionConsensus } from "./consensus-review"
@@ -784,6 +784,15 @@ function toCedContinuityFindings(
   return out
 }
 
+const CANON_AUDIT_DIMENSIONS: ReadonlySet<SixReviewDimensionKey> = new Set([
+  "consistency",
+  "continuity",
+])
+
+function isCanonAuditDimension(key: SixReviewDimensionKey): boolean {
+  return CANON_AUDIT_DIMENSIONS.has(key)
+}
+
 export async function runSixDimensionReview({
   projectPath,
   chapterContent,
@@ -971,8 +980,9 @@ export async function runSixDimensionReview({
         }
         callbacks.onDimensionResult?.(key, shortCircuitResult)
         callbacks.onDimensionThinking?.(key, shortCircuitResult.thinking)
-        return { key, result: shortCircuitResult, error: null as Error | null }
+        return { key, result: shortCircuitResult, error: null as Error | null, model: MECHANICAL_SCORER_LABEL }
       }
+      let dimModelLabel = llmConfigResolved.model || "unknown"
       try {
         // 多模型共识旁路（consensusEnabled 且该维明确配置了模型组才启用；关闭/空配置 = 单模型现状路径）
         const consensusConfigured =
@@ -997,10 +1007,16 @@ export async function runSixDimensionReview({
           })
           callbacks.onDimensionThinking?.(key, outcome.result.thinking)
           const consensusLabel = `consensus:${consensusModels.map((m) => m.model || "unknown").join("+")}`
-          return { key, result: { ...outcome.result, model: consensusLabel }, error: null as Error | null }
+          return { key, result: { ...outcome.result, model: consensusLabel }, error: null as Error | null, model: consensusLabel }
         }
+        const dimLlmConfig = isCanonAuditDimension(key)
+          ? (injectedNovelConfig.canonAuditModel?.trim()
+              ? resolveNovelModel(resolvedBaseLlmConfig, injectedNovelConfig, "canon_audit")
+              : resolveOptionalRoleModel(llmConfigResolved, injectedNovelConfig, "canon_audit"))
+          : llmConfigResolved
+        dimModelLabel = dimLlmConfig.model || "unknown"
         const result = await reviewChapterDimension({
-          llmConfig: llmConfigResolved,
+          llmConfig: dimLlmConfig,
           contextPack,
           chapterContent,
           dimension,
@@ -1015,17 +1031,17 @@ export async function runSixDimensionReview({
             },
           },
         })
-        return { key, result: { ...result, model: llmConfigResolved.model || "unknown" }, error: null as Error | null }
+        return { key, result: { ...result, model: dimModelLabel }, error: null as Error | null, model: dimModelLabel }
       } catch (error) {
         // F-003 (ISS-20260705-020): distinguish a JSON parse failure
         // (DimParseError / SyntaxError — the model emitted malformed JSON)
         // from a runtime/stream error, so the failed-dimension result records
         // the actual failure mode instead of an opaque "未知错误".
-        return { key, result: null, error: error as Error }
+        return { key, result: null, error: error as Error, model: dimModelLabel }
       }
     }),
   )
-  for (const { key, result, error } of settled) {
+  for (const { key, result, error, model } of settled) {
     if (result) {
       results[key] = result
       callbacks.onDimensionResult?.(key, result)
@@ -1040,7 +1056,7 @@ export async function runSixDimensionReview({
             ? new Error(`${dimension.label}审查返回的 JSON 无法解析：${error?.message}`)
             : (error ?? new Error("unknown error")),
         ),
-        model: llmConfigResolved.model || "unknown",
+        model: model || llmConfigResolved.model || "unknown",
       }
       callbacks.onDimensionResult?.(key, results[key]!)
       callbacks.onDimensionThinking?.(key, results[key]!.thinking)
@@ -1091,12 +1107,16 @@ async function runDimensionStage(
   // falls back to the prior behavior (timeout-only), so existing callers
   // (start-six-dimension-review-run.ts manual UI trigger, no external signal)
   // are unaffected.
+  const roleKey = isCanonAuditDimension(dimension.key) ? "canon_audit" : "review"
   await streamChat(
     llmConfig,
     messages,
     streamCallbacks,
     combineAbortSignals(signal, AbortSignal.timeout(120000)),
-    { reasoning: { mode: (novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" } },
+    {
+      temperature: getNovelRoleTemperature(roleKey),
+      reasoning: { mode: (novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" },
+    },
   )
   // R2-W04：流式回调上报错误时必须显式抛出，禁止用截断残片继续解析或掩盖真实流错。
   if (streamError) throw streamError

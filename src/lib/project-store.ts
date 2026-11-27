@@ -786,6 +786,15 @@ function normalizeNovelConfig(
     reviewModel: config.reviewModel ?? DEFAULT_NOVEL_CONFIG.reviewModel,
     summaryModel: config.summaryModel ?? DEFAULT_NOVEL_CONFIG.summaryModel,
     extractModel: config.extractModel ?? DEFAULT_NOVEL_CONFIG.extractModel,
+    plannerModel: typeof config.plannerModel === "string"
+      ? config.plannerModel
+      : (DEFAULT_NOVEL_CONFIG.plannerModel ?? ""),
+    polishModel: typeof config.polishModel === "string"
+      ? config.polishModel
+      : (DEFAULT_NOVEL_CONFIG.polishModel ?? ""),
+    canonAuditModel: typeof config.canonAuditModel === "string"
+      ? config.canonAuditModel
+      : (DEFAULT_NOVEL_CONFIG.canonAuditModel ?? ""),
     // task customization（每任务追加提示词/技能名单）：Partial 输入归一化为完整 Record
     taskPrompts: { ...DEFAULT_NOVEL_CONFIG.taskPrompts, ...config.taskPrompts },
     taskSkillNames: { ...DEFAULT_NOVEL_CONFIG.taskSkillNames, ...config.taskSkillNames },

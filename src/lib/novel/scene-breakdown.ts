@@ -3,7 +3,7 @@ import { streamChat, combineAbortSignals, extractJsonArraySpan, isRequestCancell
 import { createDirectory, deleteFile, writeFileAtomic, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { logger, toErrorMessage } from "@/lib/utils"
-import { resolveNovelModel } from "./model-resolver"
+import { getNovelRoleTemperature, resolveNovelModel } from "./model-resolver"
 import type { ContextPack } from "./context-engine"
 import {
   buildNextStatus,
@@ -222,7 +222,7 @@ export async function runSceneBreakdown(
   const llmConfig = resolveNovelModel(
     injectedStore?.llmConfig ?? useWikiStore.getState().llmConfig,
     injectedStore?.novelConfig ?? useWikiStore.getState().novelConfig,
-    "writing",
+    "planner",
   )
 
   const prompt = buildSceneBreakdownPrompt(blueprint, contextPack)
@@ -261,6 +261,7 @@ export async function runSceneBreakdown(
 
   try {
     await streamChat(llmConfig, messages, streamCallbacks, combinedSignal, {
+      temperature: getNovelRoleTemperature("planner"),
       reasoning: { mode: (injectedStore?.novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" },
     })
   } catch (error) {

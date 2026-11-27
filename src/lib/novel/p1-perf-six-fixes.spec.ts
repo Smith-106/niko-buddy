@@ -88,9 +88,13 @@ vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
   }
 })
 
-vi.mock("./model-resolver", () => ({
-  resolveNovelModel: (config: LlmConfig) => config,
-}))
+vi.mock("./model-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./model-resolver")>()
+  return {
+    ...actual,
+    resolveNovelModel: (config: LlmConfig) => config,
+  }
+})
 
 vi.mock("./novel-skill-hooks", () => ({
   createGoldScaleReadinessHook: () => ({ id: "gold-readiness", run: async () => {} }),
