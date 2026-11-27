@@ -470,6 +470,26 @@ async function buildContextPackUnlocked(
 }
 
 /**
+ * TASK-006: 构造单次 build / 单次投影预取共享的懒加载记忆快照闭包。
+ * - 严格惰性：无合法 `beforeChapter` 消费方时永不触发 `loadValidMemorySnapshots` IO；
+ * - 共享 Promise：cognition / emotional_arc / resource_ledger 合并为至多 1 次快照磁盘重放；
+ * - 拒绝透传：若底层 IO 失败，相同拒绝 Promise 传播给调用方以触发 `datasource_error`。
+ */
+function createLazyValidSnapshotsLoader(
+  projectPath: string,
+): () => Promise<readonly ChapterSnapshot[]> {
+  let pending: Promise<readonly ChapterSnapshot[]> | null = null
+  return () => {
+    if (pending === null) {
+      pending = import("./chapter-ingest-history").then(({ loadValidMemorySnapshots }) =>
+        loadValidMemorySnapshots(projectPath),
+      )
+    }
+    return pending
+  }
+}
+
+/**
  * 构建加载上下文配置
  */
 function buildLoadContext(
@@ -500,6 +520,7 @@ function buildLoadContext(
       revisionFeedbackWindowConfig,
     },
     recordGap: session ? session.recordGap : recordDatasourceLoadFailure,
+    getSharedValidSnapshots: createLazyValidSnapshotsLoader(projectPath),
   }
 }
 
@@ -593,12 +614,19 @@ export async function loadProjectionTexts(projectPath: string, options?: Context
   // PERF-NEW-04: pre-fetch the four projection-store texts in parallel
   // before joinNonEmpty (was 3 serial readFile IPC round-trips inside the
   // array literal). The stores are independent.
+  const sharedOptions: ContextProjectionReadOptions | undefined =
+    options?.beforeChapter !== undefined
+    && Number.isInteger(options.beforeChapter)
+    && options.beforeChapter > 0
+    && options.preloadedSnapshots === undefined
+      ? { ...options, preloadedSnapshots: createLazyValidSnapshotsLoader(projectPath) }
+      : options
   const [emotionalText, subplotText, resourceText, emotionLedgerText, auraEvolutionText] = await Promise.all([
-    readEmotionalArcsText(projectPath, options),
-    readSubplotBoardText(projectPath, options),
-    readResourceLedgerText(projectPath, options),
-    readEmotionLedgerText(projectPath, options),
-    readAuraEvolutionText(projectPath, options),
+    readEmotionalArcsText(projectPath, sharedOptions),
+    readSubplotBoardText(projectPath, sharedOptions),
+    readResourceLedgerText(projectPath, sharedOptions),
+    readEmotionLedgerText(projectPath, sharedOptions),
+    readAuraEvolutionText(projectPath, sharedOptions),
   ])
   return { emotionalText, subplotText, resourceText, emotionLedgerText, auraEvolutionText }
 }
@@ -834,6 +862,7 @@ async function buildContextPackFromRawData(
     loadProjectionTexts(context.projectPath, {
       beforeChapter: context.chapterNumber,
       recordGap: context.recordGap,
+      preloadedSnapshots: context.getSharedValidSnapshots,
     }),
     foreshadowingStorePromise ?? Promise.resolve(null),
   ])

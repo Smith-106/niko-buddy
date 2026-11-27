@@ -27,6 +27,10 @@ import type { ContextLoadContext } from "./context-data-source"
 export interface ContextProjectionReadOptions {
   beforeChapter?: number
   recordGap?: ContextLoadContext["recordGap"]
+  preloadedSnapshots?:
+    | readonly ChapterSnapshot[]
+    | Promise<readonly ChapterSnapshot[]>
+    | (() => Promise<readonly ChapterSnapshot[]>)
 }
 
 function isBeforeChapter(chapter: number, beforeChapter: number): boolean {
@@ -44,17 +48,140 @@ function invalidBeforeChapter(options: ContextProjectionReadOptions | undefined,
   return true
 }
 
+const SUBPLOT_CHAPTER_ARABIC_RE = /第\s*(\d+)\s*[章回]|\b(?:chapter|ch\.?)\s*[-_:#]?\s*(\d+)\b/gi
+const SUBPLOT_CHAPTER_CHINESE_RE = /第\s*([零〇一二两三四五六七八九十百千万]+)\s*[章回]/g
+
+const CN_CHAPTER_DIGITS: Record<string, number> = {
+  零: 0,
+  〇: 0,
+  一: 1,
+  二: 2,
+  两: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+}
+
+const CN_CHAPTER_UNITS: Record<string, number> = {
+  十: 10,
+  百: 100,
+  千: 1000,
+}
+
+/** 将中文数字章号安全解析为非负整数；无法解析或越长返回 null（上层按 fail-closed 拦截）。 */
+function parseChineseChapterNumber(raw: string): number | null {
+  const s = raw.trim()
+  if (!s || s.length > 16) return null
+  if (!/[十百千万]/.test(s)) {
+    let total = 0
+    for (const ch of s) {
+      const digit = CN_CHAPTER_DIGITS[ch]
+      if (digit === undefined) return null
+      total = total * 10 + digit
+    }
+    return Number.isSafeInteger(total) ? total : null
+  }
+  let total = 0
+  let section = 0
+  let currentNum = 0
+  let hasCurrentNum = false
+  for (const ch of s) {
+    if (ch in CN_CHAPTER_DIGITS) {
+      const digit = CN_CHAPTER_DIGITS[ch]!
+      if (digit === 0) {
+        currentNum = 0
+        hasCurrentNum = false
+      } else {
+        currentNum = hasCurrentNum ? currentNum * 10 + digit : digit
+        hasCurrentNum = true
+      }
+    } else if (ch in CN_CHAPTER_UNITS) {
+      const unit = CN_CHAPTER_UNITS[ch]!
+      const factor = hasCurrentNum ? currentNum : 1
+      section += factor * unit
+      currentNum = 0
+      hasCurrentNum = false
+    } else if (ch === "万") {
+      const sectionVal = section + (hasCurrentNum ? currentNum : 0)
+      total += (sectionVal === 0 ? 1 : sectionVal) * 10_000
+      section = 0
+      currentNum = 0
+      hasCurrentNum = false
+    } else {
+      return null
+    }
+  }
+  const result = total + section + (hasCurrentNum ? currentNum : 0)
+  return Number.isSafeInteger(result) ? result : null
+}
+
+function textHasFutureChapterReference(text: string | undefined, beforeChapter: number): boolean {
+  if (typeof text !== "string" || text.length === 0) return false
+  SUBPLOT_CHAPTER_ARABIC_RE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = SUBPLOT_CHAPTER_ARABIC_RE.exec(text)) !== null) {
+    const rawNum = match[1] ?? match[2]
+    const chapter = Number(rawNum)
+    if (!Number.isInteger(chapter) || chapter <= 0 || chapter >= beforeChapter) {
+      return true
+    }
+  }
+  SUBPLOT_CHAPTER_CHINESE_RE.lastIndex = 0
+  while ((match = SUBPLOT_CHAPTER_CHINESE_RE.exec(text)) !== null) {
+    const chapter = parseChineseChapterNumber(match[1] ?? "")
+    if (chapter === null || !Number.isInteger(chapter) || chapter <= 0 || chapter >= beforeChapter) {
+      return true
+    }
+  }
+  return false
+}
+
+/** 检测支线标题、摘要或进度日志是否包含目标章及之后（或无效章号，含中文数字）的章号引用，防止未来进度外泄。 */
+function hasFutureChapterReference(
+  title: string | undefined,
+  summary: string | undefined,
+  progress: readonly string[] | undefined,
+  beforeChapter: number,
+): boolean {
+  if (textHasFutureChapterReference(title, beforeChapter)) return true
+  if (textHasFutureChapterReference(summary, beforeChapter)) return true
+  if (!Array.isArray(progress)) return false
+  for (const entry of progress) {
+    if (textHasFutureChapterReference(entry, beforeChapter)) return true
+  }
+  return false
+}
+
+async function resolveValidMemorySnapshots(
+  projectPath: string,
+  preloadedSnapshots?: ContextProjectionReadOptions["preloadedSnapshots"],
+): Promise<readonly ChapterSnapshot[]> {
+  if (preloadedSnapshots !== undefined) {
+    if (typeof preloadedSnapshots === "function") {
+      return await preloadedSnapshots()
+    }
+    return await preloadedSnapshots
+  }
+  const { loadValidMemorySnapshots } = await import("./chapter-ingest-history")
+  return await loadValidMemorySnapshots(projectPath)
+}
+
 /** 仅初始化既有注册表并读取当前快照；不调用 load/save/rebuild/self-heal hook。 */
 async function foldBeforeChapter(
   projectPath: string,
   projection: "emotional_arc" | "resource_ledger" | "cognition",
   beforeChapter: number,
+  preloadedSnapshots?: ContextProjectionReadOptions["preloadedSnapshots"],
 ): Promise<{ snapshots: ChapterSnapshot[]; view: unknown }> {
   // 动态初始化避免 history → context-engine 的反向 import 在模块求值时成环。
   await import("./chapter-ingest")
-  const { loadValidMemorySnapshots } = await import("./chapter-ingest-history")
   const { PROJECTION_REGISTRY } = await import("./projection-status-ledger")
-  const snapshots = (await loadValidMemorySnapshots(projectPath))
+  const loaded = await resolveValidMemorySnapshots(projectPath, preloadedSnapshots)
+  const snapshots = loaded
     .filter((snapshot) => isBeforeChapter(snapshot.chapterNumber, beforeChapter)
       && (projection !== "cognition" || (snapshot.sourceType !== "outline" && snapshot.isHistorical !== true)))
   const fold = PROJECTION_REGISTRY[projection]?.foldFromSnapshot
@@ -141,7 +268,7 @@ export async function readCognitionStatesText(pp: string, options?: ContextProje
     if (beforeChapter === undefined) return state ? cognitionToContextText(state) : ""
     // live 的更新章可以晚于目标章；仅校验核心形状，不把正常晚章聚合判坏。
     if (state !== null && !isCognitionState(state)) throw new Error("Invalid cognition live state")
-    const { snapshots, view } = await foldBeforeChapter(pp, "cognition", beforeChapter)
+    const { snapshots, view } = await foldBeforeChapter(pp, "cognition", beforeChapter, options?.preloadedSnapshots)
     if (view === undefined) {
       recordUnavailable(options, "cognitionText")
       return ""
@@ -171,7 +298,7 @@ export async function readEmotionalArcsText(pp: string, options?: ContextProject
     const store = await loadEmotionalArcs(pp)
     const beforeChapter = options?.beforeChapter
     if (beforeChapter !== undefined) {
-      const { snapshots, view } = await foldBeforeChapter(pp, "emotional_arc", beforeChapter)
+      const { snapshots, view } = await foldBeforeChapter(pp, "emotional_arc", beforeChapter, options?.preloadedSnapshots)
       if (view !== undefined && !isEmotionalArcStore(view)) throw new Error("Invalid emotional_arc fold result")
       const beats = store.beats.filter((beat) => isBeforeChapter(beat.chapterNumber, beforeChapter))
       const temporalStore = isEmotionalArcStore(view) && view.beats.length > 0
@@ -203,10 +330,27 @@ export async function readSubplotBoardText(pp: string, options?: ContextProjecti
   if (invalidBeforeChapter(options, "subplotBoard")) return ""
   try {
     const store = await loadSubplotBoard(pp)
-    if (options?.beforeChapter !== undefined) {
-      // 当前聚合没有字段前态；startChapter 与字符串 progress 均不能认证历史版本。
-      recordUnavailable(options, "subplotBoard")
-      return ""
+    const beforeChapter = options?.beforeChapter
+    if (beforeChapter !== undefined) {
+      if (!Array.isArray(store?.items)) throw new Error("Invalid subplot board store")
+      // fail-closed：仅放行章前已开启、未解决/未废弃、明确具备 lastSeenChapter < beforeChapter
+      // 且标题/摘要/进度均不含目标章及之后（含中文数字）章号引用的支线；
+      // 缺失 lastSeenChapter 或存在任何被过滤条目时诚实记录 temporal_history_unavailable 缺口。
+      const filtered = store.items.filter((s) =>
+        s !== null
+        && typeof s === "object"
+        && s.status !== "resolved"
+        && !s.abandoned
+        && isBeforeChapter(s.startChapter, beforeChapter)
+        && s.resolvedChapter === undefined
+        && s.lastSeenChapter !== undefined
+        && isBeforeChapter(s.lastSeenChapter, beforeChapter)
+        && !hasFutureChapterReference(s.title, s.summary, s.progress, beforeChapter),
+      )
+      if (filtered.length === 0 || filtered.length < store.items.length) {
+        recordUnavailable(options, "subplotBoard")
+      }
+      return filtered.length > 0 ? subplotBoardToContextText({ ...store, items: filtered }) : ""
     }
     return subplotBoardToContextText(store)
   } catch {
@@ -228,7 +372,7 @@ export async function readResourceLedgerText(pp: string, options?: ContextProjec
     const store = await loadResourceLedger(pp)
     const beforeChapter = options?.beforeChapter
     if (beforeChapter !== undefined) {
-      const { snapshots, view } = await foldBeforeChapter(pp, "resource_ledger", beforeChapter)
+      const { snapshots, view } = await foldBeforeChapter(pp, "resource_ledger", beforeChapter, options?.preloadedSnapshots)
       if (view !== undefined && !isResourceLedgerStore(view)) throw new Error("Invalid resource_ledger fold result")
       let unavailable = view === undefined || snapshots.length < beforeChapter - 1
         || store.entries.some((entry) => !Number.isInteger(entry.acquiredChapter) || entry.acquiredChapter <= 0)

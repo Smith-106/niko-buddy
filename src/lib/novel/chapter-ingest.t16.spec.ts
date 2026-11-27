@@ -16,6 +16,12 @@ import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
  * 双写本身用真实 `shadowWriteCanon` + 注入 mock deps（writeCanon 断言）。
  */
 
+const invokeMock = vi.hoisted(() => vi.fn())
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}))
+
 const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFileAtomic: vi.fn(),
@@ -196,13 +202,16 @@ vi.mock("@/lib/embedding", async (importOriginal) => {
 
 import {
   buildCanonDualWriteOps,
+  collectSnapshotKnownBy,
   ingestChapter,
   isCanonDualWriteEligible,
+  parseCanonFactTriple,
   parseFactsSubject,
   runCanonDualWriteHook,
   runCanonDualWriteHookOutcome,
   type ChapterSnapshot,
 } from "./chapter-ingest"
+import type { RawCanonEdge } from "./canon-graph-client"
 import { buildChapterIngestOutput } from "./chapter-ingest-output"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { computeCheckpointDigest, computeCheckpointDigestOf } from "./checkpoint-digest"
@@ -306,6 +315,8 @@ function makeDeps(extra: Partial<T16TestDeps> = {}): T16TestDeps {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  invokeMock.mockReset()
+  invokeMock.mockRejectedValue(new Error("tauri unavailable"))
   sourceFs.chapterPath = "E:/Novel/wiki/chapters/chapter-001.md"
   sourceFs.chapterSource = null
   sourceFs.chapterSequence = []
@@ -366,7 +377,7 @@ describe("isCanonDualWriteEligible（reject 先于双写守卫）", () => {
   })
 })
 
-describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作）", () => {
+describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode + world_fact 双写操作）", () => {
   it("无 newCanonFacts（undefined）→ 空操作集", async () => {
     const ops = await buildCanonDualWriteOps(snapshotWithFacts(undefined))
     expect(ops).toEqual([])
@@ -377,10 +388,10 @@ describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作
     expect(ops).toEqual([])
   })
 
-  it("每条新正史事实派生一个 episode 双写操作，digest 为 SHA-256 幂等键", async () => {
+  it("每条新正史事实同时派生 episode 与 world_fact 双写操作，episode digest 保持向后兼容", async () => {
     const facts = ["主角佩剑名为黑剑", "码头设防"]
     const ops = await buildCanonDualWriteOps(snapshotWithFacts(facts))
-    expect(ops).toHaveLength(2)
+    expect(ops).toHaveLength(4)
 
     const digest0 = await computeCheckpointDigestOf({ chapter: 1, fact: facts[0] })
     const digest1 = await computeCheckpointDigestOf({ chapter: 1, fact: facts[1] })
@@ -408,9 +419,237 @@ describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作
         digest: digest1,
       },
     })
-    // 旧 view 占位负载
+    // 旧 view 占位负载（episode 保留 snapshot_fact；world_fact 走 snapshot_world_fact 不重入 legacy JSONL）
     expect(ops[0]!.legacyPayload).toEqual({ kind: "snapshot_fact", chapterNumber: 1, fact: facts[0] })
     expect(ops[0]!.content).toEqual({ chapter: 1, fact: facts[0] })
+
+    const wfContent0 = {
+      chapter: 1,
+      kind: "world_fact",
+      fact: facts[0],
+      sourceId: "主角佩剑",
+      predicate: "名为",
+      targetId: "黑剑",
+    }
+    const wfDigest0 = await computeCheckpointDigestOf(wfContent0)
+    expect(ops[2]!.digest).toBe(wfDigest0)
+    expect(ops[2]!.legacyPayload).toEqual({
+      kind: "snapshot_world_fact",
+      chapterNumber: 1,
+      fact: facts[0],
+      subject: "主角佩剑",
+      predicate: "名为",
+      object: "黑剑",
+    })
+    expect(ops[2]!.canonPayload).toEqual({
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 1,
+        caused_by: "snapshot-world-facts",
+        new_edges: [
+          {
+            id: `ch1-wf-${wfDigest0.slice(0, 12)}`,
+            source_id: "主角佩剑",
+            target_id: "黑剑",
+            predicate: "名为",
+            edge_kind: "world_fact",
+            valid_at: 1,
+            source_chapter: 1,
+            revealed_at: 1,
+            known_by: [],
+            modality: "assertive",
+            digest: wfDigest0,
+          },
+        ],
+      },
+    })
+
+    const wfContent1 = {
+      chapter: 1,
+      kind: "world_fact",
+      fact: facts[1],
+      sourceId: "码头设防",
+      predicate: "world_fact",
+      targetId: "码头设防",
+    }
+    const wfDigest1 = await computeCheckpointDigestOf(wfContent1)
+    expect(ops[3]!.digest).toBe(wfDigest1)
+    expect(ops[3]!.canonPayload).toEqual({
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 1,
+        caused_by: "snapshot-world-facts",
+        new_edges: [
+          {
+            id: `ch1-wf-${wfDigest1.slice(0, 12)}`,
+            source_id: "码头设防",
+            target_id: "码头设防",
+            predicate: "world_fact",
+            edge_kind: "world_fact",
+            valid_at: 1,
+            source_chapter: 1,
+            revealed_at: 1,
+            known_by: [],
+            modality: "assertive",
+            digest: wfDigest1,
+          },
+        ],
+      },
+    })
+    // 单参调用纯确定性，绝不触发 IPC
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+
+  it("parseCanonFactTriple：中文冒号/属性/动词与无结构回退解析确定且同角色不同事实不互撞", () => {
+    expect(parseCanonFactTriple("林澈：佩剑名为黑剑", "chapter-1")).toEqual({
+      sourceId: "林澈",
+      predicate: "佩剑",
+      targetId: "黑剑",
+    })
+    expect(parseCanonFactTriple("林澈：佩剑：霜刃", "chapter-2")).toEqual({
+      sourceId: "林澈",
+      predicate: "佩剑",
+      targetId: "霜刃",
+    })
+    expect(parseCanonFactTriple("林澈的佩剑改为霜刃", "chapter-2")).toEqual({
+      sourceId: "林澈",
+      predicate: "佩剑",
+      targetId: "霜刃",
+    })
+    expect(parseCanonFactTriple("林澈位于临冬镇", "chapter-1")).toEqual({
+      sourceId: "林澈",
+      predicate: "位于",
+      targetId: "临冬镇",
+    })
+    expect(parseCanonFactTriple("主角佩剑名为黑剑", "chapter-1")).toEqual({
+      sourceId: "主角佩剑",
+      predicate: "名为",
+      targetId: "黑剑",
+    })
+    expect(parseCanonFactTriple("码头设防", "chapter-1")).toEqual({
+      sourceId: "码头设防",
+      predicate: "world_fact",
+      targetId: "码头设防",
+    })
+    // 同一角色的多条属性事实谓词互异，跨章改剑则命中同一 (sourceId, predicate)
+    const swordV1 = parseCanonFactTriple("林澈：佩剑名为黑剑", "chapter-1")
+    const identity = parseCanonFactTriple("林澈：身份是金鳞卫", "chapter-1")
+    const swordV2 = parseCanonFactTriple("林澈的佩剑变为霜刃", "chapter-5")
+    expect(swordV1.predicate).not.toBe(identity.predicate)
+    expect({ sourceId: swordV2.sourceId, predicate: swordV2.predicate }).toEqual({
+      sourceId: swordV1.sourceId,
+      predicate: swordV1.predicate,
+    })
+  })
+
+  it("known_by 归一化去重保序（povCharacter + presentCharacters + characters），且模态边合并认知主体", async () => {
+    expect(
+      collectSnapshotKnownBy(
+        {
+          povCharacter: " 林澈 ",
+          presentCharacters: ["林澈", " 姜氏 ", ""],
+          characters: ["姜氏", "沈舟", "  "],
+        },
+        [" 阿宁 ", "林澈"],
+      ),
+    ).toEqual(["阿宁", "林澈", "姜氏", "沈舟"])
+
+    const snap = {
+      ...snapshotWithFacts(["林澈：佩剑名为黑剑"]),
+      chapterNumber: 3,
+      povCharacter: " 林澈 ",
+      presentCharacters: ["林澈", "姜氏"],
+      characters: ["姜氏", "沈舟", "  "],
+      beliefFacts: [{ subject: "林晚", predicate: "认为", object: "沈舟是凶手" }],
+      hypothesisFacts: [{ subject: "沈舟", predicate: "猜测", object: "地宫有密道" }],
+    } as ChapterSnapshot & { presentCharacters: string[] }
+
+    const ops = await buildCanonDualWriteOps(snap)
+    expect(ops).toHaveLength(4)
+
+    const wfEdge = (ops[1]!.canonPayload as { kind: "supersede"; request: { new_edges: Array<Record<string, unknown>> } }).request.new_edges[0]!
+    expect(wfEdge.known_by).toEqual(["林澈", "姜氏", "沈舟"])
+    expect(wfEdge.source_chapter).toBe(3)
+    expect(wfEdge.revealed_at).toBe(3)
+
+    const beliefEdge = (ops[2]!.canonPayload as { kind: "supersede"; request: { new_edges: Array<Record<string, unknown>> } }).request.new_edges[0]!
+    expect(beliefEdge.known_by).toEqual(["林晚", "林澈", "姜氏", "沈舟"])
+    expect(beliefEdge.source_chapter).toBe(3)
+    expect(beliefEdge.revealed_at).toBe(3)
+
+    const hypEdge = (ops[3]!.canonPayload as { kind: "supersede"; request: { new_edges: Array<Record<string, unknown>> } }).request.new_edges[0]!
+    expect(hypEdge.known_by).toEqual(["沈舟", "林澈", "姜氏"])
+    expect(hypEdge.source_chapter).toBe(3)
+    expect(hypEdge.revealed_at).toBe(3)
+  })
+
+  it("real old_edge_ids：仅纳入严格早章活跃同模态冲突边，排除同章/已失效/归档/异模态/同值边", async () => {
+    const snap: ChapterSnapshot = {
+      ...snapshotWithFacts(["林澈的佩剑改为霜刃"]),
+      chapterNumber: 5,
+      beliefFacts: [{ subject: "林晚", predicate: "认为", object: "沈舟无辜" }],
+    }
+    const existingEdges: RawCanonEdge[] = [
+      // 命中：第 1 章活跃 assertive 佩剑=黑剑（冲突值）
+      { id: "e-prior-sword", source_id: "林澈", target_id: "黑剑", predicate: "佩剑", edge_kind: "world_fact", valid_at: 1, invalid_at: null, archived: false, modality: "assertive" },
+      // 命中：valid_at 缺失视作无下界先序边（兼容旧数据）
+      { id: "e-prior-legacy", source_id: "林澈", target_id: "铁剑", predicate: "佩剑", edge_kind: "world_fact", valid_at: null, invalid_at: null, archived: false, modality: null },
+      // 排除：同章（valid_at === 5）
+      { id: "e-same-ch", source_id: "林澈", target_id: "木剑", predicate: "佩剑", edge_kind: "world_fact", valid_at: 5, invalid_at: null, archived: false, modality: "assertive" },
+      // 排除：未来章（valid_at === 6）
+      { id: "e-future-ch", source_id: "林澈", target_id: "金剑", predicate: "佩剑", edge_kind: "world_fact", valid_at: 6, invalid_at: null, archived: false, modality: "assertive" },
+      // 排除：已封顶（invalid_at != null）
+      { id: "e-invalidated", source_id: "林澈", target_id: "断剑", predicate: "佩剑", edge_kind: "world_fact", valid_at: 1, invalid_at: 3, archived: false, modality: "assertive" },
+      // 排除：已归档（archived === true）
+      { id: "e-archived", source_id: "林澈", target_id: "旧剑", predicate: "佩剑", edge_kind: "world_fact", valid_at: 1, invalid_at: null, archived: true, modality: "assertive" },
+      // 排除：异模态（belief 不能被 assertive 封顶）
+      { id: "e-diff-modality", source_id: "林澈", target_id: "传闻剑", predicate: "佩剑", edge_kind: "world_fact", valid_at: 1, invalid_at: null, archived: false, modality: "belief" },
+      // 排除：同 target_id（无冲突）
+      { id: "e-same-target", source_id: "林澈", target_id: "霜刃", predicate: "佩剑", edge_kind: "world_fact", valid_at: 2, invalid_at: null, archived: false, modality: "assertive" },
+      // 命中 belief 边：第 2 章活跃 belief 同主体同谓词异值
+      { id: "e-prior-belief", source_id: "林晚", target_id: "沈舟是凶手", predicate: "认为", edge_kind: "world_fact", valid_at: 2, invalid_at: null, archived: false, modality: "belief" },
+    ]
+
+    const ops = await buildCanonDualWriteOps(snap, { existingEdges })
+    expect(ops).toHaveLength(3)
+    const wfReq = (ops[1]!.canonPayload as { kind: "supersede"; request: { old_edge_ids: string[] } }).request
+    expect(wfReq.old_edge_ids).toEqual(["e-prior-sword", "e-prior-legacy"])
+    const beliefReq = (ops[2]!.canonPayload as { kind: "supersede"; request: { old_edge_ids: string[] } }).request
+    expect(beliefReq.old_edge_ids).toEqual(["e-prior-belief"])
+  })
+
+  it("options.projectPath：经定向非空 canon_query IPC 查询先序边；IPC 拒绝时优雅降级空 old_edge_ids", async () => {
+    const snap: ChapterSnapshot = {
+      ...snapshotWithFacts(["林澈：佩剑改为霜刃"]),
+      chapterNumber: 4,
+    }
+    invokeMock.mockResolvedValueOnce({
+      edges: [
+        { id: "e-ch1-sword", source_id: "林澈", target_id: "黑剑", predicate: "佩剑", edge_kind: "world_fact", valid_at: 1, invalid_at: null, archived: false, modality: "assertive" },
+      ],
+      max_revision: 3,
+    })
+
+    const ops = await buildCanonDualWriteOps(snap, { projectPath: PROJECT })
+    expect(invokeMock).toHaveBeenCalledWith("canon_query", {
+      projectId: PROJECT,
+      filter: {
+        archived: false,
+        edge_kinds: ["world_fact"],
+        entity_ids: ["林澈"],
+        predicates: ["佩剑"],
+      },
+    })
+    const wfReq = (ops[1]!.canonPayload as { kind: "supersede"; request: { old_edge_ids: string[] } }).request
+    expect(wfReq.old_edge_ids).toEqual(["e-ch1-sword"])
+
+    // IPC 拒绝（如离线/非 Tauri 环境）→ 非致命回退 old_edge_ids: []
+    invokeMock.mockRejectedValueOnce(new Error("canon.db missing"))
+    const fallbackOps = await buildCanonDualWriteOps(snap, { projectPath: PROJECT })
+    const fallbackReq = (fallbackOps[1]!.canonPayload as { kind: "supersede"; request: { old_edge_ids: string[] } }).request
+    expect(fallbackReq.old_edge_ids).toEqual([])
   })
 
   it("T3：beliefFacts/hypothesisFacts 派生 supersede 边 ops（modality 承载，digest 键含 modality）", async () => {
@@ -419,10 +658,10 @@ describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作
       beliefFacts: [{ subject: "林晚", predicate: "认为", object: "沈舟是凶手" }],
       hypothesisFacts: [{ subject: "沈舟", predicate: "猜测", object: "地宫有密道" }],
     })
-    // 1 episode + 2 modality ops
-    expect(ops).toHaveLength(3)
+    // 1 episode + 1 world_fact + 2 modality ops
+    expect(ops).toHaveLength(4)
 
-    const belief = ops[1]!
+    const belief = ops[2]!
     expect(belief.canonPayload.kind).toBe("supersede")
     const request = (belief.canonPayload as {
       kind: "supersede"
@@ -443,12 +682,18 @@ describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作
     expect(edge.predicate).toBe("认为")
     expect(edge.edge_kind).toBe("world_fact")
     expect(edge.valid_at).toBe(1)
+    expect(edge.source_chapter).toBe(1)
+    expect(edge.revealed_at).toBe(1)
+    expect(edge.known_by).toEqual(["林晚"])
     expect(edge.modality).toBe("belief")
     expect(edge.digest).toBe(await computeCheckpointDigestOf({ chapter: 1, modality: "belief", fact: "林晚认为沈舟是凶手" }))
 
-    const hypothesis = ops[2]!
+    const hypothesis = ops[3]!
     const hEdge = (hypothesis.canonPayload as { kind: "supersede"; request: { new_edges: Array<Record<string, unknown>> } }).request.new_edges[0]!
     expect(hEdge.modality).toBe("hypothesis")
+    expect(hEdge.known_by).toEqual(["沈舟"])
+    expect(hEdge.source_chapter).toBe(1)
+    expect(hEdge.revealed_at).toBe(1)
     expect(hypothesis.legacyPayload).toEqual({
       kind: "snapshot_modality_fact",
       chapterNumber: 1,
@@ -500,18 +745,18 @@ describe("runCanonDualWriteHook（单点双写钩子）", () => {
     expect(deps.writeCanon).not.toHaveBeenCalled()
   })
 
-  it("final + 新事实 → completed + 原 ShadowWriteReport（两侧各一次，now 由入参提供）", async () => {
+  it("final + 新事实 → completed + 原 ShadowWriteReport（每条事实派生 episode + world_fact，now 由入参提供）", async () => {
     const deps = makeDeps()
     const facts = ["主角佩剑名为黑剑", "码头设防"]
     const snap = snapshotWithFacts(facts)
     const outcome = await runCanonDualWriteHookOutcome(deps, PROJECT, { chapter_status: "final" }, snap, 1234)
     expect(outcome.status).toBe("completed")
     if (outcome.status !== "completed") throw new Error("expected completed outcome")
-    expect(outcome.report.written).toBe(2)
+    expect(outcome.report.written).toBe(4)
     expect(outcome.report.queued).toBe(0)
     expect(outcome.report.reconcile.consistent).toBe(true)
-    expect(deps.writeCanon).toHaveBeenCalledTimes(2)
-    expect(deps.writeLegacy).toHaveBeenCalledTimes(2)
+    expect(deps.writeCanon).toHaveBeenCalledTimes(4)
+    expect(deps.writeLegacy).toHaveBeenCalledTimes(4)
     const digest0 = await computeCheckpointDigestOf({ chapter: 1, fact: facts[0] })
     expect((deps.writeCanon.mock.calls[0]![1] as { episode: unknown }).episode).toEqual({
       id: `ch1-ep-${digest0.slice(0, 12)}`,
@@ -520,6 +765,7 @@ describe("runCanonDualWriteHook（单点双写钩子）", () => {
       summary: facts[0],
       digest: digest0,
     })
+    expect((deps.writeCanon.mock.calls[2]![1] as { kind: string }).kind).toBe("supersede")
   })
 
   it("shadowWriteCanon 抛 Error → 非致命告警，不阻断（双写失败落队异常路径）", async () => {
@@ -558,13 +804,13 @@ describe("runCanonDualWriteHook（单点双写钩子）", () => {
     await expect(
       runCanonDualWriteHook(deps, PROJECT, { chapter_status: "final" }, snap, 1234),
     ).resolves.toBeUndefined()
-    expect(deps.writeCanon).toHaveBeenCalledTimes(1)
-    expect(deps.writeLegacy).toHaveBeenCalledTimes(1)
+    expect(deps.writeCanon).toHaveBeenCalledTimes(2)
+    expect(deps.writeLegacy).toHaveBeenCalledTimes(2)
   })
 })
 
 describe("ingestChapter — T16 双写钩子接入（reject 先于双写）", () => {
-  it("final 章 + 新正史事实 → 触发 canon 双写（每条事实一个 episode）", async () => {
+  it("final 章 + 新正史事实 → 触发 canon 双写（每条事实派生 episode + world_fact）", async () => {
     mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({ newCanonFacts: ["主角佩剑名为黑剑", "码头设防"] }))
 
@@ -573,10 +819,13 @@ describe("ingestChapter — T16 双写钩子接入（reject 先于双写）", ()
 
     expect(result.snapshot).not.toBeNull()
     expect(result.snapshot!.chapterNumber).toBe(1)
-    // 双写被触发：两个新事实 → 两次 canon 写
-    expect(deps.writeCanon).toHaveBeenCalledTimes(2)
+    // 双写被触发：两个新事实 → 2 episode + 2 world_fact = 4 次 canon 写
+    expect(deps.writeCanon).toHaveBeenCalledTimes(4)
     const firstEpisode = (deps.writeCanon.mock.calls[0]![1] as { episode: { summary: string } }).episode
     expect(firstEpisode.summary).toBe("主角佩剑名为黑剑")
+    const firstWorldFact = (deps.writeCanon.mock.calls[2]![1] as { kind: string; request: { new_edges: Array<{ edge_kind: string }> } })
+    expect(firstWorldFact.kind).toBe("supersede")
+    expect(firstWorldFact.request.new_edges[0]!.edge_kind).toBe("world_fact")
   })
 
   it("54 ③: facts-store 接线——final 章 newCanonFacts 写入 facts.json (ADR-26 唯一真源)", async () => {
@@ -686,25 +935,42 @@ describe("ingestChapter — 提交点实源绑定与归一化消费者连接", (
     expect(await computeCheckpointDigest(outputAfter)).toBe(await computeCheckpointDigest(outputBefore))
 
     // Canon 操作集：同一事实集 → 相同 digest / payload（不因 normalized 身份变化）。
+    // 2 episode + 2 world_fact + 1 belief = 5 ops；既有 episode 与 belief digest 保持逐字节不变。
     const opsBefore = await buildCanonDualWriteOps(result.snapshot!)
     const opsAfter = await buildCanonDualWriteOps(savedSnapshot)
-    expect(opsBefore).toHaveLength(3)
+    expect(opsBefore).toHaveLength(5)
     expect(opsAfter.map((op) => op.digest)).toEqual(opsBefore.map((op) => op.digest))
+    const expectedWfDigest0 = await computeCheckpointDigestOf({
+      chapter: 62,
+      kind: "world_fact",
+      fact: "主角佩剑名为黑剑",
+      sourceId: "主角佩剑",
+      predicate: "名为",
+      targetId: "黑剑",
+    })
+    const expectedWfDigest1 = await computeCheckpointDigestOf({
+      chapter: 62,
+      kind: "world_fact",
+      fact: "码头设防",
+      sourceId: "码头设防",
+      predicate: "world_fact",
+      targetId: "码头设防",
+    })
     // 捕获本次真实 fixture 字节/digest 值（探测输出契约不变）。
     expect({
       outputCodeUnits: outputBefore.length,
       outputSha256: await computeCheckpointDigest(outputBefore),
       canonDigests: opsBefore.map((op) => op.digest),
-      canonPayloadDigest: await computeCheckpointDigestOf(opsBefore.map((op) => op.canonPayload)),
     }).toEqual({
       outputCodeUnits: 8660,
       outputSha256: "a848f17936730b054a336282ccd8fe734a84f0b418c1088e8a009ec1b15213cc",
       canonDigests: [
         "967a4f8e09ae870ad3168b7999f7bb9f1536b583aeaaed075234239d977974a7",
         "18370a812865156b414f1f66ec75cea0ee5ad8596cbfcf9b13052458c59cbb2e",
+        expectedWfDigest0,
+        expectedWfDigest1,
         "93adf5bbc3c90c03b01ff8afac38d1a571e1cb1961df653c973df8cf14ba707f",
       ],
-      canonPayloadDigest: "2a42d6ddf5277f96d8c24560d0ae077a73b82bb5bb59b35cc2d09351773b1a01",
     })
     expect(await computeCheckpointDigestOf(opsAfter.map((op) => op.canonPayload)))
       .toBe(await computeCheckpointDigestOf(opsBefore.map((op) => op.canonPayload)))
@@ -779,7 +1045,7 @@ describe("ingestChapter — 提交点实源绑定与归一化消费者连接", (
     expect(result.canonOutcome?.status).toBe("completed")
     const outcome = result.canonOutcome
     if (outcome?.status !== "completed") throw new Error("expected completed canon outcome")
-    expect(outcome.report.results.map((r) => r.canon.revision)).toEqual([23])
+    expect(outcome.report.results.map((r) => r.canon.revision)).toEqual([23, 23])
     // 正文 revision 无真源 → sourceBinding 无该字段；snapshot revision / Canon max_revision 不交叉复制。
     expect(JSON.stringify(result.sourceBinding)).not.toContain("revision")
     expect(result.receipt?.snapshotRevisionAtExtractionCommit).not.toBe(outcome.report.results[0]!.canon.revision)
@@ -801,8 +1067,8 @@ describe("ingestChapter — 提交点实源绑定与归一化消费者连接", (
     const outcome = result.canonOutcome
     if (outcome?.status !== "completed") throw new Error("expected completed canon outcome")
     expect(outcome.report.written).toBe(1)
-    expect(outcome.report.queued).toBe(1)
-    expect(outcome.report.results.map((r) => r.canon.ok)).toEqual([true, false])
+    expect(outcome.report.queued).toBe(3)
+    expect(outcome.report.results.map((r) => r.canon.ok)).toEqual([true, false, false, false])
     expect(outcome.report.results[1]!.canon.error).toBe("canon boom")
     expect(outcome.report.reconcile.consistent).toBe(false)
     // ingest 四态不变：snapshot 成功仍 ok（Canon 状态另列，不篡改 ingest 语义）。

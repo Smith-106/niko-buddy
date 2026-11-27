@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => {
   return {
     files,
     rawData,
+    includeCognitionDataSource: false,
     readFile: vi.fn(async (path: string) => {
       const content = files.get(path)
       if (content === undefined) throw new Error(`ENOENT: ${path}`)
@@ -91,6 +92,7 @@ vi.mock("./context-data-sources", async (importOriginal) => {
     getAllDataSources: () => [
       ...Object.keys(mocks.rawData).map((name) => ({ name, priority: 1, load: async () => mocks.rawData[name] })),
       actual.fallbackCharacterStatesDataSource,
+      ...(mocks.includeCognitionDataSource ? [actual.cognitionTextDataSource] : []),
     ],
   }
 })
@@ -177,6 +179,7 @@ beforeEach(() => {
   resetContextGaps()
   collectContextGaps()
   mocks.files.clear()
+  mocks.includeCognitionDataSource = false
   for (const key of Object.keys(mocks.rawData)) delete mocks.rawData[key]
   mocks.rawData.outline = "明确静态设定：Lin 是医师；明确未来计划：第20章回收支线。"
   mocks.rawData.chapterOutline = "第1章：进入旧屋\n第10章：核对账本"
@@ -525,5 +528,227 @@ describe("无章号 golden 与 gap 生命周期", () => {
     expect(getContextGapsActive()).toBe(false)
     recordDatasourceLoadFailure("after-build", "temporal_history_unavailable")
     expect(collectContextGaps()).toEqual([])
+  })
+})
+
+describe("TASK-006: readSubplotBoardText 放行章前安全支线与 1x 快照重放去重", () => {
+  it("readSubplotBoardText 放行章前安全 active/paused/proposed 支线，并严格过滤已解决/废弃/未来开启/未来进度支线", async () => {
+    putStore("subplot-board", {
+      items: [
+        {
+          id: "safe-active",
+          title: "商会走私暗线",
+          status: "active",
+          startChapter: 2,
+          lastSeenChapter: 6,
+          relatedCharacters: ["Lin"],
+          summary: "调查码头走私账本",
+          progress: ["第2章发现账本异常", "第6章潜入货栈"],
+          notes: "",
+        },
+        {
+          id: "safe-paused",
+          title: "古剑来历",
+          status: "paused",
+          startChapter: 3,
+          lastSeenChapter: 5,
+          relatedCharacters: ["Lin"],
+          summary: "追查剑柄铭文",
+          progress: ["Ch3 拓印铭文"],
+          notes: "",
+        },
+        {
+          id: "future-start",
+          title: "未来开启支线",
+          status: "active",
+          startChapter: 10,
+          lastSeenChapter: 10,
+          relatedCharacters: ["Lin"],
+          summary: "不应在 ch10 前泄露",
+          progress: [],
+          notes: "",
+        },
+        {
+          id: "resolved-thread",
+          title: "已解决支线",
+          status: "resolved",
+          startChapter: 1,
+          resolvedChapter: 12,
+          lastSeenChapter: 8,
+          relatedCharacters: ["Lin"],
+          summary: "未来已结案",
+          progress: ["第1章开启"],
+          notes: "",
+        },
+        {
+          id: "abandoned-thread",
+          title: "已废弃支线",
+          status: "active",
+          startChapter: 1,
+          abandoned: true,
+          lastSeenChapter: 4,
+          relatedCharacters: ["Lin"],
+          summary: "已废弃",
+          progress: ["第1章开启"],
+          notes: "",
+        },
+        {
+          id: "future-progress",
+          title: "未来进度支线",
+          status: "active",
+          startChapter: 2,
+          lastSeenChapter: 6,
+          relatedCharacters: ["Lin"],
+          summary: "包含第10章剧透进度",
+          progress: ["第2章开端", "第10章真凶伏法"],
+          notes: "",
+        },
+        {
+          id: "future-last-seen",
+          title: "未来最后出现支线",
+          status: "active",
+          startChapter: 2,
+          lastSeenChapter: 11,
+          relatedCharacters: ["Lin"],
+          summary: "晚章已更新状态",
+          progress: ["第2章开端"],
+          notes: "",
+        },
+      ],
+      lastUpdated: "",
+    })
+
+    const gap = vi.fn()
+    const text = await readSubplotBoardText(PROJECT, { beforeChapter: 10, recordGap: gap })
+    expect(text).toContain("商会走私暗线")
+    expect(text).toContain("古剑来历")
+    expect(text).not.toMatch(/未来开启支线|已解决支线|已废弃支线|未来进度支线|未来最后出现支线/)
+    // 因存在被过滤条目，仍诚实记录 temporal_history_unavailable
+    expect(gap).toHaveBeenCalledWith("subplotBoard", "temporal_history_unavailable")
+  })
+
+  it("readSubplotBoardText 对全部安全且具备 lastSeenChapter < N 的支线零 unavailable 缺口；缺失 lastSeenChapter 或摘要/进度含未来章号（含中文数字）时 fail-closed 拦截并记缺口", async () => {
+    putStore("subplot-board", {
+      items: [
+        {
+          id: "complete",
+          title: "完整时点支线",
+          status: "active",
+          startChapter: 2,
+          lastSeenChapter: 5,
+          relatedCharacters: ["Lin"],
+          summary: "第三章起核对账册",
+          progress: ["第五章取得证据"],
+          notes: "",
+        },
+      ],
+      lastUpdated: "",
+    })
+    const cleanGap = vi.fn()
+    const cleanText = await readSubplotBoardText(PROJECT, { beforeChapter: 8, recordGap: cleanGap })
+    expect(cleanText).toContain("完整时点支线")
+    expect(cleanGap).not.toHaveBeenCalled()
+
+    // 缺失 lastSeenChapter → fail-closed 过滤为空并记录 temporal_history_unavailable
+    putStore("subplot-board", {
+      items: [
+        {
+          id: "no-last-seen",
+          title: "缺lastSeen支线",
+          status: "proposed",
+          startChapter: 2,
+          relatedCharacters: ["Lin"],
+          summary: "旧数据无 lastSeenChapter",
+          progress: ["第2章伏笔"],
+          notes: "",
+        },
+      ],
+      lastUpdated: "",
+    })
+    const missingLastSeenGap = vi.fn()
+    const missingLastSeenText = await readSubplotBoardText(PROJECT, { beforeChapter: 8, recordGap: missingLastSeenGap })
+    expect(missingLastSeenText).toBe("")
+    expect(missingLastSeenGap).toHaveBeenCalledWith("subplotBoard", "temporal_history_unavailable")
+
+    // summary 含未来阿拉伯章号（第20章）或中文数字章号（第二十章）→ fail-closed 拦截并记缺口
+    putStore("subplot-board", {
+      items: [
+        {
+          id: "future-summary-arabic",
+          title: "摘要阿拉伯剧透支线",
+          status: "active",
+          startChapter: 2,
+          lastSeenChapter: 5,
+          relatedCharacters: ["Lin"],
+          summary: "将在第20章揭露真实幕后主使",
+          progress: ["第5章拿到线索"],
+          notes: "",
+        },
+        {
+          id: "future-summary-chinese",
+          title: "摘要中文剧透支线",
+          status: "active",
+          startChapter: 2,
+          lastSeenChapter: 5,
+          relatedCharacters: ["Lin"],
+          summary: "第二十章双方在古塔决战",
+          progress: ["第五章密谈"],
+          notes: "",
+        },
+        {
+          id: "future-progress-chinese",
+          title: "进度中文剧透支线",
+          status: "active",
+          startChapter: 2,
+          lastSeenChapter: 5,
+          relatedCharacters: ["Lin"],
+          summary: "正常摘要",
+          progress: ["第二章起意", "第一百零二回真相大白"],
+          notes: "",
+        },
+      ],
+      lastUpdated: "",
+    })
+    const futureSummaryGap = vi.fn()
+    const futureSummaryText = await readSubplotBoardText(PROJECT, { beforeChapter: 10, recordGap: futureSummaryGap })
+    expect(futureSummaryText).toBe("")
+    expect(futureSummaryGap).toHaveBeenCalledWith("subplotBoard", "temporal_history_unavailable")
+  })
+
+  it("readSubplotBoardText 遇到损坏的非数组 items 仍报 datasource_error", async () => {
+    putStore("subplot-board", { items: "corrupt", lastUpdated: "" })
+    const gap = vi.fn()
+    expect(await readSubplotBoardText(PROJECT, { beforeChapter: 5, recordGap: gap })).toBe("")
+    expect(gap).toHaveBeenCalledWith("subplotBoard", "datasource_error")
+  })
+
+  it("loadProjectionTexts 单次调用仅触发 1 次 loadValidMemorySnapshots（emotional + resource 共享）", async () => {
+    const snapshots = [snapshot(1), snapshot(2, "A"), snapshot(5, "B")]
+    const loadSpy = vi.spyOn(historyModule, "loadValidMemorySnapshots").mockResolvedValue(snapshots)
+    const texts = await loadProjectionTexts(PROJECT, { beforeChapter: 6 })
+    expect(loadSpy).toHaveBeenCalledTimes(1)
+    expect(texts.emotionalText).toContain("arc-5")
+    expect(texts.resourceText).toContain("持有者 B")
+  })
+
+  it("buildContextPack 有合法 chapterNumber 时跨 cognition + emotional + resource 仅调用 1 次 loadValidMemorySnapshots（消除 3x 重放）", async () => {
+    mocks.includeCognitionDataSource = true
+    const s1 = { ...snapshot(1), knowledgeChanges: ["Lin知道密室入口"] }
+    const s2 = { ...snapshot(2, "A"), knowledgeChanges: ["Lin知道幕后主使"] }
+    const s3 = snapshot(3, "B")
+    const loadSpy = vi.spyOn(historyModule, "loadValidMemorySnapshots").mockResolvedValue([s1, s2, s3])
+
+    const pack = await buildContextPack(PROJECT, "写第3章", 3, buildOptions())
+    expect(loadSpy).toHaveBeenCalledTimes(1)
+    expect(pack.cognitionStates).toContain("密室入口")
+    expect(pack.characterStates).toContain("arc-2")
+    expect(pack.characterStates).toContain("持有者 A")
+  })
+
+  it("buildContextPack 无 chapterNumber 时惰性不调用 loadValidMemorySnapshots（0 IO）", async () => {
+    mocks.includeCognitionDataSource = true
+    const loadSpy = vi.spyOn(historyModule, "loadValidMemorySnapshots").mockResolvedValue([snapshot(1, "A")])
+    await buildContextPack(PROJECT, "整理设定", undefined, buildOptions())
+    expect(loadSpy).not.toHaveBeenCalled()
   })
 })

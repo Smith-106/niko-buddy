@@ -18,6 +18,7 @@ import {
   computeBackoffMs,
   parentDir,
   canonStoreWriter,
+  snapshotLegacyBatchWriter,
   snapshotLegacyWriter,
   defaultCanonDualWriteDeps,
   attemptDualWrite,
@@ -318,6 +319,130 @@ describe("snapshotLegacyWriter（真实 snapshot-derived 投影写入器，DEBT-
     expect(lines).toHaveLength(2)
     expect(lines[0]).toContain("fact-1")
     expect(lines[1]).toContain("fact-2")
+  })
+})
+
+describe("v2.35: snapshotLegacyBatchWriter 与定向写前门查询（消除 O(N^2) 与全表扫描）", () => {
+  it("shadowWriteCanon 使用 defaultCanonDualWriteDeps()：N 条 snapshot_fact + 若干非 snapshot_fact 仅执行 1 次 readFile 与 1 次 writeFileAtomic", async () => {
+    const legacyPath = "E:/Novel/.novel/canon-legacy/canon-legacy.jsonl"
+    let legacyDisk = ""
+    readFileMock.mockImplementation(async (p: string) => {
+      if (p === legacyPath) {
+        if (!legacyDisk) throw new Error("ENOENT: missing")
+        return legacyDisk
+      }
+      throw new Error("ENOENT: missing")
+    })
+    writeFileAtomicMock.mockImplementation(async (p: string, content: string) => {
+      if (p === legacyPath) legacyDisk = content
+    })
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_ingest_episode") return { inserted: true, max_revision: 1 }
+      if (cmd === "canon_query") return { edges: [], max_revision: 1 }
+      if (cmd === "canon_supersede_edges") return { result: { capped: 0, inserted: 1 }, max_revision: 2 }
+      return {}
+    })
+
+    const ops: CanonDualWriteOp[] = [
+      { digest: "ep-1", legacyPayload: { kind: "snapshot_fact", chapterNumber: 3, fact: "林澈：佩剑名为黑剑" }, canonPayload: episodePayload() },
+      { digest: "ep-2", legacyPayload: { kind: "snapshot_fact", chapterNumber: 3, fact: "林澈位于临冬镇" }, canonPayload: episodePayload() },
+      { digest: "ep-3", legacyPayload: { kind: "snapshot_fact", chapterNumber: 3, fact: "码头设防" }, canonPayload: episodePayload() },
+      {
+        digest: "wf-1",
+        legacyPayload: { kind: "snapshot_world_fact", chapterNumber: 3, fact: "林澈：佩剑名为黑剑", subject: "林澈", predicate: "佩剑", object: "黑剑" },
+        canonPayload: {
+          kind: "supersede",
+          request: {
+            old_edge_ids: [],
+            cap_chapter: 3,
+            new_edges: [{ id: "e1", source_id: "林澈", target_id: "黑剑", predicate: "佩剑", edge_kind: "world_fact", valid_at: 3 }],
+          },
+        },
+      },
+      {
+        digest: "mod-1",
+        legacyPayload: { kind: "snapshot_modality_fact", chapterNumber: 3, modality: "belief", subject: "林晚", predicate: "认为", object: "沈舟是凶手" },
+        canonPayload: {
+          kind: "supersede",
+          request: {
+            old_edge_ids: [],
+            cap_chapter: 3,
+            new_edges: [{ id: "e2", source_id: "林晚", target_id: "沈舟是凶手", predicate: "认为", edge_kind: "world_fact", valid_at: 3, modality: "belief" }],
+          },
+        },
+      },
+    ]
+
+    const report = await shadowWriteCanon(defaultCanonDualWriteDeps(), "E:/Novel", ops, 1000)
+    expect(report.written).toBe(5)
+    expect(report.queued).toBe(0)
+
+    const legacyReads = readFileMock.mock.calls.filter((c) => c[0] === legacyPath)
+    const legacyWrites = writeFileAtomicMock.mock.calls.filter((c) => c[0] === legacyPath)
+    expect(legacyReads).toHaveLength(1)
+    expect(legacyWrites).toHaveLength(1)
+
+    const writtenLines = legacyDisk.split("\n").filter(Boolean).map((l) => JSON.parse(l) as { chapterNumber: number; fact: string })
+    expect(writtenLines).toHaveLength(3)
+    expect(writtenLines.map((l) => l.fact)).toEqual(["林澈：佩剑名为黑剑", "林澈位于临冬镇", "码头设防"])
+  })
+
+  it("纯非 snapshot_fact 批次（snapshot_world_fact / snapshot_modality_fact）→ 0 次 legacy 磁盘 IO", async () => {
+    const outcomes = await snapshotLegacyBatchWriter("E:/Novel", [
+      { kind: "snapshot_world_fact", chapterNumber: 1, fact: "a" },
+      { kind: "snapshot_modality_fact", chapterNumber: 1, modality: "belief", subject: "x", predicate: "p", object: "y" },
+    ])
+    expect(outcomes).toEqual([{ ok: true }, { ok: true }])
+    expect(createDirectoryMock).not.toHaveBeenCalled()
+    expect(readFileMock).not.toHaveBeenCalled()
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+  })
+
+  it("snapshotLegacyBatchWriter 遇 EACCES fail-closed：不覆写旧文件，仅对 snapshot_fact 返回失败", async () => {
+    createDirectoryMock.mockResolvedValue(undefined)
+    readFileMock.mockRejectedValue(new Error("EACCES: permission denied"))
+    const outcomes = await snapshotLegacyBatchWriter("E:/Novel", [
+      { kind: "snapshot_fact", chapterNumber: 2, fact: "fact-a" },
+      { kind: "snapshot_world_fact", chapterNumber: 2, fact: "fact-a" },
+      { kind: "snapshot_fact", chapterNumber: 2, fact: "fact-b" },
+    ])
+    expect(outcomes).toEqual([
+      { ok: false, error: "EACCES: permission denied" },
+      { ok: true },
+      { ok: false, error: "EACCES: permission denied" },
+    ])
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+  })
+
+  it("replayPendingQueue Phase B 多条到期记录走 writeLegacyBatch 单次批写", async () => {
+    const legacyPath = "E:/Novel/.novel/canon-legacy/canon-legacy.jsonl"
+    const queuePath = "E:/Novel/.novel/canon-pending.jsonl"
+    const disk = new Map<string, string>()
+    disk.set(
+      queuePath,
+      [
+        pendingRec({ digest: "r1", nextRetryAt: 1, legacyPayload: { kind: "snapshot_fact", chapterNumber: 4, fact: "f1" } }),
+        pendingRec({ digest: "r2", nextRetryAt: 1, legacyPayload: { kind: "snapshot_fact", chapterNumber: 4, fact: "f2" } }),
+      ]
+        .map((r) => JSON.stringify(r))
+        .join("\n") + "\n",
+    )
+    readFileMock.mockImplementation(async (p: string) => {
+      const content = disk.get(p)
+      if (content === undefined) throw new Error("ENOENT: missing")
+      return content
+    })
+    writeFileAtomicMock.mockImplementation(async (p: string, content: string) => {
+      disk.set(p, content)
+    })
+    invokeMock.mockResolvedValue({ inserted: true, max_revision: 5 })
+
+    const report = await replayPendingQueue(defaultCanonDualWriteDeps(), "E:/Novel", 1000)
+    expect(report).toEqual({ total: 2, succeeded: 2, rescheduled: 0, skipped: 0, remaining: 0 })
+    expect(readFileMock.mock.calls.filter((c) => c[0] === legacyPath)).toHaveLength(1)
+    expect(writeFileAtomicMock.mock.calls.filter((c) => c[0] === legacyPath)).toHaveLength(1)
+    const lines = (disk.get(legacyPath) ?? "").split("\n").filter(Boolean)
+    expect(lines).toHaveLength(2)
   })
 })
 
@@ -1540,5 +1665,128 @@ describe("R2-M01 / R2-M07 写前门五项修复与 twoPhaseReconcile 自愈补�
     } finally {
       promoteSpy.mockRestore()
     }
+  })
+
+  it("v2.35: canonStoreWriter 写前门发送定向非空 CanonEdgeFilter（含 entity_ids/predicates/edge_kinds?），绝不传空数组 []", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") return { edges: [], max_revision: 1 }
+      if (cmd === "canon_supersede_edges") return { result: { capped: 0, inserted: 2 }, max_revision: 2 }
+      return {}
+    })
+
+    // 1) 全部新边声明 edge_kind → filter 包含 archived:false + 去重 entity_ids + predicates + edge_kinds
+    await canonStoreWriter("P-targeted", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 5,
+        new_edges: [
+          { id: "n1", source_id: "林澈", target_id: "霜刃", predicate: "佩剑", edge_kind: "world_fact", valid_at: 5 },
+          { id: "n2", source_id: "林澈", target_id: "临冬镇", predicate: "位于", edge_kind: "world_fact", valid_at: 5 },
+        ],
+      },
+    })
+    expect(invokeMock).toHaveBeenCalledWith("canon_query", {
+      projectId: "P-targeted",
+      filter: {
+        archived: false,
+        entity_ids: ["林澈"],
+        predicates: ["佩剑", "位于"],
+        edge_kinds: ["world_fact"],
+      },
+    })
+
+    // 2) 部分边未声明 edge_kind → 省略 edge_kinds（不传空数组 []）
+    invokeMock.mockClear()
+    await canonStoreWriter("P-mixed", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 5,
+        new_edges: [
+          { id: "n1", source_id: "A", target_id: "B", predicate: "p", edge_kind: "world_fact", valid_at: 5 },
+          { id: "n2", source_id: "C", target_id: "D", predicate: "q", valid_at: 5 },
+        ],
+      },
+    })
+    const mixedFilter = invokeMock.mock.calls.find((c) => c[0] === "canon_query")![1] as {
+      projectId: string
+      filter: Record<string, unknown>
+    }
+    expect(mixedFilter).toEqual({
+      projectId: "P-mixed",
+      filter: {
+        archived: false,
+        entity_ids: ["A", "C"],
+        predicates: ["p", "q"],
+      },
+    })
+    expect("edge_kinds" in mixedFilter.filter).toBe(false)
+
+    // 3) 极端空白 source_id / predicate → 省略该键，绝不传 [] 给 Rust CanonEdgeFilter
+    invokeMock.mockClear()
+    await canonStoreWriter("P-blank", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 5,
+        new_edges: [{ id: "n1", source_id: "  ", target_id: "B", predicate: "", valid_at: 5 }],
+      },
+    })
+    const blankFilter = invokeMock.mock.calls.find((c) => c[0] === "canon_query")![1] as {
+      projectId: string
+      filter: Record<string, unknown>
+    }
+    expect(blankFilter.filter).toEqual({ archived: false })
+    for (const val of Object.values(blankFilter.filter)) {
+      if (Array.isArray(val)) expect(val.length).toBeGreaterThan(0)
+    }
+
+    // 4) Finding 8：混合批次中仅一条边缺失/空白 source_id 或 predicate → 必须省略该过滤键而非欠查询
+    invokeMock.mockClear()
+    await canonStoreWriter("P-mixed-blank-source", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 5,
+        new_edges: [
+          { id: "n1", source_id: "林澈", target_id: "霜刃", predicate: "佩剑", edge_kind: "world_fact", valid_at: 5 },
+          { id: "n2", source_id: "   ", target_id: "黑塔", predicate: "位于", edge_kind: "world_fact", valid_at: 5 },
+        ],
+      },
+    })
+    const mixedBlankSource = invokeMock.mock.calls.find((c) => c[0] === "canon_query")![1] as {
+      projectId: string
+      filter: Record<string, unknown>
+    }
+    expect(mixedBlankSource.filter).toEqual({
+      archived: false,
+      predicates: ["佩剑", "位于"],
+      edge_kinds: ["world_fact"],
+    })
+    expect("entity_ids" in mixedBlankSource.filter).toBe(false)
+
+    invokeMock.mockClear()
+    await canonStoreWriter("P-mixed-blank-pred", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 5,
+        new_edges: [
+          { id: "n1", source_id: "林澈", target_id: "霜刃", predicate: "佩剑", edge_kind: "world_fact", valid_at: 5 },
+          { id: "n2", source_id: "苏未晞", target_id: "黑塔", predicate: "", edge_kind: "world_fact", valid_at: 5 },
+        ],
+      },
+    })
+    const mixedBlankPred = invokeMock.mock.calls.find((c) => c[0] === "canon_query")![1] as {
+      projectId: string
+      filter: Record<string, unknown>
+    }
+    expect(mixedBlankPred.filter).toEqual({
+      archived: false,
+      entity_ids: ["林澈", "苏未晞"],
+      edge_kinds: ["world_fact"],
+    })
+    expect("predicates" in mixedBlankPred.filter).toBe(false)
   })
 })

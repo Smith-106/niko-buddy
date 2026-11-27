@@ -2838,3 +2838,63 @@ export async function markExternalDraftAcceptedInStatus(
     })
   })
 }
+
+/**
+ * 原子切换 `.novel/status.json` 中的项目级 `canon_migration` 模式（T09/TASK-006）。
+ *
+ * - 经 `updateNovelSessionStatus` + `buildLifecycleStatus` 锁内完成 RMW，保留全部既有字段；
+ * - `options.onlyIfUnset === true` 且既有 `canon_migration !== undefined` 时返回 `null`（绝不覆盖显式 `'legacy'`/`'dual'`/`'shadow'`）；
+ * - 既有值已等于 `mode` 时返回 `null`（幂等零写盘）；
+ * - `status.json` 不存在时默认返回 `null`；仅当 `options.createIfMissing === true` 时经 `createBaseStatus` + `buildLifecycleStatus` 创建最小空闲基线并落盘。
+ */
+export async function setCanonMigrationMode(
+  projectPath: string,
+  mode: CanonMigrationMode,
+  options?: { onlyIfUnset?: boolean; createIfMissing?: boolean; now?: string },
+): Promise<NovelSessionStatus | null> {
+  const now = options?.now ?? new Date().toISOString()
+  return updateNovelSessionStatus(projectPath, (existing) => {
+    if (existing === null) {
+      if (options?.createIfMissing !== true) return null
+      const parsedDate = new Date(now)
+      const sessionId = createNovelSessionId(Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate)
+      const conversationId = "system:canon-migration"
+      const draftPath = novelDraftArtifactPath(projectPath, conversationId)
+      const base = createBaseStatus(
+        {
+          projectPath,
+          conversationId,
+          userRequest: `canon migration -> ${mode}`,
+        },
+        sessionId,
+        now,
+        draftPath,
+      )
+      return buildLifecycleStatus(base, {
+        updated_at: now,
+        status: "completed",
+        active_step_index: stageToActiveStepIndex("completed"),
+        current_task: {
+          checkpoint_stage: "completed",
+          status: "completed",
+        },
+        canon_migration: mode,
+      })
+    }
+    if (options?.onlyIfUnset && existing.canon_migration !== undefined) {
+      return null
+    }
+    if (existing.canon_migration === mode) {
+      return null
+    }
+    const nextBuilt = buildLifecycleStatus(existing, {
+      updated_at: now,
+      status: existing.status,
+      canon_migration: mode,
+    })
+    return {
+      ...existing,
+      ...nextBuilt,
+    }
+  })
+}
