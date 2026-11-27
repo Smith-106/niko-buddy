@@ -7,6 +7,31 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.35.0] - 2026-11-28
+
+> 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
+
+### Added
+
+- **零 LLM 技能/正典只读桥与 4 项严格只读 Rust MCP 工具**：新增 `src/lib/mcp/skills-read-tools.ts`（`runSkillsList`、`runSkillsGet`、`loadWritingSkillConfigReadOnly`、`loadDeAiSkillConfigReadOnly`，严守 `@/lib/novel` 单一 barrel 窄接口、零 LLM 调用与零写盘）并在 `state-bridge.ts` 新增 `skills-list` / `skills-get` 操作；Rust MCP 静态注册 4 项 `SessionScope::Read` 工具（`skills.list`、`skills.get`、`canon.facts_known_by`、`canon.episodes`），4 档 `ToolProfile` 演进为 `full-legacy`（50）、`writer-sub`（36）、`architect`（28）、`reviewer`（25，100% 严格只读），特权工具严格锁定 22 项且永不注册 `draft.accept`；纯声明式 `niko-buddy-writer` 插件升至 `v1.4.0`（14 份纯 `.json`/`.md` 声明式文件，内置 `mcp_config.dual-profile.example.json` 与双 Profile Antigravity MCP 配置纯辅助生成器）；应用内主控本地门面由 6 扩至 8（新增 `skills_list` / `skills_get`，总工具面 `20 -> 22`）。
+- **嵌入式 ACP 单进程多角色槽池与非破坏性审校交接 UI**：Rust `antigravity_acp.rs` 将单会话标量重构为并发多角色槽池（`writer`、`reviewer [RO]` 硬锁 `ToolProfile::Reviewer` 与有效 `SessionScope::Read`、`architect`），在 `src-tauri/src/lib.rs` 注册新命令 `antigravity_acp_switch_slot`（全仓 147 条注册 Tauri 命令、0 死命令），完整守恒三处 `conn_epoch` 围栏、防毒化 `exit_guard`、按槽权限排空与 `(Some(_), None) => false` 严格匹配；前端按 F1–F15 拆分新增 `antigravity-acp-handoff-helpers.ts` 与无障碍 `antigravity-acp-slot-bar.tsx`，升级纯内存 `antigravity-acp-store.ts` / `antigravity-acp-client.ts`（跨槽隔离 + 顶层向后兼容镜像）、落地仅预填的非破坏性审校交接与 `skills.list` / `skills.get` 快捷提示，中英双语对齐至 4,854 键 1:1 匹配（`en.json` 零 CJK）。
+- **受控 `canon_migration = "dual"` 迁移编排器与回退读链**：在 `novel-session-status.ts` 与 `canon-backfill.ts` 新增 `setCanonMigrationMode` 与 `activateCanonDualMigration`，在干净双写提交后非致命自动晋升 `dual` 模式；`context-engine-technique-sources.ts` 的 `loadCanonSourceFacts` 在 `canon.db` 为空或不可用时确定性回退 `.novel/facts.json`。
+
+### Changed
+
+- **Rust `canon.db` 写侧物化与 `canon-legacy.jsonl` O(N²) 消除**：`chapter-ingest-utils.ts` 新增 `collectSnapshotKnownBy` 与 `parseCanonFactTriple` 纯辅助；`chapter-ingest.ts` 正式章提交同步物化可查询 `world_fact` 边（带归一化 `known_by` 视角持有人与真实先序冲突 `old_edge_ids` 驱动 `formerFacts` 演化）并在提交后非致命排空 `promotion-retry.jsonl`（零嵌套锁）；`canon-dual-write.ts` 引入按章批量写 `snapshotLegacyBatchWriter` 消除逐事实整文件重写，并将写前冲突查询收窄至非空目标 `CanonEdgeFilter`。
+- **单次上下文装配 3× → 1× `foldBeforeChapter` 盘读去重**：`context-engine.ts`、`context-data-source.ts`、`context-data-sources.ts` 与 `context-derived-stores.ts` 通过共享惰性快照预加载消除同一次 `buildContextPack` 内的 3 次重复盘上快照重放。
+
+### Fixed
+
+- **大纲多智能体空 `contextPack` 桩、裸技能 ID 注入与内置技能遗漏修复**：`state-bridge.ts` 的 `readEnabledWritingSkillsReadOnly` 修复合并内置写作技能（`ensureBuiltinSkills`）；`outline-generation.ts` 与 `outline-multi-agent-adapter.ts` 以真实 `buildContextPack` 与技能正文注入替代空上下文桩与裸技能 ID。
+- **时序安全活跃支线解锁**：`context-engine.ts` 在严守 `context-projection-temporal.spec.ts` 全部防未来剧透契约的前提下，解除 `readSubplotBoardText` 对活跃支线的静默阻断。
+
+### 交付与分支说明
+
+- 本版为在独立工作树 `QMAI-v234-autonomy`（分支 `feat/v235-autonomy-wave2`）完成的主控自主化闭环 Wave 2 深化（`TASK-001`..`TASK-007`）源码版本登记，对应 A-34 决策日志见 `docs/decision-log/20261128-v235-autonomy-wave2.md`。
+- 本次仅登记源码版本号、变更日志、生成产物与决策日志，尚未创建或推送签名 Release Tag `v2.35.0`，不宣称已产出或真机验收新签名安装包。
+
 ## [2.34.0] - 2026-11-27
 
 > 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
