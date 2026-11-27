@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.33.0（2026-11-27）：原生 API 分角色锁温与可选角色模型槽、共识正典摘要、draft.diff / audit.longform_health 与 nbskill/1 单向声明式 SKILL.md 导出。
+    version: "2.33.0",
+    date: "2026-11-27",
+    highlights: {
+      en: [
+        "Added native API role-locked temperatures (planner 0.5, drafting 0.8, polish 0.6, review and canon audit 0.15), optional NovelConfig role model slots (plannerModel, polishModel, canonAuditModel with automatic fallback to reviewModel or primary chat model), and bounded consensus canon digest injection (up to 1,400 chars) across cross-review and debate prompts.",
+        "Added two zero-LLM read-only MCP tools (draft.diff with Myers line diff and SHA-256 parity; audit.longform_health with strictly read-only P0-over-P1-over-P2 long-form health aggregation), expanding ToolProfiles to 40 full-legacy, 26 writer-sub, 21 strictly read-only reviewer, and 18 architect tools while upgrading the declarative niko-buddy-writer plugin to v1.2.0.",
+        "Added one-way C-007 declarative SKILL.md export for human-reviewed nbskill/1 bundles (skill_bundle_list_installed, skill_bundle_mark_reviewed, and skill_bundle_export_declarative_skill_md), enforcing cryptographically bound on-disk review receipts, YAML frontmatter sanitization to single-line name and description, zero executable scripts, symlink/trailing-slash hardening, and dual write_authority isolation.",
+        "Updated NovelSection, ModelRoutesView, SkillPackPanel, WritingSkillLibraryView, ExternalControlSection, and 1:1 zh/en localization (4,801 keys) with read-only temperature lock badges, optional role slots, explicit human-review export gating with role=status C-007 verification feedback, and 40/26/21/18 profile summaries.",
+      ],
+      zh: [
+        "落地原生 API 分角色温度锁定（策划 0.5、正文 0.8、润色 0.6、审稿与正典考据 0.15）、可选角色模型槽位（plannerModel、polishModel、canonAuditModel，留空自动沿用审稿模型或主模型零回归）及共识互评有界正典摘要注入（上限 1,400 字符），收敛长篇批产与六维评测稳定性。",
+        "新增 2 项零 LLM 只读 MCP 工具（draft.diff 提供 Myers 行级差异与 SHA-256 对齐；audit.longform_health 以严格零写盘聚合伏笔债、追读债、情绪熔断、待审草稿与连续性风险并遵循 P0 优先于 P1 优先于 P2），4 档 ToolProfile 同步演进为完整兼容 40 / 主笔精简 26 / 责编严格全只读 21 / 策划大纲 18，纯声明式 niko-buddy-writer 插件升级至 v1.2.0。",
+        "新增 nbskill/1 人工复核技能包单向声明式 SKILL.md 导出链（skill_bundle_list_installed、skill_bundle_mark_reviewed、skill_bundle_export_declarative_skill_md）：忽略包内自述信任等级，强制校对盘上密码学复核收据，严格过滤可执行脚本与 hooks.json、清洗单行 YAML frontmatter、加固符号链接与双写权限隔离。",
+        "升级小说设置页、模型分工视图、技能包导出面板、外部控制设置与中英双语 4,801 键 1:1 对齐：呈现只读温度锁徽标与 3 个可选角色槽位、落实未复核强禁用与人工勾选复核/撤销门禁、展示 C-007 零脚本校验反馈及 40/26/21/18 档位摘要。",
+      ],
+    },
+  },
+  {
     // 2.32.0（2026-11-27）：黄金混合模式、零 API Key 交互快照提交、工作流草稿微创闭环与 5 组原子只读工具。
     version: "2.32.0",
     date: "2026-11-27",

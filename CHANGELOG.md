@@ -7,6 +7,31 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.33.0] - 2026-11-27
+
+> 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
+
+### Added
+
+- **原生 API 分角色温度锁定、可选角色模型槽位与共识互评正典摘要**：在 `NovelConfig` 与 `normalizeNovelConfig` 中增量支持可选 `plannerModel`、`polishModel`、`canonAuditModel` 槽位（留空 100% 沿用既有默认链，`canon_audit` 依次回退 `canonAuditModel → reviewModel → 主模型`），新增冻结常量 `NOVEL_ROLE_TEMPERATURES`（策划 `0.5` / 正文 `0.8` / 润色 `0.6` / 审稿与正典考据 `0.15`）及零 store 读取身份透传函数 `resolveOptionalRoleModel` 保护多席位共识模型；原生章节、审查与共识管线全链路锁定分角色温度，并在共识辩论轮与互评提示词中注入有界正典/世界观摘要 `buildConsensusCanonDigest`（上限 1,400 字符，空输入返回空串零干扰）。
+- **2 项零 LLM 只读 MCP 工具（`draft.diff` 与 `audit.longform_health`）与 4 档 Profile 矩阵升级**：`draft.diff` 基于 Myers 行级差异（配 `diffLines` 超限回退）与 `computeCheckpointDigest` SHA-256 校验输出紧凑 unified diff hunks，支持草稿互比或草稿对照正式章（自动剥离正式章 YAML frontmatter）；`audit.longform_health` 严格以 `{ readOnly: true, includeNonBlockingAudit: true }` 零写盘聚合伏笔债、追读债/支线债、情绪账本熔断、待审草稿与连续性风险，按 `Consistency(P0) > Anti-AI(P1) > Quality(P2)` 输出健康态势与有序触发器；MCP 总工具数升至 40（特权维持 16，零 `draft.accept`），4 档 `ToolProfile` 演进为 `full-legacy`（40）、`writer-sub`（26）、`reviewer`（21，100% `SessionScope::Read`）、`architect`（18，放行 `audit.longform_health` 并隐藏 `draft.diff`）。
+- **`nbskill/1` 人工复核密码学回执与 C-007 单向声明式 `SKILL.md` 导出**：新增 `skill_bundle_list_installed`、`skill_bundle_mark_reviewed` 与 `skill_bundle_export_declarative_skill_md` 3 条 Tauri 命令（全仓共 146 条注册命令、0 死链）；彻底忽略 `manifest.json` 自述 `trust_level`，强制在进程写锁保护下核验盘上独立密码学复核收据 `.nb-review-receipt.json`（与重算的 `content_hash` + `manifest_sha256` 严格绑定，且 zip 与清单层双重拦截伪造收据），仅向非保护外部目录单向原子导出清洗后的纯声明式 `SKILL.md`（单行转义 `{name, description}` YAML frontmatter）与 `references/*.md`，严拒可执行脚本、`hooks.json`、符号链接/尾斜杠目录联接及全部 `write_authority` 保护面。
+- **角色模型与锁温展示 UI、`nbskill/1` 人工复核导出面板与双语对齐**：`NovelSection` 与 `ModelRoutesView` 新增只读温度锁定徽标条及 3 个可选角色槽位（保留 `snapshot.routes` 4 项兼容并增量输出 3 条 `snapshot.roleRoutes`，维持全页零孤立 `<label>`）；`WritingSkillLibraryView` 与 `SkillPackPanel` 统一对齐 `<project>/user-assets` 落点根，落地显式勾选确认/撤销复核门禁、未复核强禁用导出（`disabled` + `aria-disabled` + `aria-describedby`）与 `role="status"` C-007 零脚本校验反馈；`ExternalControlSection` 与 `zh.json`/`en.json`（4,801 键 1:1 对齐）同步更新至 `40 / 26 / 21 / 18` 档位描述。
+
+### Changed
+
+- **纯声明式 `niko-buddy-writer` 写作插件升级至 v1.2.0**：保持严格 13 份 `.json`/`.md` 文件与 C-007 零脚本红线（`RULES_AGENTS_MD <= 1800B`、`PROJECT_AGENTS_MD_BLOCK <= 600B`、6 技能空闲 frontmatter `< 450` tokens），将 `draft.diff` 接入润色/审稿技能与写手/润色/责编角色（严格排除 `novel-architect`），将 `audit.longform_health` 接入全书运维与策划大纲角色，并将项目块纳入禁词扫描测试。
+- **模型连通性测试显式映射**：`testNovelModel` 扩展支持 `planner` / `polish` / `canon_audit`，改用显式任务字段映射表替代模板字符串拼接。
+
+### Fixed
+
+- **跨层参数 `null` 容错、安全锁序与无障碍加固**：对齐 `phase3-read-tools.ts` 全部 5 处可选参数解析器对显式 `null` 的 1:1 容错（与 Rust `tools.rs` 一致，同时保持拒绝未知 `null` 键与全 `null` 缺模式调用）；在 `export_declarative_skill_md_impl` 提前持有 `lock_file_mutations()` 消除并发撤销复核 TOCTOU 窗口；加固 Unix 根目录 `/` 重叠判定、`.novel` 复核收据拦截与多版本技能包唯一 `disabledHintId`。
+
+### 交付与分支说明
+
+- 本版为 `master` 主干源码版本登记，完成 Phase 3（原生 API 分角色温度锁与可选角色模型槽位、共识互评正典摘要、`draft.diff` / `audit.longform_health` 与插件 v1.2.0、`nbskill/1` 人工复核单向声明式 `SKILL.md` 导出）。按 P16 规则在纯净 HEAD 工作树将手写业务变更与生成产物/锁文件严格分批提交：手写提交为 `b4d48af1`（Rust MCP 40/26/21/18、插件 v1.2.0 与 `nbskill/1` 复核导出）、`98eac6df`（TS 原生锁温、可选角色槽与共识正典摘要）、`d0391d8f`（零 LLM `draft.diff` / `audit.longform_health` 引擎、状态桥与技能包客户端）、`804019a8`（UI 设置/路由/导出面板与 4,801 键 1:1 中英对齐），纯净生成产物提交为 `f0916ca4`（146 条 Tauri 命令参考与模块索引），随后单独登记 2.33.0 版本清单与锁文件同步提交。
+- 本次仅推进 `master` 主干源码版本号与变更日志并推送至 `smith`，尚未创建或推送签名 Release Tag `v2.33.0`，不宣称已产出或真机验收新安装包。
+
 ## [2.32.0] - 2026-11-27
 
 > 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
