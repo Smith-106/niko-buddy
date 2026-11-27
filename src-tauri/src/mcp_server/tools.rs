@@ -4240,6 +4240,1256 @@ impl super::registry::McpTool for CharacterUpsertTool {
     }
 }
 
+// ── TASK-002：6 个零 LLM 规划/治理写工具（SessionScope::Project）──────────────
+
+const PLANNING_WORLD_LAYERS: [&str; 13] = [
+    "axioms",
+    "background",
+    "geography",
+    "cultures",
+    "races",
+    "magicSystem",
+    "politics",
+    "technology",
+    "economy",
+    "religions",
+    "history",
+    "conflicts",
+    "factions",
+];
+const PLANNING_DIRECTOR_PHASES: [&str; 5] = ["idea", "world", "character", "outline", "chapters"];
+const PLANNING_FANFIC_MODES: [&str; 4] = ["canon", "au", "ooc", "cp"];
+const PLANNING_FORESHADOWING_STATUSES: [&str; 4] = ["planted", "advanced", "resolved", "abandoned"];
+const PLANNING_SUBPLOT_STATUSES: [&str; 4] = ["proposed", "active", "paused", "resolved"];
+const PLANNING_MAX_CHAPTER_NUM: u64 = 100_000;
+const PLANNING_MAX_VOLUME_NUM: u64 = 1_000;
+
+fn validate_planning_string_array(
+    value: &Value,
+    tool: &str,
+    field: &str,
+    max_items: usize,
+    max_item_chars: usize,
+    single_line: bool,
+) -> Result<Vec<String>, ToolError> {
+    let arr = value
+        .as_array()
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `{field}` 必须是字符串数组")))?;
+    if arr.len() > max_items {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `{field}` 最多 {max_items} 项（收到 {}）",
+            arr.len()
+        )));
+    }
+    let mut seen = std::collections::HashSet::with_capacity(arr.len());
+    let mut out = Vec::with_capacity(arr.len());
+    for (idx, item) in arr.iter().enumerate() {
+        let raw = item.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `{field}[{idx}]` 必须是字符串"))
+        })?;
+        let item_field = format!("{field}[{idx}]");
+        if single_line {
+            validate_single_line_str(raw, tool, &item_field, 1, max_item_chars)?;
+        } else {
+            validate_multiline_no_nul(raw, tool, &item_field, 1, max_item_chars)?;
+        }
+        let trimmed = raw.trim().to_string();
+        if seen.insert(trimmed.clone()) {
+            out.push(trimmed);
+        }
+    }
+    Ok(out)
+}
+
+fn validate_optional_text_allow_empty(
+    args: &Value,
+    tool: &str,
+    field: &str,
+    max_chars: usize,
+    single_line: bool,
+) -> Result<Option<String>, ToolError> {
+    match args.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => {
+            let raw = v.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `{field}` 必须是字符串"))
+            })?;
+            let char_len = raw.chars().count();
+            if char_len > max_chars || raw.contains('\0') {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `{field}` 长度不能超过 {max_chars} 且不得包含 NUL 字节"
+                )));
+            }
+            if single_line && raw.chars().any(char::is_control) {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `{field}` 不得包含控制字符"
+                )));
+            }
+            Ok(Some(raw.trim().to_string()))
+        }
+    }
+}
+
+fn validate_positive_u64_array(
+    value: &Value,
+    tool: &str,
+    field: &str,
+    max_items: usize,
+    max_val: u64,
+) -> Result<Vec<u64>, ToolError> {
+    let arr = value
+        .as_array()
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `{field}` 必须是整数数组")))?;
+    if arr.len() > max_items {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `{field}` 最多 {max_items} 项（收到 {}）",
+            arr.len()
+        )));
+    }
+    let mut set = std::collections::BTreeSet::new();
+    for (idx, item) in arr.iter().enumerate() {
+        match item.as_u64() {
+            Some(n) if (1..=max_val).contains(&n) => {
+                set.insert(n);
+            }
+            _ => {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `{field}[{idx}]` 必须是 1..={max_val} 的整数，收到 {item}"
+                )));
+            }
+        }
+    }
+    Ok(set.into_iter().collect())
+}
+
+fn build_director_upsert_world_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "director.upsert_world";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "worldType",
+            "mode",
+            "layers",
+            "crossRefs",
+            "deriveFromEntities",
+            "fillMissingRequired",
+        ],
+        &[],
+    )?);
+
+    let mut params = serde_json::Map::new();
+    let mut has_action = false;
+
+    if let Some(raw_wt) = normalized.get("worldType") {
+        let wt = raw_wt
+            .as_str()
+            .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `worldType` 必须是字符串")))?;
+        validate_single_line_str(wt, tool, "worldType", 1, 128)?;
+        params.insert("worldType".to_string(), json!(wt.trim()));
+        has_action = true;
+    }
+
+    if let Some(mode) = optional_enum_str(&normalized, tool, "mode", &["merge", "replace"])? {
+        params.insert("mode".to_string(), json!(mode));
+    }
+
+    if let Some(raw_layers) = normalized.get("layers") {
+        let layer_obj = raw_layers
+            .as_object()
+            .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `layers` 必须是对象")))?;
+        let mut clean_layers = serde_json::Map::new();
+        for (layer_name, layer_val) in layer_obj {
+            if !PLANNING_WORLD_LAYERS.contains(&layer_name.as_str()) {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `layers` 包含未知世界层 `{layer_name}`"
+                )));
+            }
+            if layer_val.is_null() {
+                continue;
+            }
+            let entries = validate_planning_string_array(
+                layer_val,
+                tool,
+                &format!("layers.{layer_name}"),
+                100,
+                2_000,
+                false,
+            )?;
+            clean_layers.insert(layer_name.clone(), json!(entries));
+        }
+        if !clean_layers.is_empty() {
+            params.insert("layers".to_string(), Value::Object(clean_layers));
+            has_action = true;
+        }
+    }
+
+    if let Some(raw_refs) = normalized.get("crossRefs") {
+        let refs_arr = raw_refs
+            .as_array()
+            .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `crossRefs` 必须是数组")))?;
+        if refs_arr.len() > 200 {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `crossRefs` 最多 200 项（收到 {}）",
+                refs_arr.len()
+            )));
+        }
+        let mut clean_refs = Vec::with_capacity(refs_arr.len());
+        for (idx, item) in refs_arr.iter().enumerate() {
+            let sub = Value::Object(normalize_strict_object_args(
+                item,
+                tool,
+                &["from", "to", "term"],
+                &["from", "to", "term"],
+            )?);
+            let from = optional_enum_str(&sub, tool, "from", &PLANNING_WORLD_LAYERS)?
+                .ok_or_else(|| {
+                    ToolError::invalid_params(format!("{tool}: `crossRefs[{idx}].from` 缺失"))
+                })?;
+            let to = optional_enum_str(&sub, tool, "to", &PLANNING_WORLD_LAYERS)?.ok_or_else(
+                || ToolError::invalid_params(format!("{tool}: `crossRefs[{idx}].to` 缺失")),
+            )?;
+            let term = sub
+                .get("term")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ToolError::invalid_params(format!(
+                        "{tool}: `crossRefs[{idx}].term` 必须是字符串"
+                    ))
+                })?;
+            validate_single_line_str(term, tool, &format!("crossRefs[{idx}].term"), 1, 256)?;
+            clean_refs.push(json!({ "from": from, "to": to, "term": term.trim() }));
+        }
+        params.insert("crossRefs".to_string(), Value::Array(clean_refs));
+        has_action = true;
+    }
+
+    if let Some(derive) = optional_bool(&normalized, tool, "deriveFromEntities")? {
+        params.insert("deriveFromEntities".to_string(), json!(derive));
+        if derive {
+            has_action = true;
+        }
+    }
+    if let Some(fill) = optional_bool(&normalized, tool, "fillMissingRequired")? {
+        params.insert("fillMissingRequired".to_string(), json!(fill));
+        if fill {
+            has_action = true;
+        }
+    }
+
+    if !has_action {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: 至少需提供 worldType / layers / crossRefs / deriveFromEntities / fillMissingRequired 之一"
+        )));
+    }
+
+    Ok(StateQuery::new("director-upsert-world").with_params(Value::Object(params)))
+}
+
+/// `director.upsert_world` —— 零 LLM 创建/合并/推导世界观骨架（`.novel/world-blueprint.json`）。
+pub struct DirectorUpsertWorldTool;
+
+impl super::registry::McpTool for DirectorUpsertWorldTool {
+    fn name(&self) -> &'static str {
+        "director.upsert_world"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM upsert/merge/replace of .novel/world-blueprint.json (13 world layers + crossRefs). Optionally derives layers from wiki/entities/* and/or deterministically fills missing required layers (axioms, background, geography, cultures, conflicts). Requires Project scope; never mutates formal chapters."
+    }
+
+    fn input_schema(&self) -> Value {
+        let mut layer_props = serde_json::Map::new();
+        for layer in PLANNING_WORLD_LAYERS {
+            layer_props.insert(
+                layer.to_string(),
+                json!({
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                }),
+            );
+        }
+        json!({
+            "type": "object",
+            "properties": {
+                "worldType": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "World genre/type label (e.g. fantasy, 东方玄幻)"
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["merge", "replace"],
+                    "description": "merge (default, dedupe-append) or replace (overwrite supplied layers)"
+                },
+                "layers": {
+                    "type": "object",
+                    "properties": Value::Object(layer_props),
+                    "additionalProperties": false,
+                    "description": "World blueprint layers map (required layers: axioms, background, geography, cultures, conflicts)"
+                },
+                "crossRefs": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "from": { "type": "string", "enum": PLANNING_WORLD_LAYERS },
+                            "to": { "type": "string", "enum": PLANNING_WORLD_LAYERS },
+                            "term": { "type": "string", "minLength": 1, "maxLength": 256 }
+                        },
+                        "required": ["from", "to", "term"],
+                        "additionalProperties": false
+                    },
+                    "description": "Cross-layer term references"
+                },
+                "deriveFromEntities": {
+                    "type": "boolean",
+                    "description": "Whether to derive layer seeds from wiki/entities/* before applying layers patch (default false)"
+                },
+                "fillMissingRequired": {
+                    "type": "boolean",
+                    "description": "Whether to deterministically seed any still-empty required layers so validation reaches complete (default false)"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_director_upsert_world_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_director_commit_phase_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "director.commit_phase";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &["idea", "expectedPhase", "retryIfFailed", "persistOnBlocked"],
+        &[],
+    )?);
+
+    let mut params = serde_json::Map::new();
+
+    if let Some(raw_idea) = normalized.get("idea") {
+        let clean_idea_map = normalize_strict_object_args(
+            raw_idea,
+            tool,
+            &["title", "genre", "coreConflict"],
+            &[],
+        )?;
+        let clean_idea_val = Value::Object(clean_idea_map);
+        let mut idea_out = serde_json::Map::new();
+        if let Some(raw_title) = clean_idea_val.get("title") {
+            let title = raw_title.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `idea.title` 必须是字符串"))
+            })?;
+            validate_single_line_str(title, tool, "idea.title", 1, 200)?;
+            idea_out.insert("title".to_string(), json!(title.trim()));
+        }
+        if let Some(raw_genre) = clean_idea_val.get("genre") {
+            let genre = raw_genre.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `idea.genre` 必须是字符串"))
+            })?;
+            validate_single_line_str(genre, tool, "idea.genre", 1, 128)?;
+            idea_out.insert("genre".to_string(), json!(genre.trim()));
+        }
+        if let Some(raw_conflict) = clean_idea_val.get("coreConflict") {
+            let conflict = raw_conflict.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `idea.coreConflict` 必须是字符串"))
+            })?;
+            validate_multiline_no_nul(conflict, tool, "idea.coreConflict", 1, 2_000)?;
+            idea_out.insert("coreConflict".to_string(), json!(conflict.trim()));
+        }
+        if !idea_out.is_empty() {
+            params.insert("idea".to_string(), Value::Object(idea_out));
+        }
+    }
+
+    if let Some(expected_phase) =
+        optional_enum_str(&normalized, tool, "expectedPhase", &PLANNING_DIRECTOR_PHASES)?
+    {
+        params.insert("expectedPhase".to_string(), json!(expected_phase));
+    }
+
+    if let Some(retry) = optional_bool(&normalized, tool, "retryIfFailed")? {
+        params.insert("retryIfFailed".to_string(), json!(retry));
+    }
+
+    if let Some(persist_blocked) = optional_bool(&normalized, tool, "persistOnBlocked")? {
+        params.insert("persistOnBlocked".to_string(), json!(persist_blocked));
+    }
+
+    Ok(StateQuery::new("director-commit-phase").with_params(Value::Object(params)))
+}
+
+/// `director.commit_phase` —— 零 LLM 导演阶段门核验与提交（绝不绕过阶段门）。
+pub struct DirectorCommitPhaseTool;
+
+impl super::registry::McpTool for DirectorCommitPhaseTool {
+    fn name(&self) -> &'static str {
+        "director.commit_phase"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM deterministic verification and commit of the current director phase (.novel/director-pipeline.json). Evaluates real project artifacts via collectProjectSnapshot + tryAdvanceDirector + assertIrreversible; never bypasses phase gates or mutates formal chapters. Requires Project scope."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "idea": {
+                    "type": "object",
+                    "properties": {
+                        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+                        "genre": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "coreConflict": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                    },
+                    "additionalProperties": false,
+                    "description": "Optional idea fields to merge into persisted ideaInput before evaluating phase gates"
+                },
+                "expectedPhase": {
+                    "type": "string",
+                    "enum": PLANNING_DIRECTOR_PHASES,
+                    "description": "Optional optimistic phase guard (fails if persisted currentPhase differs)"
+                },
+                "retryIfFailed": {
+                    "type": "boolean",
+                    "description": "Whether to transition failed->running before evaluating gates (default true)"
+                },
+                "persistOnBlocked": {
+                    "type": "boolean",
+                    "description": "Whether to persist failed state/retryCount when blocked by gate (default false)"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_director_commit_phase_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_rules_upsert_book_rules_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "rules.upsert_book_rules";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "mode",
+            "version",
+            "prohibitions",
+            "allowedDeviations",
+            "protagonist",
+            "genreLock",
+            "eraConstraints",
+            "fanficMode",
+        ],
+        &[],
+    )?);
+
+    let mut params = serde_json::Map::new();
+    let mode = optional_enum_str(&normalized, tool, "mode", &["merge", "replace"])?
+        .unwrap_or("merge");
+    if normalized.get("mode").is_some() {
+        params.insert("mode".to_string(), json!(mode));
+    }
+
+    let mut has_rule_field = false;
+
+    if let Some(raw_ver) = normalized.get("version") {
+        let ver = raw_ver
+            .as_str()
+            .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `version` 必须是字符串")))?;
+        validate_single_line_str(ver, tool, "version", 1, 32)?;
+        params.insert("version".to_string(), json!(ver.trim()));
+        has_rule_field = true;
+    }
+
+    if let Some(raw_prohib) = normalized.get("prohibitions") {
+        let items =
+            validate_planning_string_array(raw_prohib, tool, "prohibitions", 200, 200, true)?;
+        params.insert("prohibitions".to_string(), json!(items));
+        has_rule_field = true;
+    }
+
+    if let Some(raw_dev) = normalized.get("allowedDeviations") {
+        let items =
+            validate_planning_string_array(raw_dev, tool, "allowedDeviations", 200, 200, true)?;
+        params.insert("allowedDeviations".to_string(), json!(items));
+        has_rule_field = true;
+    }
+
+    if let Some(raw_protag) = normalized.get("protagonist") {
+        let sub = Value::Object(normalize_strict_object_args(
+            raw_protag,
+            tool,
+            &["name", "personalityLock", "behavioralConstraints"],
+            &["name"],
+        )?);
+        let name = sub
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `protagonist.name` 必须是字符串"))
+            })?;
+        validate_single_line_str(name, tool, "protagonist.name", 1, 128)?;
+        let mut p_out = serde_json::Map::new();
+        p_out.insert("name".to_string(), json!(name.trim()));
+        if let Some(pl) = sub.get("personalityLock") {
+            let items = validate_planning_string_array(
+                pl,
+                tool,
+                "protagonist.personalityLock",
+                100,
+                200,
+                true,
+            )?;
+            p_out.insert("personalityLock".to_string(), json!(items));
+        }
+        if let Some(bc) = sub.get("behavioralConstraints") {
+            let items = validate_planning_string_array(
+                bc,
+                tool,
+                "protagonist.behavioralConstraints",
+                100,
+                200,
+                true,
+            )?;
+            p_out.insert("behavioralConstraints".to_string(), json!(items));
+        }
+        params.insert("protagonist".to_string(), Value::Object(p_out));
+        has_rule_field = true;
+    }
+
+    if let Some(raw_gl) = normalized.get("genreLock") {
+        let sub = Value::Object(normalize_strict_object_args(
+            raw_gl,
+            tool,
+            &["primary", "forbidden"],
+            &["primary"],
+        )?);
+        let primary = sub
+            .get("primary")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `genreLock.primary` 必须是字符串"))
+            })?;
+        validate_single_line_str(primary, tool, "genreLock.primary", 1, 128)?;
+        let mut g_out = serde_json::Map::new();
+        g_out.insert("primary".to_string(), json!(primary.trim()));
+        if let Some(forb) = sub.get("forbidden") {
+            let items = validate_planning_string_array(
+                forb,
+                tool,
+                "genreLock.forbidden",
+                100,
+                200,
+                true,
+            )?;
+            g_out.insert("forbidden".to_string(), json!(items));
+        }
+        params.insert("genreLock".to_string(), Value::Object(g_out));
+        has_rule_field = true;
+    }
+
+    if let Some(raw_era) = normalized.get("eraConstraints") {
+        let sub = Value::Object(normalize_strict_object_args(
+            raw_era,
+            tool,
+            &["enabled", "anachronismTerms", "period", "region"],
+            &["enabled"],
+        )?);
+        let enabled = optional_bool(&sub, tool, "enabled")?.ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `eraConstraints.enabled` 必须是 boolean"))
+        })?;
+        let mut e_out = serde_json::Map::new();
+        e_out.insert("enabled".to_string(), json!(enabled));
+        if let Some(terms) = sub.get("anachronismTerms") {
+            let items = validate_planning_string_array(
+                terms,
+                tool,
+                "eraConstraints.anachronismTerms",
+                200,
+                200,
+                true,
+            )?;
+            e_out.insert("anachronismTerms".to_string(), json!(items));
+        }
+        if let Some(raw_period) = sub.get("period") {
+            let period = raw_period.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `eraConstraints.period` 必须是字符串"))
+            })?;
+            validate_single_line_str(period, tool, "eraConstraints.period", 1, 128)?;
+            e_out.insert("period".to_string(), json!(period.trim()));
+        }
+        if let Some(raw_region) = sub.get("region") {
+            let region = raw_region.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `eraConstraints.region` 必须是字符串"))
+            })?;
+            validate_single_line_str(region, tool, "eraConstraints.region", 1, 128)?;
+            e_out.insert("region".to_string(), json!(region.trim()));
+        }
+        params.insert("eraConstraints".to_string(), Value::Object(e_out));
+        has_rule_field = true;
+    }
+
+    if let Some(fm) = optional_enum_str(&normalized, tool, "fanficMode", &PLANNING_FANFIC_MODES)? {
+        params.insert("fanficMode".to_string(), json!(fm));
+        has_rule_field = true;
+    }
+
+    if mode == "merge" && !has_rule_field {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: merge 模式下至少需提供一个规则字段"
+        )));
+    }
+
+    Ok(StateQuery::new("rules-upsert-book-rules").with_params(Value::Object(params)))
+}
+
+/// `rules.upsert_book_rules` —— 零 LLM 原子写入 `.novel/book-rules.json`。
+pub struct RulesUpsertBookRulesTool;
+
+impl super::registry::McpTool for RulesUpsertBookRulesTool {
+    fn name(&self) -> &'static str {
+        "rules.upsert_book_rules"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM atomic upsert of .novel/book-rules.json (prohibitions, allowedDeviations, protagonist locks, genreLock, eraConstraints, fanficMode). Immediately consumed by mechanical gates and writing context. Requires Project scope; never mutates formal chapters."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["merge", "replace"],
+                    "description": "merge (default) or replace full book-rules document"
+                },
+                "version": { "type": "string", "minLength": 1, "maxLength": 32 },
+                "prohibitions": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+                },
+                "allowedDeviations": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+                },
+                "protagonist": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "personalityLock": {
+                            "type": "array",
+                            "maxItems": 100,
+                            "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+                        },
+                        "behavioralConstraints": {
+                            "type": "array",
+                            "maxItems": 100,
+                            "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+                        }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                },
+                "genreLock": {
+                    "type": "object",
+                    "properties": {
+                        "primary": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "forbidden": {
+                            "type": "array",
+                            "maxItems": 100,
+                            "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+                        }
+                    },
+                    "required": ["primary"],
+                    "additionalProperties": false
+                },
+                "eraConstraints": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": { "type": "boolean" },
+                        "anachronismTerms": {
+                            "type": "array",
+                            "maxItems": 200,
+                            "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+                        },
+                        "period": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "region": { "type": "string", "minLength": 1, "maxLength": 128 }
+                    },
+                    "required": ["enabled"],
+                    "additionalProperties": false
+                },
+                "fanficMode": {
+                    "type": "string",
+                    "enum": PLANNING_FANFIC_MODES
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_rules_upsert_book_rules_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_compass_update_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "compass.update";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "endingDirection",
+            "newThreads",
+            "resolvedThreads",
+            "estimatedScale",
+            "declareFinalVolume",
+        ],
+        &[],
+    )?);
+
+    let mut params = serde_json::Map::new();
+
+    if let Some(ending) =
+        validate_optional_text_allow_empty(&normalized, tool, "endingDirection", 2_000, false)?
+    {
+        params.insert("endingDirection".to_string(), json!(ending));
+    }
+    if let Some(raw_new) = normalized.get("newThreads") {
+        let items = validate_planning_string_array(raw_new, tool, "newThreads", 100, 300, true)?;
+        params.insert("newThreads".to_string(), json!(items));
+    }
+    if let Some(raw_res) = normalized.get("resolvedThreads") {
+        let items =
+            validate_planning_string_array(raw_res, tool, "resolvedThreads", 100, 300, true)?;
+        params.insert("resolvedThreads".to_string(), json!(items));
+    }
+    if let Some(scale) =
+        validate_optional_text_allow_empty(&normalized, tool, "estimatedScale", 200, true)?
+    {
+        params.insert("estimatedScale".to_string(), json!(scale));
+    }
+    if let Some(vol) = optional_int_in_range(
+        &normalized,
+        tool,
+        "declareFinalVolume",
+        1,
+        PLANNING_MAX_VOLUME_NUM,
+    )? {
+        params.insert("declareFinalVolume".to_string(), json!(vol));
+    }
+
+    if params.is_empty() {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: 至少需提供 endingDirection / newThreads / resolvedThreads / estimatedScale / declareFinalVolume 之一"
+        )));
+    }
+
+    Ok(StateQuery::new("compass-update").with_params(Value::Object(params)))
+}
+
+/// `compass.update` —— 零 LLM 更新长篇滚动规划指南针（`.novel/story-compass.json`）。
+pub struct CompassUpdateTool;
+
+impl super::registry::McpTool for CompassUpdateTool {
+    fn name(&self) -> &'static str {
+        "compass.update"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM update of .novel/story-compass.json (endingDirection, newThreads, resolvedThreads, estimatedScale, declareFinalVolume). Requires Project scope; never mutates formal chapters."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "endingDirection": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "description": "Thematic ending direction"
+                },
+                "newThreads": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 300 },
+                    "description": "New open plot threads to append (deduplicated)"
+                },
+                "resolvedThreads": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 300 },
+                    "description": "Resolved or explicitly waived threads to remove from openThreads"
+                },
+                "estimatedScale": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "Scale interval expression (e.g. '预计 4-6 卷')"
+                },
+                "declareFinalVolume": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": PLANNING_MAX_VOLUME_NUM,
+                    "description": "Declare final volume number (sets finalVolumeDeclared=true)"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_compass_update_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_foreshadowing_upsert_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "foreshadowing.upsert";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "id",
+            "name",
+            "description",
+            "status",
+            "plantedChapter",
+            "advancedChapters",
+            "resolvedChapter",
+            "relatedCharacters",
+            "relatedEvents",
+            "notes",
+        ],
+        &[],
+    )?);
+
+    let mut params = serde_json::Map::new();
+    let mut has_identity = false;
+
+    if let Some(raw_id) = normalized.get("id") {
+        let id = raw_id
+            .as_str()
+            .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `id` 必须是字符串")))?;
+        validate_ascii_id(id, tool, "id")?;
+        params.insert("id".to_string(), json!(id));
+        has_identity = true;
+    }
+
+    if let Some(raw_name) = normalized.get("name") {
+        let name = raw_name
+            .as_str()
+            .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `name` 必须是字符串")))?;
+        validate_single_line_str(name, tool, "name", 1, 200)?;
+        params.insert("name".to_string(), json!(name.trim()));
+        has_identity = true;
+    }
+
+    if !has_identity {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: 至少需提供 `id` 或 `name`"
+        )));
+    }
+
+    if let Some(desc) =
+        validate_optional_text_allow_empty(&normalized, tool, "description", 2_000, false)?
+    {
+        params.insert("description".to_string(), json!(desc));
+    }
+    if let Some(status) = optional_enum_str(
+        &normalized,
+        tool,
+        "status",
+        &PLANNING_FORESHADOWING_STATUSES,
+    )? {
+        params.insert("status".to_string(), json!(status));
+    }
+    if let Some(ch) = optional_int_in_range(
+        &normalized,
+        tool,
+        "plantedChapter",
+        1,
+        PLANNING_MAX_CHAPTER_NUM,
+    )? {
+        params.insert("plantedChapter".to_string(), json!(ch));
+    }
+    if let Some(raw_adv) = normalized.get("advancedChapters") {
+        let chs = validate_positive_u64_array(
+            raw_adv,
+            tool,
+            "advancedChapters",
+            200,
+            PLANNING_MAX_CHAPTER_NUM,
+        )?;
+        params.insert("advancedChapters".to_string(), json!(chs));
+    }
+    if let Some(ch) = optional_int_in_range(
+        &normalized,
+        tool,
+        "resolvedChapter",
+        1,
+        PLANNING_MAX_CHAPTER_NUM,
+    )? {
+        params.insert("resolvedChapter".to_string(), json!(ch));
+    }
+    if let Some(raw_chars) = normalized.get("relatedCharacters") {
+        let items = validate_planning_string_array(
+            raw_chars,
+            tool,
+            "relatedCharacters",
+            100,
+            128,
+            true,
+        )?;
+        params.insert("relatedCharacters".to_string(), json!(items));
+    }
+    if let Some(raw_events) = normalized.get("relatedEvents") {
+        let items =
+            validate_planning_string_array(raw_events, tool, "relatedEvents", 100, 200, true)?;
+        params.insert("relatedEvents".to_string(), json!(items));
+    }
+    if let Some(notes) =
+        validate_optional_text_allow_empty(&normalized, tool, "notes", 2_000, false)?
+    {
+        params.insert("notes".to_string(), json!(notes));
+    }
+
+    Ok(StateQuery::new("foreshadowing-upsert").with_params(Value::Object(params)))
+}
+
+/// `foreshadowing.upsert` —— 零 LLM 创建/更新伏笔账本条目（`.novel/foreshadowing-tracker.json`）。
+pub struct ForeshadowingUpsertTool;
+
+impl super::registry::McpTool for ForeshadowingUpsertTool {
+    fn name(&self) -> &'static str {
+        "foreshadowing.upsert"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM create or update one foreshadowing entry in .novel/foreshadowing-tracker.json (matches by id or name; enforces markAbandoned transition guard). Requires Project scope; never mutates formal chapters."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "description": "Optional ASCII identifier [a-zA-Z0-9_-]; auto-generated deterministically on create if omitted"
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Foreshadowing title/name (required when creating a new entry)"
+                },
+                "description": { "type": "string", "maxLength": 2000 },
+                "status": {
+                    "type": "string",
+                    "enum": PLANNING_FORESHADOWING_STATUSES
+                },
+                "plantedChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": PLANNING_MAX_CHAPTER_NUM
+                },
+                "advancedChapters": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": { "type": "integer", "minimum": 1, "maximum": PLANNING_MAX_CHAPTER_NUM }
+                },
+                "resolvedChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": PLANNING_MAX_CHAPTER_NUM
+                },
+                "relatedCharacters": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                },
+                "relatedEvents": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+                },
+                "notes": { "type": "string", "maxLength": 2000 }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_foreshadowing_upsert_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_subplot_upsert_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "subplot.upsert";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "id",
+            "title",
+            "status",
+            "startChapter",
+            "resolvedChapter",
+            "lastSeenChapter",
+            "targetResolutionChapter",
+            "abandoned",
+            "relatedCharacters",
+            "summary",
+            "progressEntry",
+            "progress",
+            "notes",
+        ],
+        &[],
+    )?);
+
+    let mut params = serde_json::Map::new();
+    let mut has_identity = false;
+
+    if let Some(raw_id) = normalized.get("id") {
+        let id = raw_id
+            .as_str()
+            .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `id` 必须是字符串")))?;
+        validate_ascii_id(id, tool, "id")?;
+        params.insert("id".to_string(), json!(id));
+        has_identity = true;
+    }
+
+    if let Some(raw_title) = normalized.get("title") {
+        let title = raw_title
+            .as_str()
+            .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `title` 必须是字符串")))?;
+        validate_single_line_str(title, tool, "title", 1, 200)?;
+        params.insert("title".to_string(), json!(title.trim()));
+        has_identity = true;
+    }
+
+    if !has_identity {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: 至少需提供 `id` 或 `title`"
+        )));
+    }
+
+    if let Some(status) =
+        optional_enum_str(&normalized, tool, "status", &PLANNING_SUBPLOT_STATUSES)?
+    {
+        params.insert("status".to_string(), json!(status));
+    }
+    for ch_field in [
+        "startChapter",
+        "resolvedChapter",
+        "lastSeenChapter",
+        "targetResolutionChapter",
+    ] {
+        if let Some(ch) =
+            optional_int_in_range(&normalized, tool, ch_field, 1, PLANNING_MAX_CHAPTER_NUM)?
+        {
+            params.insert(ch_field.to_string(), json!(ch));
+        }
+    }
+    if let Some(abandoned) = optional_bool(&normalized, tool, "abandoned")? {
+        params.insert("abandoned".to_string(), json!(abandoned));
+    }
+    if let Some(raw_chars) = normalized.get("relatedCharacters") {
+        let items = validate_planning_string_array(
+            raw_chars,
+            tool,
+            "relatedCharacters",
+            100,
+            128,
+            true,
+        )?;
+        params.insert("relatedCharacters".to_string(), json!(items));
+    }
+    if let Some(summary) =
+        validate_optional_text_allow_empty(&normalized, tool, "summary", 2_000, false)?
+    {
+        params.insert("summary".to_string(), json!(summary));
+    }
+    if let Some(raw_entry) = normalized.get("progressEntry") {
+        let entry = raw_entry.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `progressEntry` 必须是字符串"))
+        })?;
+        validate_multiline_no_nul(entry, tool, "progressEntry", 1, 1_000)?;
+        params.insert("progressEntry".to_string(), json!(entry.trim()));
+    }
+    if let Some(raw_progress) = normalized.get("progress") {
+        let items =
+            validate_planning_string_array(raw_progress, tool, "progress", 200, 1_000, false)?;
+        params.insert("progress".to_string(), json!(items));
+    }
+    if let Some(notes) =
+        validate_optional_text_allow_empty(&normalized, tool, "notes", 2_000, false)?
+    {
+        params.insert("notes".to_string(), json!(notes));
+    }
+
+    Ok(StateQuery::new("subplot-upsert").with_params(Value::Object(params)))
+}
+
+/// `subplot.upsert` —— 零 LLM 创建/更新支线剧情进度板条目（`.novel/subplot-board.json`）。
+pub struct SubplotUpsertTool;
+
+impl super::registry::McpTool for SubplotUpsertTool {
+    fn name(&self) -> &'static str {
+        "subplot.upsert"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM create or update one subplot entry in .novel/subplot-board.json (matches by id or title; supports appending progressEntry or setting progress log). Requires Project scope; never mutates formal chapters."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "description": "Optional ASCII identifier [a-zA-Z0-9_-]; auto-generated deterministically on create if omitted"
+                },
+                "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Subplot title (required when creating a new entry)"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": PLANNING_SUBPLOT_STATUSES
+                },
+                "startChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": PLANNING_MAX_CHAPTER_NUM
+                },
+                "resolvedChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": PLANNING_MAX_CHAPTER_NUM
+                },
+                "lastSeenChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": PLANNING_MAX_CHAPTER_NUM
+                },
+                "targetResolutionChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": PLANNING_MAX_CHAPTER_NUM
+                },
+                "abandoned": { "type": "boolean" },
+                "relatedCharacters": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                },
+                "summary": { "type": "string", "maxLength": 2000 },
+                "progressEntry": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "description": "Single progress note appended to progress log"
+                },
+                "progress": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+                },
+                "notes": { "type": "string", "maxLength": 2000 }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_subplot_upsert_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
 /// `chapter.batch` —— 一次起多章深章生成。
 ///
 /// 不另写批量逻辑：每个元素都走同一个 `startPipelineTask`（与单章工具同一入口），
@@ -5592,6 +6842,12 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(OutlineGenerateTool));
     r.register(Arc::new(OutlineWriteTool));
     r.register(Arc::new(CharacterUpsertTool));
+    r.register(Arc::new(DirectorUpsertWorldTool));
+    r.register(Arc::new(DirectorCommitPhaseTool));
+    r.register(Arc::new(RulesUpsertBookRulesTool));
+    r.register(Arc::new(CompassUpdateTool));
+    r.register(Arc::new(ForeshadowingUpsertTool));
+    r.register(Arc::new(SubplotUpsertTool));
     r.register(Arc::new(ChapterBatchTool));
     r.register(Arc::new(ExportRunTool));
     r.register(Arc::new(MemoryWriteTool));
@@ -5624,6 +6880,12 @@ pub fn build_registry() -> super::registry::ToolRegistry {
             "outline.generate",
             "outline.write",
             "character.upsert",
+            "director.upsert_world",
+            "director.commit_phase",
+            "rules.upsert_book_rules",
+            "compass.update",
+            "foreshadowing.upsert",
+            "subplot.upsert",
             "chapter.batch",
             "export.run",
             "memory.write",
@@ -5683,6 +6945,12 @@ mod tests {
                 "outline.generate",
                 "outline.write",
                 "character.upsert",
+                "director.upsert_world",
+                "director.commit_phase",
+                "rules.upsert_book_rules",
+                "compass.update",
+                "foreshadowing.upsert",
+                "subplot.upsert",
                 "chapter.batch",
                 "export.run",
                 "memory.write",
@@ -6208,6 +7476,12 @@ mod tests {
                 "outline.generate",
                 "outline.write",
                 "character.upsert",
+                "director.upsert_world",
+                "director.commit_phase",
+                "rules.upsert_book_rules",
+                "compass.update",
+                "foreshadowing.upsert",
+                "subplot.upsert",
                 "chapter.batch",
                 "export.run",
                 "memory.write",
@@ -7857,8 +9131,8 @@ mod tests {
     #[test]
     fn phase2_eight_tools_have_expected_scopes_descriptions_and_no_draft_accept() {
         let r = build_registry();
-        assert_eq!(r.len(), 40);
-        assert_eq!(r.privileged_tools().len(), 16);
+        assert_eq!(r.len(), 46);
+        assert_eq!(r.privileged_tools().len(), 22);
         assert!(!r.names().contains(&"draft.accept"));
 
         for read_name in [
@@ -8667,6 +9941,163 @@ mod tests {
                 err.code,
                 crate::mcp_server::protocol::INVALID_PARAMS,
                 "audit.longform_health must reject bad args: {bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn six_planning_write_tools_enforce_strict_schemas_null_tolerance_and_project_scope() {
+        let reg = build_registry();
+        assert_eq!(reg.len(), 46, "全量工具注册表应为 46 个");
+        assert!(!reg.names().contains(&"draft.accept"), "绝不允许注册 draft.accept");
+
+        let new_tools = [
+            "director.upsert_world",
+            "director.commit_phase",
+            "rules.upsert_book_rules",
+            "compass.update",
+            "foreshadowing.upsert",
+            "subplot.upsert",
+        ];
+        for name in new_tools {
+            assert_eq!(
+                reg.required_scope(name),
+                Some(crate::mcp_server::session::SessionScope::Project),
+                "{name} 必须声明 Project scope"
+            );
+            assert!(reg.privileged_tools().contains(&name));
+        }
+
+        // Schema strictness
+        for schema in [
+            DirectorUpsertWorldTool.input_schema(),
+            DirectorCommitPhaseTool.input_schema(),
+            RulesUpsertBookRulesTool.input_schema(),
+            CompassUpdateTool.input_schema(),
+            ForeshadowingUpsertTool.input_schema(),
+            SubplotUpsertTool.input_schema(),
+        ] {
+            assert_eq!(schema["type"], json!("object"));
+            assert_eq!(schema["additionalProperties"], json!(false));
+        }
+
+        // 1. director.upsert_world valid + optional null tolerance
+        let q_world = build_director_upsert_world_query(&json!({
+            "worldType": "东方玄幻",
+            "mode": null,
+            "layers": {
+                "axioms": ["灵气守恒", "灵气守恒"],
+                "background": ["三千年前天倾"],
+                "magicSystem": null
+            },
+            "crossRefs": [{ "from": "axioms", "to": "background", "term": "天倾" }],
+            "fillMissingRequired": true
+        }))
+        .expect("director.upsert_world valid");
+        assert_eq!(q_world.op, "director-upsert-world");
+        let p_world = q_world.params.expect("params");
+        assert_eq!(p_world["layers"]["axioms"], json!(["灵气守恒"]));
+        assert!(p_world["layers"].get("magicSystem").is_none());
+        assert_eq!(p_world["fillMissingRequired"], json!(true));
+
+        // 2. director.commit_phase valid (empty & with idea + optional nulls)
+        let q_commit_empty = build_director_commit_phase_query(&json!({})).expect("empty valid");
+        assert_eq!(q_commit_empty.op, "director-commit-phase");
+        let q_commit = build_director_commit_phase_query(&json!({
+            "idea": { "title": "租借之躯", "genre": "都市异能", "coreConflict": null },
+            "expectedPhase": "idea",
+            "retryIfFailed": true,
+            "persistOnBlocked": null
+        }))
+        .expect("commit with idea valid");
+        assert_eq!(q_commit.params.as_ref().unwrap()["expectedPhase"], json!("idea"));
+        assert_eq!(q_commit.params.as_ref().unwrap()["idea"]["title"], json!("租借之躯"));
+
+        // 3. rules.upsert_book_rules valid
+        let q_rules = build_rules_upsert_book_rules_query(&json!({
+            "mode": "merge",
+            "prohibitions": ["主角死亡", "主角死亡"],
+            "allowedDeviations": null,
+            "protagonist": { "name": "林澈", "personalityLock": ["冷静"], "behavioralConstraints": null },
+            "genreLock": { "primary": "刑侦", "forbidden": ["修仙"] },
+            "eraConstraints": { "enabled": true, "anachronismTerms": ["智能手机"], "period": "1990s", "region": null },
+            "fanficMode": "canon"
+        }))
+        .expect("rules.upsert_book_rules valid");
+        assert_eq!(q_rules.op, "rules-upsert-book-rules");
+        assert_eq!(q_rules.params.as_ref().unwrap()["prohibitions"], json!(["主角死亡"]));
+
+        // replace mode with no rule fields allowed (resets to empty)
+        let q_rules_reset = build_rules_upsert_book_rules_query(&json!({ "mode": "replace" }))
+            .expect("replace reset valid");
+        assert_eq!(q_rules_reset.params.as_ref().unwrap()["mode"], json!("replace"));
+
+        // 4. compass.update valid
+        let q_compass = build_compass_update_query(&json!({
+            "endingDirection": "终局抉择",
+            "newThreads": ["古玉秘密"],
+            "resolvedThreads": null,
+            "estimatedScale": "预计 4-6 卷",
+            "declareFinalVolume": 5
+        }))
+        .expect("compass.update valid");
+        assert_eq!(q_compass.op, "compass-update");
+        assert_eq!(q_compass.params.as_ref().unwrap()["declareFinalVolume"], json!(5));
+
+        // 5. foreshadowing.upsert valid
+        let q_fs = build_foreshadowing_upsert_query(&json!({
+            "id": "fs_01",
+            "name": "青铜古镜",
+            "status": "advanced",
+            "plantedChapter": 1,
+            "advancedChapters": [5, 3, 5],
+            "resolvedChapter": null,
+            "relatedCharacters": ["林澈"]
+        }))
+        .expect("foreshadowing.upsert valid");
+        assert_eq!(q_fs.op, "foreshadowing-upsert");
+        assert_eq!(q_fs.params.as_ref().unwrap()["advancedChapters"], json!([3, 5]));
+
+        // 6. subplot.upsert valid
+        let q_sp = build_subplot_upsert_query(&json!({
+            "title": "失踪案支线",
+            "status": "active",
+            "startChapter": 2,
+            "lastSeenChapter": 10,
+            "targetResolutionChapter": 30,
+            "abandoned": false,
+            "progressEntry": "第10章发现旧钥匙",
+            "notes": null
+        }))
+        .expect("subplot.upsert valid");
+        assert_eq!(q_sp.op, "subplot-upsert");
+        assert_eq!(q_sp.params.as_ref().unwrap()["progressEntry"], json!("第10章发现旧钥匙"));
+
+        // Reject invalid payloads across all 6 tools
+        let ctx = ToolContext::for_test();
+        let bad_cases: [(&dyn McpTool, Value); 14] = [
+            (&DirectorUpsertWorldTool, json!({})),
+            (&DirectorUpsertWorldTool, json!({ "layers": { "badLayer": ["x"] } })),
+            (&DirectorUpsertWorldTool, json!({ "unknown": null })),
+            (&DirectorCommitPhaseTool, json!({ "expectedPhase": "bogus" })),
+            (&DirectorCommitPhaseTool, json!({ "idea": { "title": "   " } })),
+            (&RulesUpsertBookRulesTool, json!({})),
+            (&RulesUpsertBookRulesTool, json!({ "fanficMode": "invalid" })),
+            (&RulesUpsertBookRulesTool, json!({ "protagonist": { "name": null } })),
+            (&CompassUpdateTool, json!({})),
+            (&CompassUpdateTool, json!({ "declareFinalVolume": 0 })),
+            (&ForeshadowingUpsertTool, json!({})),
+            (&ForeshadowingUpsertTool, json!({ "id": "../escape", "name": "x" })),
+            (&SubplotUpsertTool, json!({})),
+            (&SubplotUpsertTool, json!({ "title": "x", "status": "bogus" })),
+        ];
+        for (tool, bad) in bad_cases {
+            let err = tool.call(&ctx, &bad).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "{} must reject bad args: {bad}",
+                tool.name()
             );
         }
     }

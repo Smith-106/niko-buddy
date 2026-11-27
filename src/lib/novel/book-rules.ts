@@ -297,3 +297,96 @@ export function bookRulesToPromptFragment(rules: BookRules): string {
   if (lines.length === 0) return ""
   return ["## 书籍治理规则（必须遵守）", ...lines.map((l) => `- ${l}`)].join("\n")
 }
+
+// ── 持久化（.novel/book-rules.json 原子 store）──────────────────────
+// 对齐 mechanical-gate.ts:429 与 state-bridge.ts:882 的既有读盘路径，
+// 提供单一规范化函数与原子读写接口，零 LLM、Draft-first 治理层。
+import { createAtomicJsonStore } from "./projection-store"
+
+const bookRulesStore = createAtomicJsonStore<BookRules | null>("book-rules.json", () => null)
+
+function normalizeStringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const item of raw) {
+    if (typeof item !== "string") continue
+    const trimmed = item.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+  }
+  return out
+}
+
+/** 将 JSON 反序列化的 book-rules 对象做防御性规范化；非对象返回 null。 */
+export function normalizeBookRules(raw: unknown): BookRules | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  const obj = raw as Record<string, unknown>
+
+  const rules: BookRules = {
+    version: typeof obj.version === "string" && obj.version.trim() ? obj.version.trim() : "1.0",
+    prohibitions: normalizeStringList(obj.prohibitions),
+    allowedDeviations: normalizeStringList(obj.allowedDeviations),
+  }
+
+  if (obj.protagonist && typeof obj.protagonist === "object" && !Array.isArray(obj.protagonist)) {
+    const p = obj.protagonist as Record<string, unknown>
+    if (typeof p.name === "string" && p.name.trim()) {
+      rules.protagonist = {
+        name: p.name.trim(),
+        personalityLock: normalizeStringList(p.personalityLock),
+        behavioralConstraints: normalizeStringList(p.behavioralConstraints),
+      }
+    }
+  }
+
+  if (obj.genreLock && typeof obj.genreLock === "object" && !Array.isArray(obj.genreLock)) {
+    const g = obj.genreLock as Record<string, unknown>
+    if (typeof g.primary === "string" && g.primary.trim()) {
+      rules.genreLock = {
+        primary: g.primary.trim(),
+        forbidden: normalizeStringList(g.forbidden),
+      }
+    }
+  }
+
+  if (obj.eraConstraints && typeof obj.eraConstraints === "object" && !Array.isArray(obj.eraConstraints)) {
+    const e = obj.eraConstraints as Record<string, unknown>
+    const period = typeof e.period === "string" ? e.period.trim() : ""
+    const region = typeof e.region === "string" ? e.region.trim() : ""
+    rules.eraConstraints = {
+      enabled: Boolean(e.enabled),
+      anachronismTerms: normalizeStringList(e.anachronismTerms),
+      ...(period ? { period } : {}),
+      ...(region ? { region } : {}),
+    }
+  }
+
+  if (
+    obj.fanficMode === "canon" ||
+    obj.fanficMode === "au" ||
+    obj.fanficMode === "ooc" ||
+    obj.fanficMode === "cp"
+  ) {
+    rules.fanficMode = obj.fanficMode
+  }
+
+  return rules
+}
+
+/** 持久化书籍治理规则（.novel/book-rules.json 原子写）。 */
+export async function saveBookRules(projectPath: string, rules: BookRules): Promise<void> {
+  const normalized = normalizeBookRules(rules) ?? { ...EMPTY_BOOK_RULES }
+  await bookRulesStore.save(projectPath, normalized)
+}
+
+/** 读取持久化书籍治理规则；未写过或损坏时返回 null。 */
+export async function loadBookRules(projectPath: string): Promise<BookRules | null> {
+  try {
+    const raw = await bookRulesStore.load(projectPath)
+    return normalizeBookRules(raw)
+  } catch {
+    return null
+  }
+}

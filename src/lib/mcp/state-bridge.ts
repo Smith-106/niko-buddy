@@ -72,6 +72,7 @@ import {
   loadDirectorPersisted,
   loadNovelSessionStatus,
   loadWorldBlueprint,
+  normalizeBookRules,
   normalizeDeAiSkillConfig,
   normalizeUserSkillConfig,
   parseOutlineMarkdownToModel,
@@ -148,6 +149,14 @@ import {
   runAuditLongformHealth,
   runDraftDiff,
 } from "./phase3-read-tools"
+import {
+  runCompassUpdate,
+  runDirectorCommitPhase,
+  runDirectorUpsertWorld,
+  runForeshadowingUpsert,
+  runRulesUpsertBookRules,
+  runSubplotUpsert,
+} from "./planning-write-tools"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
@@ -191,6 +200,12 @@ export type StateOp =
   | "chapter-search"
   | "draft-diff"
   | "audit-longform-health"
+  | "director-upsert-world"
+  | "director-commit-phase"
+  | "rules-upsert-book-rules"
+  | "compass-update"
+  | "foreshadowing-upsert"
+  | "subplot-upsert"
 
 export interface StateRequestPayload {
   id: string
@@ -344,6 +359,13 @@ export interface StateBridgeDeps {
   /** Phase 3 零 LLM 只读工具依赖注入点（缺省走默认实现）。 */
   draftDiff?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
   auditLongformHealth?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  /** TASK-002 零 LLM 规划/治理写工具依赖注入点（缺省走默认实现）。 */
+  directorUpsertWorld?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  directorCommitPhase?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  rulesUpsertBookRules?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  compassUpdate?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  foreshadowingUpsert?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  subplotUpsert?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
 }
 
 const defaultDeps: StateBridgeDeps = {
@@ -589,52 +611,7 @@ function projectPublicNovelConfig(novelConfig: NovelConfig): Record<string, stri
   return out
 }
 
-function normalizeBookRulesForRead(raw: unknown): BookRules | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
-  const obj = raw as Record<string, unknown>
-  const toStrings = (value: unknown): string[] =>
-    Array.isArray(value)
-      ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-      : []
-
-  const rules: BookRules = {
-    version: typeof obj.version === "string" && obj.version.trim() ? obj.version : "1.0",
-    prohibitions: toStrings(obj.prohibitions),
-    allowedDeviations: toStrings(obj.allowedDeviations),
-  }
-  if (obj.protagonist && typeof obj.protagonist === "object" && !Array.isArray(obj.protagonist)) {
-    const p = obj.protagonist as Record<string, unknown>
-    if (typeof p.name === "string" && p.name.trim()) {
-      rules.protagonist = {
-        name: p.name.trim(),
-        personalityLock: toStrings(p.personalityLock),
-        behavioralConstraints: toStrings(p.behavioralConstraints),
-      }
-    }
-  }
-  if (obj.genreLock && typeof obj.genreLock === "object" && !Array.isArray(obj.genreLock)) {
-    const g = obj.genreLock as Record<string, unknown>
-    if (typeof g.primary === "string" && g.primary.trim()) {
-      rules.genreLock = {
-        primary: g.primary.trim(),
-        forbidden: toStrings(g.forbidden),
-      }
-    }
-  }
-  if (obj.eraConstraints && typeof obj.eraConstraints === "object" && !Array.isArray(obj.eraConstraints)) {
-    const e = obj.eraConstraints as Record<string, unknown>
-    rules.eraConstraints = {
-      enabled: Boolean(e.enabled),
-      anachronismTerms: toStrings(e.anachronismTerms),
-      ...(typeof e.period === "string" ? { period: e.period } : {}),
-      ...(typeof e.region === "string" ? { region: e.region } : {}),
-    }
-  }
-  if (obj.fanficMode === "canon" || obj.fanficMode === "au" || obj.fanficMode === "ooc" || obj.fanficMode === "cp") {
-    rules.fanficMode = obj.fanficMode
-  }
-  return rules
-}
+// normalizeBookRules 已统一收敛至 @/lib/novel（book-rules.ts 单一真源）。
 
 /**
  * 纯只读读取项目去 AI 味技能配置：
@@ -880,7 +857,7 @@ async function collectRulesSnapshotReadOnly(
     let rules: BookRules = EMPTY_BOOK_RULES
     try {
       const raw = await readFileText(`${root}/.novel/book-rules.json`)
-      const parsed = normalizeBookRulesForRead(JSON.parse(raw))
+      const parsed = normalizeBookRules(JSON.parse(raw))
       if (parsed) {
         loaded = true
         rules = parsed
@@ -1958,6 +1935,83 @@ export async function handleStateRequest(
               listChapters: deps.listChapters,
             }))
         const value = await runner(projectPath, params)
+        return { ok: true, value }
+      }
+
+      case "director-upsert-world": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.directorUpsertWorld
+          ?? ((pp: string, p: Record<string, unknown>) => runDirectorUpsertWorld(pp, p))
+        const value = await runner(projectPath, params)
+        deps.onDraftWritten?.()
+        return { ok: true, value }
+      }
+
+      case "director-commit-phase": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.directorCommitPhase
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runDirectorCommitPhase(pp, p, {
+              ...(deps.directorCheckDeps?.loadDirectorPersisted
+                ? { loadDirectorPersisted: deps.directorCheckDeps.loadDirectorPersisted }
+                : {}),
+              ...(deps.directorCheckDeps?.loadWorldBlueprint
+                ? { loadWorldBlueprint: deps.directorCheckDeps.loadWorldBlueprint }
+                : {}),
+              ...(deps.directorCheckDeps?.collectProjectSnapshot
+                ? { collectProjectSnapshot: deps.directorCheckDeps.collectProjectSnapshot }
+                : {}),
+            }))
+        const value = await runner(projectPath, params)
+        deps.onDraftWritten?.()
+        return { ok: true, value }
+      }
+
+      case "rules-upsert-book-rules": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.rulesUpsertBookRules
+          ?? ((pp: string, p: Record<string, unknown>) => runRulesUpsertBookRules(pp, p))
+        const value = await runner(projectPath, params)
+        deps.onDraftWritten?.()
+        return { ok: true, value }
+      }
+
+      case "compass-update": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.compassUpdate
+          ?? ((pp: string, p: Record<string, unknown>) => runCompassUpdate(pp, p))
+        const value = await runner(projectPath, params)
+        deps.onDraftWritten?.()
+        return { ok: true, value }
+      }
+
+      case "foreshadowing-upsert": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.foreshadowingUpsert
+          ?? ((pp: string, p: Record<string, unknown>) => runForeshadowingUpsert(pp, p))
+        const value = await runner(projectPath, params)
+        deps.onDraftWritten?.()
+        return { ok: true, value }
+      }
+
+      case "subplot-upsert": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.subplotUpsert
+          ?? ((pp: string, p: Record<string, unknown>) => runSubplotUpsert(pp, p))
+        const value = await runner(projectPath, params)
+        deps.onDraftWritten?.()
         return { ok: true, value }
       }
 

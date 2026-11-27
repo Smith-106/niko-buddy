@@ -1,12 +1,33 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   bookRulesToPromptFragment,
   bookRulesWithAuDeviations,
   EMPTY_BOOK_RULES,
+  loadBookRules,
+  normalizeBookRules,
+  saveBookRules,
   validateAgainstBookRules,
   validateFanficChapter,
   type BookRules,
 } from "./book-rules"
+
+const mem = vi.hoisted(() => ({ files: new Map<string, string>() }))
+
+vi.mock("@/commands/fs", () => ({
+  fileExists: vi.fn(async (path: string) => mem.files.has(path)),
+  readFile: vi.fn(async (path: string) => {
+    const found = mem.files.get(path)
+    if (found === undefined) throw new Error(`ENOENT ${path}`)
+    return found
+  }),
+  writeFile: vi.fn(async (path: string, contents: string) => {
+    mem.files.set(path, contents)
+  }),
+  writeFileAtomic: vi.fn(async (path: string, contents: string) => {
+    mem.files.set(path, contents)
+  }),
+  createDirectory: vi.fn(async () => {}),
+}))
 
 const RULES: BookRules = {
   version: "1.0",
@@ -246,5 +267,60 @@ describe("book-rules 分支覆盖补齐：空值回退与空集合渲染", () =>
     expect(frag).toContain("苏遥 性格锁：寡言、记仇")
     expect(frag).not.toContain("行为约束")
     expect(frag.split("\n")).toHaveLength(2)
+  })
+})
+
+describe("TASK-002: book-rules 规范化与 .novel/book-rules.json 原子持久化", () => {
+  beforeEach(() => {
+    mem.files.clear()
+  })
+
+  it("normalizeBookRules 拒绝非对象并清洗/去重字段", () => {
+    expect(normalizeBookRules(null)).toBeNull()
+    expect(normalizeBookRules("bad")).toBeNull()
+    expect(normalizeBookRules([])).toBeNull()
+
+    const normalized = normalizeBookRules({
+      version: " 2.0 ",
+      prohibitions: [" 禁词A ", "", "禁词A", 123, "禁词B"],
+      allowedDeviations: [" 豁免1 ", "豁免1"],
+      protagonist: {
+        name: " 林澈 ",
+        personalityLock: ["冷静", "冷静", "  "],
+        behavioralConstraints: ["不杀降者"],
+      },
+      genreLock: { primary: " 都市刑侦 ", forbidden: ["修仙", "修仙"] },
+      eraConstraints: { enabled: true, anachronismTerms: ["智能手机"], period: " 2010s ", region: " 华东 " },
+      fanficMode: "invalid-mode",
+    })
+    expect(normalized).toEqual({
+      version: "2.0",
+      prohibitions: ["禁词A", "禁词B"],
+      allowedDeviations: ["豁免1"],
+      protagonist: { name: "林澈", personalityLock: ["冷静"], behavioralConstraints: ["不杀降者"] },
+      genreLock: { primary: "都市刑侦", forbidden: ["修仙"] },
+      eraConstraints: { enabled: true, anachronismTerms: ["智能手机"], period: "2010s", region: "华东" },
+    })
+  })
+
+  it("saveBookRules → loadBookRules 原子落盘至 .novel/book-rules.json 并完整往返", async () => {
+    await saveBookRules("proj", RULES)
+    const keys = [...mem.files.keys()].filter((k) => k.endsWith(".novel/book-rules.json"))
+    expect(keys).toHaveLength(1)
+    const loaded = await loadBookRules("proj")
+    expect(loaded).toEqual({
+      version: "1.0",
+      protagonist: RULES.protagonist,
+      genreLock: RULES.genreLock,
+      eraConstraints: RULES.eraConstraints,
+      prohibitions: RULES.prohibitions,
+      allowedDeviations: RULES.allowedDeviations,
+    })
+  })
+
+  it("loadBookRules 未写过或 JSON 损坏时优雅降级返回 null", async () => {
+    await expect(loadBookRules("missing-proj")).resolves.toBeNull()
+    mem.files.set("proj/.novel/book-rules.json", "{broken")
+    await expect(loadBookRules("proj")).resolves.toBeNull()
   })
 })
