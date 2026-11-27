@@ -936,8 +936,8 @@ fn normalize_strict_object_args(
     Ok(normalized)
 }
 
-/// 严格校验 `draftId`：1..=128 个 ASCII `[a-zA-Z0-9_-]` 字符。
-fn validate_draft_id<'a>(raw: &'a str, tool: &str) -> Result<&'a str, ToolError> {
+/// 严格校验 ASCII 标识符（如 `draftId` / `prepareId`）：1..=128 个 ASCII `[a-zA-Z0-9_-]` 字符。
+fn validate_ascii_id<'a>(raw: &'a str, tool: &str, field: &str) -> Result<&'a str, ToolError> {
     if raw.is_empty()
         || raw.len() > DRAFT_ID_MAX_LEN
         || !raw
@@ -945,10 +945,109 @@ fn validate_draft_id<'a>(raw: &'a str, tool: &str) -> Result<&'a str, ToolError>
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
     {
         return Err(ToolError::invalid_params(format!(
-            "{tool}: `draftId` 必须是 1..={DRAFT_ID_MAX_LEN} 个 ASCII [a-zA-Z0-9_-] 字符"
+            "{tool}: `{field}` 必须是 1..={DRAFT_ID_MAX_LEN} 个 ASCII [a-zA-Z0-9_-] 字符"
         )));
     }
     Ok(raw)
+}
+
+/// 严格校验 `draftId`：1..=128 个 ASCII `[a-zA-Z0-9_-]` 字符。
+fn validate_draft_id<'a>(raw: &'a str, tool: &str) -> Result<&'a str, ToolError> {
+    validate_ascii_id(raw, tool, "draftId")
+}
+
+/// 严格校验 64 位 ASCII 十六进制 SHA-256 摘要，并归一化为小写。
+fn validate_sha256_hex(raw: &str, tool: &str, field: &str) -> Result<String, ToolError> {
+    if raw.len() != 64 || !raw.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `{field}` 必须是 64 位 ASCII 十六进制 SHA-256 字符串"
+        )));
+    }
+    Ok(raw.to_ascii_lowercase())
+}
+
+/// 严格校验单行非空字符串（长度在 `min_chars..=max_chars`，trim 后非空，禁止任何控制字符）。
+fn validate_single_line_str<'a>(
+    raw: &'a str,
+    tool: &str,
+    field: &str,
+    min_chars: usize,
+    max_chars: usize,
+) -> Result<&'a str, ToolError> {
+    let char_len = raw.chars().count();
+    if char_len < min_chars
+        || char_len > max_chars
+        || raw.trim().is_empty()
+        || raw.chars().any(char::is_control)
+    {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `{field}` 必须是 {min_chars}..={max_chars} 字符的非空单行字符串，且不得包含控制字符"
+        )));
+    }
+    Ok(raw)
+}
+
+/// 严格校验允许换行但禁止 `\0` NUL 字节的非空字符串。
+fn validate_multiline_no_nul<'a>(
+    raw: &'a str,
+    tool: &str,
+    field: &str,
+    min_chars: usize,
+    max_chars: usize,
+) -> Result<&'a str, ToolError> {
+    let char_len = raw.chars().count();
+    if char_len < min_chars || char_len > max_chars || raw.trim().is_empty() || raw.contains('\0') {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `{field}` 必须是 {min_chars}..={max_chars} 字符的非空字符串，且不得包含 NUL 字节"
+        )));
+    }
+    Ok(raw)
+}
+
+/// 取可选枚举字符串参数。
+fn optional_enum_str(
+    args: &Value,
+    tool: &str,
+    field: &str,
+    allowed: &[&'static str],
+) -> Result<Option<&'static str>, ToolError> {
+    match args.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => {
+            let raw = v.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!(
+                    "{tool}: `{field}` 只接受 {}，收到 {v}",
+                    allowed.join(" / ")
+                ))
+            })?;
+            let matched = allowed.iter().copied().find(|a| *a == raw).ok_or_else(|| {
+                ToolError::invalid_params(format!(
+                    "{tool}: `{field}` 只接受 {}，收到 {raw}",
+                    allowed.join(" / ")
+                ))
+            })?;
+            Ok(Some(matched))
+        }
+    }
+}
+
+/// 取可选有限浮点参数（落在 `min..=max` 闭区间）。
+fn optional_finite_f64_in_range(
+    args: &Value,
+    tool: &str,
+    field: &str,
+    min: f64,
+    max: f64,
+) -> Result<Option<f64>, ToolError> {
+    match args.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => match v.as_f64() {
+            Some(n) if n.is_finite() && (min..=max).contains(&n) => Ok(Some(n)),
+            _ => Err(ToolError::invalid_params(format!(
+                "{tool}: `{field}` 必须是 {min}..={max} 的有限数字，收到 {v}"
+            ))),
+        },
+    }
 }
 
 /// 严格校验机械门控的 `chapter` 选择器：1..=256 字符、非空白、无控制字符、无 `..`、无路径分隔符。
@@ -1319,6 +1418,7 @@ const CONTEXT_PREPARE_MAX_TASK_CHARS: usize = 4_000;
 const CONTEXT_PREPARE_MAX_DIMENSION_CHARS: usize = 64;
 const CONTEXT_PREPARE_DEFAULT_LIMIT: u64 = 16_000;
 const CONTEXT_PREPARE_LIMIT_MAX: u64 = 50_000;
+const CONTEXT_PREPARE_PAGE_MAX: u64 = 10_000;
 /// JS `Number.MAX_SAFE_INTEGER`（2^53 - 1），避免透传到 WebView JSON 时发生双精度截断。
 const JS_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
@@ -1328,6 +1428,7 @@ fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> 
         args,
         tool,
         &[
+            "prepareId",
             "targetChapter",
             "draftId",
             "task",
@@ -1338,6 +1439,7 @@ fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> 
             "allowRetrievalNetwork",
             "retrievalMode",
             "offset",
+            "page",
             "limit",
         ],
         &[],
@@ -1345,6 +1447,14 @@ fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> 
     let normalized = Value::Object(object);
 
     let mut params = json!({});
+
+    if let Some(v) = normalized.get("prepareId") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `prepareId` 必须是字符串，收到 {v}"))
+        })?;
+        let prepare_id = validate_ascii_id(raw, tool, "prepareId")?;
+        params["prepareId"] = json!(prepare_id);
+    }
 
     if let Some(target_chapter) =
         optional_int_in_range(&normalized, tool, "targetChapter", 1, JS_MAX_SAFE_INTEGER)?
@@ -1438,12 +1548,29 @@ fn build_context_prepare_write_params(args: &Value) -> Result<Value, ToolError> 
         params["retrievalMode"] = json!(mode);
     }
 
-    let offset =
-        optional_int_in_range(&normalized, tool, "offset", 0, JS_MAX_SAFE_INTEGER)?.unwrap_or(0);
+    let explicit_offset =
+        optional_int_in_range(&normalized, tool, "offset", 0, JS_MAX_SAFE_INTEGER)?;
+    let page = optional_int_in_range(&normalized, tool, "page", 1, CONTEXT_PREPARE_PAGE_MAX)?;
     let limit = optional_int_in_range(&normalized, tool, "limit", 1, CONTEXT_PREPARE_LIMIT_MAX)?
         .unwrap_or(CONTEXT_PREPARE_DEFAULT_LIMIT);
 
-    params["offset"] = json!(offset);
+    if explicit_offset.is_some() && page.is_some() {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `offset` 与 `page` 互斥，不能同时传入"
+        )));
+    }
+
+    if let Some(p) = page {
+        let computed = (p - 1).checked_mul(limit);
+        if computed.is_none_or(|off| off > JS_MAX_SAFE_INTEGER) {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: (`page` - 1) * `limit` 超出安全整数范围"
+            )));
+        }
+        params["page"] = json!(p);
+    } else {
+        params["offset"] = json!(explicit_offset.unwrap_or(0));
+    }
     params["limit"] = json!(limit);
 
     Ok(params)
@@ -1467,13 +1594,20 @@ impl super::registry::McpTool for ContextPrepareWriteTool {
     }
 
     fn description(&self) -> &'static str {
-        "Assemble read-only writing preparation context (effective config, planning view, optional draft snippet, optional ContextPack/dimension prompt for thrill, consistency, pacing, character, continuity, pull) for the target chapter or draft. Zero LLM calls; supports retrievalMode (`local_only` | `configured_network`) and explicit allowRetrievalNetwork opt-in (refuses network retrieval by default). Never modifies chapters, drafts, memory, or settings."
+        "Assemble read-only writing preparation context (effective config, planning view, optional draft snippet, optional ContextPack/dimension prompt for thrill, consistency, pacing, character, continuity, pull) for the target chapter or draft. Supports `prepareId` snapshot reuse across pages/dimensions without rebuilding, plus 1-based `page` pagination (mutually exclusive with `offset`). Zero LLM calls; supports retrievalMode (`local_only` | `configured_network`) and explicit allowRetrievalNetwork opt-in (refuses network retrieval by default). Never modifies chapters, drafts, memory, or settings."
     }
 
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
+                "prepareId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+                    "description": "Optional opaque snapshot ID returned by a prior context.prepare_write call for zero-rebuild pagination or dimension lookup"
+                },
                 "targetChapter": {
                     "type": "integer",
                     "minimum": 1,
@@ -1524,7 +1658,13 @@ impl super::registry::McpTool for ContextPrepareWriteTool {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": JS_MAX_SAFE_INTEGER,
-                    "description": "0-based character offset for paged output (default 0)"
+                    "description": "0-based character offset for paged output (default 0; mutually exclusive with `page`)"
+                },
+                "page": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": CONTEXT_PREPARE_PAGE_MAX,
+                    "description": "Optional 1-based page number (1..=10000; mutually exclusive with `offset`)"
                 },
                 "limit": {
                     "type": "integer",
@@ -1581,6 +1721,842 @@ impl super::registry::McpTool for DirectorCheckTool {
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
             let query = build_director_check_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+// ── Phase 2 Zero-LLM 只读工具（workflow.next / foreshadowing.list / character.read / outline.read / style.exemplars / chapter.search）──
+
+const FORESHADOWING_STATUS_ENUM: [&str; 7] = [
+    "all",
+    "active",
+    "planted",
+    "advanced",
+    "resolved",
+    "abandoned",
+    "overdue",
+];
+const FORESHADOWING_DEBT_LEVEL_ENUM: [&str; 3] = ["critical", "warning", "normal"];
+const ATOMIC_READ_MAX_CHAPTER: u64 = 100_000;
+const ATOMIC_READ_MAX_OFFSET: u64 = 100_000;
+const OUTLINE_READ_MAX_OFFSET: u64 = 10_000_000;
+const FORESHADOWING_LIST_MAX_LIMIT: u64 = 100;
+const CHARACTER_READ_MAX_LIMIT: u64 = 100;
+const OUTLINE_READ_MAX_WINDOW: u64 = 10;
+const OUTLINE_READ_MAX_VOLUME: u64 = 1_000;
+const OUTLINE_READ_FILE_MAX_LIMIT: u64 = 50_000;
+const OUTLINE_READ_CHAPTER_MAX_LIMIT: u64 = 200;
+const STYLE_EXEMPLARS_MARK_TYPES: [&str; 6] =
+    ["style", "voice", "pacing", "thrill", "pull", "consistency"];
+const STYLE_EXEMPLARS_MAX_TOP_K: u64 = 50;
+const STYLE_EXEMPLARS_MIN_CHARS_PER_ITEM: u64 = 100;
+const STYLE_EXEMPLARS_MAX_CHARS_PER_ITEM: u64 = 4_000;
+const STYLE_EXEMPLARS_MAX_LIMIT: u64 = 50;
+const CHAPTER_SEARCH_SCOPE_ENUM: [&str; 6] = [
+    "chapters", "all", "entities", "outlines", "memory", "drafts",
+];
+const CHAPTER_SEARCH_MAX_QUERY_CHARS: usize = 256;
+const CHAPTER_SEARCH_MAX_LIMIT: u64 = 50;
+const CHAPTER_SEARCH_MIN_CONTEXT_CHARS: u64 = 40;
+const CHAPTER_SEARCH_MAX_CONTEXT_CHARS: u64 = 400;
+
+fn build_workflow_next_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "workflow.next";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &["targetChapter", "draftId"],
+        &[],
+    )?);
+    let mut params = json!({});
+    if let Some(target_chapter) =
+        optional_int_in_range(&normalized, tool, "targetChapter", 1, JS_MAX_SAFE_INTEGER)?
+    {
+        params["targetChapter"] = json!(target_chapter);
+    }
+    if let Some(v) = normalized.get("draftId") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `draftId` 必须是字符串，收到 {v}"))
+        })?;
+        let draft_id = validate_draft_id(raw, tool)?;
+        params["draftId"] = json!(draft_id);
+    }
+    Ok(StateQuery::new("workflow-next").with_params(params))
+}
+
+/// `workflow.next` —— 基于 `control-kernel.route` 的确定性下一步工作流路由（零 LLM、零磁盘写）。
+pub struct WorkflowNextTool;
+
+impl super::registry::McpTool for WorkflowNextTool {
+    fn name(&self) -> &'static str {
+        "workflow.next"
+    }
+
+    fn description(&self) -> &'static str {
+        "Deterministic next-step workflow router powered by control-kernel.route (zero LLM, zero disk writes). Inspects .novel/status.json, director gates, and pending drafts to recommend the next canonical action and MCP tool sequence."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "targetChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": JS_MAX_SAFE_INTEGER,
+                    "description": "Optional 1-based target chapter number for routing context"
+                },
+                "draftId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+                    "description": "Optional draft ID to focus routing on"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_workflow_next_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_foreshadowing_list_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "foreshadowing.list";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "status",
+            "character",
+            "currentChapter",
+            "includeDebt",
+            "debtLevel",
+            "offset",
+            "limit",
+        ],
+        &[],
+    )?);
+    let mut params = json!({});
+    if let Some(status) =
+        optional_enum_str(&normalized, tool, "status", &FORESHADOWING_STATUS_ENUM)?
+    {
+        params["status"] = json!(status);
+    }
+    if let Some(v) = normalized.get("character") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `character` 必须是字符串，收到 {v}"))
+        })?;
+        let character = validate_single_line_str(raw, tool, "character", 1, 128)?;
+        params["character"] = json!(character);
+    }
+    if let Some(ch) = optional_int_in_range(
+        &normalized,
+        tool,
+        "currentChapter",
+        1,
+        ATOMIC_READ_MAX_CHAPTER,
+    )? {
+        params["currentChapter"] = json!(ch);
+    }
+    if let Some(flag) = optional_bool(&normalized, tool, "includeDebt")? {
+        params["includeDebt"] = json!(flag);
+    }
+    if let Some(level) = optional_enum_str(
+        &normalized,
+        tool,
+        "debtLevel",
+        &FORESHADOWING_DEBT_LEVEL_ENUM,
+    )? {
+        params["debtLevel"] = json!(level);
+    }
+    if let Some(offset) =
+        optional_int_in_range(&normalized, tool, "offset", 0, ATOMIC_READ_MAX_OFFSET)?
+    {
+        params["offset"] = json!(offset);
+    }
+    if let Some(limit) =
+        optional_int_in_range(&normalized, tool, "limit", 1, FORESHADOWING_LIST_MAX_LIMIT)?
+    {
+        params["limit"] = json!(limit);
+    }
+    Ok(StateQuery::new("foreshadowing-list").with_params(params))
+}
+
+/// `foreshadowing.list` —— 只读查询项目伏笔账本与伏笔债（零 LLM 调用）。
+pub struct ForeshadowingListTool;
+
+impl super::registry::McpTool for ForeshadowingListTool {
+    fn name(&self) -> &'static str {
+        "foreshadowing.list"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read-only query of the project's foreshadowing ledger (planted, advanced, resolved, abandoned, overdue threads and optional foreshadowing debt). Zero LLM calls; never modifies project files."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": FORESHADOWING_STATUS_ENUM,
+                    "description": "Filter by thread lifecycle status"
+                },
+                "character": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "Optional character name filter (single-line, no control chars)"
+                },
+                "currentChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": ATOMIC_READ_MAX_CHAPTER,
+                    "description": "Optional reference chapter number for overdue and debt calculations (1..=100000)"
+                },
+                "includeDebt": {
+                    "type": "boolean",
+                    "description": "Whether to compute and include foreshadowing debt summary"
+                },
+                "debtLevel": {
+                    "type": "string",
+                    "enum": FORESHADOWING_DEBT_LEVEL_ENUM,
+                    "description": "Optional debt severity filter (critical | warning | normal)"
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": ATOMIC_READ_MAX_OFFSET,
+                    "description": "0-based item offset (0..=100000)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": FORESHADOWING_LIST_MAX_LIMIT,
+                    "description": "Maximum items to return (1..=100)"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_foreshadowing_list_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_character_read_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "character.read";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "name",
+            "query",
+            "aliveOnly",
+            "includeAura",
+            "includeState",
+            "includeRelationships",
+            "offset",
+            "limit",
+        ],
+        &[],
+    )?);
+    let mut params = json!({});
+    if let Some(v) = normalized.get("name") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `name` 必须是字符串，收到 {v}"))
+        })?;
+        let name = validate_single_line_str(raw, tool, "name", 1, 128)?;
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `name` 不得包含 `/`、`\\` 或 `..`"
+            )));
+        }
+        params["name"] = json!(name);
+    }
+    if let Some(v) = normalized.get("query") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `query` 必须是字符串，收到 {v}"))
+        })?;
+        let q = validate_single_line_str(raw, tool, "query", 1, 128)?;
+        params["query"] = json!(q);
+    }
+    for field in [
+        "aliveOnly",
+        "includeAura",
+        "includeState",
+        "includeRelationships",
+    ] {
+        if let Some(flag) = optional_bool(&normalized, tool, field)? {
+            params[field] = json!(flag);
+        }
+    }
+    if let Some(offset) =
+        optional_int_in_range(&normalized, tool, "offset", 0, ATOMIC_READ_MAX_OFFSET)?
+    {
+        params["offset"] = json!(offset);
+    }
+    if let Some(limit) =
+        optional_int_in_range(&normalized, tool, "limit", 1, CHARACTER_READ_MAX_LIMIT)?
+    {
+        params["limit"] = json!(limit);
+    }
+    Ok(StateQuery::new("character-read").with_params(params))
+}
+
+/// `character.read` —— 只读读取角色档案、状态、光环与关系（零 LLM 调用）。
+pub struct CharacterReadTool;
+
+impl super::registry::McpTool for CharacterReadTool {
+    fn name(&self) -> &'static str {
+        "character.read"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read-only query of character entity cards, optional character state, aura/traits, and relationship edges. Zero LLM calls; never modifies character files or ledgers."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "Optional exact character name (single-line, no control chars, no /, \\, or ..)"
+                },
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "Optional keyword filter across character names and summaries"
+                },
+                "aliveOnly": {
+                    "type": "boolean",
+                    "description": "When true, filter to alive characters only"
+                },
+                "includeAura": {
+                    "type": "boolean",
+                    "description": "Whether to include character aura / personality traits"
+                },
+                "includeState": {
+                    "type": "boolean",
+                    "description": "Whether to include latest character state snapshot"
+                },
+                "includeRelationships": {
+                    "type": "boolean",
+                    "description": "Whether to include character relationship edges"
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": ATOMIC_READ_MAX_OFFSET,
+                    "description": "0-based item offset (0..=100000)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": CHARACTER_READ_MAX_LIMIT,
+                    "description": "Maximum characters to return (1..=100)"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_character_read_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_outline_read_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "outline.read";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "chapterNumber",
+            "window",
+            "volume",
+            "filename",
+            "includeSummaryOnly",
+            "offset",
+            "limit",
+        ],
+        &[],
+    )?);
+    let chapter_number = optional_int_in_range(
+        &normalized,
+        tool,
+        "chapterNumber",
+        1,
+        ATOMIC_READ_MAX_CHAPTER,
+    )?;
+    let window = optional_int_in_range(&normalized, tool, "window", 0, OUTLINE_READ_MAX_WINDOW)?;
+    let volume = optional_int_in_range(&normalized, tool, "volume", 1, OUTLINE_READ_MAX_VOLUME)?;
+    let filename = match normalized.get("filename") {
+        None => None,
+        Some(v) => {
+            let raw = v.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `filename` 必须是字符串，收到 {v}"))
+            })?;
+            Some(validate_outline_filename(raw, tool)?)
+        }
+    };
+    if filename.is_some() && (chapter_number.is_some() || volume.is_some() || window.is_some()) {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `filename` 与 `chapterNumber` / `volume` / `window` 互斥，不能同时传入"
+        )));
+    }
+    if window.is_some() && chapter_number.is_none() {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: window requires chapterNumber"
+        )));
+    }
+
+    let max_limit = if filename.is_some() {
+        OUTLINE_READ_FILE_MAX_LIMIT
+    } else {
+        OUTLINE_READ_CHAPTER_MAX_LIMIT
+    };
+
+    let mut params = json!({});
+    if let Some(ch) = chapter_number {
+        params["chapterNumber"] = json!(ch);
+    }
+    if let Some(w) = window {
+        params["window"] = json!(w);
+    }
+    if let Some(vol) = volume {
+        params["volume"] = json!(vol);
+    }
+    if let Some(f) = filename {
+        params["filename"] = json!(f);
+    }
+    if let Some(flag) = optional_bool(&normalized, tool, "includeSummaryOnly")? {
+        params["includeSummaryOnly"] = json!(flag);
+    }
+    if let Some(offset) =
+        optional_int_in_range(&normalized, tool, "offset", 0, OUTLINE_READ_MAX_OFFSET)?
+    {
+        params["offset"] = json!(offset);
+    }
+    if let Some(limit) = optional_int_in_range(&normalized, tool, "limit", 1, max_limit)? {
+        params["limit"] = json!(limit);
+    }
+    Ok(StateQuery::new("outline-read").with_params(params))
+}
+
+/// `outline.read` —— 只读读取大纲文档或按章/卷切片（零 LLM 调用）。
+pub struct OutlineReadTool;
+
+impl super::registry::McpTool for OutlineReadTool {
+    fn name(&self) -> &'static str {
+        "outline.read"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read-only query of project outlines under wiki/outlines/ by chapter window, volume, or safe single-segment .md filename (mutually exclusive with chapterNumber, volume, and window). Zero LLM calls; never modifies outline files."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "chapterNumber": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": ATOMIC_READ_MAX_CHAPTER,
+                    "description": "Optional 1-based chapter number (1..=100000) to slice outline around (mutually exclusive with filename)"
+                },
+                "window": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": OUTLINE_READ_MAX_WINDOW,
+                    "description": "Optional +/- chapter window around chapterNumber (0..=10; requires chapterNumber and conflicts with filename)"
+                },
+                "volume": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": OUTLINE_READ_MAX_VOLUME,
+                    "description": "Optional 1-based volume number (1..=1000; mutually exclusive with filename)"
+                },
+                "filename": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": OUTLINE_WRITE_MAX_FILENAME_CHARS,
+                    "description": "Optional safe single-segment .md filename under wiki/outlines/ (mutually exclusive with chapterNumber, volume, and window)"
+                },
+                "includeSummaryOnly": {
+                    "type": "boolean",
+                    "description": "When true, return condensed outline summary metadata only"
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": OUTLINE_READ_MAX_OFFSET,
+                    "description": "0-based offset (0..=10000000; character offset in filename mode, chapter entry offset in chapterNumber/volume/overview modes)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": OUTLINE_READ_FILE_MAX_LIMIT,
+                    "description": "Maximum payload size: 1..=50000 characters in filename mode; 1..=200 chapter entries in chapterNumber/volume/overview modes"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_outline_read_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_style_exemplars_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "style.exemplars";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "markTypes",
+            "category",
+            "chapterId",
+            "topK",
+            "maxCharsPerItem",
+            "offset",
+            "limit",
+        ],
+        &[],
+    )?);
+    let mut params = json!({});
+    if let Some(v) = normalized.get("markTypes") {
+        let arr = v.as_array().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `markTypes` 必须是非空数组"))
+        })?;
+        if arr.is_empty() {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `markTypes` 不能为空数组"
+            )));
+        }
+        if arr.len() > STYLE_EXEMPLARS_MARK_TYPES.len() {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `markTypes` 最多包含 {} 项，收到 {}",
+                STYLE_EXEMPLARS_MARK_TYPES.len(),
+                arr.len()
+            )));
+        }
+        let mut deduped = Vec::with_capacity(arr.len());
+        let mut seen = HashSet::with_capacity(arr.len());
+        for (idx, item) in arr.iter().enumerate() {
+            let raw = item.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!(
+                    "{tool}: `markTypes[{idx}]` 必须是字符串，收到 {item}"
+                ))
+            })?;
+            let matched = STYLE_EXEMPLARS_MARK_TYPES
+                .iter()
+                .copied()
+                .find(|allowed| *allowed == raw)
+                .ok_or_else(|| {
+                    ToolError::invalid_params(format!(
+                        "{tool}: `markTypes[{idx}]` 只接受 {}，收到 {raw}",
+                        STYLE_EXEMPLARS_MARK_TYPES.join(" / ")
+                    ))
+                })?;
+            if seen.insert(matched) {
+                deduped.push(matched);
+            }
+        }
+        params["markTypes"] = json!(deduped);
+    }
+    if let Some(v) = normalized.get("category") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `category` 必须是字符串，收到 {v}"))
+        })?;
+        let category = validate_single_line_str(raw, tool, "category", 1, 128)?;
+        params["category"] = json!(category);
+    }
+    if let Some(v) = normalized.get("chapterId") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `chapterId` 必须是字符串，收到 {v}"))
+        })?;
+        let chapter_id = validate_single_line_str(raw, tool, "chapterId", 1, 128)?;
+        params["chapterId"] = json!(chapter_id);
+    }
+    if let Some(top_k) =
+        optional_int_in_range(&normalized, tool, "topK", 1, STYLE_EXEMPLARS_MAX_TOP_K)?
+    {
+        params["topK"] = json!(top_k);
+    }
+    if let Some(max_chars) = optional_int_in_range(
+        &normalized,
+        tool,
+        "maxCharsPerItem",
+        STYLE_EXEMPLARS_MIN_CHARS_PER_ITEM,
+        STYLE_EXEMPLARS_MAX_CHARS_PER_ITEM,
+    )? {
+        params["maxCharsPerItem"] = json!(max_chars);
+    }
+    if let Some(offset) =
+        optional_int_in_range(&normalized, tool, "offset", 0, ATOMIC_READ_MAX_OFFSET)?
+    {
+        params["offset"] = json!(offset);
+    }
+    if let Some(limit) =
+        optional_int_in_range(&normalized, tool, "limit", 1, STYLE_EXEMPLARS_MAX_LIMIT)?
+    {
+        params["limit"] = json!(limit);
+    }
+    Ok(StateQuery::new("style-exemplars").with_params(params))
+}
+
+/// `style.exemplars` —— 只读检索作者风格范例与标定片段（零 LLM 调用）。
+pub struct StyleExemplarsTool;
+
+impl super::registry::McpTool for StyleExemplarsTool {
+    fn name(&self) -> &'static str {
+        "style.exemplars"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read-only retrieval of curated author style exemplars and prose marks filtered by markTypes, category, or chapterId. Zero LLM calls; never modifies style stores or chapters."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "markTypes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": STYLE_EXEMPLARS_MARK_TYPES.len(),
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "enum": STYLE_EXEMPLARS_MARK_TYPES
+                    },
+                    "description": "Optional subset of mark types: style, voice, pacing, thrill, pull, consistency"
+                },
+                "category": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "Optional exemplar category filter (single-line, no control chars)"
+                },
+                "chapterId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "Optional source chapter identifier filter (single-line, no control chars)"
+                },
+                "topK": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": STYLE_EXEMPLARS_MAX_TOP_K,
+                    "description": "Optional top-K exemplar count (1..=50)"
+                },
+                "maxCharsPerItem": {
+                    "type": "integer",
+                    "minimum": STYLE_EXEMPLARS_MIN_CHARS_PER_ITEM,
+                    "maximum": STYLE_EXEMPLARS_MAX_CHARS_PER_ITEM,
+                    "description": "Optional max excerpt length per exemplar (100..=4000)"
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": ATOMIC_READ_MAX_OFFSET,
+                    "description": "0-based item offset (0..=100000)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": STYLE_EXEMPLARS_MAX_LIMIT,
+                    "description": "Maximum items to return (1..=50)"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_style_exemplars_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_chapter_search_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "chapter.search";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "query",
+            "scope",
+            "chapterStart",
+            "chapterEnd",
+            "limit",
+            "contextChars",
+        ],
+        &["query"],
+    )?);
+    let query_raw = normalized
+        .get("query")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `query`")))?;
+    let query_str =
+        validate_single_line_str(query_raw, tool, "query", 1, CHAPTER_SEARCH_MAX_QUERY_CHARS)?;
+
+    let chapter_start = optional_int_in_range(
+        &normalized,
+        tool,
+        "chapterStart",
+        1,
+        ATOMIC_READ_MAX_CHAPTER,
+    )?;
+    let chapter_end =
+        optional_int_in_range(&normalized, tool, "chapterEnd", 1, ATOMIC_READ_MAX_CHAPTER)?;
+    if let (Some(start), Some(end)) = (chapter_start, chapter_end) {
+        if start > end {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `chapterStart` ({start}) 不能大于 `chapterEnd` ({end})"
+            )));
+        }
+    }
+
+    let mut params = json!({ "query": query_str });
+    if let Some(scope) = optional_enum_str(&normalized, tool, "scope", &CHAPTER_SEARCH_SCOPE_ENUM)?
+    {
+        params["scope"] = json!(scope);
+    }
+    if let Some(start) = chapter_start {
+        params["chapterStart"] = json!(start);
+    }
+    if let Some(end) = chapter_end {
+        params["chapterEnd"] = json!(end);
+    }
+    if let Some(limit) =
+        optional_int_in_range(&normalized, tool, "limit", 1, CHAPTER_SEARCH_MAX_LIMIT)?
+    {
+        params["limit"] = json!(limit);
+    }
+    if let Some(ctx_chars) = optional_int_in_range(
+        &normalized,
+        tool,
+        "contextChars",
+        CHAPTER_SEARCH_MIN_CONTEXT_CHARS,
+        CHAPTER_SEARCH_MAX_CONTEXT_CHARS,
+    )? {
+        params["contextChars"] = json!(ctx_chars);
+    }
+    Ok(StateQuery::new("chapter-search").with_params(params))
+}
+
+/// `chapter.search` —— 跨章节/实体/大纲/记忆/草稿的只读全文检索（零 LLM 调用）。
+pub struct ChapterSearchTool;
+
+impl super::registry::McpTool for ChapterSearchTool {
+    fn name(&self) -> &'static str {
+        "chapter.search"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read-only full-text search across project chapters (or entities, outlines, memory, drafts, or all scopes) with optional chapter range and context snippets. Zero LLM calls; never modifies project files."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": CHAPTER_SEARCH_MAX_QUERY_CHARS,
+                    "description": "Required search query (1..=256 chars, non-empty single-line, no control chars)"
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": CHAPTER_SEARCH_SCOPE_ENUM,
+                    "description": "Search scope: chapters | all | entities | outlines | memory | drafts"
+                },
+                "chapterStart": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": ATOMIC_READ_MAX_CHAPTER,
+                    "description": "Optional inclusive 1-based start chapter number (1..=100000)"
+                },
+                "chapterEnd": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": ATOMIC_READ_MAX_CHAPTER,
+                    "description": "Optional inclusive 1-based end chapter number (1..=100000; >= chapterStart when both given)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": CHAPTER_SEARCH_MAX_LIMIT,
+                    "description": "Maximum matches to return (1..=50)"
+                },
+                "contextChars": {
+                    "type": "integer",
+                    "minimum": CHAPTER_SEARCH_MIN_CONTEXT_CHARS,
+                    "maximum": CHAPTER_SEARCH_MAX_CONTEXT_CHARS,
+                    "description": "Context snippet window around each hit in characters (40..=400)"
+                }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_chapter_search_query(args)?;
             ctx.bridge_query(query).await
         })
     }
@@ -1919,6 +2895,570 @@ impl super::registry::McpTool for ChapterWriteTool {
                 })))
                 .await?;
             Ok(result)
+        })
+    }
+}
+
+const DRAFT_PATCH_MAX_EDITS: usize = 25;
+const DRAFT_PATCH_MAX_TOTAL_CHARS: usize = 100_000;
+const DRAFT_PATCH_MAX_OCCURRENCE: u64 = 1_000;
+const DRAFT_PATCH_MAX_LINE: u64 = 1_000_000;
+const DRAFT_PATCH_MAX_NOTE_CHARS: usize = 1_000;
+
+fn build_draft_patch_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "draft.patch";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &["draftId", "expectedSha256", "edits", "note"],
+        &["draftId", "expectedSha256", "edits"],
+    )?);
+
+    let draft_id_raw = normalized
+        .get("draftId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `draftId`")))?;
+    let draft_id = validate_draft_id(draft_id_raw, tool)?;
+
+    let sha_raw = normalized
+        .get("expectedSha256")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `expectedSha256`"))
+        })?;
+    let expected_sha256 = validate_sha256_hex(sha_raw, tool, "expectedSha256")?;
+
+    let edits_arr = normalized
+        .get("edits")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `edits` 必须是非空数组")))?;
+    if edits_arr.is_empty() || edits_arr.len() > DRAFT_PATCH_MAX_EDITS {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: `edits` 长度必须在 1..={DRAFT_PATCH_MAX_EDITS} 之间，收到 {}",
+            edits_arr.len()
+        )));
+    }
+
+    let mut normalized_edits = Vec::with_capacity(edits_arr.len());
+    let mut total_chars: usize = 0;
+
+    for (idx, item) in edits_arr.iter().enumerate() {
+        let obj = item.as_object().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `edits[{idx}]` 必须是 object"))
+        })?;
+        for key in obj.keys() {
+            if !matches!(
+                key.as_str(),
+                "find" | "replace" | "occurrence" | "startLine" | "endLine" | "replacement"
+            ) {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `edits[{idx}]` 包含未知字段 `{key}`"
+                )));
+            }
+        }
+
+        let has_find_family = obj.contains_key("find")
+            || obj.contains_key("replace")
+            || obj.contains_key("occurrence");
+        let has_line_family = obj.contains_key("startLine")
+            || obj.contains_key("endLine")
+            || obj.contains_key("replacement");
+
+        if has_find_family && has_line_family {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `edits[{idx}]` 不能混用 find/replace 与 startLine/endLine/replacement"
+            )));
+        }
+        if !has_find_family && !has_line_family {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `edits[{idx}]` 必须提供 find/replace 或 startLine/endLine/replacement"
+            )));
+        }
+
+        let item_label = format!("{tool}.edits[{idx}]");
+        if has_find_family {
+            let clean = Value::Object(normalize_strict_object_args(
+                item,
+                &item_label,
+                &["find", "replace", "occurrence"],
+                &["find", "replace"],
+            )?);
+            let find = clean.get("find").and_then(Value::as_str).ok_or_else(|| {
+                ToolError::invalid_params(format!("{item_label}: 缺少字符串参数 `find`"))
+            })?;
+            if find.is_empty() {
+                return Err(ToolError::invalid_params(format!(
+                    "{item_label}: `find` 不能为空字符串"
+                )));
+            }
+            if find.contains('\0') {
+                return Err(ToolError::invalid_params(format!(
+                    "{item_label}: `find` 不得包含 NUL 字节"
+                )));
+            }
+            let replace = clean
+                .get("replace")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ToolError::invalid_params(format!("{item_label}: 缺少字符串参数 `replace`"))
+                })?;
+            if replace.contains('\0') {
+                return Err(ToolError::invalid_params(format!(
+                    "{item_label}: `replace` 不得包含 NUL 字节"
+                )));
+            }
+            let occurrence = optional_int_in_range(
+                &clean,
+                &item_label,
+                "occurrence",
+                1,
+                DRAFT_PATCH_MAX_OCCURRENCE,
+            )?;
+
+            total_chars = total_chars
+                .saturating_add(find.chars().count())
+                .saturating_add(replace.chars().count());
+            if total_chars > DRAFT_PATCH_MAX_TOTAL_CHARS {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: 所有 edits 的 find/replace/replacement 总字符数不能超过 {DRAFT_PATCH_MAX_TOTAL_CHARS}"
+                )));
+            }
+
+            let mut edit_val = json!({
+                "find": find,
+                "replace": replace,
+            });
+            if let Some(occ) = occurrence {
+                edit_val["occurrence"] = json!(occ);
+            }
+            normalized_edits.push(edit_val);
+        } else {
+            let clean = Value::Object(normalize_strict_object_args(
+                item,
+                &item_label,
+                &["startLine", "endLine", "replacement"],
+                &["startLine", "endLine", "replacement"],
+            )?);
+            let start_line =
+                optional_int_in_range(&clean, &item_label, "startLine", 1, DRAFT_PATCH_MAX_LINE)?
+                    .ok_or_else(|| {
+                    ToolError::invalid_params(format!("{item_label}: 缺少整数参数 `startLine`"))
+                })?;
+            let end_line =
+                optional_int_in_range(&clean, &item_label, "endLine", 1, DRAFT_PATCH_MAX_LINE)?
+                    .ok_or_else(|| {
+                        ToolError::invalid_params(format!("{item_label}: 缺少整数参数 `endLine`"))
+                    })?;
+            if end_line < start_line {
+                return Err(ToolError::invalid_params(format!(
+                    "{item_label}: `endLine` ({end_line}) 不能小于 `startLine` ({start_line})"
+                )));
+            }
+            let replacement = clean
+                .get("replacement")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ToolError::invalid_params(format!("{item_label}: 缺少字符串参数 `replacement`"))
+                })?;
+            if replacement.contains('\0') {
+                return Err(ToolError::invalid_params(format!(
+                    "{item_label}: `replacement` 不得包含 NUL 字节"
+                )));
+            }
+
+            total_chars = total_chars.saturating_add(replacement.chars().count());
+            if total_chars > DRAFT_PATCH_MAX_TOTAL_CHARS {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: 所有 edits 的 find/replace/replacement 总字符数不能超过 {DRAFT_PATCH_MAX_TOTAL_CHARS}"
+                )));
+            }
+
+            normalized_edits.push(json!({
+                "startLine": start_line,
+                "endLine": end_line,
+                "replacement": replacement,
+            }));
+        }
+    }
+
+    let mut params = json!({
+        "draftId": draft_id,
+        "expectedSha256": expected_sha256,
+        "edits": normalized_edits,
+    });
+
+    if let Some(v) = normalized.get("note") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `note` 必须是字符串，收到 {v}"))
+        })?;
+        let note = validate_multiline_no_nul(raw, tool, "note", 1, DRAFT_PATCH_MAX_NOTE_CHARS)?;
+        params["note"] = json!(note);
+    }
+
+    Ok(StateQuery::new("draft-patch").with_params(params))
+}
+
+/// `draft.patch` —— 基于乐观锁与硬熔断的手术式草稿修订（Draft-first，绝不写正式章节）。
+pub struct DraftPatchTool;
+
+impl super::registry::McpTool for DraftPatchTool {
+    fn name(&self) -> &'static str {
+        "draft.patch"
+    }
+
+    fn description(&self) -> &'static str {
+        "Apply 1..=25 surgical edits to an existing chapter draft in .qm-drafts/ using optimistic concurrency (`expectedSha256` must match `draft.read` `bodySha256`). Each edit is either substring `{find, replace, occurrence?}` or 1-based inclusive line range `{startLine, endLine, replacement}`. Enforces HARD_FUSE_LIMIT = 5 (`revisionRound`) and preserves `parentDraftId`. Draft-first and zero LLM calls: writes ONLY to .qm-drafts/, NEVER writes formal chapters or accepts drafts."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "draftId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+                    "description": "Target draft ID in .qm-drafts/"
+                },
+                "expectedSha256": {
+                    "type": "string",
+                    "minLength": 64,
+                    "maxLength": 64,
+                    "pattern": "^[0-9a-fA-F]{64}$",
+                    "description": "64-char hex SHA-256 matching `draft.read` `bodySha256` (optimistic concurrency lock)"
+                },
+                "edits": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": DRAFT_PATCH_MAX_EDITS,
+                    "description": "1..=25 ordered surgical edits (total chars across find/replace/replacement <= 100000); each item is either {find, replace, occurrence?} or 1-based inclusive {startLine, endLine, replacement}",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "find": { "type": "string", "minLength": 1 },
+                                    "replace": { "type": "string" },
+                                    "occurrence": { "type": "integer", "minimum": 1, "maximum": DRAFT_PATCH_MAX_OCCURRENCE }
+                                },
+                                "required": ["find", "replace"],
+                                "additionalProperties": false
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "startLine": { "type": "integer", "minimum": 1, "maximum": DRAFT_PATCH_MAX_LINE },
+                                    "endLine": { "type": "integer", "minimum": 1, "maximum": DRAFT_PATCH_MAX_LINE },
+                                    "replacement": { "type": "string" }
+                                },
+                                "required": ["startLine", "endLine", "replacement"],
+                                "additionalProperties": false
+                            }
+                        ]
+                    }
+                },
+                "note": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_PATCH_MAX_NOTE_CHARS,
+                    "description": "Optional non-empty revision note (max 1000 chars, no NUL bytes)"
+                }
+            },
+            "required": ["draftId", "expectedSha256", "edits"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_draft_patch_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+const DRAFT_REVIEW_HARD_GATE_ENUM: [&str; 3] = ["pass", "fail", "not_evaluated"];
+const DRAFT_REVIEW_QUALITY_GATE_ENUM: [&str; 4] = ["pass", "fail", "warning", "not_evaluated"];
+const DRAFT_REVIEW_MAX_DIMENSIONS: usize = 12;
+const DRAFT_REVIEW_MAX_DIMENSION_KEY_CHARS: usize = 64;
+const DRAFT_REVIEW_MAX_SUMMARY_CHARS: usize = 4_000;
+const DRAFT_REVIEW_MAX_BLOCKING_ISSUES: usize = 50;
+const DRAFT_REVIEW_MAX_ISSUE_CHARS: usize = 1_000;
+const DRAFT_REVIEW_MAX_ROLE_CHARS: usize = 64;
+
+fn build_draft_record_review_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "draft.record_review";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "draftId",
+            "expectedSha256",
+            "gates",
+            "overallScore",
+            "dimensionScores",
+            "summary",
+            "blockingIssues",
+            "reviewerRole",
+            "autoArmEnabled",
+        ],
+        &["draftId", "expectedSha256", "gates"],
+    )?);
+
+    let draft_id_raw = normalized
+        .get("draftId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `draftId`")))?;
+    let draft_id = validate_draft_id(draft_id_raw, tool)?;
+
+    let sha_raw = normalized
+        .get("expectedSha256")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: 缺少字符串参数 `expectedSha256`"))
+        })?;
+    let expected_sha256 = validate_sha256_hex(sha_raw, tool, "expectedSha256")?;
+
+    let gates_raw = normalized
+        .get("gates")
+        .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 缺少 object 参数 `gates`")))?;
+    let gates_obj = Value::Object(normalize_strict_object_args(
+        gates_raw,
+        "draft.record_review.gates",
+        &["consistency", "anti_ai", "quality"],
+        &["consistency", "anti_ai"],
+    )?);
+
+    let consistency = optional_enum_str(
+        &gates_obj,
+        "draft.record_review.gates",
+        "consistency",
+        &DRAFT_REVIEW_HARD_GATE_ENUM,
+    )?
+    .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `gates.consistency` 为必填枚举")))?;
+    let anti_ai = optional_enum_str(
+        &gates_obj,
+        "draft.record_review.gates",
+        "anti_ai",
+        &DRAFT_REVIEW_HARD_GATE_ENUM,
+    )?
+    .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `gates.anti_ai` 为必填枚举")))?;
+    let quality = optional_enum_str(
+        &gates_obj,
+        "draft.record_review.gates",
+        "quality",
+        &DRAFT_REVIEW_QUALITY_GATE_ENUM,
+    )?;
+
+    let mut gates_out = json!({
+        "consistency": consistency,
+        "anti_ai": anti_ai,
+    });
+    if let Some(q) = quality {
+        gates_out["quality"] = json!(q);
+    }
+
+    let mut params = json!({
+        "draftId": draft_id,
+        "expectedSha256": expected_sha256,
+        "gates": gates_out,
+    });
+
+    if let Some(score) = optional_finite_f64_in_range(&normalized, tool, "overallScore", 0.0, 10.0)?
+    {
+        params["overallScore"] = json!(score);
+    }
+
+    if let Some(v) = normalized.get("dimensionScores") {
+        let map = v.as_object().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `dimensionScores` 必须是 object"))
+        })?;
+        if map.len() > DRAFT_REVIEW_MAX_DIMENSIONS {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `dimensionScores` 最多 {DRAFT_REVIEW_MAX_DIMENSIONS} 项，收到 {}",
+                map.len()
+            )));
+        }
+        let mut clean_scores = serde_json::Map::with_capacity(map.len());
+        for (k, score_val) in map {
+            let key = validate_single_line_str(
+                k,
+                tool,
+                "dimensionScores key",
+                1,
+                DRAFT_REVIEW_MAX_DIMENSION_KEY_CHARS,
+            )?;
+            let n = score_val.as_f64().ok_or_else(|| {
+                ToolError::invalid_params(format!(
+                    "{tool}: `dimensionScores[{key}]` 必须是 0.0..=10.0 的有限数字，收到 {score_val}"
+                ))
+            })?;
+            if !n.is_finite() || !(0.0..=10.0).contains(&n) {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `dimensionScores[{key}]` 必须是 0.0..=10.0 的有限数字，收到 {score_val}"
+                )));
+            }
+            clean_scores.insert(key.to_string(), json!(n));
+        }
+        params["dimensionScores"] = Value::Object(clean_scores);
+    }
+
+    if let Some(v) = normalized.get("summary") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `summary` 必须是字符串，收到 {v}"))
+        })?;
+        let summary =
+            validate_multiline_no_nul(raw, tool, "summary", 1, DRAFT_REVIEW_MAX_SUMMARY_CHARS)?;
+        params["summary"] = json!(summary);
+    }
+
+    if let Some(v) = normalized.get("blockingIssues") {
+        let arr = v.as_array().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `blockingIssues` 必须是字符串数组"))
+        })?;
+        if arr.len() > DRAFT_REVIEW_MAX_BLOCKING_ISSUES {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: `blockingIssues` 最多 {DRAFT_REVIEW_MAX_BLOCKING_ISSUES} 项，收到 {}",
+                arr.len()
+            )));
+        }
+        let mut clean_issues = Vec::with_capacity(arr.len());
+        for (idx, item) in arr.iter().enumerate() {
+            let raw = item.as_str().ok_or_else(|| {
+                ToolError::invalid_params(format!(
+                    "{tool}: `blockingIssues[{idx}]` 必须是字符串，收到 {item}"
+                ))
+            })?;
+            let issue = validate_multiline_no_nul(
+                raw,
+                tool,
+                &format!("blockingIssues[{idx}]"),
+                1,
+                DRAFT_REVIEW_MAX_ISSUE_CHARS,
+            )?;
+            clean_issues.push(json!(issue));
+        }
+        params["blockingIssues"] = Value::Array(clean_issues);
+    }
+
+    if let Some(v) = normalized.get("reviewerRole") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `reviewerRole` 必须是字符串，收到 {v}"))
+        })?;
+        let role =
+            validate_single_line_str(raw, tool, "reviewerRole", 1, DRAFT_REVIEW_MAX_ROLE_CHARS)?;
+        params["reviewerRole"] = json!(role);
+    }
+
+    if let Some(flag) = optional_bool(&normalized, tool, "autoArmEnabled")? {
+        params["autoArmEnabled"] = json!(flag);
+    }
+
+    Ok(StateQuery::new("draft-record-review").with_params(params))
+}
+
+/// `draft.record_review` —— 记录草稿审校结论并在门控通过时最多提升 `pending -> ready`（绝不接受/入库）。
+pub struct DraftRecordReviewTool;
+
+impl super::registry::McpTool for DraftRecordReviewTool {
+    fn name(&self) -> &'static str {
+        "draft.record_review"
+    }
+
+    fn description(&self) -> &'static str {
+        "Record structured review verdicts and optional six-dimension scores against a draft (`expectedSha256` must match `draft.read` `bodySha256`). Strictly enforces `Consistency(P0) > Anti-AI(P1) > Quality(P2)` (P2 NEVER overrides a P0 failure) and promotes `.novel/status.json` `draft_status` at most `pending -> ready`. Zero LLM calls; NEVER accepts drafts or writes formal chapters/memory."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "draftId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_ID_MAX_LEN,
+                    "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+                    "description": "Target draft ID in .qm-drafts/"
+                },
+                "expectedSha256": {
+                    "type": "string",
+                    "minLength": 64,
+                    "maxLength": 64,
+                    "pattern": "^[0-9a-fA-F]{64}$",
+                    "description": "64-char hex SHA-256 matching `draft.read` `bodySha256`"
+                },
+                "gates": {
+                    "type": "object",
+                    "properties": {
+                        "consistency": { "type": "string", "enum": DRAFT_REVIEW_HARD_GATE_ENUM },
+                        "anti_ai": { "type": "string", "enum": DRAFT_REVIEW_HARD_GATE_ENUM },
+                        "quality": { "type": "string", "enum": DRAFT_REVIEW_QUALITY_GATE_ENUM }
+                    },
+                    "required": ["consistency", "anti_ai"],
+                    "additionalProperties": false,
+                    "description": "Gate verdicts enforcing Consistency(P0) > Anti-AI(P1) > Quality(P2)"
+                },
+                "overallScore": {
+                    "type": "number",
+                    "minimum": 0.0,
+                    "maximum": 10.0,
+                    "description": "Optional overall literary quality score (0.0..=10.0)"
+                },
+                "dimensionScores": {
+                    "type": "object",
+                    "maxProperties": DRAFT_REVIEW_MAX_DIMENSIONS,
+                    "additionalProperties": { "type": "number", "minimum": 0.0, "maximum": 10.0 },
+                    "description": "Optional per-dimension score map (<= 12 entries, each 0.0..=10.0; canonical six keys: thrill, consistency, pacing, character, continuity, pull)"
+                },
+                "summary": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_REVIEW_MAX_SUMMARY_CHARS,
+                    "description": "Optional concise review summary (1..=4000 chars, no NUL bytes)"
+                },
+                "blockingIssues": {
+                    "type": "array",
+                    "maxItems": DRAFT_REVIEW_MAX_BLOCKING_ISSUES,
+                    "items": { "type": "string", "minLength": 1, "maxLength": DRAFT_REVIEW_MAX_ISSUE_CHARS },
+                    "description": "Optional list of blocking findings (<= 50 items, each 1..=1000 chars, no NUL bytes)"
+                },
+                "reviewerRole": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": DRAFT_REVIEW_MAX_ROLE_CHARS,
+                    "description": "Optional single-line reviewer persona label (e.g. canon-auditor, literary-critic)"
+                },
+                "autoArmEnabled": {
+                    "type": "boolean",
+                    "description": "Optional flag controlling whether passing P0+P1 arms pending -> ready promotion"
+                }
+            },
+            "required": ["draftId", "expectedSha256", "gates"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_draft_record_review_query(args)?;
+            ctx.bridge_query(query).await
         })
     }
 }
@@ -3600,10 +5140,18 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(GateCheckMechanicalTool));
     r.register(Arc::new(ContextPrepareWriteTool));
     r.register(Arc::new(DirectorCheckTool));
+    r.register(Arc::new(WorkflowNextTool));
+    r.register(Arc::new(ForeshadowingListTool));
+    r.register(Arc::new(CharacterReadTool));
+    r.register(Arc::new(OutlineReadTool));
+    r.register(Arc::new(StyleExemplarsTool));
+    r.register(Arc::new(ChapterSearchTool));
     r.register(Arc::new(PipelineRunChapterTool));
     r.register(Arc::new(PipelineStatusTool));
     r.register(Arc::new(GateRunTool));
     r.register(Arc::new(ChapterWriteTool));
+    r.register(Arc::new(DraftPatchTool));
+    r.register(Arc::new(DraftRecordReviewTool));
     r.register(Arc::new(DirectorAdvanceTool));
     r.register(Arc::new(OutlineGenerateTool));
     r.register(Arc::new(OutlineWriteTool));
@@ -3634,6 +5182,8 @@ pub fn build_registry() -> super::registry::ToolRegistry {
             "pipeline.status",
             "gate.run",
             "chapter.write",
+            "draft.patch",
+            "draft.record_review",
             "director.advance",
             "outline.generate",
             "outline.write",
@@ -3679,10 +5229,18 @@ mod tests {
                 "gate.check_mechanical",
                 "context.prepare_write",
                 "director.check",
+                "workflow.next",
+                "foreshadowing.list",
+                "character.read",
+                "outline.read",
+                "style.exemplars",
+                "chapter.search",
                 "pipeline.run_chapter",
                 "pipeline.status",
                 "gate.run",
                 "chapter.write",
+                "draft.patch",
+                "draft.record_review",
                 "director.advance",
                 "outline.generate",
                 "outline.write",
@@ -4206,6 +5764,8 @@ mod tests {
                 "pipeline.status",
                 "gate.run",
                 "chapter.write",
+                "draft.patch",
+                "draft.record_review",
                 "director.advance",
                 "outline.generate",
                 "outline.write",
@@ -5770,5 +7330,684 @@ mod tests {
             .await
             .expect_err("非法 filter 必须拒绝");
         assert_eq!(err_bad.code, crate::mcp_server::protocol::INVALID_PARAMS);
+    }
+
+    // ── Phase 2：context.prepare_write (prepareId/page) + 8 个新零 LLM 工具 ──
+
+    #[tokio::test]
+    async fn context_prepare_write_supports_prepare_id_page_and_offset_mutual_exclusion() {
+        // 1) 传入 page 时转发 page 并省略 offset（绝不注入默认 offset=0）。
+        let paged = build_context_prepare_write_params(&json!({
+            "prepareId": "prep_snap-01",
+            "page": 2,
+            "limit": 8_000,
+        }))
+        .expect("prepareId + page ok");
+        assert_eq!(
+            paged,
+            json!({
+                "prepareId": "prep_snap-01",
+                "page": 2,
+                "limit": 8_000,
+            })
+        );
+        assert!(paged.get("offset").is_none(), "传 page 时不得注入 offset");
+
+        // 2) offset 显式 null + page 合法 -> 归一化后只走 page，省略 offset。
+        let null_offset_page = build_context_prepare_write_params(&json!({
+            "prepareId": null,
+            "offset": null,
+            "page": 1,
+        }))
+        .expect("offset=null + page=1 ok");
+        assert_eq!(null_offset_page, json!({ "page": 1, "limit": 16_000 }));
+        assert!(null_offset_page.get("offset").is_none());
+
+        // 3) page=null + 未传 offset -> 保留既有默认 offset=0。
+        let null_page = build_context_prepare_write_params(&json!({
+            "page": null,
+            "prepareId": null,
+        }))
+        .expect("page=null defaults to offset=0");
+        assert_eq!(null_page, json!({ "offset": 0, "limit": 16_000 }));
+        assert!(null_page.get("page").is_none());
+
+        // 4) page 边界最大值 10_000 + limit 50_000 放行。
+        let max_page = build_context_prepare_write_params(&json!({
+            "page": 10_000,
+            "limit": 50_000,
+        }))
+        .expect("page max ok");
+        assert_eq!(max_page, json!({ "page": 10_000, "limit": 50_000 }));
+
+        // 5) description / schema 必须反映 prepareId 与 page。
+        let desc = ContextPrepareWriteTool.description();
+        assert!(desc.contains("prepareId") && desc.contains("page"));
+        let schema = ContextPrepareWriteTool.input_schema();
+        assert_eq!(schema["properties"]["prepareId"]["type"], json!("string"));
+        assert_eq!(schema["properties"]["page"]["minimum"], json!(1));
+        assert_eq!(schema["properties"]["page"]["maximum"], json!(10_000));
+
+        // 6) 互斥与非法边界必须在桥前拒绝（INVALID_PARAMS）。
+        let ctx = ToolContext::for_test();
+        for bad in [
+            json!({ "offset": 0, "page": 1 }),
+            json!({ "offset": 100, "page": 2 }),
+            json!({ "page": 0 }),
+            json!({ "page": -1 }),
+            json!({ "page": 10_001 }),
+            json!({ "page": "1" }),
+            json!({ "page": 1.5 }),
+            json!({ "prepareId": "" }),
+            json!({ "prepareId": "bad/id" }),
+            json!({ "prepareId": "bad id" }),
+            json!({ "prepareId": "a".repeat(129) }),
+            json!({ "prepareId": 42 }),
+        ] {
+            let err = ContextPrepareWriteTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("prepareId/page 非法参数或互斥组合必须拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "bad={bad}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn phase2_eight_tools_have_expected_scopes_descriptions_and_no_draft_accept() {
+        let r = build_registry();
+        assert_eq!(r.len(), 38);
+        assert_eq!(r.privileged_tools().len(), 16);
+        assert!(!r.names().contains(&"draft.accept"));
+
+        for read_name in [
+            "workflow.next",
+            "foreshadowing.list",
+            "character.read",
+            "outline.read",
+            "style.exemplars",
+            "chapter.search",
+        ] {
+            assert_eq!(
+                r.required_scope(read_name),
+                Some(crate::mcp_server::session::SessionScope::Read),
+                "{read_name} 必须为 Read scope"
+            );
+        }
+        for project_name in ["draft.patch", "draft.record_review"] {
+            assert_eq!(
+                r.required_scope(project_name),
+                Some(crate::mcp_server::session::SessionScope::Project),
+                "{project_name} 必须为 Project scope"
+            );
+        }
+
+        let patch_desc = DraftPatchTool.description();
+        assert!(patch_desc.contains("expectedSha256"));
+        assert!(patch_desc.contains("bodySha256"));
+        assert!(patch_desc.contains("1-based inclusive"));
+        assert!(patch_desc.contains("HARD_FUSE_LIMIT = 5"));
+        assert!(patch_desc.contains("parentDraftId"));
+        assert!(patch_desc.contains(".qm-drafts/"));
+
+        let review_desc = DraftRecordReviewTool.description();
+        assert!(review_desc.contains("Consistency(P0) > Anti-AI(P1) > Quality(P2)"));
+        assert!(review_desc.contains("pending -> ready"));
+        assert!(review_desc.contains("NEVER accepts"));
+    }
+
+    #[tokio::test]
+    async fn workflow_next_validates_strictly_before_bridge() {
+        let q_empty = build_workflow_next_query(&json!({})).expect("empty ok");
+        assert_eq!(q_empty.op, "workflow-next");
+        assert_eq!(q_empty.params, Some(json!({})));
+
+        let q_full = build_workflow_next_query(&json!({
+            "targetChapter": 12,
+            "draftId": "draft_12-a"
+        }))
+        .expect("full ok");
+        assert_eq!(
+            q_full.params,
+            Some(json!({ "targetChapter": 12, "draftId": "draft_12-a" }))
+        );
+
+        let q_nulls = build_workflow_next_query(&json!({
+            "targetChapter": null,
+            "draftId": null
+        }))
+        .expect("optional nulls ok");
+        assert_eq!(q_nulls.params, Some(json!({})));
+
+        let ctx = ToolContext::for_test();
+        for bad in [
+            json!(null),
+            json!([]),
+            json!({ "targetChapter": 0 }),
+            json!({ "targetChapter": JS_MAX_SAFE_INTEGER + 1 }),
+            json!({ "targetChapter": "1" }),
+            json!({ "draftId": "" }),
+            json!({ "draftId": "../x" }),
+            json!({ "draftId": "a".repeat(129) }),
+            json!({ "extra": 1 }),
+            json!({ "extra": null }),
+        ] {
+            let err = WorkflowNextTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("workflow.next 非法参数必须拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "{bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn draft_patch_enforces_sha_union_bounds_and_nul_safety() {
+        let upper_sha = "A".repeat(64);
+        let lower_sha = "a".repeat(64);
+        let q_valid = build_draft_patch_query(&json!({
+            "draftId": "draft_09",
+            "expectedSha256": upper_sha,
+            "edits": [
+                { "find": "旧句子", "replace": "新句子", "occurrence": 2 },
+                { "find": "删除我", "replace": "", "occurrence": null },
+                { "startLine": 10, "endLine": 12, "replacement": "替换段落\n第二行" }
+            ],
+            "note": "修复 P0 细节"
+        }))
+        .expect("valid patch ok");
+        assert_eq!(q_valid.op, "draft-patch");
+        assert_eq!(
+            q_valid.params,
+            Some(json!({
+                "draftId": "draft_09",
+                "expectedSha256": lower_sha,
+                "edits": [
+                    { "find": "旧句子", "replace": "新句子", "occurrence": 2 },
+                    { "find": "删除我", "replace": "" },
+                    { "startLine": 10, "endLine": 12, "replacement": "替换段落\n第二行" }
+                ],
+                "note": "修复 P0 细节"
+            }))
+        );
+
+        // note=null 归一化剥离；总字符数恰好 100_000 放行。
+        let exact_100k = build_draft_patch_query(&json!({
+            "draftId": "d1",
+            "expectedSha256": lower_sha,
+            "edits": [{ "startLine": 1, "endLine": 1, "replacement": "字".repeat(100_000) }],
+            "note": null
+        }))
+        .expect("100_000 chars ok");
+        assert!(exact_100k.params.unwrap().get("note").is_none());
+
+        let too_many_edits: Vec<Value> = (0..26)
+            .map(|i| json!({ "find": format!("k{i}"), "replace": "v" }))
+            .collect();
+        let ctx = ToolContext::for_test();
+        for bad in [
+            json!(null),
+            json!({}),
+            // bad SHA-256
+            json!({ "draftId": "d1", "expectedSha256": "a".repeat(63), "edits": [{ "find": "a", "replace": "b" }] }),
+            json!({ "draftId": "d1", "expectedSha256": "a".repeat(65), "edits": [{ "find": "a", "replace": "b" }] }),
+            json!({ "draftId": "d1", "expectedSha256": format!("g{}", "a".repeat(63)), "edits": [{ "find": "a", "replace": "b" }] }),
+            json!({ "draftId": "d1", "expectedSha256": null, "edits": [{ "find": "a", "replace": "b" }] }),
+            // empty or > 25 edits
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": too_many_edits }),
+            // mixed union / unknown keys / empty edit
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{}] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "a", "replace": "b", "startLine": 1 }] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "a", "replace": "b", "startLine": null }] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "a", "replace": "b", "extra": 1 }] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "startLine": 1, "endLine": 1, "replacement": "x", "occurrence": 1 }] }),
+            // find/replace bounds & NUL
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "", "replace": "b" }] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "a\0b", "replace": "c" }] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "a", "replace": "b\0c" }] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "a", "replace": "b", "occurrence": 0 }] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "a", "replace": "b", "occurrence": 1001 }] }),
+            // line bounds & NUL
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "startLine": 0, "endLine": 1, "replacement": "x" }] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "startLine": 5, "endLine": 4, "replacement": "x" }] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "startLine": 1, "endLine": 1_000_001, "replacement": "x" }] }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "startLine": 1, "endLine": 1, "replacement": "x\0y" }] }),
+            // total char cap > 100_000
+            json!({
+                "draftId": "d1",
+                "expectedSha256": lower_sha,
+                "edits": [
+                    { "find": "a".repeat(50_000), "replace": "b".repeat(50_001) }
+                ]
+            }),
+            // bad note
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "a", "replace": "b" }], "note": "   " }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "a", "replace": "b" }], "note": "a\0b" }),
+            json!({ "draftId": "d1", "expectedSha256": lower_sha, "edits": [{ "find": "a", "replace": "b" }], "note": "x".repeat(1001) }),
+        ] {
+            let err = DraftPatchTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("draft.patch 非法参数必须拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "bad={bad}: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn draft_record_review_validates_gates_scores_and_bounds() {
+        let sha = "0123456789abcdef".repeat(4);
+        let q_valid = build_draft_record_review_query(&json!({
+            "draftId": "draft_10",
+            "expectedSha256": sha.to_uppercase(),
+            "gates": {
+                "consistency": "pass",
+                "anti_ai": "pass",
+                "quality": "warning"
+            },
+            "overallScore": 8.75,
+            "dimensionScores": {
+                "thrill": 9,
+                "consistency": 9.5,
+                "pacing": 8.0
+            },
+            "summary": "整体连贯\n节奏良好",
+            "blockingIssues": ["第3段情绪略急"],
+            "reviewerRole": "literary-critic",
+            "autoArmEnabled": true
+        }))
+        .expect("valid record_review ok");
+        assert_eq!(q_valid.op, "draft-record-review");
+        let p = q_valid.params.unwrap();
+        assert_eq!(p["expectedSha256"], json!(sha));
+        assert_eq!(p["gates"]["quality"], json!("warning"));
+        assert_eq!(p["overallScore"], json!(8.75));
+        assert_eq!(p["autoArmEnabled"], json!(true));
+
+        // 可选字段传 null 归一化剥离（含 gates.quality = null）。
+        let q_opt_null = build_draft_record_review_query(&json!({
+            "draftId": "draft_10",
+            "expectedSha256": sha,
+            "gates": { "consistency": "not_evaluated", "anti_ai": "fail", "quality": null },
+            "overallScore": null,
+            "dimensionScores": null,
+            "summary": null,
+            "blockingIssues": null,
+            "reviewerRole": null,
+            "autoArmEnabled": null
+        }))
+        .expect("optional nulls ok");
+        assert_eq!(
+            q_opt_null.params,
+            Some(json!({
+                "draftId": "draft_10",
+                "expectedSha256": sha,
+                "gates": { "consistency": "not_evaluated", "anti_ai": "fail" }
+            }))
+        );
+
+        let mut too_many_dims = serde_json::Map::new();
+        for i in 0..13 {
+            too_many_dims.insert(format!("dim{i}"), json!(8.0));
+        }
+        let too_many_issues: Vec<Value> = (0..51).map(|i| json!(format!("issue {i}"))).collect();
+        let ctx = ToolContext::for_test();
+        for bad in [
+            json!(null),
+            json!({}),
+            json!({ "draftId": "d1", "expectedSha256": "short", "gates": { "consistency": "pass", "anti_ai": "pass" } }),
+            // invalid gate enums / unknown gate keys / missing required gate
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "warning", "anti_ai": "pass" } }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "warning" } }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass", "quality": "bad" } }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass" } }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass", "extra": "pass" } }),
+            // score bounds
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "overallScore": -0.1 }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "overallScore": 10.1 }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "overallScore": "9.0" }),
+            // dimensionScores bounds
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "dimensionScores": Value::Object(too_many_dims) }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "dimensionScores": { "": 8.0 } }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "dimensionScores": { "bad\nkey": 8.0 } }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "dimensionScores": { "thrill": 10.5 } }),
+            // summary / blockingIssues / reviewerRole / autoArmEnabled
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "summary": "a\0b" }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "summary": "字".repeat(4001) }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "blockingIssues": too_many_issues }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "blockingIssues": ["  "] }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "blockingIssues": ["x\0y"] }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "reviewerRole": "bad\nrole" }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "reviewerRole": "r".repeat(65) }),
+            json!({ "draftId": "d1", "expectedSha256": sha, "gates": { "consistency": "pass", "anti_ai": "pass" }, "autoArmEnabled": "true" }),
+        ] {
+            let err = DraftRecordReviewTool
+                .call(&ctx, &bad)
+                .await
+                .expect_err("draft.record_review 非法参数必须拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "bad={bad}: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn foreshadowing_list_and_character_read_validate_strictly() {
+        let q_fs = build_foreshadowing_list_query(&json!({
+            "status": "overdue",
+            "character": "林清",
+            "currentChapter": 25,
+            "includeDebt": true,
+            "debtLevel": "critical",
+            "offset": 0,
+            "limit": 50
+        }))
+        .expect("foreshadowing valid ok");
+        assert_eq!(q_fs.op, "foreshadowing-list");
+        assert_eq!(q_fs.params.unwrap()["debtLevel"], json!("critical"));
+
+        assert_eq!(
+            build_foreshadowing_list_query(&json!({ "status": null, "debtLevel": null }))
+                .expect("nulls ok")
+                .params,
+            Some(json!({}))
+        );
+
+        let ctx = ToolContext::for_test();
+        let q_fs_max = build_foreshadowing_list_query(&json!({
+            "currentChapter": ATOMIC_READ_MAX_CHAPTER,
+            "offset": ATOMIC_READ_MAX_OFFSET
+        }))
+        .expect("foreshadowing max bounds ok");
+        assert_eq!(
+            q_fs_max.params.unwrap()["currentChapter"],
+            json!(ATOMIC_READ_MAX_CHAPTER)
+        );
+        let fs_schema = ForeshadowingListTool.input_schema();
+        assert_eq!(
+            fs_schema["properties"]["currentChapter"]["maximum"],
+            json!(ATOMIC_READ_MAX_CHAPTER)
+        );
+        assert_eq!(
+            fs_schema["properties"]["offset"]["maximum"],
+            json!(ATOMIC_READ_MAX_OFFSET)
+        );
+
+        for bad in [
+            json!({ "status": "closed" }),
+            json!({ "character": "a\nb" }),
+            json!({ "character": "x".repeat(129) }),
+            json!({ "currentChapter": 0 }),
+            json!({ "currentChapter": 100_001 }),
+            json!({ "offset": 100_001 }),
+            json!({ "includeDebt": "yes" }),
+            json!({ "debtLevel": "high" }),
+            json!({ "limit": 0 }),
+            json!({ "limit": 101 }),
+            json!({ "extra": 1 }),
+        ] {
+            let err = ForeshadowingListTool.call(&ctx, &bad).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "{bad}"
+            );
+        }
+
+        let q_ch = build_character_read_query(&json!({
+            "name": "林清",
+            "query": "剑修",
+            "aliveOnly": true,
+            "includeAura": true,
+            "includeState": true,
+            "includeRelationships": false,
+            "offset": ATOMIC_READ_MAX_OFFSET,
+            "limit": 100
+        }))
+        .expect("character.read valid ok");
+        assert_eq!(q_ch.op, "character-read");
+        assert_eq!(q_ch.params.unwrap()["name"], json!("林清"));
+        assert_eq!(
+            CharacterReadTool.input_schema()["properties"]["offset"]["maximum"],
+            json!(ATOMIC_READ_MAX_OFFSET)
+        );
+
+        for bad in [
+            json!({ "name": "../secret" }),
+            json!({ "name": "a/b" }),
+            json!({ "name": r"a\b" }),
+            json!({ "name": "a\0b" }),
+            json!({ "name": "  " }),
+            json!({ "query": "a\nb" }),
+            json!({ "aliveOnly": 1 }),
+            json!({ "offset": 100_001 }),
+            json!({ "limit": 101 }),
+            json!({ "extra": null }),
+        ] {
+            let err = CharacterReadTool.call(&ctx, &bad).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "{bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn outline_read_style_exemplars_and_chapter_search_validate_strictly() {
+        // outline.read valid cases: chapterNumber + window mode caps limit at 200
+        let q_out_win = build_outline_read_query(&json!({
+            "chapterNumber": 15,
+            "window": 3,
+            "volume": 2,
+            "includeSummaryOnly": true,
+            "offset": 0,
+            "limit": 200
+        }))
+        .expect("outline window valid");
+        assert_eq!(q_out_win.op, "outline-read");
+        let win_params = q_out_win.params.unwrap();
+        assert_eq!(win_params["window"], json!(3));
+        assert_eq!(win_params["limit"], json!(200));
+
+        // outline.read filename mode allows limit up to 50_000 and offset up to 10_000_000
+        let q_out_file = build_outline_read_query(&json!({
+            "filename": "vol1.md",
+            "chapterNumber": null,
+            "volume": null,
+            "window": null
+        }))
+        .expect("outline filename valid");
+        assert_eq!(q_out_file.params, Some(json!({ "filename": "vol1.md" })));
+
+        let q_out_file_max = build_outline_read_query(&json!({
+            "filename": "vol1.md",
+            "offset": OUTLINE_READ_MAX_OFFSET,
+            "limit": OUTLINE_READ_FILE_MAX_LIMIT
+        }))
+        .expect("outline filename max limit/offset valid");
+        let file_max_params = q_out_file_max.params.unwrap();
+        assert_eq!(file_max_params["offset"], json!(OUTLINE_READ_MAX_OFFSET));
+        assert_eq!(file_max_params["limit"], json!(OUTLINE_READ_FILE_MAX_LIMIT));
+
+        let out_schema = OutlineReadTool.input_schema();
+        assert_eq!(
+            out_schema["properties"]["chapterNumber"]["maximum"],
+            json!(ATOMIC_READ_MAX_CHAPTER)
+        );
+        assert_eq!(
+            out_schema["properties"]["offset"]["maximum"],
+            json!(OUTLINE_READ_MAX_OFFSET)
+        );
+        assert_eq!(
+            out_schema["properties"]["limit"]["maximum"],
+            json!(OUTLINE_READ_FILE_MAX_LIMIT)
+        );
+
+        let ctx = ToolContext::for_test();
+        let orphan_window_err = OutlineReadTool
+            .call(&ctx, &json!({ "window": 2 }))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            orphan_window_err.code,
+            crate::mcp_server::protocol::INVALID_PARAMS
+        );
+        assert!(
+            orphan_window_err
+                .message
+                .contains("outline.read: window requires chapterNumber"),
+            "unexpected error: {}",
+            orphan_window_err.message
+        );
+
+        for bad in [
+            json!({ "filename": "vol1.md", "chapterNumber": 1 }),
+            json!({ "filename": "vol1.md", "volume": 1 }),
+            json!({ "filename": "vol1.md", "window": 0 }),
+            json!({ "filename": "vol1.md", "window": 2 }),
+            json!({ "window": 0 }),
+            json!({ "window": 2 }),
+            json!({ "volume": 1, "window": 2 }),
+            json!({ "chapterNumber": 1, "limit": 201 }),
+            json!({ "volume": 1, "limit": 201 }),
+            json!({ "limit": 201 }),
+            json!({ "chapterNumber": 100_001 }),
+            json!({ "offset": 10_000_001 }),
+            json!({ "filename": "vol1.md", "offset": 10_000_001 }),
+            json!({ "filename": "vol1.md", "limit": 50_001 }),
+            json!({ "filename": "../vol1.md" }),
+            json!({ "filename": "sub/vol1.md" }),
+            json!({ "filename": "vol1.txt" }),
+            json!({ "filename": "CON.md" }),
+            json!({ "chapterNumber": 1, "window": 11 }),
+            json!({ "volume": 0 }),
+            json!({ "volume": 1001 }),
+        ] {
+            let err = OutlineReadTool.call(&ctx, &bad).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "{bad}"
+            );
+        }
+
+        // style.exemplars valid & dedup
+        let q_style = build_style_exemplars_query(&json!({
+            "markTypes": ["style", "voice", "style", "pacing"],
+            "category": "打斗描写",
+            "chapterId": "chapter-005",
+            "topK": 10,
+            "maxCharsPerItem": 1200,
+            "offset": ATOMIC_READ_MAX_OFFSET,
+            "limit": 20
+        }))
+        .expect("style.exemplars valid");
+        assert_eq!(q_style.op, "style-exemplars");
+        assert_eq!(
+            q_style.params.unwrap()["markTypes"],
+            json!(["style", "voice", "pacing"])
+        );
+        assert_eq!(
+            StyleExemplarsTool.input_schema()["properties"]["offset"]["maximum"],
+            json!(ATOMIC_READ_MAX_OFFSET)
+        );
+
+        for bad in [
+            json!({ "markTypes": [] }),
+            json!({ "markTypes": ["unknown"] }),
+            json!({ "markTypes": ["style", "voice", "pacing", "thrill", "pull", "consistency", "style"] }),
+            json!({ "category": "a\nb" }),
+            json!({ "chapterId": "   " }),
+            json!({ "topK": 0 }),
+            json!({ "topK": 51 }),
+            json!({ "maxCharsPerItem": 99 }),
+            json!({ "maxCharsPerItem": 4001 }),
+            json!({ "offset": 100_001 }),
+            json!({ "limit": 51 }),
+        ] {
+            let err = StyleExemplarsTool.call(&ctx, &bad).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "{bad}"
+            );
+        }
+
+        // chapter.search valid & inverted range
+        let q_search = build_chapter_search_query(&json!({
+            "query": "黑铁剑",
+            "scope": "all",
+            "chapterStart": 5,
+            "chapterEnd": ATOMIC_READ_MAX_CHAPTER,
+            "limit": 25,
+            "contextChars": 120
+        }))
+        .expect("chapter.search valid");
+        assert_eq!(q_search.op, "chapter-search");
+        assert_eq!(q_search.params.unwrap()["scope"], json!("all"));
+        let search_schema = ChapterSearchTool.input_schema();
+        assert_eq!(
+            search_schema["properties"]["chapterStart"]["maximum"],
+            json!(ATOMIC_READ_MAX_CHAPTER)
+        );
+        assert_eq!(
+            search_schema["properties"]["chapterEnd"]["maximum"],
+            json!(ATOMIC_READ_MAX_CHAPTER)
+        );
+
+        let q_eq_range = build_chapter_search_query(&json!({
+            "query": "黑铁剑",
+            "chapterStart": 5,
+            "chapterEnd": 5,
+            "scope": null
+        }))
+        .expect("equal start/end ok");
+        assert_eq!(q_eq_range.params.unwrap()["chapterStart"], json!(5));
+
+        for bad in [
+            json!({}),
+            json!({ "query": null }),
+            json!({ "query": "   " }),
+            json!({ "query": "a\nb" }),
+            json!({ "query": "字".repeat(257) }),
+            json!({ "query": "ok", "scope": "invalid" }),
+            json!({ "query": "ok", "chapterStart": 10, "chapterEnd": 9 }),
+            json!({ "query": "ok", "chapterStart": 0 }),
+            json!({ "query": "ok", "chapterStart": 100_001 }),
+            json!({ "query": "ok", "chapterEnd": 100_001 }),
+            json!({ "query": "ok", "limit": 51 }),
+            json!({ "query": "ok", "contextChars": 39 }),
+            json!({ "query": "ok", "contextChars": 401 }),
+        ] {
+            let err = ChapterSearchTool.call(&ctx, &bad).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "{bad}"
+            );
+        }
+
+        // Advisory #2: draft.record_review dimensionScores schema documents the 6 canonical keys
+        let review_schema = DraftRecordReviewTool.input_schema();
+        let dim_desc = review_schema["properties"]["dimensionScores"]["description"]
+            .as_str()
+            .expect("dimensionScores description");
+        assert!(
+            dim_desc.contains("thrill, consistency, pacing, character, continuity, pull"),
+            "dimensionScores description missing canonical six keys: {dim_desc}"
+        );
     }
 }

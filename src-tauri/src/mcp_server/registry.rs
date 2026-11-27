@@ -19,10 +19,10 @@ impl ToolProfile {
     /// 判断某个工具名是否在当前 Profile 下可见、可调。
     ///
     /// 与 `SessionScope` 取交集：
-    /// - `FullLegacy`：全部 30 个已注册工具；
-    /// - `WriterSub`（16 个）：零 LLM 读写原语 + Draft-first 写工具，隐藏全部内部 API LLM 管线与全量直写工具；
-    /// - `Reviewer`（13 个）：严格全只读工具，零写工具；
-    /// - `Architect`（12 个）：聚焦开书/世界观/大纲/角色规划，不含正文写入与章节深审工具。
+    /// - `FullLegacy`：全部 38 个已注册工具；
+    /// - `WriterSub`（24 个）：零 LLM 读写原语 + Draft-first 写工具，隐藏全部内部 API LLM 管线与全量直写工具；
+    /// - `Reviewer`（19 个）：严格全只读工具，零写工具；
+    /// - `Architect`（17 个）：聚焦开书/世界观/大纲/角色规划，不含正文写入、草稿修审与风格范例工具。
     pub fn allows(self, tool_name: &str) -> bool {
         match self {
             Self::FullLegacy => true,
@@ -41,7 +41,15 @@ impl ToolProfile {
                     | "gate.check_mechanical"
                     | "context.prepare_write"
                     | "director.check"
+                    | "workflow.next"
+                    | "foreshadowing.list"
+                    | "character.read"
+                    | "outline.read"
+                    | "style.exemplars"
+                    | "chapter.search"
                     | "chapter.write"
+                    | "draft.patch"
+                    | "draft.record_review"
                     | "outline.write"
                     | "character.upsert"
             ),
@@ -60,6 +68,12 @@ impl ToolProfile {
                     | "gate.check_mechanical"
                     | "context.prepare_write"
                     | "director.check"
+                    | "workflow.next"
+                    | "foreshadowing.list"
+                    | "character.read"
+                    | "outline.read"
+                    | "style.exemplars"
+                    | "chapter.search"
             ),
             Self::Architect => matches!(
                 tool_name,
@@ -73,6 +87,11 @@ impl ToolProfile {
                     | "rules.get"
                     | "context.prepare_write"
                     | "director.check"
+                    | "workflow.next"
+                    | "foreshadowing.list"
+                    | "character.read"
+                    | "outline.read"
+                    | "chapter.search"
                     | "outline.write"
                     | "character.upsert"
             ),
@@ -196,6 +215,54 @@ impl ToolProfile {
                 _ => (
                     &["draft.list"],
                     "chapter.write is hidden by the active tool profile.",
+                ),
+            },
+            "draft.patch" => match self {
+                Self::Reviewer => (
+                    &["draft.list", "draft.read", "gate.check_mechanical"],
+                    "Draft patching is hidden in the read-only reviewer profile to enforce strict read-only isolation. Inspect drafts via draft.list/draft.read and audit via gate.check_mechanical, then hand structured patch instructions back to writer-sub.",
+                ),
+                Self::Architect => (
+                    &["outline.write", "character.upsert", "draft.list"],
+                    "Draft patching is hidden in the architect profile. Use outline.write and character.upsert for planning, or switch to writer-sub to patch chapter drafts.",
+                ),
+                _ => (
+                    &["draft.list"],
+                    "draft.patch is hidden by the active tool profile.",
+                ),
+            },
+            "draft.record_review" => match self {
+                Self::Reviewer => (
+                    &[
+                        "draft.read",
+                        "gate.check_mechanical",
+                        "context.inspect",
+                        "workflow.next",
+                    ],
+                    "Recording draft review status is hidden in the read-only reviewer profile to enforce strict read-only isolation. Audit drafts via draft.read, gate.check_mechanical, and context.inspect, then hand structured review findings back to writer-sub to record via draft.record_review.",
+                ),
+                Self::Architect => (
+                    &["workflow.next", "director.check", "draft.list"],
+                    "Recording draft review status is hidden in the architect profile. Inspect workflow state via workflow.next, director.check, and draft.list, or switch to writer-sub.",
+                ),
+                _ => (
+                    &["draft.list"],
+                    "draft.record_review is hidden by the active tool profile.",
+                ),
+            },
+            "style.exemplars" => match self {
+                Self::Architect => (
+                    &[
+                        "rules.get",
+                        "context.prepare_write",
+                        "outline.read",
+                        "character.read",
+                    ],
+                    "Prose style exemplars are hidden in the architect profile to keep planning context focused. Use rules.get, context.prepare_write, outline.read, and character.read for planning, or switch to writer-sub/reviewer.",
+                ),
+                _ => (
+                    &["rules.get"],
+                    "style.exemplars is hidden by the active tool profile.",
                 ),
             },
             "outline.write" | "character.upsert" => (
@@ -500,15 +567,15 @@ mod tests {
     #[test]
     fn profile_visibility_matrix_is_monotonic_and_matches_exact_counts() {
         let reg = crate::mcp_server::tools::build_registry();
-        assert_eq!(reg.len(), 30, "全量注册表应保持 30 个工具");
+        assert_eq!(reg.len(), 38, "全量注册表应保持 38 个工具");
 
         let full_all = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::FullLegacy);
-        assert_eq!(full_all.len(), 30);
+        assert_eq!(full_all.len(), 38);
 
         let writer_full = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::WriterSub);
         let writer_proj =
             reg.names_visible_to_profile(SessionScope::Project, ToolProfile::WriterSub);
-        assert_eq!(writer_full.len(), 16);
+        assert_eq!(writer_full.len(), 24);
         assert_eq!(
             writer_full, writer_proj,
             "WriterSub 即使在 Full scope 下也不得暴露任何 Full 专属工具或 Settings 工具"
@@ -516,7 +583,7 @@ mod tests {
 
         let reviewer_full = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::Reviewer);
         let reviewer_read = reg.names_visible_to_profile(SessionScope::Read, ToolProfile::Reviewer);
-        assert_eq!(reviewer_full.len(), 13);
+        assert_eq!(reviewer_full.len(), 19);
         assert_eq!(
             reviewer_full, reviewer_read,
             "Reviewer 必须严格全只读：Full 与 Read 下工具集合完全一致"
@@ -533,7 +600,7 @@ mod tests {
             reg.names_visible_to_profile(SessionScope::Full, ToolProfile::Architect);
         let architect_proj =
             reg.names_visible_to_profile(SessionScope::Project, ToolProfile::Architect);
-        assert_eq!(architect_full.len(), 12);
+        assert_eq!(architect_full.len(), 17);
         assert_eq!(architect_full, architect_proj);
 
         // 单调子集不变量：任意 (scope, profile) 必为 names_visible_to(scope) 子集，且 list_for 与 names_visible_to_profile 1:1 对齐。
@@ -635,5 +702,50 @@ mod tests {
                 .0,
             &["chapter.write"]
         );
+
+        // 核对 Phase 2 新增 3 个按 Profile 隐藏的工具引导（只读 Reviewer 必须引导回交 writer-sub）。
+        let (rev_patch_repl, rev_patch_msg) = ToolProfile::Reviewer.blocked_guidance("draft.patch");
+        assert_eq!(
+            rev_patch_repl,
+            &["draft.list", "draft.read", "gate.check_mechanical"]
+        );
+        assert!(rev_patch_msg.contains("read-only") && rev_patch_msg.contains("writer-sub"));
+
+        let (rev_rec_repl, rev_rec_msg) =
+            ToolProfile::Reviewer.blocked_guidance("draft.record_review");
+        assert_eq!(
+            rev_rec_repl,
+            &[
+                "draft.read",
+                "gate.check_mechanical",
+                "context.inspect",
+                "workflow.next",
+            ]
+        );
+        assert!(rev_rec_msg.contains("read-only") && rev_rec_msg.contains("writer-sub"));
+
+        assert_eq!(
+            ToolProfile::Architect.blocked_guidance("draft.patch").0,
+            &["outline.write", "character.upsert", "draft.list"]
+        );
+        assert_eq!(
+            ToolProfile::Architect
+                .blocked_guidance("draft.record_review")
+                .0,
+            &["workflow.next", "director.check", "draft.list"]
+        );
+        assert_eq!(
+            ToolProfile::Architect.blocked_guidance("style.exemplars").0,
+            &[
+                "rules.get",
+                "context.prepare_write",
+                "outline.read",
+                "character.read",
+            ]
+        );
+        assert!(!ToolProfile::Architect.allows("draft.patch"));
+        assert!(!ToolProfile::Architect.allows("draft.record_review"));
+        assert!(!ToolProfile::Architect.allows("style.exemplars"));
+        assert!(ToolProfile::Reviewer.allows("style.exemplars"));
     }
 }

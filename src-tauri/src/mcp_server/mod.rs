@@ -862,8 +862,8 @@ pub async fn start(
 /// * 名字像写但 `required_scope() == Read` → 危险（名字在撒谎，权限没拦住）
 /// * 需要写 scope 但名字不像写 → 可疑（客户端难以从名字判断副作用）
 pub fn contains_write_like_tool(registry: &ToolRegistry) -> Vec<&'static str> {
-    const WRITE_HINTS: [&str; 8] = [
-        "set", "write", "update", "delete", "remove", "create", "save", "accept",
+    const WRITE_HINTS: [&str; 10] = [
+        "set", "write", "update", "delete", "remove", "create", "save", "accept", "patch", "record",
     ];
     registry
         .names()
@@ -1442,6 +1442,11 @@ mod tests {
             "实际: {write_like:?}"
         );
         assert!(write_like.contains(&"memory.write"), "实际: {write_like:?}");
+        assert!(write_like.contains(&"draft.patch"), "实际: {write_like:?}");
+        assert!(
+            write_like.contains(&"draft.record_review"),
+            "实际: {write_like:?}"
+        );
         let privileged = reg.privileged_tools();
         for name in &write_like {
             assert!(privileged.contains(name), "{name} 名字像写却没声明权限");
@@ -2647,7 +2652,7 @@ mod tests {
             );
         }
 
-        // 显式核对 Round 2 三个新工具的权限档位。
+        // 显式核对 Round 2 三个新工具与 Phase 2 八个新工具的权限档位。
         assert_eq!(
             reg.required_scope("context.prepare_write"),
             Some(session::SessionScope::Read)
@@ -2660,6 +2665,29 @@ mod tests {
             reg.required_scope("outline.write"),
             Some(session::SessionScope::Project)
         );
+        for phase2_read in [
+            "workflow.next",
+            "foreshadowing.list",
+            "character.read",
+            "outline.read",
+            "style.exemplars",
+            "chapter.search",
+        ] {
+            assert!(all_names.contains(&phase2_read));
+            assert_eq!(
+                reg.required_scope(phase2_read),
+                Some(session::SessionScope::Read),
+                "{phase2_read} 必须为 Read scope"
+            );
+        }
+        for phase2_project in ["draft.patch", "draft.record_review"] {
+            assert!(all_names.contains(&phase2_project));
+            assert_eq!(
+                reg.required_scope(phase2_project),
+                Some(session::SessionScope::Project),
+                "{phase2_project} 必须为 Project scope"
+            );
+        }
     }
 
     async fn http_call_tool(
@@ -2973,7 +3001,7 @@ mod tests {
             Some(ToolProfile::WriterSub)
         );
 
-        // 3) 后续请求不带 profile 时沿用冻结的 `writer-sub`：`tools/list` 仅返回 16 工具。
+        // 3) 后续请求不带 profile 时沿用冻结的 `writer-sub`：`tools/list` 仅返回 24 工具。
         let list_resp = client
             .post(&base_url)
             .bearer_auth("secret-token")
@@ -2990,8 +3018,11 @@ mod tests {
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert_eq!(list_names.len(), 16);
+        assert_eq!(list_names.len(), 24);
         assert!(list_names.contains(&"chapter.write"));
+        assert!(list_names.contains(&"workflow.next"));
+        assert!(list_names.contains(&"draft.patch"));
+        assert!(list_names.contains(&"draft.record_review"));
         assert!(!list_names.contains(&"pipeline.run_chapter"));
         assert!(!list_names.contains(&"settings.get"));
 
@@ -3095,7 +3126,7 @@ mod tests {
         let unknown = http_call_tool(&client, &base_url, &sid, "nope.unknown", json!({})).await;
         assert_eq!(unknown["error"]["code"], json!(METHOD_NOT_FOUND));
 
-        // 6) `reviewer` 会话即便在 Project 服务端下也仅可见 13 个 Read 工具，且调 `chapter.write` 报 TOOL_HIDDEN_BY_PROFILE。
+        // 6) `reviewer` 会话即便在 Project 服务端下也仅可见 19 个 Read 工具，且调写工具报 TOOL_HIDDEN_BY_PROFILE。
         let rev_init = client
             .post(format!("{base_url}?profile=reviewer"))
             .bearer_auth("secret-token")
@@ -3121,25 +3152,286 @@ mod tests {
             .json()
             .await
             .expect("json");
-        assert_eq!(rev_list["result"]["tools"].as_array().unwrap().len(), 13);
+        let rev_names: Vec<&str> = rev_list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert_eq!(rev_names.len(), 19);
+        assert!(rev_names.contains(&"workflow.next"));
+        assert!(rev_names.contains(&"style.exemplars"));
+        assert!(!rev_names.contains(&"draft.patch"));
+        assert!(!rev_names.contains(&"draft.record_review"));
 
-        let rev_write = http_call_tool(
-            &client,
-            &base_url,
-            &rev_sid,
-            "chapter.write",
-            json!({ "chapterName": "ch1", "content": "x" }),
-        )
-        .await;
-        let rev_write_json: Value = serde_json::from_str(
-            rev_write["result"]["content"][0]["text"]
-                .as_str()
-                .expect("text"),
-        )
-        .expect("json");
-        assert_eq!(rev_write_json["code"], json!("TOOL_HIDDEN_BY_PROFILE"));
-        assert_eq!(rev_write_json["activeProfile"], json!("reviewer"));
+        for hidden_in_reviewer in ["chapter.write", "draft.patch", "draft.record_review"] {
+            let rev_hidden =
+                http_call_tool(&client, &base_url, &rev_sid, hidden_in_reviewer, json!({})).await;
+            let rev_hidden_json: Value = serde_json::from_str(
+                rev_hidden["result"]["content"][0]["text"]
+                    .as_str()
+                    .expect("text"),
+            )
+            .expect("json");
+            assert_eq!(rev_hidden_json["code"], json!("TOOL_HIDDEN_BY_PROFILE"));
+            assert_eq!(rev_hidden_json["tool"], json!(hidden_in_reviewer));
+            assert_eq!(rev_hidden_json["activeProfile"], json!("reviewer"));
+        }
+
+        // 7) `architect` 会话可见 17 个工具，隐藏 draft.patch / draft.record_review / style.exemplars。
+        let arch_init = client
+            .post(format!("{base_url}?profile=architect"))
+            .bearer_auth("secret-token")
+            .body(r#"{"jsonrpc":"2.0","id":8,"method":"initialize","params":{}}"#)
+            .send()
+            .await
+            .expect("init architect");
+        assert_eq!(arch_init.status(), 200);
+        let arch_sid = arch_init
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("arch sid")
+            .to_string();
+        let arch_list: Value = client
+            .post(&base_url)
+            .bearer_auth("secret-token")
+            .header("mcp-session-id", &arch_sid)
+            .body(r#"{"jsonrpc":"2.0","id":9,"method":"tools/list"}"#)
+            .send()
+            .await
+            .expect("arch list")
+            .json()
+            .await
+            .expect("json");
+        let arch_names: Vec<&str> = arch_list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert_eq!(arch_names.len(), 17);
+        assert!(arch_names.contains(&"workflow.next"));
+        assert!(arch_names.contains(&"outline.read"));
+        assert!(arch_names.contains(&"character.read"));
+        assert!(!arch_names.contains(&"draft.patch"));
+        assert!(!arch_names.contains(&"draft.record_review"));
+        assert!(!arch_names.contains(&"style.exemplars"));
+
+        for hidden_in_architect in ["draft.patch", "draft.record_review", "style.exemplars"] {
+            let arch_hidden = http_call_tool(
+                &client,
+                &base_url,
+                &arch_sid,
+                hidden_in_architect,
+                json!({}),
+            )
+            .await;
+            let arch_hidden_json: Value = serde_json::from_str(
+                arch_hidden["result"]["content"][0]["text"]
+                    .as_str()
+                    .expect("text"),
+            )
+            .expect("json");
+            assert_eq!(arch_hidden_json["code"], json!("TOOL_HIDDEN_BY_PROFILE"));
+            assert_eq!(arch_hidden_json["tool"], json!(hidden_in_architect));
+            assert_eq!(arch_hidden_json["activeProfile"], json!("architect"));
+        }
 
         server.stop();
+    }
+
+    /// Phase 2 端到端 HTTP `POST /mcp` 测试：覆盖 8 个新零 LLM 工具与 `context.prepare_write`
+    /// 的 `prepareId` + `page`（含 Read vs Project 权限闸门、INVALID_PARAMS 拦截与桥层可达性）。
+    #[tokio::test]
+    async fn http_post_mcp_covers_phase2_eight_tools_and_prepare_id() {
+        let client = reqwest::Client::new();
+        let valid_sha = "a".repeat(64);
+
+        // 1) Read 会话：6 个 Phase 2 只读工具 + prepareId/page 过闸到达状态桥；
+        //    draft.patch 与 draft.record_review 在 Read 下被权限闸门拦截。
+        let read_server = start_test_server().await;
+        let read_url = format!("http://127.0.0.1:{}/mcp", read_server.port);
+        let read_sid = http_initialize(&read_server).await;
+
+        let valid_read_calls: [(&str, Value); 7] = [
+            (
+                "context.prepare_write",
+                json!({ "prepareId": "prep_01", "page": 2, "limit": 8000 }),
+            ),
+            ("workflow.next", json!({ "targetChapter": 5 })),
+            (
+                "foreshadowing.list",
+                json!({ "status": "overdue", "includeDebt": true }),
+            ),
+            (
+                "character.read",
+                json!({ "name": "林清", "includeState": true }),
+            ),
+            ("outline.read", json!({ "chapterNumber": 5, "window": 2 })),
+            (
+                "style.exemplars",
+                json!({ "markTypes": ["style", "voice"], "topK": 5 }),
+            ),
+            (
+                "chapter.search",
+                json!({ "query": "黑铁剑", "scope": "chapters", "chapterStart": 1, "chapterEnd": 10 }),
+            ),
+        ];
+        for (name, args) in valid_read_calls {
+            let body = http_call_tool(&client, &read_url, &read_sid, name, args).await;
+            assert!(
+                body["error"].is_null(),
+                "{name} 合法参数不应触发协议层 error: {body}"
+            );
+            assert_eq!(body["result"]["isError"], json!(true), "{name}: {body}");
+            let text = body["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default();
+            assert!(!text.contains("权限不足"), "{name} 不应被权限拦截: {text}");
+            assert!(
+                text.contains("状态桥"),
+                "{name} 应通过鉴权/权限/校验到达状态桥: {text}"
+            );
+        }
+
+        // Read 工具的非法参数在桥前返回协议层 INVALID_PARAMS。
+        for (name, bad_args) in [
+            ("context.prepare_write", json!({ "offset": 0, "page": 1 })),
+            (
+                "outline.read",
+                json!({ "filename": "main.md", "volume": 1 }),
+            ),
+            (
+                "chapter.search",
+                json!({ "query": "剑", "chapterStart": 8, "chapterEnd": 3 }),
+            ),
+            ("foreshadowing.list", json!({ "status": "invalid_status" })),
+        ] {
+            let body = http_call_tool(&client, &read_url, &read_sid, name, bad_args).await;
+            assert_eq!(
+                body["error"]["code"],
+                json!(protocol::INVALID_PARAMS),
+                "{name} 非法参数必须返回 INVALID_PARAMS: {body}"
+            );
+        }
+
+        // Read 会话下调用 draft.patch / draft.record_review 必须被权限闸门拦截。
+        for (name, args) in [
+            (
+                "draft.patch",
+                json!({
+                    "draftId": "d1",
+                    "expectedSha256": valid_sha,
+                    "edits": [{ "find": "a", "replace": "b" }]
+                }),
+            ),
+            (
+                "draft.record_review",
+                json!({
+                    "draftId": "d1",
+                    "expectedSha256": valid_sha,
+                    "gates": { "consistency": "pass", "anti_ai": "pass" }
+                }),
+            ),
+        ] {
+            let denied = http_call_tool(&client, &read_url, &read_sid, name, args).await;
+            assert_eq!(denied["result"]["isError"], json!(true));
+            let text = denied["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default();
+            assert!(
+                text.contains("权限不足") && text.contains("project"),
+                "Read 调 {name} 必须被拒绝: {text}"
+            );
+        }
+        read_server.stop();
+
+        // 2) Project 会话：draft.patch 与 draft.record_review 非法参数报 INVALID_PARAMS，合法入参到达状态桥。
+        let project_state = ServerState {
+            token: "secret-token".into(),
+            port: 0,
+            registry: Arc::new(tools::build_registry()),
+            ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Project,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::default_policy()),
+        };
+        let project_server = serve(project_state, 0).await.expect("start project server");
+        let project_url = format!("http://127.0.0.1:{}/mcp", project_server.port);
+        let project_sid = http_initialize(&project_server).await;
+
+        for (name, bad_args) in [
+            (
+                "draft.patch",
+                json!({
+                    "draftId": "d1",
+                    "expectedSha256": "not-a-sha",
+                    "edits": [{ "find": "a", "replace": "b" }]
+                }),
+            ),
+            (
+                "draft.patch",
+                json!({
+                    "draftId": "d1",
+                    "expectedSha256": valid_sha,
+                    "edits": [{ "find": "a", "replace": "b", "startLine": 1 }]
+                }),
+            ),
+            (
+                "draft.record_review",
+                json!({
+                    "draftId": "d1",
+                    "expectedSha256": valid_sha,
+                    "gates": { "consistency": "warning", "anti_ai": "pass" }
+                }),
+            ),
+        ] {
+            let body = http_call_tool(&client, &project_url, &project_sid, name, bad_args).await;
+            assert_eq!(
+                body["error"]["code"],
+                json!(protocol::INVALID_PARAMS),
+                "{name} 非法参数必须返回 INVALID_PARAMS: {body}"
+            );
+        }
+
+        for (name, valid_args) in [
+            (
+                "draft.patch",
+                json!({
+                    "draftId": "d1",
+                    "expectedSha256": valid_sha,
+                    "edits": [{ "startLine": 1, "endLine": 2, "replacement": "修订段落" }],
+                    "note": "修复 P0 连续性"
+                }),
+            ),
+            (
+                "draft.record_review",
+                json!({
+                    "draftId": "d1",
+                    "expectedSha256": valid_sha,
+                    "gates": { "consistency": "pass", "anti_ai": "pass", "quality": "pass" },
+                    "overallScore": 9.1,
+                    "reviewerRole": "canon-auditor"
+                }),
+            ),
+        ] {
+            let body = http_call_tool(&client, &project_url, &project_sid, name, valid_args).await;
+            assert!(
+                body["error"].is_null(),
+                "{name} 合法参数不应报协议错误: {body}"
+            );
+            let text = body["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default();
+            assert!(!text.contains("权限不足"), "{name} 不应被权限拦截: {text}");
+            assert!(
+                text.contains("状态桥"),
+                "{name} 合法入参应到达状态桥: {text}"
+            );
+        }
+
+        project_server.stop();
     }
 }
