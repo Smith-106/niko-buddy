@@ -559,6 +559,7 @@
     "hasDiff": "Differences found",
     "historyTitle": "Simulation History",
     "importDesc": "Select chapters to import, then configure the starting chapter number and overwrite options.",
+    "importDraftInboxGuidance": "Chapters have been saved to the pending draft inbox (.qm-drafts/) without overwriting formal chapters. Review and accept them in the draft inbox to commit to the manuscript.",
     "importDraftTitle": "Import Draft to Chapters",
     "importFailed": "Import failed",
     "importSuccess": "Import Successful",
@@ -2405,7 +2406,9 @@
       "more": "More ({{count}})",
       "less": "Collapse",
       "close": "Close",
-      "antigravityAcp": "Antigravity Panel (ACP)"
+      "antigravityAcp": "Antigravity Panel (ACP)",
+      "worldLibrary": "World Blueprint",
+      "knowledgeLibrary": "Asset Library"
     },
     "backupExport": {
       "cancelled": "Cancelled",
@@ -3285,6 +3288,7 @@
       "relatedSettings": "## Related Locations / Organizations / Items",
       "canonRules": "## Do Not Violate",
       "writingStyle": "## Writing Style",
+      "styleExemplars": "## Style Exemplars (Positive Reference)",
       "searchResults": "## Related Search Results",
       "graphSearchResults": "## Graph Related Nodes",
       "communitySummaries": "## Community Summaries (GraphRAG-style)",
@@ -4175,7 +4179,20 @@
     "extractSkillsHint": "Deeply analyze characters, generate reusable skills, add to custom souls",
     "heuristicDetecting": "Heuristically detecting characters...",
     "llmScoring": "Scoring character importance with LLM...",
-    "deleteWork": "Delete work"
+    "deleteWork": "Delete work",
+    "bookshelfToggle": "Bookshelf ({{count}})",
+    "bookshelfTitle": "Breakdown Bookshelf Overview",
+    "bookshelfCount": "{{count}} breakdown work(s)",
+    "bookshelfClose": "Close bookshelf",
+    "bookshelfCurrent": "Active",
+    "bookshelfStyleEnabled": "Style active",
+    "bookshelfStyleReady": "Style ready",
+    "bookshelfStyleMissing": "No style yet",
+    "bookshelfMeta": "{{chapters}} ch · {{words}} words · {{characters}} chars · {{skills}} skills",
+    "bookshelfBoundCount": "{{count}} bound",
+    "bindToCharacter": "Bind to Novel Character",
+    "bindingToCharacter": "Binding...",
+    "bindTargetLabel": "Select novel character to bind"
   },
   "directorPanel": {
     "title": "Book Director",
@@ -4854,6 +4871,11 @@
     "deepChapterSaveToDrafts": "Save to Draft Inbox",
     "deepChapterSavingDraft": "Saving…",
     "deepChapterSavedToDrafts": "Saved to Draft Inbox ({{id}}). Review and adopt it in the Drafts tab",
+    "deepChapterAutoSavedToDrafts": "Automatically saved to Draft Inbox ({{id}}). Go to the Drafts tab to review and confirm adoption",
+    "deepChapterAlreadySaved": "Saved to Drafts",
+    "deepChapterRetrySaveToDrafts": "Retry Save to Drafts",
+    "deepChapterGotoDrafts": "Go to Drafts",
+    "deepChapterAutoSavedHint": "Automatically saved to Draft Inbox ({{id}}); formal chapter is untouched. To turn it into a formal chapter, use the two-step confirm in Drafts (draft → confirm adopt).",
     "deepChapterSaveDraftFailed": "Failed to save draft: {{message}}",
     "deepChapterCopyFull": "Copy Full Text",
     "deepChapterCopied": "Copied",
@@ -4884,7 +4906,11 @@
     "draftAdoptBusy": "Target chapter is busy with another write or adoption; please retry shortly",
     "draftGateDetailsToggle": "Details",
     "draftGateDetailsHide": "Hide",
-    "draftGateRepairSuggestions": "Repair Suggestions"
+    "draftGateRepairSuggestions": "Repair Suggestions",
+    "launchCampaign": "Campaign",
+    "launchCampaignHint": "Multi-chapter autonomous draft campaign with review and batch adoption (Draft-first)",
+    "launchIncubator": "Incubator",
+    "launchIncubatorHint": "Bootstrap world blueprint, characters, volume outline, and chapter skeletons from a one-line idea"
   },
   "wb": {
     "title": "Writing Workbench",
@@ -5024,7 +5050,9 @@
     "kindView": "View",
     "kindChapter": "Chapter",
     "kindAction": "Action",
-    "hint": "Ctrl/⌘+K opens the command palette"
+    "hint": "Ctrl/⌘+K opens the command palette",
+    "launchCampaign": "Launch Autonomous Campaign",
+    "launchIncubator": "Launch Novel Incubator"
   },
   "gate": {
     "confirm": {
@@ -5156,6 +5184,7 @@
       "startChapter": "Start Chapter",
       "chapterCount": "Chapter Count",
       "cruiseMode": "Enable autonomous cruise mode (auto-promote to final and sync memory when all quality gates pass)",
+      "confirmCruiseAutoAccept": "Secondary confirmation: allow cruise mode to automatically commit formal chapters and canon memory when all gates pass (leaves chapters in pending drafts if unchecked)",
       "autoIngest": "Auto-sync canon memory after acceptance",
       "gateSummary": "Gate Verdict: {{verdict}}",
       "gateConsistency": "Consistency: {{verdict}} ({{count}})",
@@ -5207,6 +5236,8 @@
     "savedAsDraft": "Saved to drafts ({{chapter}})",
     "saveAsDraftFailed": "Failed to save draft: {{error}}",
     "saveAsDraftNoProject": "Open a novel project first to save as a draft.",
+    "loadSnapshotPreview": "Preview Snapshot",
+    "loadSnapshotPreviewWithChapter": "Preview Ch. {{chapter}} Snapshot",
     "pendingDraftsBadge": "Pending drafts ({{count}})",
     "jumpToLatest": "Jump to latest",
     "inputLabel": "Message for Antigravity",
@@ -5375,9 +5406,19 @@
     "draftHandoff": {
       "title": "Antigravity wrote a pending draft (Draft-first safe zone)",
       "description": "Formal chapters are untouched. Review and accept the draft in Main Control Drafts or Review Center.",
+      "openInlineDrawer": "Open Draft Drawer Here",
       "openMainControlDrafts": "Go to Main Control Drafts",
       "openReviewCenter": "Go to Review Center",
       "dismiss": "Dismiss"
+    },
+    "draftDrawer": {
+      "title": "Inline Draft Drawer (Draft-first Safe Zone)",
+      "subtitle": "Review and confirm drafts right inside the ACP panel without leaving your session.",
+      "showBtn": "Draft Drawer",
+      "showBtnWithCount": "Draft Drawer ({{count}})",
+      "hideBtn": "Hide Draft Drawer",
+      "close": "Close draft drawer",
+      "openMainControl": "Open in Main Control"
     },
     "permission": {
       "toolKind": "Tool kind",

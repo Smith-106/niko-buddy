@@ -104,11 +104,52 @@ describe("BookAnalysisCharacterPanel", () => {
     cleanup()
   })
 
-  it("does not render the bind-to-novel-character action", () => {
+  it("未加入灵魂库或未传入 onBindCharacter 时不渲染绑定按钮", () => {
     const { container, cleanup } = renderPanel()
 
+    expect(container.querySelector('[data-testid="book-analysis-bind-character-btn"]')).toBeNull()
     expect(container.textContent).not.toContain("绑定到小说人物")
     cleanup()
+  })
+
+  it("TASK-008：角色已加入灵魂库且传入 onBindCharacter 时展示即时绑定按钮与目标人物选择器", () => {
+    const onBindCharacter = vi.fn()
+    const { container, cleanup } = renderPanel({
+      book: { ...book, addedAuraCharacterIds: ["char-linjing"] },
+      bindableCharacters: ["主角甲", "主角乙"],
+      onBindCharacter,
+    })
+
+    const bindBtn = container.querySelector('[data-testid="book-analysis-bind-character-btn"]') as HTMLButtonElement
+    const targetSelect = container.querySelector('[data-testid="book-analysis-bind-target-select"]') as HTMLSelectElement
+    expect(bindBtn).toBeTruthy()
+    expect(bindBtn.disabled).toBe(false)
+    expect(targetSelect.value).toBe("主角甲")
+
+    act(() => {
+      targetSelect.value = "主角乙"
+      targetSelect.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    // jsdom 原生 select 触发受控 onChange
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set
+    act(() => {
+      setter?.call(targetSelect, "主角乙")
+      targetSelect.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    act(() => bindBtn.click())
+    expect(onBindCharacter).toHaveBeenCalledWith("char-linjing", "主角乙")
+    cleanup()
+
+    const { container: busyContainer, cleanup: cleanupBusy } = renderPanel({
+      book: { ...book, addedAuraCharacterIds: ["char-linjing"] },
+      bindingCharacter: true,
+      bindableCharacters: ["主角甲"],
+      onBindCharacter,
+    })
+    const busyBtn = busyContainer.querySelector('[data-testid="book-analysis-bind-character-btn"]') as HTMLButtonElement
+    expect(busyBtn.disabled).toBe(true)
+    expect(busyBtn.textContent).toContain("绑定中...")
+    cleanupBusy()
   })
 
   it("selectedCharacterId 不匹配时回退到 characters[0]", () => {

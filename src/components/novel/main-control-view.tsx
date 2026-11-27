@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { CheckCircle2, CircleAlert, Copy, Flame, Loader2, Play, Save, Square, Sparkles, Wand2 } from "lucide-react"
+import { ArrowRight, CheckCircle2, CircleAlert, Copy, Flame, Loader2, Play, Save, Square, Sparkles, Wand2 } from "lucide-react"
 import { fileExists } from "@/commands/fs"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import {
@@ -35,6 +35,7 @@ import { resolveAiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types"
 import { cn, toErrorMessage } from "@/lib/utils"
 import { ChapterDirectory } from "./chapter-directory"
+import { MainControlAutonomyBar } from "./main-control-autonomy-bar"
 import { MainControlDraftAdoptBlock } from "./main-control-draft-adopt-block"
 import { MainControlGateRerunBlock } from "./main-control-gate-rerun-block"
 import { MainControlSettingsBlock } from "./main-control-settings-block"
@@ -236,6 +237,11 @@ const ACTIVITY_KIND_LABEL_KEYS: Partial<Record<AgentActivityKind, string>> = {
 }
 
 /**
+ * 纯内存防重入集：防止自动存草稿异步落盘期间用户并发点击手动保存导致双写 `.qm-drafts/`。
+ */
+const inFlightDeepAutoSaveOutputs = new WeakSet<DeepChapterGenerationResult>()
+
+/**
  * 主控 Agent 面板（阶段 1）：一句话目标 → 只读工具收集上下文 → 产出草稿。
  *
  * 正式正文不会被直写：写工具走 draftMode，草稿仍需在草稿区确认后才进正式库。
@@ -263,6 +269,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const deepError = useMainControlRuntimeStore((s) => s.deepError)
   const deepCancelledAt = useMainControlRuntimeStore((s) => s.deepCancelledAt)
   const deepActivities = useMainControlRuntimeStore((s) => s.deepActivities)
+  const deepSavedDraftId = useMainControlRuntimeStore((s) => s.deepSavedDraftId)
+  const deepAutoSaveError = useMainControlRuntimeStore((s) => s.deepAutoSaveError)
   useEffect(() => {
     useMainControlRuntimeStore.getState().syncProject(projectPath)
   }, [projectPath])
@@ -758,6 +766,61 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         },
       )
       useMainControlRuntimeStore.getState().finishDeepRunSuccess(controller, out)
+
+      // TASK-007：深章完成后幂等自动落盘至 `.qm-drafts/`（仅写草稿箱，绝不调 adoptMainControlDraft）。
+      const postFinishState = useMainControlRuntimeStore.getState()
+      if (
+        !controller.signal.aborted &&
+        postFinishState.deepOutput === out &&
+        postFinishState.deepSavedDraftId === null &&
+        projectPath &&
+        !inFlightDeepAutoSaveOutputs.has(out)
+      ) {
+        inFlightDeepAutoSaveOutputs.add(out)
+        setDeepSavingDraft(true)
+        const targetChapter = postFinishState.deepChapterNumber ?? currentChapterNumber
+        const chapterName = targetChapter
+          ? `第${targetChapter}章`
+          : goal.trim().slice(0, 30) || t("mainControl.deepChapterOutputTitle")
+        const adoptionGate = resolveRealDeepAdoptionGate(out)
+        try {
+          const saved = await writeDraft(projectPath, chapterName, out.finalContent, {
+            partial: out.partial,
+            adoptionGate,
+          })
+          const afterSaveState = useMainControlRuntimeStore.getState()
+          if (
+            !controller.signal.aborted &&
+            afterSaveState.deepOutput === out &&
+            afterSaveState.deepSavedDraftId === null
+          ) {
+            if (saved?.id) {
+              afterSaveState.markDeepDraftSaved(out, saved.id)
+              bumpDataVersion?.()
+            } else {
+              afterSaveState.markDeepAutoSaveError(
+                out,
+                t("mainControl.deepChapterSaveDraftFailed", { message: "empty draft id" }),
+              )
+            }
+          }
+        } catch (saveErr) {
+          const afterErrState = useMainControlRuntimeStore.getState()
+          if (
+            !controller.signal.aborted &&
+            afterErrState.deepOutput === out &&
+            afterErrState.deepSavedDraftId === null
+          ) {
+            afterErrState.markDeepAutoSaveError(
+              out,
+              t("mainControl.deepChapterSaveDraftFailed", { message: toErrorMessage(saveErr) }),
+            )
+          }
+        } finally {
+          inFlightDeepAutoSaveOutputs.delete(out)
+          setDeepSavingDraft(false)
+        }
+      }
     } catch (err) {
       // 用户亲手中止不算失败（与主控 Agent 同一判定：以 signal 为准）。
       if (controller.signal.aborted) {
@@ -774,7 +837,17 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   }
 
   const handleSaveDeepOutputToDrafts = async () => {
-    if (!deepOutput || !projectPath || deepSavingDraft) return
+    if (
+      !deepOutput ||
+      !projectPath ||
+      deepSavingDraft ||
+      deepSavedDraftId !== null ||
+      inFlightDeepAutoSaveOutputs.has(deepOutput)
+    ) {
+      return
+    }
+    const targetOutput = deepOutput
+    inFlightDeepAutoSaveOutputs.add(targetOutput)
     setDeepSavingDraft(true)
     setDeepSaveNote(null)
     try {
@@ -782,22 +855,31 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       const chapterName = targetChapter
         ? `第${targetChapter}章`
         : goal.trim().slice(0, 30) || t("mainControl.deepChapterOutputTitle")
-      const adoptionGate = resolveRealDeepAdoptionGate(deepOutput)
-      const saved = await writeDraft(projectPath, chapterName, deepOutput.finalContent, {
-        partial: deepOutput.partial,
+      const adoptionGate = resolveRealDeepAdoptionGate(targetOutput)
+      const saved = await writeDraft(projectPath, chapterName, targetOutput.finalContent, {
+        partial: targetOutput.partial,
         adoptionGate,
       })
-      bumpDataVersion?.()
-      setDeepSaveNote({
-        text: t("mainControl.deepChapterSavedToDrafts", { id: saved.id }),
-        isError: false,
-      })
+      const currentState = useMainControlRuntimeStore.getState()
+      if (currentState.deepOutput === targetOutput) {
+        if (saved?.id) {
+          currentState.markDeepDraftSaved(targetOutput, saved.id)
+          bumpDataVersion?.()
+        } else {
+          const errText = t("mainControl.deepChapterSaveDraftFailed", { message: "empty draft id" })
+          currentState.markDeepAutoSaveError(targetOutput, errText)
+          setDeepSaveNote({ text: errText, isError: true })
+        }
+      }
     } catch (err) {
+      const errText = t("mainControl.deepChapterSaveDraftFailed", { message: toErrorMessage(err) })
+      useMainControlRuntimeStore.getState().markDeepAutoSaveError(targetOutput, errText)
       setDeepSaveNote({
-        text: t("mainControl.deepChapterSaveDraftFailed", { message: toErrorMessage(err) }),
+        text: errText,
         isError: true,
       })
     } finally {
+      inFlightDeepAutoSaveOutputs.delete(targetOutput)
       setDeepSavingDraft(false)
     }
   }
@@ -855,10 +937,13 @@ export function MainControlView(_props: MainControlViewProps = {}) {
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4" data-testid="main-control-view">
-      <div className="flex items-center gap-2">
-        <Sparkles className="h-5 w-5 text-primary" />
-        <h2 className="text-base font-semibold">{t("mainControl.title")}</h2>
-        <span className="text-xs text-muted-foreground">{t("mainControl.subtitle")}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-primary" />
+          <h2 className="text-base font-semibold">{t("mainControl.title")}</h2>
+          <span className="text-xs text-muted-foreground">{t("mainControl.subtitle")}</span>
+        </div>
+        <MainControlAutonomyBar />
       </div>
 
       <div
@@ -1122,21 +1207,43 @@ export function MainControlView(_props: MainControlViewProps = {}) {
               ) : null}
             </h3>
             <div className="flex flex-wrap items-center gap-1.5">
+              {deepSavedDraftId ? (
+                <button
+                  type="button"
+                  data-testid="main-control-deep-goto-drafts"
+                  onClick={() => setTab("drafts")}
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-primary bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                  {t("mainControl.deepChapterGotoDrafts")}
+                </button>
+              ) : null}
               <button
                 type="button"
-                disabled={deepSavingDraft || !projectPath}
+                disabled={deepSavingDraft || !projectPath || deepSavedDraftId !== null}
                 data-testid="main-control-deep-save-draft"
                 onClick={() => void handleSaveDeepOutputToDrafts()}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-primary bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+                className={cn(
+                  "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium disabled:opacity-40",
+                  deepSavedDraftId !== null
+                    ? "border-border bg-muted text-muted-foreground"
+                    : "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
+                )}
               >
                 {deepSavingDraft ? (
                   <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                ) : deepSavedDraftId !== null ? (
+                  <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
                 ) : (
                   <Save className="h-3 w-3" aria-hidden="true" />
                 )}
                 {deepSavingDraft
                   ? t("mainControl.deepChapterSavingDraft")
-                  : t("mainControl.deepChapterSaveToDrafts")}
+                  : deepSavedDraftId !== null
+                    ? t("mainControl.deepChapterAlreadySaved")
+                    : deepAutoSaveError !== null
+                      ? t("mainControl.deepChapterRetrySaveToDrafts")
+                      : t("mainControl.deepChapterSaveToDrafts")}
               </button>
               <button
                 type="button"
@@ -1160,7 +1267,23 @@ export function MainControlView(_props: MainControlViewProps = {}) {
               </button>
             </div>
           </div>
-          {deepSaveNote ? (
+          {deepSavedDraftId ? (
+            <p
+              role="status"
+              data-testid="main-control-deep-save-status"
+              className="mb-1 text-xs text-success-foreground"
+            >
+              {t("mainControl.deepChapterAutoSavedToDrafts", { id: deepSavedDraftId })}
+            </p>
+          ) : deepAutoSaveError ? (
+            <p
+              role="alert"
+              data-testid="main-control-deep-save-status"
+              className="mb-1 text-xs text-destructive"
+            >
+              {deepAutoSaveError}
+            </p>
+          ) : deepSaveNote ? (
             <p
               role={deepSaveNote.isError ? "alert" : "status"}
               data-testid="main-control-deep-save-status"
@@ -1239,7 +1362,9 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           ) : null}
           <WikiReader body={deepOutput.finalContent} />
           <p className="mt-1 text-xs text-muted-foreground" data-testid="main-control-deep-output-hint">
-            {t("mainControl.deepChapterOutputHint")}
+            {deepSavedDraftId
+              ? t("mainControl.deepChapterAutoSavedHint", { id: deepSavedDraftId })
+              : t("mainControl.deepChapterOutputHint")}
           </p>
         </div>
       ) : null}

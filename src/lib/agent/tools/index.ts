@@ -161,7 +161,20 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
     const vtc = options.virtualToolContext
     if (shouldRegister("route_task")) registry.register(createRouteTaskTool(vtc.userMessage))
     if (vtc.taskRoute && shouldRegister("load_context")) {
-      registry.register(createLoadContextTool(vtc.projectPath, vtc.userMessage, vtc.taskRoute))
+      const explicitMaxContextSize =
+        vtc.maxContextSize
+        ?? options.maxContextSize
+        ?? options.llmConfig?.maxContextSize
+      const rawBudget = vtc.tokenBudget
+        ?? (explicitMaxContextSize !== undefined
+          ? resolveContextPackTokenBudget({ maxContextSize: explicitMaxContextSize })
+          : 6000)
+      const tokenBudget = Number.isFinite(rawBudget) && rawBudget > 0
+        ? Math.min(rawBudget, 8000)
+        : 6000
+      registry.register(
+        createLoadContextTool(vtc.projectPath, vtc.userMessage, vtc.taskRoute, { tokenBudget }),
+      )
     }
     if (vtc.contextPack && shouldRegister("trim_context")) {
       const tokenBudget = vtc.tokenBudget

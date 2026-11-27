@@ -56,6 +56,12 @@ export interface AntigravitySnapshotIngestDialogProps {
   projectPath: string
   fileTree: FileNode[]
   defaultChapterPath?: string | null
+  /** Optional pre-filled ChapterSnapshot JSON text (e.g. from an ACP assistant message). */
+  initialRawJson?: string | null
+  /** Optional positive integer chapter number used to pre-select the matching formal chapter. */
+  initialChapterNumber?: number | null
+  /** When true and `initialRawJson` is provided, automatically runs read-only Step 2 preview ONCE per open cycle (never auto-commits Step 3). */
+  autoPreview?: boolean
   onPrefillPrompt: (prompt: string) => void
   onCommitted?: (result: CommitInteractiveSnapshotResult) => void
 }
@@ -166,12 +172,45 @@ const KNOWN_FAIL_REASONS = new Set([
   "cancelled",
 ])
 
+function resolveInitialCandidatePath(
+  candidates: FormalChapterCandidate[],
+  initialChapterNumber: number | null | undefined,
+  defaultChapterPath: string | null | undefined,
+  currentSelectedPath: string,
+): string {
+  if (candidates.length === 0) return ""
+  if (
+    typeof initialChapterNumber === "number" &&
+    Number.isSafeInteger(initialChapterNumber) &&
+    initialChapterNumber >= 1
+  ) {
+    const matchedByNumber = candidates.find(
+      (c) => c.chapterNumber === initialChapterNumber,
+    )
+    if (matchedByNumber) return matchedByNumber.path
+  }
+  if (currentSelectedPath && candidates.some((c) => c.path === currentSelectedPath)) {
+    return currentSelectedPath
+  }
+  if (defaultChapterPath) {
+    const normalizedDefault = normalizeSlashes(defaultChapterPath)
+    const matchedDefault = candidates.find(
+      (c) => normalizeSlashes(c.path) === normalizedDefault,
+    )
+    if (matchedDefault) return matchedDefault.path
+  }
+  return candidates[candidates.length - 1]!.path
+}
+
 export function AntigravitySnapshotIngestDialog({
   open,
   onOpenChange,
   projectPath,
   fileTree,
   defaultChapterPath = null,
+  initialRawJson,
+  initialChapterNumber = null,
+  autoPreview = false,
   onPrefillPrompt,
   onCommitted,
 }: AntigravitySnapshotIngestDialogProps) {
@@ -186,7 +225,9 @@ export function AntigravitySnapshotIngestDialog({
     [fileTree],
   )
 
-  const [selectedPath, setSelectedPath] = useState<string>("")
+  const [selectedPath, setSelectedPath] = useState<string>(() =>
+    resolveInitialCandidatePath(candidates, initialChapterNumber, defaultChapterPath, ""),
+  )
   const [rawJsonText, setRawJsonText] = useState<string>("")
   const [validating, setValidating] = useState(false)
   const [committing, setCommitting] = useState(false)
@@ -199,6 +240,11 @@ export function AntigravitySnapshotIngestDialog({
   const opGenRef = useRef(0)
   const committingRef = useRef(false)
   const committedValidationIdRef = useRef<number | null>(null)
+  const selectedPathRef = useRef<string>(selectedPath)
+  selectedPathRef.current = selectedPath
+  const openCycleRef = useRef(0)
+  const autoPreviewedOpenCycleRef = useRef(0)
+  const hadPresetOpenRef = useRef(false)
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const suppressFocusRestoreRef = useRef(false)
@@ -213,30 +259,71 @@ export function AntigravitySnapshotIngestDialog({
     }
   }, [])
 
+  // Step 2 core: Strictly read-only validate & preview with mountedRef + opGenRef race guard.
+  // NEVER invokes commitInteractiveChapterSnapshot.
+  const runReadOnlyValidation = useCallback(
+    async (targetCandidate: FormalChapterCandidate, jsonSnapshot: string) => {
+      if (!projectPath.trim() || !jsonSnapshot.trim() || committingRef.current) {
+        return
+      }
+      const gen = ++opGenRef.current
+      const targetPath = targetCandidate.path
+      const targetChapter = targetCandidate.chapterNumber
+
+      committedValidationIdRef.current = null
+      setCommittedValidationId(null)
+      setValidating(true)
+      setErrorMsg(null)
+      setCommitResult(null)
+      try {
+        const res = await prepareInteractiveChapterSnapshot(
+          projectPath,
+          targetPath,
+          targetChapter,
+          jsonSnapshot,
+        )
+        if (!mountedRef.current || gen !== opGenRef.current) return
+        if (res.ok) {
+          setPreparedState({
+            validationId: gen,
+            rawJson: jsonSnapshot,
+            chapterPath: targetPath,
+            chapterNumber: targetChapter,
+            prepared: res.prepared,
+          })
+        } else {
+          setPreparedState(null)
+          setErrorMsg(res.error)
+        }
+      } catch (err) {
+        if (!mountedRef.current || gen !== opGenRef.current) return
+        setPreparedState(null)
+        setErrorMsg(formatErrorMessage(err))
+      } finally {
+        if (mountedRef.current && gen === opGenRef.current) {
+          setValidating(false)
+        }
+      }
+    },
+    [projectPath],
+  )
+
   // Keep selectedPath aligned with available formal chapters when candidates or defaultChapterPath change.
   useEffect(() => {
     if (candidates.length === 0) {
       setSelectedPath("")
       return
     }
-    setSelectedPath((prev) => {
-      if (prev && candidates.some((c) => c.path === prev)) {
-        return prev
-      }
-      if (defaultChapterPath) {
-        const normalizedDefault = normalizeSlashes(defaultChapterPath)
-        const matched = candidates.find(
-          (c) => normalizeSlashes(c.path) === normalizedDefault,
-        )
-        if (matched) return matched.path
-      }
-      return candidates[candidates.length - 1]!.path
-    })
+    setSelectedPath((prev) =>
+      resolveInitialCandidatePath(candidates, null, defaultChapterPath, prev),
+    )
   }, [candidates, defaultChapterPath])
 
-  // Manage WCAG dialog focus lifecycle & discard in-flight operations when closing.
+  // Manage WCAG dialog focus lifecycle, optional message preset prefill/autoPreview (read-only),
+  // and discard in-flight operations when closing.
   useEffect(() => {
     if (open && !wasOpenRef.current) {
+      const currentCycle = ++openCycleRef.current
       previousFocusRef.current =
         document.activeElement instanceof HTMLElement ? document.activeElement : null
       suppressFocusRestoreRef.current = false
@@ -251,6 +338,40 @@ export function AntigravitySnapshotIngestDialog({
       }
       committedValidationIdRef.current = null
       setCommittedValidationId(null)
+
+      const hasInitialJson =
+        typeof initialRawJson === "string" && initialRawJson.trim().length > 0
+      const resolvedPath = resolveInitialCandidatePath(
+        candidates,
+        initialChapterNumber,
+        defaultChapterPath,
+        selectedPathRef.current,
+      )
+      if (resolvedPath !== selectedPathRef.current) {
+        selectedPathRef.current = resolvedPath
+        setSelectedPath(resolvedPath)
+      }
+
+      if (hasInitialJson) {
+        hadPresetOpenRef.current = true
+        setRawJsonText(initialRawJson)
+        setPreparedState(null)
+        const targetCandidate = candidates.find((c) => c.path === resolvedPath) ?? null
+        if (
+          autoPreview &&
+          targetCandidate &&
+          projectPath.trim() &&
+          autoPreviewedOpenCycleRef.current !== currentCycle
+        ) {
+          autoPreviewedOpenCycleRef.current = currentCycle
+          void runReadOnlyValidation(targetCandidate, initialRawJson)
+        }
+      } else if (initialRawJson === null && hadPresetOpenRef.current) {
+        hadPresetOpenRef.current = false
+        setRawJsonText("")
+        setPreparedState(null)
+      }
+
       dialogRef.current?.focus()
     } else if (!open && wasOpenRef.current) {
       opGenRef.current += 1
@@ -267,7 +388,16 @@ export function AntigravitySnapshotIngestDialog({
       previousFocusRef.current = null
     }
     wasOpenRef.current = open
-  }, [open])
+  }, [
+    autoPreview,
+    candidates,
+    defaultChapterPath,
+    initialChapterNumber,
+    initialRawJson,
+    open,
+    projectPath,
+    runReadOnlyValidation,
+  ])
 
   // Close on Escape unless a commit is actively in flight.
   useEffect(() => {
@@ -337,51 +467,13 @@ export function AntigravitySnapshotIngestDialog({
     onOpenChange(false)
   }, [committing, i18n.language, onOpenChange, onPrefillPrompt, selectedCandidate])
 
-  // Step 2: Strictly read-only validate & preview with mountedRef + opGenRef race guard.
+  // Step 2: Manual trigger delegating to the shared read-only validation runner.
   const handleValidate = useCallback(async () => {
     if (!selectedCandidate || !projectPath.trim() || !rawJsonText.trim() || validating || committing) {
       return
     }
-    const gen = ++opGenRef.current
-    const targetPath = selectedCandidate.path
-    const targetChapter = selectedCandidate.chapterNumber
-    const jsonSnapshot = rawJsonText
-
-    committedValidationIdRef.current = null
-    setCommittedValidationId(null)
-    setValidating(true)
-    setErrorMsg(null)
-    setCommitResult(null)
-    try {
-      const res = await prepareInteractiveChapterSnapshot(
-        projectPath,
-        targetPath,
-        targetChapter,
-        jsonSnapshot,
-      )
-      if (!mountedRef.current || gen !== opGenRef.current) return
-      if (res.ok) {
-        setPreparedState({
-          validationId: gen,
-          rawJson: jsonSnapshot,
-          chapterPath: targetPath,
-          chapterNumber: targetChapter,
-          prepared: res.prepared,
-        })
-      } else {
-        setPreparedState(null)
-        setErrorMsg(res.error)
-      }
-    } catch (err) {
-      if (!mountedRef.current || gen !== opGenRef.current) return
-      setPreparedState(null)
-      setErrorMsg(formatErrorMessage(err))
-    } finally {
-      if (mountedRef.current && gen === opGenRef.current) {
-        setValidating(false)
-      }
-    }
-  }, [committing, projectPath, rawJsonText, selectedCandidate, validating])
+    await runReadOnlyValidation(selectedCandidate, rawJsonText)
+  }, [committing, projectPath, rawJsonText, runReadOnlyValidation, selectedCandidate, validating])
 
   // Step 3: Explicit human-confirmed commit to formal memory.
   const handleCommit = useCallback(async () => {

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
   type DeleteOrphanAurasForBookFn = typeof import("@/lib/novel/book-analysis/aura-cleanup").deleteOrphanAurasForBook
   type BindCharacterAuraFn = typeof import("@/lib/novel/character-aura").bindCharacterAura
   type ListBindableNovelCharactersFn = typeof import("@/lib/novel/character-aura").listBindableNovelCharacters
+  type ListCharacterAurasFn = typeof import("@/lib/novel/character-aura").listCharacterAuras
   type SetEnabledWritingStyleFn = typeof import("@/lib/novel/writing-style-store").setEnabledWritingStyle
   type UpsertWritingStylePresetFn = typeof import("@/lib/novel/writing-style-store").upsertWritingStylePreset
   type RefreshProjectStateFn = typeof import("@/lib/project-refresh").refreshProjectState
@@ -51,6 +52,7 @@ const mocks = vi.hoisted(() => {
     deleteOrphanAurasForBook: vi.fn<DeleteOrphanAurasForBookFn>(),
     bindCharacterAura: vi.fn<BindCharacterAuraFn>(),
     listBindableNovelCharacters: vi.fn<ListBindableNovelCharactersFn>(),
+    listCharacterAuras: vi.fn<ListCharacterAurasFn>(),
     setEnabledWritingStyle: vi.fn<SetEnabledWritingStyleFn>(),
     upsertWritingStylePreset: vi.fn<UpsertWritingStylePresetFn>(),
     refreshProjectState: vi.fn<RefreshProjectStateFn>(),
@@ -122,7 +124,7 @@ vi.mock("@/lib/novel/character-aura", async (importOriginal) => {
     ...actual,
       bindCharacterAura: mocks.bindCharacterAura,
       listBindableNovelCharacters: mocks.listBindableNovelCharacters,
-    
+      listCharacterAuras: mocks.listCharacterAuras,
   }
 })
 
@@ -248,6 +250,7 @@ describe("useLibraryOperations", () => {
     mocks.importBookAnalysisSkillsAsAuras.mockResolvedValue([])
     mocks.listDirectory.mockResolvedValue([])
     mocks.listBindableNovelCharacters.mockResolvedValue(["林烬"])
+    mocks.listCharacterAuras.mockResolvedValue([])
     mocks.readFile.mockResolvedValue("---\ntitle: 第一章\norder: 1\nwordCount: 100\n---\n正文内容正文内容")
     mocks.deleteOrphanAurasForBook.mockResolvedValue(0)
     mocks.deleteFile.mockResolvedValue(undefined)
@@ -563,6 +566,152 @@ describe("useLibraryOperations", () => {
     expect(mocks.refreshProjectState).toHaveBeenCalledWith("/proj")
     expect(mocks.toast.success).toHaveBeenCalledWith("已将「林烬」绑定到小说人物「林烬」。")
     expect(props.setLibraryState).toHaveBeenCalled()
+  })
+
+  it("bind: TASK-008 解除死锁 — 加入灵魂库后即使 bindings 为空也能命中缓存即时绑定", async () => {
+    mocks.importBookAnalysisSkillsAsAuras.mockResolvedValue([
+      { skillId: "skill-1", characterId: "char-1", characterName: "林烬", auraId: "aura-fresh-1", auraName: "林烬" },
+    ])
+    mocks.listBindableNovelCharacters.mockResolvedValue(["主角甲", "主角乙"])
+    const { result } = makeParams({
+      libraryState: { books: [libraryBook], enabledStyle: null, bindings: [] },
+    })
+
+    await act(async () => { await result.current.handleLibraryAddSkillsToSoul("skill-1") })
+    expect(result.current.bindableCharacters).toEqual(["主角甲", "主角乙"])
+
+    await act(async () => { await result.current.handleLibraryBindCharacter("char-1", "主角乙") })
+    expect(mocks.bindCharacterAura).toHaveBeenCalledWith("/proj", { characterName: "主角乙", auraId: "aura-fresh-1" })
+    expect(mocks.toast.success).toHaveBeenCalledWith("已将「林烬」绑定到小说人物「主角乙」。")
+  })
+
+  it("bind: TASK-008 解除死锁 — 缓存为空时回退 listCharacterAuras 自定义灵魂（忽略内置灵魂）", async () => {
+    mocks.listBindableNovelCharacters.mockResolvedValue(["主角甲"])
+    mocks.listCharacterAuras.mockResolvedValue([
+      { id: "builtin-1", builtIn: true, name: "林烬", sourceNote: "" } as never,
+      { id: "custom-other", builtIn: false, name: "林烬", sourceNote: "来自拆书《他书》" } as never,
+      { id: "custom-exact", builtIn: false, name: "林烬", sourceNote: "来自拆书《长夜书》" } as never,
+    ])
+    const { result } = makeParams({
+      libraryState: { books: [libraryBook], enabledStyle: null, bindings: [] },
+    })
+
+    await act(async () => { await result.current.handleLibraryBindCharacter("char-1") })
+    expect(mocks.listCharacterAuras).toHaveBeenCalledWith("/proj")
+    expect(mocks.bindCharacterAura).toHaveBeenCalledWith("/proj", { characterName: "主角甲", auraId: "custom-exact" })
+  })
+
+  it("bind: TASK-008 仅存在同名内置灵魂时不得误绑；绑定抛错走 toast.error", async () => {
+    mocks.listCharacterAuras.mockResolvedValue([
+      { id: "builtin-1", builtIn: true, name: "林烬", sourceNote: "" } as never,
+    ])
+    const { result } = makeParams({
+      libraryState: { books: [libraryBook], enabledStyle: null, bindings: [] },
+    })
+    await act(async () => { await result.current.handleLibraryBindCharacter("char-1") })
+    expect(mocks.bindCharacterAura).not.toHaveBeenCalled()
+    expect(mocks.toast.info).toHaveBeenCalledWith("请先将该角色技能加入自定义灵魂库，再绑定到小说人物。")
+
+    mocks.listCharacterAuras.mockResolvedValue([
+      { id: "custom-1", builtIn: false, name: "林烬", sourceNote: "" } as never,
+    ])
+    mocks.bindCharacterAura.mockRejectedValueOnce(new Error("write failed"))
+    await act(async () => { await result.current.handleLibraryBindCharacter("char-1") })
+    expect(mocks.toast.error).toHaveBeenCalledWith("绑定失败：write failed")
+    expect(result.current.bindingCharacter).toBe(false)
+  })
+
+  it("bind: REV2-MED-01 多书同位置 ID（c1）缓存按 bookId:characterId 隔离，不跨书串绑", async () => {
+    const bookA: BookAnalysisLibraryBook = {
+      ...libraryBook,
+      id: "book-a",
+      metadata: { ...libraryBook.metadata, title: "长夜书" },
+      characters: [{ ...libraryBook.characters[0], id: "c1", name: "林烬" }],
+      skills: [{ ...libraryBook.skills[0], id: "skill-a", characterId: "c1", characterName: "林烬", sourceBook: "长夜书" }],
+    }
+    const bookB: BookAnalysisLibraryBook = {
+      ...libraryBook,
+      id: "book-b",
+      path: "/books/b2",
+      metadata: { ...libraryBook.metadata, title: "白塔书" },
+      characters: [{ ...libraryBook.characters[0], id: "c1", name: "沈知微" }],
+      skills: [{ ...libraryBook.skills[0], id: "skill-b", characterId: "c1", characterName: "沈知微", sourceBook: "白塔书" }],
+    }
+
+    mocks.importBookAnalysisSkillsAsAuras.mockResolvedValue([
+      { skillId: "skill-a", characterId: "c1", characterName: "林烬", auraId: "aura-book-a-c1", auraName: "林烬" },
+    ])
+    mocks.listBindableNovelCharacters.mockResolvedValue(["主角甲"])
+    mocks.listCharacterAuras.mockResolvedValue([
+      { id: "aura-book-a-c1", builtIn: false, name: "林烬", sourceNote: "来自拆书《长夜书》" } as never,
+    ])
+
+    let activeBook: BookAnalysisLibraryBook = bookA
+    const baseProps = {
+      currentProjectPath: "/proj",
+      libraryState: { books: [bookA, bookB], enabledStyle: null, bindings: [] } as BookAnalysisLibraryState,
+      setLibraryState: vi.fn<Dispatch<SetStateAction<BookAnalysisLibraryState>>>(),
+      setSelectedBookId: vi.fn<Dispatch<SetStateAction<string | null>>>(),
+      setSelectedCharacterId: vi.fn<Dispatch<SetStateAction<string | null>>>(),
+      setChapterSelectionData: vi.fn<Dispatch<SetStateAction<ChapterSelectionData | null>>>(),
+      llmConfig,
+      startTask: vi.fn(() => "task-1"),
+    }
+    const { result, rerender } = renderHook(() =>
+      useLibraryOperations({ ...baseProps, selectedLibraryBook: activeBook }),
+    )
+
+    // 先把 bookA 的 c1 加入灵魂库，写入缓存 book-a:c1
+    await act(async () => {
+      await result.current.handleLibraryAddSkillsToSoul("skill-a")
+    })
+
+    // 切到同位置 ID c1 但未入灵魂库的 bookB -> 不得串用 book-a:c1 缓存
+    activeBook = bookB
+    rerender()
+    await act(async () => {
+      await result.current.handleLibraryBindCharacter("c1", "主角甲")
+    })
+
+    expect(mocks.bindCharacterAura).not.toHaveBeenCalled()
+    expect(mocks.toast.info).toHaveBeenCalledWith("请先将该角色技能加入自定义灵魂库，再绑定到小说人物。")
+  })
+
+  it("bind: REV2-MED-01 多书同名角色优先按当前书名《title》匹配 custom aura，优于未分书 bindings 回退", async () => {
+    const bookB: BookAnalysisLibraryBook = {
+      ...libraryBook,
+      id: "book-b",
+      path: "/books/b2",
+      metadata: { ...libraryBook.metadata, title: "白塔书" },
+      characters: [{ ...libraryBook.characters[0], id: "c1", name: "林烬" }],
+      skills: [{ ...libraryBook.skills[0], id: "skill-b", characterId: "c1", characterName: "林烬", sourceBook: "白塔书" }],
+    }
+
+    mocks.listBindableNovelCharacters.mockResolvedValue(["主角乙"])
+    mocks.listCharacterAuras.mockResolvedValue([
+      { id: "aura-book-a", builtIn: false, name: "林烬", sourceNote: "来自拆书《长夜书》" } as never,
+      { id: "aura-book-b", builtIn: false, name: "林烬", sourceNote: "来自拆书《白塔书》" } as never,
+    ])
+
+    const { result } = makeParams({
+      selectedLibraryBook: bookB,
+      libraryState: {
+        books: [libraryBook, bookB],
+        enabledStyle: null,
+        // 已有未分书 binding 指向《长夜书》同名角色，不得抢占《白塔书》精确匹配
+        bindings: [{ characterName: "主角甲", auraId: "aura-book-a", auraName: "林烬" }],
+      },
+    })
+
+    await act(async () => {
+      await result.current.handleLibraryBindCharacter("c1", "主角乙")
+    })
+
+    expect(mocks.listCharacterAuras).toHaveBeenCalledWith("/proj")
+    expect(mocks.bindCharacterAura).toHaveBeenCalledWith("/proj", {
+      characterName: "主角乙",
+      auraId: "aura-book-b",
+    })
   })
 
   // ── handleLibraryDeleteBook ────────────────────────────────────────────────────

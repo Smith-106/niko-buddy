@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen, fireEvent, setupDomGlobals } from "@/test-helpers/component-test-utils"
+import { useMainControlRuntimeStore } from "@/stores/main-control-runtime-store"
 import { CommandPalette, buildChapterKeywords } from "./command-palette"
 
 const mocks = vi.hoisted(() => {
@@ -55,6 +56,7 @@ function optionLabels(): string[] {
 beforeEach(() => {
   setupDomGlobals()
   vi.clearAllMocks()
+  useMainControlRuntimeStore.getState().reset()
   mocks.state.activeView = "wiki"
   mocks.state.fileTree = [
     {
@@ -77,6 +79,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  useMainControlRuntimeStore.getState().reset()
 })
 
 describe("CommandPalette", () => {
@@ -302,5 +305,48 @@ describe("CommandPalette", () => {
     expect(buildChapterKeywords("012-序幕", "/proj/wiki/chapters/012-序幕.md")).toContain("第12章 第012章 chapter12 ch12")
     expect(buildChapterKeywords("prologue", "/proj/wiki/chapters/prologue.md")).toBe("/proj/wiki/chapters/prologue.md")
     expect(buildChapterKeywords("chapter-000", "/proj/wiki/chapters/chapter-000.md")).toBe("/proj/wiki/chapters/chapter-000.md")
+  })
+
+  it("TASK-008：双语搜索命中 worldLibrary 与 knowledgeLibrary，且不暴露 marketRadar", () => {
+    const { onOpenChange } = renderPalette()
+
+    fireEvent.change(input(), { target: { value: "marketRadar" } })
+    expect(screen.queryAllByRole("option")).toHaveLength(0)
+
+    fireEvent.change(input(), { target: { value: "世界蓝图" } })
+    expect(optionLabels().some((l) => l.includes("novel.nav.worldLibrary"))).toBe(true)
+    fireEvent.keyDown(input(), { key: "Enter" })
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("worldLibrary")
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    mocks.state.setActiveView.mockClear()
+    fireEvent.change(input(), { target: { value: "asset library" } })
+    expect(optionLabels().some((l) => l.includes("novel.nav.knowledgeLibrary"))).toBe(true)
+    fireEvent.keyDown(input(), { key: "Enter" })
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("knowledgeLibrary")
+  })
+
+  it("TASK-008：Ctrl+K 一步启动长程战役（action:launch-campaign）与冷启动孵化（action:launch-incubator）", () => {
+    const { onOpenChange } = renderPalette()
+
+    fireEvent.change(input(), { target: { value: "长程战役" } })
+    const campaignOption = document.getElementById("command-palette-action:launch-campaign")
+    expect(campaignOption).toBeTruthy()
+    fireEvent.click(campaignOption!)
+    expect(useMainControlRuntimeStore.getState().pendingLaunchDialog).toBe("campaign")
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("mainControl")
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    mocks.state.setActiveView.mockClear()
+    onOpenChange.mockClear()
+    useMainControlRuntimeStore.getState().reset()
+
+    fireEvent.change(input(), { target: { value: "incubator" } })
+    const incubatorOption = document.getElementById("command-palette-action:launch-incubator")
+    expect(incubatorOption).toBeTruthy()
+    fireEvent.click(incubatorOption!)
+    expect(useMainControlRuntimeStore.getState().pendingLaunchDialog).toBe("incubator")
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("mainControl")
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })

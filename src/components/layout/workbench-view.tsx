@@ -28,7 +28,6 @@ import {
   ListChecks,
   Network,
   PenTool,
-  Radar,
   ScrollText,
   Settings,
   Stethoscope,
@@ -83,7 +82,6 @@ const MODULE_CARDS: ModuleCard[] = [
   { view: "modelRoutes", icon: Network, labelKey: "wb.card.modelRoutes", descKey: "wb.card.modelRoutesDesc", group: "config" },
   { view: "mcpManager", icon: Network, labelKey: "wb.card.mcp", descKey: "wb.card.mcpDesc", group: "config" },
   { view: "workflowEditor", icon: Workflow, labelKey: "wb.card.workflowEditor", descKey: "wb.card.workflowEditorDesc", group: "config" },
-  { view: "marketRadar", icon: Radar, labelKey: "wb.card.marketRadar", descKey: "wb.card.marketRadarDesc", group: "config" },
   { view: "help", icon: BookOpen, labelKey: "wb.card.help", descKey: "wb.card.helpDesc", group: "config" },
   // 数据
   { view: "diagnosticsCenter", icon: Stethoscope, labelKey: "wb.card.diagnostics", descKey: "wb.card.diagnosticsDesc", group: "data" },

@@ -3,8 +3,11 @@
 // SPDX-License-Identifier: MIT
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import * as jestDomMatchers from "@testing-library/jest-dom/matchers"
 import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
+
+expect.extend(jestDomMatchers)
 import type { FileNode } from "@/types/wiki"
 import type {
   CommitInteractiveSnapshotResult,
@@ -754,5 +757,169 @@ describe("AntigravitySnapshotIngestDialog", () => {
     )
     expect(screen.queryByTestId("snapshot-ingest-preview")).toBeNull()
     expect(screen.getByTestId("snapshot-ingest-commit-btn")).toBeDisabled()
+  })
+
+  it("prefills initialRawJson, selects matching initialChapterNumber, auto-runs read-only preview ONCE per open cycle, and NEVER auto-commits Step 3", async () => {
+    const preparedCh3 = makePreparedSnapshot(3, "wiki/chapters/第3章 暗流.md")
+    mocks.prepareInteractiveChapterSnapshot.mockResolvedValue({
+      ok: true,
+      prepared: preparedCh3,
+    } satisfies PrepareInteractiveSnapshotResult)
+    mocks.commitInteractiveChapterSnapshot.mockResolvedValue({
+      ingestResult: {
+        snapshot: preparedCh3.snapshot,
+        canonOutcome: { status: "completed", report: { written: 1, queued: 0, results: [], reconcile: { consistent: true, divergences: [] } } },
+      },
+      memoryStatus: { ingest: "ok", canonOutcome: { status: "completed", report: { written: 1, queued: 0, results: [], reconcile: { consistent: true, divergences: [] } } } },
+    } satisfies CommitInteractiveSnapshotResult)
+
+    const initialJson = '{"chapterNumber":3,"summary":"林川潜入旧库房","characters":["林川"]}'
+    const { rerender } = render(
+      <AntigravitySnapshotIngestDialog
+        open={false}
+        onOpenChange={vi.fn()}
+        projectPath={"C:\\books\\demo"}
+        fileTree={SAMPLE_FILE_TREE}
+        defaultChapterPath="wiki/chapters/ch01.md"
+        initialRawJson={null}
+        initialChapterNumber={null}
+        autoPreview={false}
+        onPrefillPrompt={vi.fn()}
+      />,
+    )
+
+    expect(mocks.prepareInteractiveChapterSnapshot).not.toHaveBeenCalled()
+    expect(mocks.commitInteractiveChapterSnapshot).not.toHaveBeenCalled()
+
+    // Open with preset + autoPreview=true -> selects Chapter 3 and runs read-only preview ONCE
+    rerender(
+      <AntigravitySnapshotIngestDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        projectPath={"C:\\books\\demo"}
+        fileTree={SAMPLE_FILE_TREE}
+        defaultChapterPath="wiki/chapters/ch01.md"
+        initialRawJson={initialJson}
+        initialChapterNumber={3}
+        autoPreview={true}
+        onPrefillPrompt={vi.fn()}
+      />,
+    )
+
+    await screen.findByTestId("snapshot-ingest-preview")
+    expect(mocks.prepareInteractiveChapterSnapshot).toHaveBeenCalledTimes(1)
+    expect(mocks.prepareInteractiveChapterSnapshot).toHaveBeenCalledWith(
+      "C:\\books\\demo",
+      "wiki/chapters/第3章 暗流.md",
+      3,
+      initialJson,
+    )
+    expect((screen.getByTestId("snapshot-ingest-chapter-select") as HTMLSelectElement).value).toBe(
+      "wiki/chapters/第3章 暗流.md",
+    )
+    expect((screen.getByTestId("snapshot-ingest-json-input") as HTMLTextAreaElement).value).toBe(
+      initialJson,
+    )
+
+    // Rerendering while open must NOT trigger a second autoPreview call
+    rerender(
+      <AntigravitySnapshotIngestDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        projectPath={"C:\\books\\demo"}
+        fileTree={[...SAMPLE_FILE_TREE]}
+        defaultChapterPath="wiki/chapters/ch01.md"
+        initialRawJson={initialJson}
+        initialChapterNumber={3}
+        autoPreview={true}
+        onPrefillPrompt={vi.fn()}
+      />,
+    )
+    expect(mocks.prepareInteractiveChapterSnapshot).toHaveBeenCalledTimes(1)
+
+    // Strict ToS / Draft-first invariant: Step 3 commit is NEVER auto-called
+    expect(mocks.commitInteractiveChapterSnapshot).not.toHaveBeenCalled()
+    const commitBtn = screen.getByTestId("snapshot-ingest-commit-btn")
+    expect(commitBtn).not.toBeDisabled()
+
+    // Only explicit human click on Step 3 commits with confirmed: true
+    fireEvent.click(commitBtn)
+    await screen.findByTestId("snapshot-ingest-result")
+    expect(mocks.commitInteractiveChapterSnapshot).toHaveBeenCalledTimes(1)
+    expect(mocks.commitInteractiveChapterSnapshot).toHaveBeenCalledWith(
+      "C:\\books\\demo",
+      preparedCh3,
+      { confirmed: true },
+    )
+  })
+
+  it("discards in-flight autoPreview response if dialog closes before validation settles, and skips autoPreview when autoPreview=false", async () => {
+    let resolveAuto!: (value: PrepareInteractiveSnapshotResult) => void
+    mocks.prepareInteractiveChapterSnapshot.mockImplementation(
+      () =>
+        new Promise<PrepareInteractiveSnapshotResult>((res) => {
+          resolveAuto = res
+        }),
+    )
+
+    const initialJson = '{"chapterNumber":3,"summary":"auto-race"}'
+    const { rerender } = render(
+      <AntigravitySnapshotIngestDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        projectPath={"C:\\books\\demo"}
+        fileTree={SAMPLE_FILE_TREE}
+        defaultChapterPath="wiki/chapters/ch01.md"
+        initialRawJson={initialJson}
+        initialChapterNumber={3}
+        autoPreview={true}
+        onPrefillPrompt={vi.fn()}
+      />,
+    )
+    await waitFor(() => {
+      expect(mocks.prepareInteractiveChapterSnapshot).toHaveBeenCalledTimes(1)
+    })
+
+    // Close mid-flight
+    rerender(
+      <AntigravitySnapshotIngestDialog
+        open={false}
+        onOpenChange={vi.fn()}
+        projectPath={"C:\\books\\demo"}
+        fileTree={SAMPLE_FILE_TREE}
+        defaultChapterPath="wiki/chapters/ch01.md"
+        initialRawJson={null}
+        initialChapterNumber={null}
+        autoPreview={false}
+        onPrefillPrompt={vi.fn()}
+      />,
+    )
+    resolveAuto({
+      ok: true,
+      prepared: makePreparedSnapshot(3, "wiki/chapters/第3章 暗流.md"),
+    })
+
+    // Reopen with autoPreview=false -> prefills without triggering prepareInteractiveChapterSnapshot again, and stale preview does not appear
+    rerender(
+      <AntigravitySnapshotIngestDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        projectPath={"C:\\books\\demo"}
+        fileTree={SAMPLE_FILE_TREE}
+        defaultChapterPath="wiki/chapters/ch01.md"
+        initialRawJson='{"chapterNumber":1,"summary":"manual-only"}'
+        initialChapterNumber={1}
+        autoPreview={false}
+        onPrefillPrompt={vi.fn()}
+      />,
+    )
+    expect(mocks.prepareInteractiveChapterSnapshot).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId("snapshot-ingest-preview")).toBeNull()
+    expect((screen.getByTestId("snapshot-ingest-chapter-select") as HTMLSelectElement).value).toBe(
+      "wiki/chapters/ch01.md",
+    )
+    expect((screen.getByTestId("snapshot-ingest-json-input") as HTMLTextAreaElement).value).toBe(
+      '{"chapterNumber":1,"summary":"manual-only"}',
+    )
   })
 })

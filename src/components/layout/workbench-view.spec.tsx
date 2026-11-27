@@ -110,4 +110,17 @@ describe("WorkbenchView 工作台总览", () => {
     render(<WorkbenchView />)
     expect(screen.getByText((_, el) => el?.tagName === "P" && (el.textContent ?? "").includes("wb.noProject"))).toBeTruthy()
   })
+
+  it("TASK-008：隐藏永久空壳 marketRadar，保留 worldLibrary 与 knowledgeLibrary 卡片可达", () => {
+    render(<WorkbenchView />)
+    expect(document.querySelector('[data-workbench-card="marketRadar"]')).toBeNull()
+    const worldCard = document.querySelector('[data-workbench-card="worldLibrary"]') as HTMLButtonElement
+    const knowledgeCard = document.querySelector('[data-workbench-card="knowledgeLibrary"]') as HTMLButtonElement
+    expect(worldCard).toBeTruthy()
+    expect(knowledgeCard).toBeTruthy()
+    fireEvent.click(worldCard)
+    expect(setActiveView).toHaveBeenCalledWith("worldLibrary")
+    fireEvent.click(knowledgeCard)
+    expect(setActiveView).toHaveBeenCalledWith("knowledgeLibrary")
+  })
 })

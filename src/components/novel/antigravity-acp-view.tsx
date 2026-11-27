@@ -85,6 +85,8 @@ import {
   AntigravityAcpQuickActions,
   inferChapterContext,
 } from "./antigravity-acp-quick-actions"
+import { AntigravityAcpDraftDrawer } from "./antigravity-acp-draft-drawer"
+import { extractSnapshotJsonCandidate, type SnapshotJsonCandidate } from "./antigravity-acp-snapshot-helpers"
 import { AntigravitySnapshotIngestDialog } from "./antigravity-snapshot-ingest-dialog"
 import { SafeMarkdownProse } from "./safe-markdown-prose"
 
@@ -291,7 +293,13 @@ export function AntigravityAcpView() {
   const [savedDraftMsgMap, setSavedDraftMsgMap] = useState<Record<string, string>>({})
   const [submittingPermIds, setSubmittingPermIds] = useState<Record<string, string>>({})
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
+  const [draftDrawerOpen, setDraftDrawerOpen] = useState(false)
   const [snapshotIngestOpen, setSnapshotIngestOpen] = useState(false)
+  const [snapshotIngestPreset, setSnapshotIngestPreset] = useState<{
+    rawJson: string
+    chapterNumber: number | null
+    autoPreview: boolean
+  } | null>(null)
 
   const mountedRef = useRef(true)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1085,9 +1093,38 @@ export function AntigravityAcpView() {
     setActiveView("mainControl")
   }, [setActiveView])
 
+  const openMainControlGateRerun = useCallback(() => {
+    setMainControlTabHandoff("live")
+    setActiveView("mainControl")
+  }, [setActiveView])
+
+  const openMemoryCenter = useCallback(() => {
+    setActiveView("lint")
+  }, [setActiveView])
+
   const openReviewCenter = useCallback(() => {
     setActiveView("reviewCenter")
   }, [setActiveView])
+
+  const openManualSnapshotIngest = useCallback(() => {
+    setSnapshotIngestPreset(null)
+    setSnapshotIngestOpen(true)
+  }, [])
+
+  const openMessageSnapshotPreview = useCallback(
+    (rawJson: string, chapterNumber: number | null) => {
+      setSnapshotIngestPreset({ rawJson, chapterNumber, autoPreview: true })
+      setSnapshotIngestOpen(true)
+    },
+    [],
+  )
+
+  const handleSnapshotIngestOpenChange = useCallback((nextOpen: boolean) => {
+    setSnapshotIngestOpen(nextOpen)
+    if (!nextOpen) {
+      setSnapshotIngestPreset(null)
+    }
+  }, [])
 
   const stopReasonIsHighlighted =
     lastStopReason === "max_tokens" ||
@@ -1106,6 +1143,22 @@ export function AntigravityAcpView() {
     }
     return t("antigravityAcp.stopReason.label", { reason: lastStopReason })
   }, [lastStopReason, t])
+
+  const snapshotCandidateByItemId = useMemo(() => {
+    const map = new Map<string, SnapshotJsonCandidate>()
+    if (!project?.path?.trim()) return map
+    for (const item of transcript) {
+      const isStreamingMessage = prompting && activeAssistantId === item.id
+      if (item.role !== "assistant" || isStreamingMessage || item.text.trim().length === 0) {
+        continue
+      }
+      const candidate = extractSnapshotJsonCandidate(item.text)
+      if (candidate) {
+        map.set(item.id, candidate)
+      }
+    }
+    return map
+  }, [transcript, prompting, activeAssistantId, project?.path])
 
   const effectiveParentRepoWarning = activeSessionId
     ? parentCodeRepoWarning?.trim() || null
@@ -1172,6 +1225,22 @@ export function AntigravityAcpView() {
               {t("antigravityAcp.pendingDraftsBadge", { count: pendingDraftCount })}
             </Button>
           )}
+          <Button
+            type="button"
+            variant={draftDrawerOpen ? "secondary" : "outline"}
+            size="sm"
+            disabled={!project?.path?.trim()}
+            aria-pressed={draftDrawerOpen}
+            onClick={() => setDraftDrawerOpen((prev) => !prev)}
+            data-testid="acp-toggle-draft-drawer-btn"
+          >
+            <FileText className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+            {draftDrawerOpen
+              ? t("antigravityAcp.draftDrawer.hideBtn")
+              : pendingDraftCount !== null && pendingDraftCount > 0
+                ? t("antigravityAcp.draftDrawer.showBtnWithCount", { count: pendingDraftCount })
+                : t("antigravityAcp.draftDrawer.showBtn")}
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -1698,7 +1767,7 @@ export function AntigravityAcpView() {
                 ? t("antigravityAcp.memoryMode.openSnapshotIngestNoProject")
                 : undefined
             }
-            onClick={() => setSnapshotIngestOpen(true)}
+            onClick={openManualSnapshotIngest}
             data-testid="acp-open-snapshot-ingest-btn"
           >
             <Database className="mr-1 h-3 w-3" aria-hidden="true" />
@@ -1955,6 +2024,17 @@ export function AntigravityAcpView() {
               type="button"
               size="sm"
               className="h-7 px-2.5 text-xs"
+              disabled={!project?.path?.trim()}
+              onClick={() => setDraftDrawerOpen(true)}
+              data-testid="acp-handoff-open-drawer"
+            >
+              {t("antigravityAcp.draftHandoff.openInlineDrawer")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs"
               onClick={openMainControlDrafts}
               data-testid="acp-handoff-main-control-drafts"
             >
@@ -2117,8 +2197,9 @@ export function AntigravityAcpView() {
         </div>
       )}
 
-      {/* Conversation transcript */}
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* Conversation transcript + optional inline Draft-first drawer */}
+      <div className="flex min-h-0 flex-1 gap-3 overflow-hidden">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           ref={transcriptRef}
           role="log"
@@ -2144,6 +2225,7 @@ export function AntigravityAcpView() {
                 item.role === "assistant" &&
                 item.text.trim().length > 0 &&
                 !isStreamingMessage
+              const snapshotCandidate = snapshotCandidateByItemId.get(item.id) ?? null
               const isSavingThisDraft = savingDraftMsgId === item.id
               const savedDraftChapter = savedDraftMsgMap[item.id]
 
@@ -2160,6 +2242,28 @@ export function AntigravityAcpView() {
                 >
                   {item.role === "assistant" && item.text && (
                     <div className="mb-1 flex flex-wrap justify-end gap-1">
+                      {snapshotCandidate && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[11px] text-primary"
+                          onClick={() =>
+                            openMessageSnapshotPreview(
+                              snapshotCandidate.rawJson,
+                              snapshotCandidate.chapterNumber,
+                            )
+                          }
+                          data-testid={`acp-load-snapshot-msg-${item.id}`}
+                        >
+                          <Database className="mr-1 h-3 w-3" aria-hidden="true" />
+                          {snapshotCandidate.chapterNumber !== null
+                            ? t("antigravityAcp.loadSnapshotPreviewWithChapter", {
+                                chapter: snapshotCandidate.chapterNumber,
+                              })
+                            : t("antigravityAcp.loadSnapshotPreview")}
+                        </Button>
+                      )}
                       {canSaveAsDraft && (
                         <Button
                           type="button"
@@ -2256,6 +2360,16 @@ export function AntigravityAcpView() {
             {t("antigravityAcp.jumpToLatest")}
           </Button>
         )}
+        </div>
+        <AntigravityAcpDraftDrawer
+          open={draftDrawerOpen && Boolean(project?.path?.trim())}
+          onClose={() => setDraftDrawerOpen(false)}
+          projectPath={project?.path ?? ""}
+          selectedFile={selectedFile}
+          onOpenMainControlDrafts={openMainControlDrafts}
+          onOpenGateRerun={openMainControlGateRerun}
+          onOpenMemory={openMemoryCenter}
+        />
       </div>
 
       {/* Collapsible stderr diagnostics drawer */}
@@ -2381,10 +2495,13 @@ export function AntigravityAcpView() {
 
       <AntigravitySnapshotIngestDialog
         open={snapshotIngestOpen}
-        onOpenChange={setSnapshotIngestOpen}
+        onOpenChange={handleSnapshotIngestOpenChange}
         projectPath={project?.path ?? ""}
         fileTree={fileTree ?? []}
         defaultChapterPath={selectedFile}
+        initialRawJson={snapshotIngestPreset?.rawJson ?? null}
+        initialChapterNumber={snapshotIngestPreset?.chapterNumber ?? null}
+        autoPreview={Boolean(snapshotIngestPreset?.autoPreview)}
         onPrefillPrompt={handleSelectQuickActionPrompt}
         onCommitted={() => {
           bumpDataVersion()

@@ -5,6 +5,7 @@
  * 参考 src/App.spec.tsx 的 vi.hoisted 模式。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import * as jestDomMatchers from "@testing-library/jest-dom/matchers"
 import { cleanup } from "@testing-library/react"
 import {
   render,
@@ -14,6 +15,8 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { IconSidebar } from "./icon-sidebar"
+
+expect.extend(jestDomMatchers)
 
 const mocks = vi.hoisted(() => {
   const wikiState: {
@@ -391,25 +394,30 @@ describe("IconSidebar", () => {
     for (let i = 1; i < groupKeys.length; i++) {
       expect(html.indexOf(groupKeys[i - 1])).toBeLessThan(html.indexOf(groupKeys[i]))
     }
-    // 分层收纳：primary 首刷即见，secondary 需展开 More 后可达。
-    const primaryViews = ["workbench", "wiki", "director", "storySimulation", "sources", "graph", "statusDashboard", "soul", "bookAnalysis", "canonEditor", "reviewCenter", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "backupExport"]
+    // 分层收纳：primary 首刷即见，secondary 需展开 More 后可达（bookshelf 已降级 secondary）。
+    const primaryViews = ["workbench", "wiki", "director", "storySimulation", "sources", "graph", "statusDashboard", "soul", "bookAnalysis", "canonEditor", "reviewCenter", "followUpCenter", "mainControl", "creativeHub", "backupExport"]
     for (const v of primaryViews) {
       expect(document.querySelector(`[data-view="${v}"]`), v).toBeTruthy()
     }
     // secondary 首刷收起（More 未展开时不可见）
-    expect(document.querySelector('[data-view="marketRadar"]')).toBeNull()
+    expect(document.querySelector('[data-view="bookshelf"]')).toBeNull()
+    expect(document.querySelector('[data-view="worldLibrary"]')).toBeNull()
+    expect(document.querySelector('[data-view="knowledgeLibrary"]')).toBeNull()
     expect(document.querySelector('[data-view="lint"]')).toBeNull()
-    // 展开各组 More 后 31 个 data-view 无缺失（AI 实况已并入主控 + 状态总览入口 D2）
+    // 展开各组 More 后 33 个有效 data-view 无缺失（含 worldLibrary/knowledgeLibrary，永久空壳 marketRadar 不进侧栏）
     for (const g of ["si", "ma", "review", "shen", "tools", "maint"]) {
       const moreBtn = document.querySelector(`[data-testid="nav-more-${g}"]`) as HTMLButtonElement | null
       if (moreBtn) fireEvent.click(moreBtn)
     }
-    const views = ["workbench", "wiki", "director", "sources", "graph", "statusDashboard", "lint", "soul", "skillLibrary", "storySimulation", "bookAnalysis", "canonEditor", "backupExport", "diagnosticsCenter", "reviewCenter", "dataManager", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "genreLibrary", "storyModeLibrary", "titleStudio", "styleEngine", "antiAiRules", "workflowEditor", "marketRadar", "modelRoutes", "mcpManager", "exportCenter", "help"]
+    const views = ["workbench", "wiki", "director", "sources", "graph", "statusDashboard", "worldLibrary", "knowledgeLibrary", "lint", "soul", "skillLibrary", "storySimulation", "bookAnalysis", "canonEditor", "backupExport", "diagnosticsCenter", "reviewCenter", "dataManager", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "genreLibrary", "storyModeLibrary", "titleStudio", "antigravityAcp", "styleEngine", "antiAiRules", "workflowEditor", "modelRoutes", "mcpManager", "exportCenter", "help"]
     for (const v of views) {
       expect(document.querySelector(`[data-view="${v}"]`), v).toBeTruthy()
     }
+    expect(document.querySelector('[data-view="marketRadar"]')).toBeNull()
     // 分组内容归属：审校组不再包含备份/诊断/数据管理（审计 F-03 分组语义错位修正）
     expect(document.querySelector('[data-nav-group="shen"] [data-view="backupExport"]')).toBeNull()
+    expect(document.querySelector('[data-nav-group="shen"] [data-view="worldLibrary"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="shen"] [data-view="knowledgeLibrary"]')).toBeTruthy()
     expect(document.querySelector('[data-nav-group="maint"] [data-view="backupExport"]')).toBeTruthy()
     expect(document.querySelector('[data-nav-group="ma"] [data-view="wiki"]')).toBeTruthy()
     // 组头显示条目数
@@ -424,6 +432,7 @@ describe("IconSidebar", () => {
     expect(document.querySelector('[data-view="liveExecution"]')).toBeNull()
     expect(document.querySelector('[data-nav-group="maint"] button[aria-expanded]')?.textContent).toContain("8")
     expect(document.querySelector('[data-nav-group="si"] button[aria-expanded]')?.textContent).toContain("7")
+    expect(document.querySelector('[data-nav-group="shen"] button[aria-expanded]')?.textContent).toContain("7")
   })
 
   it("首刷构思组默认收起：点开展开再收起（含 localStorage 持久化）", () => {
@@ -464,17 +473,19 @@ describe("IconSidebar", () => {
 
   it("More 收纳：secondary 首刷隐藏，点击 More 后展开", () => {
     renderSidebar()
-    expect(document.querySelector('[data-nav-group="tools"] [data-view="marketRadar"]')).toBeNull()
-    fireEvent.click(screen.getByTestId("nav-more-tools"))
-    expect(document.querySelector('[data-nav-group="tools"] [data-view="marketRadar"]')).toBeTruthy()
-    fireEvent.click(screen.getByTestId("nav-more-tools"))
-    expect(document.querySelector('[data-nav-group="tools"] [data-view="marketRadar"]')).toBeNull()
+    expect(document.querySelector('[data-nav-group="shen"] [data-view="worldLibrary"]')).toBeNull()
+    expect(document.querySelector('[data-nav-group="shen"] [data-view="knowledgeLibrary"]')).toBeNull()
+    fireEvent.click(screen.getByTestId("nav-more-shen"))
+    expect(document.querySelector('[data-nav-group="shen"] [data-view="worldLibrary"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="shen"] [data-view="knowledgeLibrary"]')).toBeTruthy()
+    fireEvent.click(screen.getByTestId("nav-more-shen"))
+    expect(document.querySelector('[data-nav-group="shen"] [data-view="worldLibrary"]')).toBeNull()
   })
 
   it("命中 secondary 时自动展开 More（外部跳转不落空）", () => {
-    mocks.wikiState.activeView = "marketRadar"
+    mocks.wikiState.activeView = "worldLibrary"
     renderSidebar()
-    expect(document.querySelector('[data-nav-group="tools"] [data-view="marketRadar"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="shen"] [data-view="worldLibrary"]')).toBeTruthy()
     mocks.wikiState.activeView = "wiki"
   })
 

@@ -2023,7 +2023,9 @@
       "more": "更多 ({{count}})",
       "less": "收起",
       "close": "关闭",
-      "antigravityAcp": "Antigravity 面板 (ACP)"
+      "antigravityAcp": "Antigravity 面板 (ACP)",
+      "worldLibrary": "世界蓝图",
+      "knowledgeLibrary": "资产库"
     },
     "backupExport": {
       "cancelled": "已取消",
@@ -2892,6 +2894,7 @@
       "relatedSettings": "## 相关地点/组织/物品",
       "canonRules": "## 禁止违背",
       "writingStyle": "## 写作风格",
+      "styleExemplars": "## 风格示范锚点（正向参考）",
       "searchResults": "## 相关搜索结果",
       "graphSearchResults": "## 图谱关联节点",
       "communitySummaries": "## 社区摘要（图谱社区）",
@@ -3790,6 +3793,7 @@
     "hasDiff": "有差异",
     "historyTitle": "历史推演结果",
     "importDesc": "选择要导入的章节，配置起始章节号和覆盖选项。",
+    "importDraftInboxGuidance": "章节已存入待审草稿箱（.qm-drafts/），尚未覆盖正式章节。请前往草稿箱审阅并采纳后再写入正式章节库。",
     "importDraftTitle": "导入草稿到章节库",
     "importFailed": "导入失败",
     "importSuccess": "导入成功",
@@ -4175,7 +4179,20 @@
     "extractSkillsHint": "全面分析角色信息，生成可复用技能，添加到自定义灵魂",
     "heuristicDetecting": "正在启发式识别角色...",
     "llmScoring": "正在用 LLM 评分角色重要度...",
-    "deleteWork": "删除作品"
+    "deleteWork": "删除作品",
+    "bookshelfToggle": "书架切换 ({{count}})",
+    "bookshelfTitle": "拆书书架总览",
+    "bookshelfCount": "共 {{count}} 本拆书作品",
+    "bookshelfClose": "收起书架",
+    "bookshelfCurrent": "当前选中",
+    "bookshelfStyleEnabled": "已启用文风",
+    "bookshelfStyleReady": "已有文风",
+    "bookshelfStyleMissing": "未提文风",
+    "bookshelfMeta": "{{chapters}} 章 · {{words}} 字 · {{characters}} 角色 · {{skills}} 技能",
+    "bookshelfBoundCount": "已绑定 {{count}} 项",
+    "bindToCharacter": "绑定到小说人物",
+    "bindingToCharacter": "绑定中...",
+    "bindTargetLabel": "选择要绑定的小说人物"
   },
   "directorPanel": {
     "title": "开书导演",
@@ -4854,6 +4871,11 @@
     "deepChapterSaveToDrafts": "一键存入草稿箱",
     "deepChapterSavingDraft": "存入中…",
     "deepChapterSavedToDrafts": "已存入草稿箱（{{id}}），请到「收草稿」页签复核并采纳",
+    "deepChapterAutoSavedToDrafts": "已自动存入草稿箱（{{id}}），请前往「收草稿」页签复核并两步确认采纳",
+    "deepChapterAlreadySaved": "已存入草稿箱",
+    "deepChapterRetrySaveToDrafts": "重试存入草稿箱",
+    "deepChapterGotoDrafts": "前往草稿箱采纳",
+    "deepChapterAutoSavedHint": "已自动存入草稿箱（{{id}}），尚未写入正式章。要落成正式章，请前往「收草稿」页签走两步确认（草稿 → 确认采纳）。",
     "deepChapterSaveDraftFailed": "存入草稿箱失败：{{message}}",
     "deepChapterCopyFull": "复制全文",
     "deepChapterCopied": "已复制",
@@ -4884,7 +4906,11 @@
     "draftAdoptBusy": "当前目标章节正在被其他写入或采纳占用，请稍后再试",
     "draftGateDetailsToggle": "查看明细",
     "draftGateDetailsHide": "收起明细",
-    "draftGateRepairSuggestions": "修复建议"
+    "draftGateRepairSuggestions": "修复建议",
+    "launchCampaign": "长程战役",
+    "launchCampaignHint": "多章自主草稿巡航与批量复核采纳（Draft-first）",
+    "launchIncubator": "冷启动孵化",
+    "launchIncubatorHint": "从一句话创意自动生成世界观、角色、分卷大纲与章节骨架"
   },
   "wb": {
     "title": "写作工作台",
@@ -5024,7 +5050,9 @@
     "kindView": "视图",
     "kindChapter": "章节",
     "kindAction": "操作",
-    "hint": "Ctrl/⌘+K 打开命令面板"
+    "hint": "Ctrl/⌘+K 打开命令面板",
+    "launchCampaign": "启动长程战役",
+    "launchIncubator": "冷启动孵化新书"
   },
   "gate": {
     "confirm": {
@@ -5156,6 +5184,7 @@
       "startChapter": "起始章节",
       "chapterCount": "连写章数",
       "cruiseMode": "开启全自动巡航推进（质检全通过时自动转入正式章节并同步设定记忆）",
+      "confirmCruiseAutoAccept": "二次确认：允许巡航在门控全绿后自动写入正式章节与事实库（未勾选时仅生成待审草稿）",
       "autoIngest": "验收后自动同步设定记忆",
       "gateSummary": "质检总评：{{verdict}}",
       "gateConsistency": "设定一致性：{{verdict}}（{{count}}）",
@@ -5207,6 +5236,8 @@
     "savedAsDraft": "已存入草稿（{{chapter}}）",
     "saveAsDraftFailed": "存入草稿失败：{{error}}",
     "saveAsDraftNoProject": "请先打开一个小说项目后再存为草稿。",
+    "loadSnapshotPreview": "一键预览快照",
+    "loadSnapshotPreviewWithChapter": "预览第 {{chapter}} 章快照",
     "pendingDraftsBadge": "待审草稿 ({{count}})",
     "jumpToLatest": "回到底部",
     "inputLabel": "发送给 Antigravity 的消息",
@@ -5375,9 +5406,19 @@
     "draftHandoff": {
       "title": "检测到 Antigravity 已写入待审草稿（Draft-first 安全区）",
       "description": "草稿尚未覆盖正式正文。请前往主控草稿箱或审查中心完成验收后再正式入库。",
+      "openInlineDrawer": "在此打开草稿抽屉",
       "openMainControlDrafts": "前往主控草稿箱",
       "openReviewCenter": "前往审查中心",
       "dismiss": "知道了"
+    },
+    "draftDrawer": {
+      "title": "内联草稿箱（Draft-first 安全区）",
+      "subtitle": "留在当前 ACP 面板完成两步确认采纳，不打断对话上下文。",
+      "showBtn": "草稿抽屉",
+      "showBtnWithCount": "草稿抽屉 ({{count}})",
+      "hideBtn": "收起草稿抽屉",
+      "close": "关闭草稿抽屉",
+      "openMainControl": "前往主控收草稿"
     },
     "permission": {
       "toolKind": "工具类型",

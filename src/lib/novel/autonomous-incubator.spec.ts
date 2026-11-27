@@ -6,6 +6,8 @@ import {
   runAutonomousNovelIncubator,
   runEndToEndAutonomousNovelProduction,
 } from "./autonomous-incubator"
+import { isDirectorStateValid } from "./director-orchestrator"
+import { logger } from "@/lib/utils"
 
 const mockLlmConfig: LlmConfig = {
   provider: "openai",
@@ -342,6 +344,37 @@ describe("Autonomous Novel Incubator (全自动小说冷启动孵化器 — P0-0
     for (const banned of BANNED_PLACEHOLDERS) {
       expect(serializedAll).not.toContain(banned)
     }
+
+    // 10. TASK-005 导演管线兼容性：阶段 4 写出 story-outline.md 与 volume-plan.md，
+    //     阶段 6 后落盘 .novel/director-pipeline.json（idea/world/character/outline=done, chapters=running）
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+      "/test/project/wiki/outlines/story-outline.md",
+      expect.stringContaining("第1章"),
+    )
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+      "/test/project/wiki/outlines/volume-plan.md",
+      expect.stringContaining("分卷规划"),
+    )
+    const directorCall = mocks.writeFileAtomic.mock.calls.find(
+      ([path]) => path === "/test/project/.novel/director-pipeline.json",
+    )
+    expect(directorCall).toBeDefined()
+    const persistedDirector = JSON.parse(String(directorCall![1]))
+    expect(persistedDirector.fileVersion).toBe(1)
+    expect(isDirectorStateValid(persistedDirector.state)).toBe(true)
+    expect(persistedDirector.state.currentPhase).toBe("chapters")
+    expect(persistedDirector.state.statuses).toEqual({
+      idea: "done",
+      world: "done",
+      character: "done",
+      outline: "done",
+      chapters: "running",
+    })
+    expect(persistedDirector.ideaInput).toMatchObject({
+      title: result.title,
+      genre: "科幻未来",
+    })
+    expect(persistedDirector.ideaInput.coreConflict.length).toBeGreaterThan(0)
   })
 
   it("P0-01 角色文件名清洗防路径穿越、处理超长尾点与 Windows 保留设备名", async () => {
@@ -539,7 +572,7 @@ describe("Autonomous Novel Incubator (全自动小说冷启动孵化器 — P0-0
         projectPath: "/test/project",
         startChapter: 1,
         chapterCount: 3,
-        cruiseMode: true,
+        cruiseMode: false,
       }),
     )
   })
@@ -621,7 +654,7 @@ describe("Autonomous Novel Incubator (全自动小说冷启动孵化器 — P0-0
     })
     expect(resDefaultCap.campaign).toBeDefined()
     expect(mocks.runAutonomousDraftCampaign).toHaveBeenCalledWith(
-      expect.objectContaining({ chapterCount: 5, cruiseMode: true }),
+      expect.objectContaining({ chapterCount: 5, cruiseMode: false }),
     )
   })
 
@@ -639,5 +672,41 @@ describe("Autonomous Novel Incubator (全自动小说冷启动孵化器 — P0-0
 
     expect(result.projectPath).toBe("/test/project")
     expect(mocks.unpackOutlineToChapterFiles).toHaveBeenCalled()
+  })
+
+  it("TASK-005：目标章数 > 20 时 volume-plan.md 确定性拆分为多卷，且 director-pipeline 落盘失败非致命", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    mocks.writeFileAtomic.mockImplementation(async (path: string) => {
+      if (path.endsWith("/.novel/director-pipeline.json")) {
+        throw new Error("disk quota exceeded")
+      }
+    })
+
+    try {
+      const result = await runAutonomousNovelIncubator({
+        projectPath: "/test/project",
+        idea: "赛博朋克都市中一名被遗忘的机械记忆修复师意外唤醒了神明代码",
+        title: "断层记忆",
+        genre: "科幻未来",
+        targetChapters: 25,
+        llmConfig: mockLlmConfig,
+      })
+
+      expect(result.title).toBe("断层记忆")
+      const volumeCall = mocks.writeFileAtomic.mock.calls.find(
+        ([path]) => path === "/test/project/wiki/outlines/volume-plan.md",
+      )
+      expect(volumeCall).toBeDefined()
+      const volumeText = String(volumeCall![1])
+      expect(volumeText).toContain("第 1 卷（第 1-20 章）")
+      expect(volumeText).toContain("第 2 卷（第 21-25 章）")
+      expect(warnSpy).toHaveBeenCalledWith(
+        "autonomous-incubator",
+        expect.stringContaining("director-pipeline.json"),
+        expect.objectContaining({ error: expect.stringContaining("disk quota exceeded") }),
+      )
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })

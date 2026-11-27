@@ -17,7 +17,7 @@ const setActiveView = vi.fn()
 const listChapterDrafts = vi.fn(async (): Promise<unknown[]> => [])
 const adoptMainControlDraft = vi.fn()
 const rerunMainControlGates = vi.fn()
-const writeDraft = vi.fn()
+const writeDraft = vi.fn(async () => ({ id: "draft_auto_default" }))
 const bumpDataVersion = vi.fn()
 
 vi.mock("@/commands/fs", async (importOriginal) => {
@@ -57,6 +57,19 @@ vi.mock("@/lib/novel", async (importOriginal) => {
 // 真实设置块由 main-control-settings-block.spec.tsx 覆盖（避免 ChatModelSelector 读 providerConfigs 在 jsdom 抛错）。
 vi.mock("./main-control-settings-block", () => ({
   MainControlSettingsBlock: () => <div data-testid="main-control-settings" />,
+}))
+
+// 真实弹窗由各自 spec 与 main-control-autonomy-bar.spec.tsx 覆盖。
+vi.mock("./campaign-dashboard-dialog", () => ({
+  CampaignDashboardDialog: ({ open }: { open: boolean }) => (
+    <div data-testid="main-control-campaign-dialog" data-open={String(open)} />
+  ),
+}))
+
+vi.mock("./autonomous-incubator-dialog", () => ({
+  AutonomousIncubatorDialog: ({ open }: { open: boolean }) => (
+    <div data-testid="main-control-incubator-dialog" data-open={String(open)} />
+  ),
 }))
 
 const wikiState = vi.hoisted(() => ({
@@ -122,6 +135,7 @@ afterEach(() => {
   adoptMainControlDraft.mockReset()
   rerunMainControlGates.mockReset()
   writeDraft.mockReset()
+  writeDraft.mockResolvedValue({ id: "draft_auto_default" })
   saveTraceSnapshot.mockReset()
   saveTraceSnapshot.mockResolvedValue(true)
   loadTraceSnapshot.mockReset()
@@ -812,8 +826,10 @@ describe("R03=a 显式「跑深章」入口", () => {
     expect(screen.getByTestId("main-control-deep-output").textContent).toContain("深章正文片段")
     expect(screen.getByTestId("main-control-deep-verdict").textContent).toContain("通过")
     expect(screen.getByTestId("main-control-deep-chapter").textContent).toContain("12")
-    // 产出只展示不写盘（文案与行为一致）
-    expect(screen.getByTestId("main-control-deep-output-hint").textContent).toContain("未写入任何文件")
+    // 深章完成后自动落入草稿箱（.qm-drafts/），正式章未写入，仍需在草稿区两步确认
+    await waitFor(() => expect(writeDraft).toHaveBeenCalledTimes(1))
+    expect(screen.getByTestId("main-control-deep-output-hint").textContent).toContain("尚未写入正式章")
+    expect(adoptMainControlDraft).not.toHaveBeenCalled()
     // 深章阶段产出进主控同一条 activities 通道
     expect(screen.getByTestId("main-control-activity-stage_output").textContent).toContain("深章阶段产出片段")
   })
@@ -1624,7 +1640,7 @@ describe("MainControlView P0-04 切页保活与产出闭环操作", () => {
     await waitFor(() => expect(screen.queryByTestId("main-control-deep-output")).toBeNull())
   })
 
-  it("一键存入草稿箱按真实门控落盘（严禁伪造 passed），并支持复制全文与查看门控明细", async () => {
+  it("深章完成后幂等自动按真实门控落盘一次（绝不伪造 passed / 绝不调 adoptMainControlDraft），锁定重复保存并支持一键直达收草稿页签", async () => {
     const writeText = vi.fn(async () => {})
     Object.defineProperty(globalThis.navigator, "clipboard", {
       value: { writeText },
@@ -1663,15 +1679,12 @@ describe("MainControlView P0-04 切页保活与产出闭环操作", () => {
     })
     writeDraft.mockResolvedValueOnce({ id: "draft_real_1" })
 
-    render(<MainControlView />)
+    const view = render(<MainControlView />)
     fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "写第8章" } })
     fireEvent.click(screen.getByTestId("main-control-deep-run"))
     await waitFor(() => expect(screen.getByTestId("main-control-deep-output")).toBeTruthy())
-    // 跑深章本身绝不自动写草稿
-    expect(writeDraft).not.toHaveBeenCalled()
 
-    // 一键存入草稿箱：按真实失败门控落 blocked，绝不伪造 passed
-    fireEvent.click(screen.getByTestId("main-control-deep-save-draft"))
+    // 完成后自动落 .qm-drafts/ 一次，按真实失败门控落 blocked，绝不伪造 passed、绝不调 adoptMainControlDraft
     await waitFor(() => expect(writeDraft).toHaveBeenCalledTimes(1))
     expect(writeDraft).toHaveBeenCalledWith(
       "/proj",
@@ -1679,8 +1692,15 @@ describe("MainControlView P0-04 切页保活与产出闭环操作", () => {
       "需要复核的深章正文",
       { partial: false, adoptionGate: "blocked" },
     )
+    expect(adoptMainControlDraft).not.toHaveBeenCalled()
     expect(bumpDataVersion).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId("main-control-deep-save-status").textContent).toContain("draft_real_1")
+
+    // 已保存后锁定手动保存按钮，重复点击不得再触发 writeDraft
+    const saveBtn = screen.getByTestId("main-control-deep-save-draft") as HTMLButtonElement
+    expect(saveBtn.disabled).toBe(true)
+    fireEvent.click(saveBtn)
+    expect(writeDraft).toHaveBeenCalledTimes(1)
 
     // 复制全文
     fireEvent.click(screen.getByTestId("main-control-deep-copy"))
@@ -1691,6 +1711,102 @@ describe("MainControlView P0-04 切页保活与产出闭环操作", () => {
     const panel = screen.getByTestId("main-control-deep-gates-panel")
     expect(panel.textContent).toContain("时间线矛盾")
     expect(panel.textContent).toContain("改为次日清晨")
+
+    // 一键跳转至「收草稿」页签
+    fireEvent.click(screen.getByTestId("main-control-deep-goto-drafts"))
+    expect(screen.getByTestId("main-control-tab-drafts").getAttribute("aria-selected")).toBe("true")
+
+    // 同项目切页重挂载仍保持已保存锁，不重复调用 writeDraft
+    view.unmount()
+    render(<MainControlView />)
+    expect((screen.getByTestId("main-control-deep-save-draft") as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByTestId("main-control-deep-goto-drafts")).toBeTruthy()
+    expect(writeDraft).toHaveBeenCalledTimes(1)
+  })
+
+  it("自动存草稿失败时保留深章正文并解锁手动重试按钮，重试成功后锁定并展示直达草稿箱入口", async () => {
+    const passGate = { status: "passed" as const, verdict: "pass" as const, findings: [], repair_suggestions: [], retry_count: 0 }
+    runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent: "自动保存失败但正文需保留",
+      taskBrief: "任务书",
+      draftContent: "自动保存失败但正文需保留",
+      reviewResults: [],
+      revised: false,
+      finalConsistencyReviewed: true,
+      decisionGates: { consistency: passGate, anti_ai: passGate, quality: passGate, overall: "pass" },
+      manualReviewRequired: false,
+      retryCount: 0,
+      partial: false,
+      partialReason: null,
+    })
+    writeDraft
+      .mockRejectedValueOnce(new Error("ENOSPC: disk full"))
+      .mockResolvedValueOnce({ id: "draft_retry_ok" })
+
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "写第9章" } })
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+
+    await waitFor(() => expect(screen.getByTestId("main-control-deep-output")).toBeTruthy())
+    await waitFor(() => {
+      const status = screen.getByTestId("main-control-deep-save-status")
+      expect(status.getAttribute("role")).toBe("alert")
+      expect(status.textContent).toContain("ENOSPC: disk full")
+    })
+    expect(screen.getByTestId("main-control-deep-output").textContent).toContain("自动保存失败但正文需保留")
+    expect(screen.queryByTestId("main-control-deep-goto-drafts")).toBeNull()
+
+    // 手动重试按钮解锁
+    const retryBtn = screen.getByTestId("main-control-deep-save-draft") as HTMLButtonElement
+    expect(retryBtn.disabled).toBe(false)
+    fireEvent.click(retryBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("main-control-deep-save-status").textContent).toContain("draft_retry_ok")
+    })
+    expect(writeDraft).toHaveBeenCalledTimes(2)
+    expect(bumpDataVersion).toHaveBeenCalledTimes(1)
+    expect((screen.getByTestId("main-control-deep-save-draft") as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByTestId("main-control-deep-goto-drafts")).toBeTruthy()
+    expect(adoptMainControlDraft).not.toHaveBeenCalled()
   })
 })
+
+describe("TASK-008：主控顶部自治启动条（Campaign + Incubator）与 4 个 Tab 契约", () => {
+  it("顶部渲染 Campaign 与 Incubator 启动按钮且保持原有 4 个 role=tab 完整不变", () => {
+    render(<MainControlView />)
+    expect(screen.getByTestId("main-control-launch-campaign")).toBeTruthy()
+    expect(screen.getByTestId("main-control-launch-incubator")).toBeTruthy()
+    const tabs = screen.getAllByRole("tab")
+    expect(tabs).toHaveLength(4)
+    expect(tabs.map((el) => el.getAttribute("data-testid"))).toEqual([
+      "main-control-tab-run",
+      "main-control-tab-drafts",
+      "main-control-tab-context",
+      "main-control-tab-live",
+    ])
+
+    fireEvent.click(screen.getByTestId("main-control-launch-campaign"))
+    expect(screen.getByTestId("main-control-campaign-dialog").getAttribute("data-open")).toBe("true")
+    fireEvent.click(screen.getByTestId("main-control-launch-incubator"))
+    expect(screen.getByTestId("main-control-incubator-dialog").getAttribute("data-open")).toBe("true")
+  })
+
+  it("经 Ctrl+K 预设 pendingLaunchDialog 后切入主控立即弹出对应自治弹窗", async () => {
+    useMainControlRuntimeStore.getState().requestLaunchDialog("incubator")
+    render(<MainControlView />)
+    await waitFor(() => {
+      expect(screen.getByTestId("main-control-incubator-dialog").getAttribute("data-open")).toBe("true")
+    })
+    expect(useMainControlRuntimeStore.getState().pendingLaunchDialog).toBeNull()
+  })
+
+  it("project=null 时顶部自治启动按钮禁用且不崩溃", () => {
+    wikiState.project = null
+    render(<MainControlView />)
+    expect((screen.getByTestId("main-control-launch-campaign") as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByTestId("main-control-launch-incubator") as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
 

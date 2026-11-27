@@ -24,6 +24,13 @@ import { routeTask } from "./task-router"
 import type { NovelTaskIntent } from "./task-router"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { toErrorMessage } from "@/lib/utils"
+import { loadDeAiSkillConfig, type DeAiSkillConfig } from "./de-ai-skill-library"
+import { loadUserSkillConfig, resolveEnabledWritingSkills } from "./user-skill-store"
+import type { UserSkill } from "./skill-library"
+import {
+  MAIN_CONTROL_MCP_TOOL_NAMES,
+  createMainControlMcpTools,
+} from "./main-control-mcp-tools"
 
 /** 质量闭环工具（仅在调用方注入 scoreChapter/reviseChapter 时才注册）。 */
 export const MAIN_CONTROL_QUALITY_TOOLS = ["score_chapter", "revise_chapter"] as const
@@ -32,14 +39,15 @@ export const MAIN_CONTROL_QUALITY_TOOLS = ["score_chapter", "revise_chapter"] as
 export const MAIN_CONTROL_DEEP_TOOLS = ["run_chapter_workflow"] as const
 
 /**
- * 主控工具白名单（只收窄不放大）。
+ * 主控工具白名单（20 项基础工具，严格排除 write_memory / route_task / trim_context）。
  *
- * - `load_context` 保留：装配层已注入 `virtualToolContext.taskRoute`，它现在会真正注册
- *   （`registerAllBuiltInTools` 要求 `vtc.taskRoute` 存在），不再是一个永不出现的名字。
- * - `route_task` 已移出：主控内它的返回结果零消费者（模型自己调一次路由没有下游），
- *   意图路由由装配层直接算出并注入 `taskRoute`，不需要再让模型自己问一遍。
- * - `trim_context` 从未在此名单内：它要求 `vtc.contextPack`，而主控不构建 contextPack，
- *   注册条件永远不成立；因此「从白名单移除」对它而言是空操作（现状即不含）。
+ * - 原 12 项只读/上下文/草稿写入工具（`write_chapter` 始终处于 `draftMode=true`）；
+ * - `apply_skill`：加载项目去 AI 味/写作规范 Skill（省略参数可列出可用 Skill）；
+ * - `write_outline_node`：受确认门与防覆盖守卫保护的大纲节点写入工具；
+ * - 6 项只读零 LLM MCP 本地门面（`MAIN_CONTROL_MCP_TOOL_NAMES`）：机械门控、长篇健康审计、
+ *   正典查询、伏笔列表、角色读取、工作流下一步路由。
+ * - `write_memory` 严格排除（正式记忆仅能经草稿采纳后写回）；`route_task` / `trim_context`
+ *   保持排除。
  */
 export const MAIN_CONTROL_TOOLS = [
   "read_chapter",
@@ -54,16 +62,21 @@ export const MAIN_CONTROL_TOOLS = [
   "read_outline_history",
   "load_context",
   "write_chapter",
+  "apply_skill",
+  "write_outline_node",
+  ...MAIN_CONTROL_MCP_TOOL_NAMES,
 ] as const
 
 export const MAIN_CONTROL_SYSTEM_PROMPT = `你是 Niko Buddy 的主控 Agent（阶段 1：只读 + 草稿）。
 
 工作方式：
 1. 先用只读工具把上下文取全（章节列表 → 相关章节正文 → 记忆/大纲/上下文包），不要凭想象写作。
-2. 用两三句话给出执行计划，再动手。
-3. 需要产出正文时，只能调用 write_chapter——它写入草稿区，等用户确认后才进正式库。绝不可声称已写入正式章节或正式记忆。
-4. 拿不到的信息如实说明缺失，不要编造设定、人物或既定事实。
-5. 收尾时用一段话汇报：做了哪些工具调用、产出草稿在哪、还有哪些需要用户确认。`
+2. 可按需调用只读诊断与门控工具校验一致性与长篇状态：workflow_next（推演下一步）、canon_query（查正典事实）、character_read（查角色状态/灵魂）、foreshadowing_list（查伏笔与债务）、audit_longform_health（审计长篇健康）、gate_check_mechanical（对草稿正文做零 LLM 机械门控预检）。
+3. 可调用 apply_skill 加载写作/去 AI 味规范模板（不传参可列出可用 Skill）；规划或补全大纲节点时可调用 write_outline_node（须经确认且不静默覆盖既有章纲）。
+4. 用两三句话给出执行计划，再动手。
+5. 需要产出正文时，只能调用 write_chapter——它写入草稿区，等用户确认后才进正式库。绝不可声称已写入正式章节或正式记忆（严禁直写正式记忆）。
+6. 拿不到的信息如实说明缺失，不要编造设定、人物或既定事实。
+7. 收尾时用一段话汇报：做了哪些工具调用、产出草稿在哪、还有哪些需要用户确认。`
 
 export interface MainControlStep {
   callId: string
@@ -166,6 +179,10 @@ export interface RunMainControlOptions {
    * 不再另读全局 store（两份状态可不一致）。
    */
   novelMode?: boolean
+  /** 可选：覆写项目去 AI 味技能库配置读取；缺省自动预加载项目配置。 */
+  getSkillConfig?: () => DeAiSkillConfig | null
+  /** 可选：覆写项目已启用写作 Skill 列表读取；缺省自动预加载项目已启用 Skill。 */
+  getUserSkills?: () => UserSkill[] | null
   deps?: MainControlDeps
 }
 
@@ -229,7 +246,19 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
   // 后果（预期收益）：`load_context` 真正注册（依赖 `vtc.taskRoute`），`list_outlines` 的
   // `getDefaultChapterNumber` 也复活（读 `vtc.taskRoute.chapterNumber`）。
   const taskRoute = routeTask(goal)
-  const outlineConversations = await loadOutlineConversations()
+  const [outlineConversations, preloadedSkillConfig, preloadedUserSkills] = await Promise.all([
+    loadOutlineConversations(),
+    options.getSkillConfig
+      ? Promise.resolve<DeAiSkillConfig | null>(null)
+      : loadDeAiSkillConfig(options.projectPath).catch(() => null),
+    options.getUserSkills
+      ? Promise.resolve<UserSkill[] | null>(null)
+      : loadUserSkillConfig(options.projectPath)
+          .then(resolveEnabledWritingSkills)
+          .catch(() => [] as UserSkill[]),
+  ])
+  const getSkillConfig = options.getSkillConfig ?? (() => preloadedSkillConfig)
+  const getUserSkills = options.getUserSkills ?? (() => preloadedUserSkills)
   const steps: MainControlStep[] = []
   const running = new Map<string, MainControlStep>()
   const activities: AgentActivityEvent[] = []
@@ -373,8 +402,10 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       // 表现为「写了永远读不回」且用户无法诊断。
       getFallbackParams: resolveFallbackContext,
       llmConfig: options.llmConfig,
-      /* v8 ignore start -- 台账 main-control.ts L377-378：白名单 12 项不含 read_chat_history/apply_skill，两桩无工具实例调用 */
-      getSkillConfig: () => null,
+      mcpTools: createMainControlMcpTools(options.projectPath),
+      getSkillConfig,
+      getUserSkills,
+      /* v8 ignore start -- 台账 main-control.ts：白名单不含 read_chat_history，该桩无工具实例调用 */
       getChatConversations: () => [],
       /* v8 ignore stop */
       getOutlineConversations: () => outlineConversations,

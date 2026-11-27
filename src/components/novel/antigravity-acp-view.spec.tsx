@@ -3,8 +3,11 @@
 // SPDX-License-Identifier: MIT
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import * as jestDomMatchers from "@testing-library/jest-dom/matchers"
 import { act, cleanup } from "@testing-library/react"
 import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
+
+expect.extend(jestDomMatchers)
 import {
   ACP_CONTEXT_MAX_CHARS,
   AntigravityAcpView,
@@ -31,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   isTauri: vi.fn(() => true),
   pickDirectory: vi.fn(async () => null as string | null),
   setActiveView: vi.fn(),
+  setSelectedFile: vi.fn(),
   setActiveSettingsCategory: vi.fn(),
   bumpDataVersion: vi.fn(),
   writeDraft: vi.fn(),
@@ -88,6 +92,7 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   const stateProxy = () => ({
     ...mocks.storeState,
     setActiveView: mocks.setActiveView,
+    setSelectedFile: mocks.setSelectedFile,
     setActiveSettingsCategory: mocks.setActiveSettingsCategory,
     bumpDataVersion: mocks.bumpDataVersion,
   })
@@ -208,6 +213,7 @@ describe("AntigravityAcpView", () => {
     mocks.pickDirectory.mockReset()
     mocks.pickDirectory.mockResolvedValue(null)
     mocks.setActiveView.mockReset()
+    mocks.setSelectedFile.mockReset()
     mocks.setActiveSettingsCategory.mockReset()
     mocks.bumpDataVersion.mockReset()
     mocks.writeDraft.mockReset()
@@ -1705,5 +1711,214 @@ describe("AntigravityAcpView", () => {
     expect(screen.getByTestId("acp-memory-mode-auto-ingest-off-note")).toBeInTheDocument()
     expect(screen.queryByTestId("acp-configure-extract-model-btn")).toBeNull()
     expect(screen.getByTestId("acp-open-snapshot-ingest-btn")).toBeDisabled()
+    expect(screen.getByTestId("acp-toggle-draft-drawer-btn")).toBeDisabled()
+  })
+
+  it("toggles inline Draft-first drawer via header & handoff buttons while preserving pending-drafts badge and Main Control handoff", async () => {
+    mocks.usePendingDraftCount.mockReturnValue(1)
+    mocks.listChapterDrafts.mockResolvedValue([
+      {
+        id: "draft_inline_1",
+        chapterName: "第4章",
+        content: "第四章草稿正文",
+        createdAt: 1_700_000_000_000,
+        status: "draft",
+      } as unknown as { chapterName: string; status: string },
+    ])
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "antigravity_cli_detect") {
+        return { installed: true, version: "1.6.0", path: "agy.exe", error: null, acp_supported: true }
+      }
+      if (cmd === "antigravity_acp_status") {
+        return { ...CONNECTED_STATUS, activeSessionId: "sess-drawer-1" }
+      }
+      return undefined
+    })
+
+    render(<AntigravityAcpView />)
+    await screen.findByTestId("acp-connected-badge")
+
+    // Closed by default: drawer is absent and zero listChapterDrafts calls on mount
+    expect(screen.queryByTestId("acp-draft-drawer")).toBeNull()
+    expect(mocks.listChapterDrafts).not.toHaveBeenCalled()
+
+    // Toggle open via header button
+    fireEvent.click(screen.getByTestId("acp-toggle-draft-drawer-btn"))
+    expect(await screen.findByTestId("acp-draft-drawer")).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mocks.listChapterDrafts).toHaveBeenCalledWith("C:\\books\\demo")
+    })
+
+    // Close drawer via drawer close button
+    fireEvent.click(screen.getByTestId("acp-draft-drawer-close"))
+    expect(screen.queryByTestId("acp-draft-drawer")).toBeNull()
+
+    // Trigger draft write handoff strip -> click inline drawer button opens drawer without navigating away
+    act(() => {
+      emitEvent?.({
+        kind: "session_update",
+        params: {
+          sessionId: "sess-drawer-1",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "tc-write-4",
+            title: "chapter.write",
+            kind: "execute",
+            status: "completed",
+          },
+        },
+      })
+    })
+    expect(await screen.findByTestId("acp-draft-handoff-strip")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("acp-handoff-open-drawer"))
+    expect(await screen.findByTestId("acp-draft-drawer")).toBeInTheDocument()
+    expect(mocks.setActiveView).not.toHaveBeenCalled()
+
+    // Existing pending badge & Main Control handoff remain intact
+    expect(screen.getByTestId("acp-pending-drafts-badge")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("acp-handoff-main-control-drafts"))
+    expect(peekMainControlTabHandoff()).toBe("drafts")
+    expect(mocks.setActiveView).toHaveBeenCalledWith("mainControl")
+  })
+
+  it("renders per-message read-only snapshot preview button only on finalized assistant replies with ChapterSnapshot JSON and never auto-commits Step 3", async () => {
+    mocks.storeState.fileTree = [
+      {
+        name: "wiki",
+        path: "wiki",
+        is_dir: true,
+        children: [
+          {
+            name: "chapters",
+            path: "wiki/chapters",
+            is_dir: true,
+            children: [
+              { name: "ch01.md", path: "wiki/chapters/ch01.md", is_dir: false },
+              { name: "ch03.md", path: "wiki/chapters/ch03.md", is_dir: false },
+            ],
+          },
+        ],
+      },
+    ]
+    const sampleSnapshot = {
+      chapterId: "chapter-3",
+      chapterNumber: 3,
+      summary: "林川查清暗账来源",
+      characters: ["林川"],
+      locations: [],
+      organizations: [],
+      items: [],
+      events: ["核对暗账"],
+      characterStateChanges: [],
+      relationshipChanges: [],
+      knowledgeChanges: [],
+      foreshadowingChanges: [],
+      newCanonFacts: ["盐引暗账出自沈府"],
+      timelineEvents: [],
+      conflicts: [],
+      endingHook: "",
+      graphNodes: [],
+      graphEdges: [],
+    }
+    const preparedCh3 = {
+      prepared: {
+        snapshot: sampleSnapshot,
+        source: {
+          readPath: "wiki/chapters/ch03.md",
+          chapterNumber: 3,
+          bodySha256: "a".repeat(64),
+          contentSha256: "b".repeat(64),
+        },
+      },
+      snapshot: sampleSnapshot,
+      preview: "preview",
+      validationWarnings: [],
+      warnings: [],
+      chapterPath: "wiki/chapters/ch03.md",
+      chapterNumber: 3,
+    }
+    mocks.prepareInteractiveChapterSnapshot.mockResolvedValue({
+      ok: true,
+      prepared: preparedCh3,
+    })
+
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "antigravity_cli_detect") {
+        return { installed: true, version: "1.6.0", path: "agy.exe", error: null, acp_supported: true }
+      }
+      if (cmd === "antigravity_acp_status") {
+        return { ...CONNECTED_STATUS, activeSessionId: "sess-snap-1" }
+      }
+      return undefined
+    })
+
+    render(<AntigravityAcpView />)
+    await screen.findByTestId("acp-connected-badge")
+
+    // Plain prose assistant reply without snapshot JSON must NOT render snapshot preview button
+    act(() => {
+      emitEvent?.({
+        kind: "session_update",
+        params: {
+          sessionId: "sess-snap-1",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "好的，这就为你读取第 3 章。" },
+          },
+        },
+      })
+    })
+    expect(document.querySelector('[data-testid^="acp-load-snapshot-msg-"]')).toBeNull()
+
+    // While actively streaming a snapshot JSON reply, button must NOT render until finalized
+    const snapshotJson = JSON.stringify({
+      chapterNumber: 3,
+      summary: "林川查清暗账来源",
+      characters: ["林川"],
+      newCanonFacts: ["盐引暗账出自沈府"],
+    })
+    act(() => {
+      useAntigravityAcpStore.getState().beginPromptTurn("提取第 3 章快照")
+      emitEvent?.({
+        kind: "session_update",
+        params: {
+          sessionId: "sess-snap-1",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: `提取完成：\n\`\`\`json\n${snapshotJson}\n\`\`\``,
+            },
+          },
+        },
+      })
+    })
+    expect(document.querySelector('[data-testid^="acp-load-snapshot-msg-"]')).toBeNull()
+
+    // Finalizing the prompt turn reveals the one-click read-only snapshot preview button
+    act(() => {
+      useAntigravityAcpStore.getState().finishPromptTurn("end_turn")
+    })
+
+    const loadSnapshotBtn = await waitFor(() => {
+      const el = document.querySelector('[data-testid^="acp-load-snapshot-msg-"]') as HTMLButtonElement | null
+      expect(el).not.toBeNull()
+      return el!
+    })
+
+    // Click one-click snapshot preview button -> opens dialog, selects ch03, auto-validates read-only ONCE, NEVER auto-sends or auto-commits
+    fireEvent.click(loadSnapshotBtn)
+    expect(await screen.findByTestId("acp-snapshot-ingest-dialog")).toBeInTheDocument()
+    await screen.findByTestId("snapshot-ingest-preview")
+
+    expect(mocks.prepareInteractiveChapterSnapshot).toHaveBeenCalledTimes(1)
+    expect(mocks.prepareInteractiveChapterSnapshot).toHaveBeenCalledWith(
+      "C:\\books\\demo",
+      "wiki/chapters/ch03.md",
+      3,
+      snapshotJson,
+    )
+    expect(mocks.commitInteractiveChapterSnapshot).not.toHaveBeenCalled()
+    expect(mocks.invoke).not.toHaveBeenCalledWith("antigravity_acp_prompt", expect.anything())
   })
 })

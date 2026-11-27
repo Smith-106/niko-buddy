@@ -34,6 +34,14 @@ import {
   type NovelProjectMetaState,
 } from "@/lib/novel"
 import { cn, toErrorMessage } from "@/lib/utils"
+import { useWikiStore } from "@/stores/wiki-store"
+import {
+  resolveBindingActionTarget,
+  resolveBlockingGateActionTarget,
+  resolveDiagnosisActionTarget,
+  resolveFindingActionTarget,
+  resolveNextStepActionTarget,
+} from "./creative-hub-actions"
 import { ReportCallout, ReportPage, ReportSection, reportToneClass, type ReportTone } from "./report-page"
 
 export interface CreativeHubViewProps {
@@ -146,6 +154,7 @@ export function deriveCreativeNext(input: {
 }
 
 export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
+  const setActiveView = useWikiStore((s) => s.setActiveView)
   const [meta, setMeta] = useState<NovelMeta | undefined>(undefined)
   const [report, setReport] = useState<DoctorReport | null>(null)
   const [snapshot, setSnapshot] = useState<EvidenceSnapshot | null>(null)
@@ -236,24 +245,37 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
         <>
           <ReportSection title="下一步">
             <ul className="space-y-2">
-              {next.map((item, index) => (
-                <li
-                  key={`${item.code ?? item.text.slice(0, 32)}-${index}`}
-                  data-testid="creative-next"
-                  className={cn(
-                    "rounded-md border px-3 py-2",
-                    index === 0 ? "border-border bg-card" : "border-transparent",
-                  )}
-                >
-                  <span className={cn("block", index === 0 ? "text-base font-medium" : "text-sm")}>
-                    {item.text}
-                  </span>
-                  <span className="block text-sm text-muted-foreground">
-                    ——{item.reason}
-                    {item.code ? <span className="sr-only">{item.code}</span> : null}
-                  </span>
-                </li>
-              ))}
+              {next.map((item, index) => {
+                const action = resolveNextStepActionTarget(item.code)
+                return (
+                  <li
+                    key={`${item.code ?? item.text.slice(0, 32)}-${index}`}
+                    data-testid="creative-next"
+                    className={cn(
+                      "flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2",
+                      index === 0 ? "border-border bg-card" : "border-transparent",
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className={cn("block", index === 0 ? "text-base font-medium" : "text-sm")}>
+                        {item.text}
+                      </span>
+                      <span className="block text-sm text-muted-foreground">
+                        ——{item.reason}
+                        {item.code ? <span className="sr-only">{item.code}</span> : null}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      data-testid={`creative-next-action-${index}`}
+                      onClick={() => setActiveView(action.view)}
+                      className="shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {action.label}
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           </ReportSection>
           {isZeroData ? (
@@ -278,41 +300,95 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
                   ? `被${GATE_LABEL[snapshot.blockingGate] ?? snapshot.blockingGate}阻塞`
                   : "无阻塞"}
               </p>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {(() => {
+                  const diagnosisAction = resolveDiagnosisActionTarget(report.verdict)
+                  const gateAction = resolveBlockingGateActionTarget(
+                    snapshot.blocked ? snapshot.blockingGate : null,
+                  )
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        data-testid="creative-diagnosis-action"
+                        onClick={() => setActiveView(diagnosisAction.view)}
+                        className="rounded-md border px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {diagnosisAction.label}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="creative-gate-action"
+                        onClick={() => setActiveView(gateAction.view)}
+                        className="rounded-md border px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {gateAction.label}
+                      </button>
+                    </>
+                  )
+                })()}
+              </div>
             </ReportSection>
             <ReportSection testId="creative-binding" title="小说状态">
-              {meta !== null ? (
-                <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1">
-                  <dt className="text-muted-foreground">标题</dt>
-                  <dd>{meta.title}</dd>
-                  <dt className="text-muted-foreground">题材</dt>
-                  <dd>{meta.genre === "" ? "未填写" : meta.genre}</dd>
-                  <dt className="text-muted-foreground">进度</dt>
-                  <dd>
-                    第 {meta.currentChapter} 章 / 共 {meta.totalChapters} 章（{meta.totalWords} 字）
-                  </dd>
-                </dl>
-              ) : metaCorrupt ? (
-                <div className="space-y-2" data-testid="creative-meta-corrupt">
-                  <ReportCallout tone="warn">
-                    项目资料文件 .novel/project-meta.json 已存在，但内容读不出来（可能被手动改坏）。请先打开该文件修好或备份后删除；本页不会用默认值覆盖它。
-                  </ReportCallout>
-                  {fillError ? <p className="text-sm text-destructive">{fillError}</p> : null}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <ReportCallout tone="warn">项目元数据缺失（不影响写作），尚未初始化书名、题材等资料。</ReportCallout>
+              {(() => {
+                const bindingAction = resolveBindingActionTarget(meta !== null, metaCorrupt)
+                const bindingJumpButton = (
                   <button
                     type="button"
-                    data-testid="creative-fill-meta"
-                    disabled={fillingMeta}
-                    onClick={() => void fillMeta()}
-                    className="rounded-md border px-3 py-1 text-sm hover:bg-accent disabled:opacity-50"
+                    data-testid="creative-binding-action"
+                    onClick={() => setActiveView(bindingAction.view)}
+                    className="rounded-md border px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    {fillingMeta ? "写入中…" : "补全项目资料"}
+                    {bindingAction.label}
                   </button>
-                  {fillError ? <p className="text-sm text-destructive">补全失败：{fillError}</p> : null}
-                </div>
-              )}
+                )
+                if (meta !== null) {
+                  return (
+                    <div className="space-y-2">
+                      <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1">
+                        <dt className="text-muted-foreground">标题</dt>
+                        <dd>{meta.title}</dd>
+                        <dt className="text-muted-foreground">题材</dt>
+                        <dd>{meta.genre === "" ? "未填写" : meta.genre}</dd>
+                        <dt className="text-muted-foreground">进度</dt>
+                        <dd>
+                          第 {meta.currentChapter} 章 / 共 {meta.totalChapters} 章（{meta.totalWords} 字）
+                        </dd>
+                      </dl>
+                      <div>{bindingJumpButton}</div>
+                    </div>
+                  )
+                }
+                if (metaCorrupt) {
+                  return (
+                    <div className="space-y-2" data-testid="creative-meta-corrupt">
+                      <ReportCallout tone="warn">
+                        项目资料文件 .novel/project-meta.json 已存在，但内容读不出来（可能被手动改坏）。请先打开该文件修好或备份后删除；本页不会用默认值覆盖它。
+                      </ReportCallout>
+                      <div>{bindingJumpButton}</div>
+                      {fillError ? <p className="text-sm text-destructive">{fillError}</p> : null}
+                    </div>
+                  )
+                }
+                return (
+                  <div className="space-y-2">
+                    <ReportCallout tone="warn">项目元数据缺失（不影响写作），尚未初始化书名、题材等资料。</ReportCallout>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        data-testid="creative-fill-meta"
+                        disabled={fillingMeta}
+                        onClick={() => void fillMeta()}
+                        className="rounded-md border px-3 py-1 text-sm hover:bg-accent disabled:opacity-50"
+                      >
+                        {fillingMeta ? "写入中…" : "补全项目资料"}
+                      </button>
+                      {bindingJumpButton}
+                    </div>
+                    {fillError ? <p className="text-sm text-destructive">补全失败：{fillError}</p> : null}
+                  </div>
+                )
+              })()}
             </ReportSection>
           </div>
           <ReportSection title="需要处理">
@@ -320,17 +396,33 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
               <p className="text-muted-foreground">没有需要立刻处理的诊断</p>
             ) : (
               <ul className="space-y-2">
-                {problems.map((finding) => (
-                  <li
-                    key={finding.id}
-                    className={cn("rounded-md border px-3 py-2", reportToneClass(findingTone(finding.severity)))}
-                  >
-                    <span className="font-medium">{FINDING_PLAIN[finding.id]?.title ?? finding.name}</span>
-                    <span className="sr-only">{finding.name}（{finding.severity}）</span>
-                    <span className="mt-0.5 block">{FINDING_PLAIN[finding.id]?.body ?? finding.message}</span>
-                    <span className="sr-only">{finding.message}</span>
-                  </li>
-                ))}
+                {problems.map((finding) => {
+                  const findingAction = resolveFindingActionTarget(finding.id)
+                  return (
+                    <li
+                      key={finding.id}
+                      className={cn(
+                        "flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2",
+                        reportToneClass(findingTone(finding.severity)),
+                      )}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="font-medium">{FINDING_PLAIN[finding.id]?.title ?? finding.name}</span>
+                        <span className="sr-only">{finding.name}（{finding.severity}）</span>
+                        <span className="mt-0.5 block">{FINDING_PLAIN[finding.id]?.body ?? finding.message}</span>
+                        <span className="sr-only">{finding.message}</span>
+                      </div>
+                      <button
+                        type="button"
+                        data-testid={`creative-finding-action-${finding.id}`}
+                        onClick={() => setActiveView(findingAction.view)}
+                        className="shrink-0 rounded-md border bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {findingAction.label}
+                      </button>
+                    </li>
+                  )
+                })}
               </ul>
             )}
             {okCount > 0 ? (
