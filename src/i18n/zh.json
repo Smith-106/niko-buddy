@@ -5301,6 +5301,24 @@
     "isolatedReviewerBtn": "独立只读复核会话",
     "isolatedReviewerStarted": "已创建独立只读复核会话（{{sessionId}}），仅挂载只读审稿工具，与主笔上下文完全隔离。",
     "isolatedReviewerStartedNoMcp": "已创建独立复核会话（{{sessionId}}），已清空主笔上下文；本次未挂载本地只读 MCP 工具（如需服务端只读审稿工具，请先启用并挂载本地 MCP）。",
+    "slots": {
+      "tablistLabel": "ACP 多角色会话槽位",
+      "writer": "主笔",
+      "reviewer": "审校",
+      "architect": "策划",
+      "roBadge": "[RO]",
+      "connectedBadge": "会话已连接",
+      "connectedHint": "活跃会话 {{sessionId}}",
+      "promptingBadge": "生成中",
+      "pendingPermissionsBadge": "{{count}} 项待确认权限",
+      "reviewerLockedHint": "审校槽协议级锁定为只读 [RO]（仅允许只读审校工具）"
+    },
+    "handoff": {
+      "toReviewerBtn": "交接至独立审校槽",
+      "reviewerStarted": "已创建独立审校槽会话（{{sessionId}}），仅挂载只读审稿工具，主笔槽上下文完整保留。",
+      "reviewerStartedNoMcp": "已创建独立审校槽会话（{{sessionId}}），主笔槽上下文完整保留；本次未挂载本地只读 MCP 工具（如需服务端只读审稿工具，请先启用并挂载本地 MCP）。",
+      "reviewerReused": "已切换至现有独立审校槽会话（{{sessionId}}）并预填审校交接上下文（仅预填不自动发送，主笔槽完整保留）。"
+    },
     "profiles": {
       "label": "写作角色 / MCP 档位",
       "activeBadge": "当前会话档位：{{profile}}",

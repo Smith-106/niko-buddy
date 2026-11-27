@@ -38,6 +38,7 @@ use super::antigravity_cli::find_agy_command;
 use super::cli_resolver::child_path_env;
 use super::local_cli_config::{apply_local_cli_environment, ensure_cli_workspace_dir};
 use super::process_tree::{self, ProcessTree};
+use crate::mcp_server::session::SessionScope;
 use crate::mcp_server::{LocalMcpBinding, McpServerHandle, ToolProfile};
 
 const INITIALIZE_TIMEOUT_SECS: u64 = 20;
@@ -53,6 +54,61 @@ const MAX_CONTEXT_TEXT_BYTES: usize = 200_000;
 const MAX_CONTEXT_TITLE_CHARS: usize = 256;
 const MAX_PERMISSION_LOCATIONS: usize = 32;
 const MAX_RAW_INPUT_SUMMARY_CHARS: usize = 600;
+
+pub const DEFAULT_ACP_SLOT: &str = "writer";
+
+/// Canonical multi-role ACP session slot over a single interactive `agy acp` connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AcpRoleSlot {
+    #[default]
+    Writer,
+    Reviewer,
+    Architect,
+}
+
+impl AcpRoleSlot {
+    pub const ALL: [AcpRoleSlot; 3] = [Self::Writer, Self::Reviewer, Self::Architect];
+
+    /// Strict fail-closed parser: accepts ONLY exact lowercase `"writer"`, `"reviewer"`, `"architect"`.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "writer" => Some(Self::Writer),
+            "reviewer" => Some(Self::Reviewer),
+            "architect" => Some(Self::Architect),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Writer => "writer",
+            Self::Reviewer => "reviewer",
+            Self::Architect => "architect",
+        }
+    }
+
+    pub fn default_profile(self) -> ToolProfile {
+        match self {
+            Self::Writer => ToolProfile::WriterSub,
+            Self::Reviewer => ToolProfile::Reviewer,
+            Self::Architect => ToolProfile::Architect,
+        }
+    }
+
+    pub fn is_read_only(self) -> bool {
+        matches!(self, Self::Reviewer)
+    }
+
+    /// Effective MCP scope after intersecting the server's binding scope with slot isolation.
+    /// `Reviewer` is hard-locked to `SessionScope::Read` regardless of server scope.
+    pub fn effective_scope(self, binding_scope: SessionScope) -> SessionScope {
+        match self {
+            Self::Reviewer => SessionScope::Read,
+            Self::Writer | Self::Architect => binding_scope,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +133,8 @@ pub struct AcpPermissionOption {
 pub struct AcpPendingPermission {
     pub request_id: String,
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<String>,
     pub title: String,
     pub options: Vec<AcpPermissionOption>,
     #[serde(default)]
@@ -89,7 +147,26 @@ pub struct AcpPendingPermission {
     pub raw_params: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSlotStatusSnapshot {
+    pub slot: String,
+    pub session_id: String,
+    pub cwd: String,
+    pub config_options: Vec<Value>,
+    pub pending_permissions: Vec<AcpPendingPermission>,
+    pub attached_local_mcp: bool,
+    pub local_mcp_scope: Option<String>,
+    pub effective_mcp_scope: Option<String>,
+    pub local_mcp_profile: Option<String>,
+    pub read_only: bool,
+    pub in_flight_prompt: bool,
+    pub local_mcp_stale: bool,
+    pub local_mcp_stale_reason: Option<String>,
+    pub parent_code_repo_warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcpStatusSnapshot {
     pub connected: bool,
@@ -98,6 +175,8 @@ pub struct AcpStatusSnapshot {
     pub agent_version: Option<String>,
     pub protocol_version: Option<u64>,
     pub auth_methods: Vec<AcpAuthMethod>,
+    pub active_slot: String,
+    pub slots: HashMap<String, AcpSlotStatusSnapshot>,
     pub active_session_id: Option<String>,
     pub cwd: Option<String>,
     pub config_options: Vec<Value>,
@@ -123,17 +202,50 @@ pub struct AcpStatusSnapshot {
     pub parent_code_repo_warning: Option<String>,
 }
 
+impl Default for AcpStatusSnapshot {
+    fn default() -> Self {
+        Self {
+            connected: false,
+            binary_path: None,
+            agent_name: None,
+            agent_version: None,
+            protocol_version: None,
+            auth_methods: Vec::new(),
+            active_slot: DEFAULT_ACP_SLOT.to_string(),
+            slots: HashMap::new(),
+            active_session_id: None,
+            cwd: None,
+            config_options: Vec::new(),
+            pending_permissions: Vec::new(),
+            http_mcp_enabled: false,
+            attached_local_mcp: false,
+            local_mcp_scope: None,
+            local_mcp_profile: None,
+            in_flight_prompt: false,
+            supports_http_mcp: None,
+            supports_load_session: None,
+            local_mcp_stale: false,
+            local_mcp_stale_reason: None,
+            parent_code_repo_warning: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcpSessionResult {
+    pub slot: String,
     pub session_id: String,
     pub cwd: String,
     pub config_options: Vec<Value>,
     pub attached_local_mcp: bool,
     pub local_mcp_scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_mcp_scope: Option<String>,
     #[serde(rename = "localMcpProfile")]
     pub local_mcp_profile: Option<String>,
     pub local_mcp_skip_reason: Option<String>,
+    pub read_only: bool,
     #[serde(rename = "parentCodeRepoWarning")]
     pub parent_code_repo_warning: Option<String>,
     pub raw_result: Value,
@@ -177,6 +289,66 @@ impl Drop for InFlightPromptGuard {
     }
 }
 
+type ResettingSlotsSet = Arc<std::sync::Mutex<HashSet<AcpRoleSlot>>>;
+
+struct SlotResetGuard {
+    resetting_slots: ResettingSlotsSet,
+    slot: AcpRoleSlot,
+}
+
+impl SlotResetGuard {
+    fn is_resetting(resetting_slots: &ResettingSlotsSet, slot: AcpRoleSlot) -> bool {
+        let guard = match resetting_slots.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.contains(&slot)
+    }
+
+    fn try_acquire(resetting_slots: ResettingSlotsSet, slot: AcpRoleSlot) -> Result<Self, String> {
+        {
+            let mut guard = match resetting_slots.lock() {
+                Ok(g) => g,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if !guard.insert(slot) {
+                return Err(format!(
+                    "ACP slot `{}` is already resetting its session; wait for completion first",
+                    slot.as_str()
+                ));
+            }
+        }
+        Ok(Self {
+            resetting_slots,
+            slot,
+        })
+    }
+}
+
+impl Drop for SlotResetGuard {
+    fn drop(&mut self) {
+        let mut guard = match self.resetting_slots.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.remove(&self.slot);
+    }
+}
+
+struct AcpSlotSession {
+    slot: AcpRoleSlot,
+    session_id: String,
+    cwd: String,
+    config_options: Vec<Value>,
+    attached_local_mcp: bool,
+    local_mcp_scope: Option<String>,
+    effective_mcp_scope: Option<String>,
+    local_mcp_profile: Option<String>,
+    attached_mcp_binding: Option<LocalMcpBinding>,
+    parent_code_repo_warning: Option<String>,
+    in_flight_prompt: Arc<AtomicBool>,
+}
+
 struct ActiveAcpConnection {
     epoch: u64,
     child: Child,
@@ -189,19 +361,36 @@ struct ActiveAcpConnection {
     agent_version: Option<String>,
     protocol_version: Option<u64>,
     auth_methods: Vec<AcpAuthMethod>,
-    active_session_id: Option<String>,
-    cwd: Option<String>,
-    config_options: Vec<Value>,
+    slots: HashMap<AcpRoleSlot, AcpSlotSession>,
+    active_slot: AcpRoleSlot,
+    resetting_slots: ResettingSlotsSet,
+    connect_cwd: Option<String>,
+    connect_parent_code_repo_warning: Option<String>,
     http_mcp_enabled: bool,
     supports_http_mcp: Option<bool>,
     supports_load_session: Option<bool>,
-    attached_local_mcp: bool,
-    local_mcp_scope: Option<String>,
-    local_mcp_profile: Option<String>,
-    attached_mcp_binding: Option<LocalMcpBinding>,
-    parent_code_repo_warning: Option<String>,
-    in_flight_prompt: Arc<AtomicBool>,
     stderr_ring: StderrRing,
+}
+
+impl ActiveAcpConnection {
+    fn active_slot_session(&self) -> Option<&AcpSlotSession> {
+        self.slots.get(&self.active_slot)
+    }
+
+    fn find_slot_by_session_id(&self, session_id: &str) -> Option<&AcpSlotSession> {
+        self.slots.values().find(|s| s.session_id == session_id)
+    }
+
+    fn find_slot_mut_by_session_id(&mut self, session_id: &str) -> Option<&mut AcpSlotSession> {
+        self.slots.values_mut().find(|s| s.session_id == session_id)
+    }
+
+    fn live_session_ids(&self) -> HashSet<String> {
+        self.slots
+            .values()
+            .map(|s| s.session_id.clone())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1002,6 +1191,120 @@ pub(crate) fn resolve_acp_mcp_profile(raw: Option<&str>) -> Result<ToolProfile, 
     }
 }
 
+/// Strictly resolve optional ACP `slot` argument (`None => fallback`; invalid => fail-closed `Err`).
+pub(crate) fn resolve_acp_slot(
+    raw: Option<&str>,
+    fallback: AcpRoleSlot,
+) -> Result<AcpRoleSlot, String> {
+    match raw {
+        None => Ok(fallback),
+        Some(value) => AcpRoleSlot::parse(value).ok_or_else(|| {
+            format!("Invalid ACP slot `{value}` (expected writer, reviewer, or architect)")
+        }),
+    }
+}
+
+/// Strictly resolve the MCP `ToolProfile` allowed for a given `AcpRoleSlot`.
+/// - `Reviewer` is hard-locked to `ToolProfile::Reviewer` (fail-closed on any write/unknown profile).
+/// - `Architect` accepts ONLY `None | Some("architect")` returning `ToolProfile::Architect`.
+/// - `Writer` delegates to `resolve_acp_mcp_profile` for 100% single-slot backward compatibility.
+pub(crate) fn resolve_slot_mcp_profile(
+    slot: AcpRoleSlot,
+    requested_profile: Option<&str>,
+) -> Result<ToolProfile, String> {
+    match slot {
+        AcpRoleSlot::Reviewer => match requested_profile {
+            None | Some("reviewer") => Ok(slot.default_profile()),
+            Some(other) => Err(format!(
+                "ACP slot `reviewer` is read-only and hard-locked to `reviewer` profile (rejected `{other}`)"
+            )),
+        },
+        AcpRoleSlot::Architect => match requested_profile {
+            None | Some("architect") => Ok(slot.default_profile()),
+            Some(other) => Err(format!(
+                "ACP slot `architect` only allows `architect` profile (rejected `{other}`)"
+            )),
+        },
+        AcpRoleSlot::Writer => resolve_acp_mcp_profile(requested_profile),
+    }
+}
+
+fn resolve_slot_for_session_in_pool(
+    slots: &HashMap<AcpRoleSlot, AcpSlotSession>,
+    active_slot: AcpRoleSlot,
+    session_id: Option<&str>,
+) -> Option<AcpRoleSlot> {
+    match session_id.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(sid) => slots
+            .values()
+            .find(|s| s.session_id == sid)
+            .map(|s| s.slot),
+        None => slots.get(&active_slot).map(|s| s.slot),
+    }
+}
+
+fn apply_config_options_update_to_slots(
+    slots: &mut HashMap<AcpRoleSlot, AcpSlotSession>,
+    active_slot: AcpRoleSlot,
+    evt_sid: Option<&str>,
+    opts: Vec<Value>,
+) -> bool {
+    match evt_sid.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(sid) => {
+            if let Some(slot_sess) = slots
+                .values_mut()
+                .find(|s| config_update_session_matches(Some(sid), Some(s.session_id.as_str())))
+            {
+                slot_sess.config_options = opts;
+                true
+            } else {
+                // Strict `(Some(_), None) => false`: unmapped sessionId must never leak into another slot.
+                config_update_session_matches(Some(sid), None)
+            }
+        }
+        None => {
+            if let Some(active_sess) = slots.get_mut(&active_slot) {
+                if config_update_session_matches(None, Some(active_sess.session_id.as_str())) {
+                    active_sess.config_options = opts;
+                    return true;
+                }
+            }
+            false
+        }
+    }
+}
+
+fn resolve_live_slot_for_command<'a>(
+    slots: &'a HashMap<AcpRoleSlot, AcpSlotSession>,
+    active_slot: AcpRoleSlot,
+    sid: &str,
+    requested_slot: Option<&str>,
+) -> Result<&'a AcpSlotSession, String> {
+    if let Some(raw_slot) = requested_slot {
+        let target_slot = resolve_acp_slot(Some(raw_slot), active_slot)?;
+        let slot_sess = slots.get(&target_slot).ok_or_else(|| {
+            format!(
+                "ACP slot `{}` has no active session",
+                target_slot.as_str()
+            )
+        })?;
+        if slot_sess.session_id != sid {
+            return Err(format!(
+                "ACP session `{sid}` does not match slot `{}` active session `{}`",
+                target_slot.as_str(),
+                slot_sess.session_id
+            ));
+        }
+        Ok(slot_sess)
+    } else if let Some(active_sess) = slots.get(&active_slot).filter(|s| s.session_id == sid) {
+        Ok(active_sess)
+    } else if let Some(found) = slots.values().find(|s| s.session_id == sid) {
+        Ok(found)
+    } else {
+        Err(format!("ACP session `{sid}` is not an active slot session"))
+    }
+}
+
 pub(crate) struct LocalMcpAttachmentPlan {
     pub mcp_servers: Vec<Value>,
     pub attached_local_mcp: bool,
@@ -1234,6 +1537,7 @@ pub(crate) fn parse_permission_request(request_id: String, params: &Value) -> Ac
     AcpPendingPermission {
         request_id,
         session_id,
+        slot: None,
         title,
         options,
         tool_kind,
@@ -1296,6 +1600,7 @@ async fn drain_pending_permissions<W: AsyncWrite + Unpin>(
 }
 
 /// Drain any stale pending permission requests whose `session_id` does not match `keep_session_id`.
+#[cfg_attr(not(test), allow(dead_code))]
 async fn drain_stale_session_permissions<W: AsyncWrite + Unpin>(
     pending_permissions: &PendingPermissionMap,
     writer: &Arc<Mutex<W>>,
@@ -1326,6 +1631,100 @@ async fn drain_stale_session_permissions<W: AsyncWrite + Unpin>(
     drained_ids
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DrainedPermission {
+    request_id: String,
+    session_id: String,
+    slot: Option<String>,
+}
+
+async fn cancel_and_collect_drained_permissions<W: AsyncWrite + Unpin>(
+    drained: Vec<(String, PendingPermissionEntry)>,
+    writer: &Arc<Mutex<W>>,
+) -> Vec<DrainedPermission> {
+    let mut items = Vec::with_capacity(drained.len());
+    for (req_key, entry) in drained {
+        let reply = json!({
+            "jsonrpc": "2.0",
+            "id": entry.rpc_id,
+            "result": build_permission_response_result(None),
+        });
+        let _ = write_jsonrpc_line_to(writer, &reply).await;
+        items.push(DrainedPermission {
+            request_id: req_key,
+            session_id: entry.info.session_id,
+            slot: entry.info.slot,
+        });
+    }
+    items
+}
+
+/// Drain pending permission requests belonging ONLY to `target_session_id`
+/// and send JSON-RPC cancelled responses to `writer`, leaving all other live slots untouched.
+async fn drain_session_permissions<W: AsyncWrite + Unpin>(
+    pending_permissions: &PendingPermissionMap,
+    writer: &Arc<Mutex<W>>,
+    target_session_id: &str,
+) -> Vec<DrainedPermission> {
+    let drained: Vec<(String, PendingPermissionEntry)> = {
+        let mut map = pending_permissions.lock().await;
+        let matching_keys: Vec<String> = map
+            .iter()
+            .filter(|(_, entry)| entry.info.session_id == target_session_id)
+            .map(|(k, _)| k.clone())
+            .collect();
+        matching_keys
+            .into_iter()
+            .filter_map(|k| map.remove(&k).map(|e| (k, e)))
+            .collect()
+    };
+    cancel_and_collect_drained_permissions(drained, writer).await
+}
+
+/// Drain pending permission requests whose `session_id` is NOT present in `live_session_ids`
+/// and send JSON-RPC cancelled responses to `writer`, leaving all live slot sessions untouched.
+async fn drain_unmapped_session_permissions<W: AsyncWrite + Unpin>(
+    pending_permissions: &PendingPermissionMap,
+    writer: &Arc<Mutex<W>>,
+    live_session_ids: &HashSet<String>,
+) -> Vec<DrainedPermission> {
+    let drained: Vec<(String, PendingPermissionEntry)> = {
+        let mut map = pending_permissions.lock().await;
+        let stale_keys: Vec<String> = map
+            .iter()
+            .filter(|(_, entry)| !live_session_ids.contains(&entry.info.session_id))
+            .map(|(k, _)| k.clone())
+            .collect();
+        stale_keys
+            .into_iter()
+            .filter_map(|k| map.remove(&k).map(|e| (k, e)))
+            .collect()
+    };
+    cancel_and_collect_drained_permissions(drained, writer).await
+}
+
+fn build_permission_resolved_event(
+    request_id: &str,
+    option_id: Option<&str>,
+    session_id: Option<&str>,
+    slot: Option<&str>,
+) -> Value {
+    let mut event = json!({
+        "kind": "permission_resolved",
+        "requestId": request_id,
+        "optionId": option_id,
+    });
+    if let Some(obj) = event.as_object_mut() {
+        if let Some(sid) = session_id.map(str::trim).filter(|s| !s.is_empty()) {
+            obj.insert("sessionId".to_string(), Value::String(sid.to_string()));
+        }
+        if let Some(slot_name) = slot.map(str::trim).filter(|s| !s.is_empty()) {
+            obj.insert("slot".to_string(), Value::String(slot_name.to_string()));
+        }
+    }
+    event
+}
+
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Sink abstraction for the stdout JSON-RPC demultiplexer, enabling deterministic
@@ -1348,6 +1747,12 @@ trait DemuxSessionSink: Send + Sync {
         evt_sid: Option<String>,
         opts: Vec<Value>,
     ) -> BoxFuture<'a, ()>;
+    fn resolve_slot_for_session<'a>(
+        &'a self,
+        _session_id: Option<&'a str>,
+    ) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { None })
+    }
     fn emit_event(&self, payload: Value);
     fn on_loop_exit<'a>(&'a self) -> BoxFuture<'a, ()>;
 }
@@ -1447,7 +1852,20 @@ where
                     break;
                 }
                 let req_key = rpc_id_key(&id_val);
-                let info = parse_permission_request(req_key.clone(), &params);
+                let mut info = parse_permission_request(req_key.clone(), &params);
+                let perm_sid = (!info.session_id.trim().is_empty())
+                    .then_some(info.session_id.trim());
+                let resolved_slot = sink.resolve_slot_for_session(perm_sid).await;
+                info.slot = resolved_slot.clone();
+                if !sink.is_epoch_active() {
+                    let reply = json!({
+                        "jsonrpc": "2.0",
+                        "id": id_val,
+                        "result": build_permission_response_result(None),
+                    });
+                    sink.write_client_reply(reply).await;
+                    break;
+                }
                 sink.insert_pending_permission(
                     req_key,
                     PendingPermissionEntry {
@@ -1457,10 +1875,16 @@ where
                 )
                 .await;
                 if sink.is_epoch_active() {
-                    sink.emit_event(json!({
+                    let mut event = json!({
                         "kind": "permission_request",
                         "permission": info,
-                    }));
+                    });
+                    if let Some(slot_name) = resolved_slot {
+                        if let Some(obj) = event.as_object_mut() {
+                            obj.insert("slot".to_string(), Value::String(slot_name));
+                        }
+                    }
+                    sink.emit_event(event);
                 }
             } else {
                 // Unsupported client-side method: respond cleanly with JSON-RPC MethodNotFound.
@@ -1479,6 +1903,12 @@ where
                 break;
             }
             let sanitized_params = sanitize_session_update_params(params);
+            let evt_sid = sanitized_params
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from);
             // Sync cached configOptions if the server pushes a `config_option_update`
             // using the already-sanitized payload so secrets never enter cached state.
             if let Some(opts) = sanitized_params
@@ -1486,19 +1916,21 @@ where
                 .and_then(|u| u.get("configOptions"))
                 .and_then(Value::as_array)
             {
-                let evt_sid = sanitized_params
-                    .get("sessionId")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(String::from);
-                sink.update_config_options(evt_sid, opts.clone()).await;
+                sink.update_config_options(evt_sid.clone(), opts.clone())
+                    .await;
             }
+            let resolved_slot = sink.resolve_slot_for_session(evt_sid.as_deref()).await;
             if sink.is_epoch_active() {
-                sink.emit_event(json!({
+                let mut event = json!({
                     "kind": "session_update",
                     "params": sanitized_params,
-                }));
+                });
+                if let Some(slot_name) = resolved_slot {
+                    if let Some(obj) = event.as_object_mut() {
+                        obj.insert("slot".to_string(), Value::String(slot_name));
+                    }
+                }
+                sink.emit_event(event);
             }
         }
     }
@@ -1557,15 +1989,31 @@ impl DemuxSessionSink for ProductionDemuxSink {
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             if let Some(active) = self.conn.lock().await.as_mut() {
-                if active.epoch == self.my_epoch
-                    && config_update_session_matches(
+                if active.epoch == self.my_epoch {
+                    let active_slot = active.active_slot;
+                    apply_config_options_update_to_slots(
+                        &mut active.slots,
+                        active_slot,
                         evt_sid.as_deref(),
-                        active.active_session_id.as_deref(),
-                    )
-                {
-                    active.config_options = opts;
+                        opts,
+                    );
                 }
             }
+        })
+    }
+
+    fn resolve_slot_for_session<'a>(
+        &'a self,
+        session_id: Option<&'a str>,
+    ) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async move {
+            let guard = self.conn.lock().await;
+            let active = guard.as_ref()?;
+            if active.epoch != self.my_epoch {
+                return None;
+            }
+            resolve_slot_for_session_in_pool(&active.slots, active.active_slot, session_id)
+                .map(|slot| slot.as_str().to_string())
         })
     }
 
@@ -1649,6 +2097,125 @@ fn emit_acp_event(app: &AppHandle, payload: Value) {
     let _ = app.emit("antigravity-acp:event", payload);
 }
 
+fn build_slot_status_snapshot(
+    slot_sess: &AcpSlotSession,
+    all_pending: &[AcpPendingPermission],
+    current_mcp_binding: Option<&LocalMcpBinding>,
+) -> AcpSlotStatusSnapshot {
+    let slot_name = slot_sess.slot.as_str().to_string();
+    let pending_permissions: Vec<AcpPendingPermission> = all_pending
+        .iter()
+        .filter(|perm| perm.session_id == slot_sess.session_id)
+        .cloned()
+        .map(|mut perm| {
+            if perm.slot.is_none() {
+                perm.slot = Some(slot_name.clone());
+            }
+            perm
+        })
+        .collect();
+    let (local_mcp_stale, local_mcp_stale_reason) =
+        compute_local_mcp_staleness(slot_sess.attached_mcp_binding.as_ref(), current_mcp_binding);
+    AcpSlotStatusSnapshot {
+        slot: slot_name,
+        session_id: slot_sess.session_id.clone(),
+        cwd: slot_sess.cwd.clone(),
+        config_options: slot_sess.config_options.clone(),
+        pending_permissions,
+        attached_local_mcp: slot_sess.attached_local_mcp,
+        local_mcp_scope: slot_sess.local_mcp_scope.clone(),
+        effective_mcp_scope: slot_sess.effective_mcp_scope.clone(),
+        local_mcp_profile: slot_sess.local_mcp_profile.clone(),
+        read_only: slot_sess.slot.is_read_only(),
+        in_flight_prompt: slot_sess.in_flight_prompt.load(Ordering::Acquire),
+        local_mcp_stale,
+        local_mcp_stale_reason: local_mcp_stale_reason.map(String::from),
+        parent_code_repo_warning: slot_sess.parent_code_repo_warning.clone(),
+    }
+}
+
+fn project_pool_status_snapshot(
+    base: AcpStatusSnapshot,
+    slots: &HashMap<AcpRoleSlot, AcpSlotSession>,
+    active_slot: AcpRoleSlot,
+    connect_cwd: Option<&str>,
+    connect_parent_code_repo_warning: Option<&str>,
+    all_pending: &[AcpPendingPermission],
+    current_mcp_binding: Option<&LocalMcpBinding>,
+) -> AcpStatusSnapshot {
+    let mut slot_snapshots: HashMap<String, AcpSlotStatusSnapshot> =
+        HashMap::with_capacity(slots.len());
+    for slot_key in AcpRoleSlot::ALL {
+        if let Some(slot_sess) = slots.get(&slot_key) {
+            slot_snapshots.insert(
+                slot_key.as_str().to_string(),
+                build_slot_status_snapshot(slot_sess, all_pending, current_mcp_binding),
+            );
+        }
+    }
+
+    let active_slot_str = active_slot.as_str().to_string();
+    let active_snap = slot_snapshots.get(&active_slot_str).cloned();
+
+    let (
+        active_session_id,
+        cwd,
+        config_options,
+        pending_permissions,
+        attached_local_mcp,
+        local_mcp_scope,
+        local_mcp_profile,
+        in_flight_prompt,
+        local_mcp_stale,
+        local_mcp_stale_reason,
+        parent_code_repo_warning,
+    ) = match active_snap {
+        Some(s) => (
+            Some(s.session_id),
+            Some(s.cwd),
+            s.config_options,
+            s.pending_permissions,
+            s.attached_local_mcp,
+            s.local_mcp_scope,
+            s.local_mcp_profile,
+            s.in_flight_prompt,
+            s.local_mcp_stale,
+            s.local_mcp_stale_reason,
+            s.parent_code_repo_warning,
+        ),
+        None => (
+            None,
+            connect_cwd.map(String::from),
+            Vec::new(),
+            Vec::new(),
+            false,
+            None,
+            None,
+            false,
+            false,
+            None,
+            connect_parent_code_repo_warning.map(String::from),
+        ),
+    };
+
+    AcpStatusSnapshot {
+        active_slot: active_slot_str,
+        slots: slot_snapshots,
+        active_session_id,
+        cwd,
+        config_options,
+        pending_permissions,
+        attached_local_mcp,
+        local_mcp_scope,
+        local_mcp_profile,
+        in_flight_prompt,
+        local_mcp_stale,
+        local_mcp_stale_reason,
+        parent_code_repo_warning,
+        ..base
+    }
+}
+
 async fn snapshot_from_conn(
     conn: &Option<ActiveAcpConnection>,
     current_mcp_binding: Option<&LocalMcpBinding>,
@@ -1656,37 +2223,34 @@ async fn snapshot_from_conn(
     let Some(c) = conn.as_ref() else {
         return AcpStatusSnapshot::default();
     };
-    let pending = c
+    let all_pending: Vec<AcpPendingPermission> = c
         .pending_permissions
         .lock()
         .await
         .values()
         .map(|entry| entry.info.clone())
         .collect();
-    let (local_mcp_stale, local_mcp_stale_reason) =
-        compute_local_mcp_staleness(c.attached_mcp_binding.as_ref(), current_mcp_binding);
-    AcpStatusSnapshot {
+    let base = AcpStatusSnapshot {
         connected: true,
         binary_path: Some(c.binary_path.clone()),
         agent_name: c.agent_name.clone(),
         agent_version: c.agent_version.clone(),
         protocol_version: c.protocol_version,
         auth_methods: c.auth_methods.clone(),
-        active_session_id: c.active_session_id.clone(),
-        cwd: c.cwd.clone(),
-        config_options: c.config_options.clone(),
-        pending_permissions: pending,
         http_mcp_enabled: c.http_mcp_enabled,
-        attached_local_mcp: c.attached_local_mcp,
-        local_mcp_scope: c.local_mcp_scope.clone(),
-        local_mcp_profile: c.local_mcp_profile.clone(),
-        in_flight_prompt: c.in_flight_prompt.load(Ordering::Acquire),
         supports_http_mcp: c.supports_http_mcp,
         supports_load_session: c.supports_load_session,
-        local_mcp_stale,
-        local_mcp_stale_reason: local_mcp_stale_reason.map(String::from),
-        parent_code_repo_warning: c.parent_code_repo_warning.clone(),
-    }
+        ..Default::default()
+    };
+    project_pool_status_snapshot(
+        base,
+        &c.slots,
+        c.active_slot,
+        c.connect_cwd.as_deref(),
+        c.connect_parent_code_repo_warning.as_deref(),
+        &all_pending,
+        current_mcp_binding,
+    )
 }
 
 fn clear_exit_guard(exit_guard: &std::sync::Mutex<Option<(u64, ProcessTree)>>) {
@@ -1955,18 +2519,14 @@ pub async fn antigravity_acp_connect(
         agent_version,
         protocol_version,
         auth_methods,
-        active_session_id: None,
-        cwd: Some(effective_cwd_str),
-        config_options: Vec::new(),
+        slots: HashMap::new(),
+        active_slot: AcpRoleSlot::Writer,
+        resetting_slots: Arc::new(std::sync::Mutex::new(HashSet::new())),
+        connect_cwd: Some(effective_cwd_str),
+        connect_parent_code_repo_warning: parent_code_repo_warning,
         http_mcp_enabled: http_mcp,
         supports_http_mcp: parsed_caps.supports_http_mcp,
         supports_load_session: parsed_caps.supports_load_session,
-        attached_local_mcp: false,
-        local_mcp_scope: None,
-        local_mcp_profile: None,
-        attached_mcp_binding: None,
-        parent_code_repo_warning,
-        in_flight_prompt: Arc::new(AtomicBool::new(false)),
         stderr_ring,
     };
 
@@ -2030,9 +2590,16 @@ pub async fn antigravity_acp_new_session(
     cwd: String,
     attach_local_mcp: Option<bool>,
     mcp_profile: Option<String>,
+    slot: Option<String>,
 ) -> Result<AcpSessionResult, String> {
-    // Validate inputs strictly BEFORE locking connection, draining permissions, or issuing RPC.
-    let resolved_profile = resolve_acp_mcp_profile(mcp_profile.as_deref())?;
+    // Validate explicit slot & profile strictly BEFORE locking connection, draining permissions, or issuing RPC.
+    let explicit_slot = match slot.as_deref() {
+        Some(raw) => Some(resolve_acp_slot(Some(raw), AcpRoleSlot::Writer)?),
+        None => None,
+    };
+    if let Some(s) = explicit_slot {
+        let _ = resolve_slot_mcp_profile(s, mcp_profile.as_deref())?;
+    }
     let trimmed_cwd = cwd.trim().to_string();
     let cwd_path = Path::new(&trimmed_cwd);
     if trimmed_cwd.is_empty() || !cwd_path.is_absolute() || !cwd_path.is_dir() {
@@ -2047,6 +2614,9 @@ pub async fn antigravity_acp_new_session(
             .unwrap_or(None);
 
     let (
+        target_slot,
+        resolved_profile,
+        old_slot_session_id,
         my_epoch,
         stdin,
         pending_rpc,
@@ -2054,12 +2624,31 @@ pub async fn antigravity_acp_new_session(
         id,
         http_mcp_enabled,
         supports_http_mcp,
+        _slot_reset_guard,
     ) = {
         let guard = state.conn.lock().await;
         let conn = guard
             .as_ref()
             .ok_or_else(|| "Antigravity ACP is not connected".to_string())?;
+        let target_slot = explicit_slot.unwrap_or(conn.active_slot);
+        let resolved_profile = resolve_slot_mcp_profile(target_slot, mcp_profile.as_deref())?;
+        if conn
+            .slots
+            .get(&target_slot)
+            .is_some_and(|s| s.in_flight_prompt.load(Ordering::Acquire))
+        {
+            return Err(format!(
+                "Cannot reset ACP slot `{}` while a prompt is in flight on that slot; cancel or wait for completion first",
+                target_slot.as_str()
+            ));
+        }
+        let slot_reset_guard =
+            SlotResetGuard::try_acquire(Arc::clone(&conn.resetting_slots), target_slot)?;
+        let old_slot_session_id = conn.slots.get(&target_slot).map(|s| s.session_id.clone());
         (
+            target_slot,
+            resolved_profile,
+            old_slot_session_id,
             conn.epoch,
             Arc::clone(&conn.stdin),
             Arc::clone(&conn.pending_rpc),
@@ -2067,20 +2656,24 @@ pub async fn antigravity_acp_new_session(
             conn.next_id.fetch_add(1, Ordering::Relaxed),
             conn.http_mcp_enabled,
             conn.supports_http_mcp,
+            slot_reset_guard,
         )
     };
 
-    // Drain any orphaned pending permission prompts from a previous session before switching.
-    let drained_before = drain_pending_permissions(&pending_permissions, &stdin).await;
-    for req_key in drained_before {
-        emit_acp_event(
-            &app,
-            json!({
-                "kind": "permission_resolved",
-                "requestId": req_key,
-                "optionId": Value::Null,
-            }),
-        );
+    // Drain ONLY orphaned pending permission prompts from THIS slot's prior session (never touching other live slots).
+    if let Some(old_sid) = old_slot_session_id.as_deref() {
+        let drained_before = drain_session_permissions(&pending_permissions, &stdin, old_sid).await;
+        for item in drained_before {
+            emit_acp_event(
+                &app,
+                build_permission_resolved_event(
+                    &item.request_id,
+                    None,
+                    Some(item.session_id.as_str()),
+                    item.slot.as_deref().or(Some(target_slot.as_str())),
+                ),
+            );
+        }
     }
 
     let running_info =
@@ -2096,6 +2689,11 @@ pub async fn antigravity_acp_new_session(
         running_info,
         resolved_profile,
     );
+    let effective_mcp_scope = plan
+        .attached_mcp_binding
+        .as_ref()
+        .map(|b| target_slot.effective_scope(b.scope).as_str().to_string());
+    let read_only = target_slot.is_read_only();
 
     let raw_result = send_rpc_request(
         &stdin,
@@ -2127,47 +2725,61 @@ pub async fn antigravity_acp_new_session(
         .cloned()
         .unwrap_or_default();
 
-    {
+    let live_ids = {
         let mut guard = state.conn.lock().await;
         match guard.as_mut() {
             Some(active) if active.epoch == my_epoch => {
-                active.active_session_id = Some(session_id.clone());
-                active.cwd = Some(trimmed_cwd.clone());
-                active.config_options = config_options.clone();
-                active.attached_local_mcp = plan.attached_local_mcp;
-                active.local_mcp_scope = plan.local_mcp_scope.clone();
-                active.local_mcp_profile = plan.local_mcp_profile.clone();
-                active.attached_mcp_binding = plan.attached_mcp_binding.clone();
-                active.parent_code_repo_warning = parent_code_repo_warning.clone();
+                active.slots.insert(
+                    target_slot,
+                    AcpSlotSession {
+                        slot: target_slot,
+                        session_id: session_id.clone(),
+                        cwd: trimmed_cwd.clone(),
+                        config_options: config_options.clone(),
+                        attached_local_mcp: plan.attached_local_mcp,
+                        local_mcp_scope: plan.local_mcp_scope.clone(),
+                        effective_mcp_scope: effective_mcp_scope.clone(),
+                        local_mcp_profile: plan.local_mcp_profile.clone(),
+                        attached_mcp_binding: plan.attached_mcp_binding.clone(),
+                        parent_code_repo_warning: parent_code_repo_warning.clone(),
+                        in_flight_prompt: Arc::new(AtomicBool::new(false)),
+                    },
+                );
+                active.active_slot = target_slot;
+                active.live_session_ids()
             }
             _ => {
                 return Err("ACP connection superseded or closed during session/new".to_string());
             }
         }
-    }
+    };
 
-    // Drain any late permission requests from prior sessions that arrived while `session/new` was in flight.
+    // Drain any late permission requests from unmapped/replaced sessions while preserving all live slots.
     let drained_after =
-        drain_stale_session_permissions(&pending_permissions, &stdin, &session_id).await;
-    for req_key in drained_after {
+        drain_unmapped_session_permissions(&pending_permissions, &stdin, &live_ids).await;
+    for item in drained_after {
         emit_acp_event(
             &app,
-            json!({
-                "kind": "permission_resolved",
-                "requestId": req_key,
-                "optionId": Value::Null,
-            }),
+            build_permission_resolved_event(
+                &item.request_id,
+                None,
+                Some(item.session_id.as_str()),
+                item.slot.as_deref(),
+            ),
         );
     }
 
     Ok(AcpSessionResult {
+        slot: target_slot.as_str().to_string(),
         session_id,
         cwd: trimmed_cwd,
         config_options,
         attached_local_mcp: plan.attached_local_mcp,
         local_mcp_scope: plan.local_mcp_scope,
+        effective_mcp_scope,
         local_mcp_profile: plan.local_mcp_profile,
         local_mcp_skip_reason: plan.local_mcp_skip_reason,
+        read_only,
         parent_code_repo_warning,
         raw_result: sanitized_raw_result,
     })
@@ -2180,7 +2792,11 @@ pub async fn antigravity_acp_prompt(
     text: String,
     context_title: Option<String>,
     context_text: Option<String>,
+    slot: Option<String>,
 ) -> Result<AcpPromptResult, String> {
+    if let Some(raw) = slot.as_deref() {
+        let _ = resolve_acp_slot(Some(raw), AcpRoleSlot::Writer)?;
+    }
     let (sid, prompt_text) = validate_prompt_inputs(&session_id, &text, context_text.as_deref())?;
 
     let (stdin, pending_rpc, id, _in_flight_guard) = {
@@ -2188,10 +2804,16 @@ pub async fn antigravity_acp_prompt(
         let conn = guard
             .as_ref()
             .ok_or_else(|| "Antigravity ACP is not connected".to_string())?;
-        if conn.active_session_id.as_deref() != Some(sid.as_str()) {
-            return Err(format!("ACP session `{sid}` is not the active session"));
+        let slot_sess =
+            resolve_live_slot_for_command(&conn.slots, conn.active_slot, &sid, slot.as_deref())?;
+        if SlotResetGuard::is_resetting(&conn.resetting_slots, slot_sess.slot) {
+            return Err(format!(
+                "Cannot send prompt while ACP slot `{}` is resetting its session; wait for completion first",
+                slot_sess.slot.as_str()
+            ));
         }
-        let prompt_guard = InFlightPromptGuard::try_acquire(Arc::clone(&conn.in_flight_prompt))?;
+        let prompt_guard =
+            InFlightPromptGuard::try_acquire(Arc::clone(&slot_sess.in_flight_prompt))?;
         (
             Arc::clone(&conn.stdin),
             Arc::clone(&conn.pending_rpc),
@@ -2239,48 +2861,48 @@ pub async fn antigravity_acp_cancel(
     app: AppHandle,
     state: State<'_, AntigravityAcpState>,
     session_id: String,
+    slot: Option<String>,
 ) -> Result<(), String> {
+    if let Some(raw) = slot.as_deref() {
+        let _ = resolve_acp_slot(Some(raw), AcpRoleSlot::Writer)?;
+    }
     let sid = session_id.trim().to_string();
     if sid.is_empty() {
         return Ok(());
     }
-    let (stdin, pending_perms) = {
+    let (stdin, pending_perms, resolved_slot_name) = {
         let guard = state.conn.lock().await;
         let Some(conn) = guard.as_ref() else {
             return Ok(());
         };
+        let resolved_slot_name = if let Some(raw) = slot.as_deref() {
+            let slot_sess =
+                resolve_live_slot_for_command(&conn.slots, conn.active_slot, &sid, Some(raw))?;
+            Some(slot_sess.slot.as_str().to_string())
+        } else {
+            conn.active_slot_session()
+                .filter(|s| s.session_id == sid)
+                .or_else(|| conn.find_slot_by_session_id(&sid))
+                .map(|s| s.slot.as_str().to_string())
+        };
         (
             Arc::clone(&conn.stdin),
             Arc::clone(&conn.pending_permissions),
+            resolved_slot_name,
         )
     };
 
-    // Cancel any outstanding permission prompts belonging to this session first.
-    let to_cancel: Vec<(String, Value)> = {
-        let mut map = pending_perms.lock().await;
-        let keys: Vec<String> = map
-            .iter()
-            .filter(|(_, entry)| entry.info.session_id == sid)
-            .map(|(k, _)| k.clone())
-            .collect();
-        keys.into_iter()
-            .filter_map(|k| map.remove(&k).map(|e| (k, e.rpc_id)))
-            .collect()
-    };
-    for (req_key, rpc_id) in to_cancel {
-        let reply = json!({
-            "jsonrpc": "2.0",
-            "id": rpc_id,
-            "result": build_permission_response_result(None),
-        });
-        let _ = write_jsonrpc_line(&stdin, &reply).await;
+    // Cancel ONLY outstanding permission prompts belonging to `sid` (never touching other live slots).
+    let drained = drain_session_permissions(&pending_perms, &stdin, &sid).await;
+    for item in drained {
         emit_acp_event(
             &app,
-            json!({
-                "kind": "permission_resolved",
-                "requestId": req_key,
-                "optionId": Value::Null,
-            }),
+            build_permission_resolved_event(
+                &item.request_id,
+                None,
+                Some(item.session_id.as_str()),
+                item.slot.as_deref().or(resolved_slot_name.as_deref()),
+            ),
         );
     }
 
@@ -2298,13 +2920,23 @@ pub async fn antigravity_acp_set_config_option(
     session_id: String,
     config_id: String,
     value: String,
+    slot: Option<String>,
 ) -> Result<Value, String> {
+    if let Some(raw) = slot.as_deref() {
+        let _ = resolve_acp_slot(Some(raw), AcpRoleSlot::Writer)?;
+    }
     let trimmed_sid = session_id.trim().to_string();
     let (my_epoch, stdin, pending_rpc, id) = {
         let guard = state.conn.lock().await;
         let conn = guard
             .as_ref()
             .ok_or_else(|| "Antigravity ACP is not connected".to_string())?;
+        let _ = resolve_live_slot_for_command(
+            &conn.slots,
+            conn.active_slot,
+            &trimmed_sid,
+            slot.as_deref(),
+        )?;
         (
             conn.epoch,
             Arc::clone(&conn.stdin),
@@ -2332,10 +2964,10 @@ pub async fn antigravity_acp_set_config_option(
 
     if let Some(opts) = res.get("configOptions").and_then(Value::as_array) {
         if let Some(active) = state.conn.lock().await.as_mut() {
-            if active.epoch == my_epoch
-                && active.active_session_id.as_deref() == Some(trimmed_sid.as_str())
-            {
-                active.config_options = opts.clone();
+            if active.epoch == my_epoch {
+                if let Some(slot_sess) = active.find_slot_mut_by_session_id(&trimmed_sid) {
+                    slot_sess.config_options = opts.clone();
+                }
             }
         }
     }
@@ -2369,6 +3001,9 @@ pub async fn antigravity_acp_respond_permission(
         .remove(&req_key)
         .ok_or_else(|| format!("No pending ACP permission request with id `{req_key}`"))?;
 
+    let resolved_session_id = entry.info.session_id.clone();
+    let mut resolved_slot = entry.info.slot.clone();
+
     let reply = json!({
         "jsonrpc": "2.0",
         "id": entry.rpc_id.clone(),
@@ -2380,15 +3015,41 @@ pub async fn antigravity_acp_respond_permission(
         return Err(err);
     }
 
+    if resolved_slot.is_none() && !resolved_session_id.is_empty() {
+        let guard = state.conn.lock().await;
+        if let Some(conn) = guard.as_ref().filter(|c| c.epoch == my_epoch) {
+            resolved_slot = conn
+                .find_slot_by_session_id(&resolved_session_id)
+                .map(|s| s.slot.as_str().to_string());
+        }
+    }
+
     emit_acp_event(
         &app,
-        json!({
-            "kind": "permission_resolved",
-            "requestId": req_key,
-            "optionId": option_id,
-        }),
+        build_permission_resolved_event(
+            &req_key,
+            option_id.as_deref(),
+            Some(resolved_session_id.as_str()),
+            resolved_slot.as_deref(),
+        ),
     );
     Ok(())
+}
+
+#[tauri::command]
+pub async fn antigravity_acp_switch_slot(
+    state: State<'_, AntigravityAcpState>,
+    mcp_handle: State<'_, McpServerHandle>,
+    slot: String,
+) -> Result<AcpStatusSnapshot, String> {
+    let target_slot = resolve_acp_slot(Some(slot.as_str()), AcpRoleSlot::Writer)?;
+    let current_binding = mcp_handle.running_binding_fingerprint().await;
+    let mut guard = state.conn.lock().await;
+    let conn = guard
+        .as_mut()
+        .ok_or_else(|| "Antigravity ACP is not connected".to_string())?;
+    conn.active_slot = target_slot;
+    Ok(snapshot_from_conn(&guard, current_binding.as_ref()).await)
 }
 
 #[cfg(test)]
@@ -3863,6 +4524,8 @@ mod tests {
     #[test]
     fn status_and_session_structs_serialize_profile_and_parent_repo_warning() {
         let default_snap = serde_json::to_value(AcpStatusSnapshot::default()).unwrap();
+        assert_eq!(default_snap["activeSlot"], json!("writer"));
+        assert_eq!(default_snap["slots"], json!({}));
         assert_eq!(default_snap["localMcpProfile"], Value::Null);
         assert_eq!(default_snap["parentCodeRepoWarning"], Value::Null);
 
@@ -3873,23 +4536,48 @@ mod tests {
             ..Default::default()
         };
         let snap_json = serde_json::to_value(populated_snap).unwrap();
+        assert_eq!(snap_json["activeSlot"], json!("writer"));
         assert_eq!(snap_json["localMcpProfile"], json!("writer-sub"));
         assert_eq!(snap_json["parentCodeRepoWarning"], json!("parent warning"));
 
         let session_res = AcpSessionResult {
+            slot: "reviewer".to_string(),
             session_id: "sess-1".to_string(),
             cwd: "/novel".to_string(),
             config_options: Vec::new(),
             attached_local_mcp: true,
             local_mcp_scope: Some("project".to_string()),
+            effective_mcp_scope: Some("read".to_string()),
             local_mcp_profile: Some("reviewer".to_string()),
             local_mcp_skip_reason: None,
+            read_only: true,
             parent_code_repo_warning: Some("repo above".to_string()),
             raw_result: json!({}),
         };
         let sess_json = serde_json::to_value(session_res).unwrap();
+        assert_eq!(sess_json["slot"], json!("reviewer"));
+        assert_eq!(sess_json["effectiveMcpScope"], json!("read"));
+        assert_eq!(sess_json["readOnly"], json!(true));
         assert_eq!(sess_json["localMcpProfile"], json!("reviewer"));
         assert_eq!(sess_json["parentCodeRepoWarning"], json!("repo above"));
+
+        let unattached_res = AcpSessionResult {
+            slot: "writer".to_string(),
+            session_id: "sess-2".to_string(),
+            cwd: "/novel".to_string(),
+            config_options: Vec::new(),
+            attached_local_mcp: false,
+            local_mcp_scope: None,
+            effective_mcp_scope: None,
+            local_mcp_profile: None,
+            local_mcp_skip_reason: None,
+            read_only: false,
+            parent_code_repo_warning: None,
+            raw_result: json!({}),
+        };
+        let unattached_json = serde_json::to_value(unattached_res).unwrap();
+        assert!(unattached_json.get("effectiveMcpScope").is_none());
+        assert_eq!(unattached_json["readOnly"], json!(false));
     }
 
     #[test]
@@ -3948,5 +4636,924 @@ mod tests {
         assert!(wt_warn.contains("worktree-repo"), "{wt_warn}");
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolve_acp_slot_and_profile_enforce_reviewer_read_only_lock() {
+        assert_eq!(AcpRoleSlot::ALL.len(), 3);
+        assert_eq!(AcpRoleSlot::default(), AcpRoleSlot::Writer);
+        assert_eq!(AcpRoleSlot::Writer.as_str(), DEFAULT_ACP_SLOT);
+        assert_eq!(AcpRoleSlot::parse("writer"), Some(AcpRoleSlot::Writer));
+        assert_eq!(AcpRoleSlot::parse("reviewer"), Some(AcpRoleSlot::Reviewer));
+        assert_eq!(
+            AcpRoleSlot::parse("architect"),
+            Some(AcpRoleSlot::Architect)
+        );
+        for bad in ["", " ", "WRITER", "Reviewer", " writer ", "editor", "admin"] {
+            assert_eq!(
+                AcpRoleSlot::parse(bad),
+                None,
+                "invalid slot `{bad}` must fail-closed"
+            );
+            assert!(
+                resolve_acp_slot(Some(bad), AcpRoleSlot::Writer).is_err(),
+                "resolve_acp_slot must reject `{bad}`"
+            );
+        }
+        assert_eq!(
+            resolve_acp_slot(None, AcpRoleSlot::Reviewer),
+            Ok(AcpRoleSlot::Reviewer)
+        );
+
+        assert!(!AcpRoleSlot::Writer.is_read_only());
+        assert!(AcpRoleSlot::Reviewer.is_read_only());
+        assert!(!AcpRoleSlot::Architect.is_read_only());
+
+        // Reviewer effective_scope MUST always clamp to Read, even under Project/Auto/Full.
+        for scope in [
+            SessionScope::Read,
+            SessionScope::Settings,
+            SessionScope::Project,
+            SessionScope::Auto,
+            SessionScope::Full,
+        ] {
+            assert_eq!(AcpRoleSlot::Reviewer.effective_scope(scope), SessionScope::Read);
+            assert_eq!(AcpRoleSlot::Writer.effective_scope(scope), scope);
+            assert_eq!(AcpRoleSlot::Architect.effective_scope(scope), scope);
+        }
+
+        // Reviewer slot MUST be hard-locked to ToolProfile::Reviewer.
+        assert_eq!(
+            resolve_slot_mcp_profile(AcpRoleSlot::Reviewer, None),
+            Ok(ToolProfile::Reviewer)
+        );
+        assert_eq!(
+            resolve_slot_mcp_profile(AcpRoleSlot::Reviewer, Some("reviewer")),
+            Ok(ToolProfile::Reviewer)
+        );
+        for forbidden in [
+            "writer-sub",
+            "architect",
+            "full-legacy",
+            "",
+            "REVIEWER",
+            "unknown",
+        ] {
+            assert!(
+                resolve_slot_mcp_profile(AcpRoleSlot::Reviewer, Some(forbidden)).is_err(),
+                "reviewer slot must fail-closed on profile `{forbidden}`"
+            );
+        }
+
+        // Architect slot accepts ONLY None | Some("architect").
+        assert_eq!(
+            resolve_slot_mcp_profile(AcpRoleSlot::Architect, None),
+            Ok(ToolProfile::Architect)
+        );
+        assert_eq!(
+            resolve_slot_mcp_profile(AcpRoleSlot::Architect, Some("architect")),
+            Ok(ToolProfile::Architect)
+        );
+        for forbidden in ["writer-sub", "reviewer", "full-legacy", "", "ARCHITECT"] {
+            assert!(
+                resolve_slot_mcp_profile(AcpRoleSlot::Architect, Some(forbidden)).is_err(),
+                "architect slot must reject `{forbidden}`"
+            );
+        }
+
+        // Writer slot remains 100% backward-compatible with resolve_acp_mcp_profile.
+        assert_eq!(
+            resolve_slot_mcp_profile(AcpRoleSlot::Writer, None),
+            Ok(ToolProfile::WriterSub)
+        );
+        for profile in ToolProfile::ALL {
+            assert_eq!(
+                resolve_slot_mcp_profile(AcpRoleSlot::Writer, Some(profile.as_str())),
+                Ok(profile)
+            );
+        }
+        assert!(resolve_slot_mcp_profile(AcpRoleSlot::Writer, Some("bogus")).is_err());
+
+        // End-to-end attachment plan for Reviewer under a Project-scoped MCP server.
+        let binding = LocalMcpBinding {
+            port: 45871,
+            scope: SessionScope::Project,
+            token_fingerprint: "fp_reviewer".to_string(),
+            generation: 3,
+        };
+        let rev_profile = resolve_slot_mcp_profile(AcpRoleSlot::Reviewer, None).unwrap();
+        let plan = plan_local_mcp_attachment(
+            Some(true),
+            true,
+            Some(true),
+            Some((45871, "tok_secret".into(), binding.clone())),
+            rev_profile,
+        );
+        assert!(plan.attached_local_mcp);
+        assert_eq!(plan.local_mcp_profile.as_deref(), Some("reviewer"));
+        assert_eq!(plan.local_mcp_scope.as_deref(), Some("project"));
+        assert_eq!(
+            plan.mcp_servers[0]["url"],
+            "http://127.0.0.1:45871/mcp?profile=reviewer"
+        );
+        assert_eq!(
+            plan.mcp_servers[0]["headers"][1],
+            json!({ "name": "X-Niko-Profile", "value": "reviewer" })
+        );
+        let eff_scope = plan
+            .attached_mcp_binding
+            .as_ref()
+            .map(|b| AcpRoleSlot::Reviewer.effective_scope(b.scope).as_str().to_string());
+        assert_eq!(eff_scope.as_deref(), Some("read"));
+    }
+
+    #[test]
+    fn multi_slot_pool_coexistence_and_switch_slot_preserve_writer_and_reviewer_sessions() {
+        let binding = LocalMcpBinding {
+            port: 45871,
+            scope: SessionScope::Project,
+            token_fingerprint: "fp_live".to_string(),
+            generation: 1,
+        };
+        let mut slots: HashMap<AcpRoleSlot, AcpSlotSession> = HashMap::new();
+        slots.insert(
+            AcpRoleSlot::Writer,
+            AcpSlotSession {
+                slot: AcpRoleSlot::Writer,
+                session_id: "sess-writer".to_string(),
+                cwd: "/novel".to_string(),
+                config_options: vec![json!({ "id": "model", "currentValue": "gemini-2.5-pro" })],
+                attached_local_mcp: true,
+                local_mcp_scope: Some("project".to_string()),
+                effective_mcp_scope: Some("project".to_string()),
+                local_mcp_profile: Some("writer-sub".to_string()),
+                attached_mcp_binding: Some(binding.clone()),
+                parent_code_repo_warning: None,
+                in_flight_prompt: Arc::new(AtomicBool::new(false)),
+            },
+        );
+        slots.insert(
+            AcpRoleSlot::Reviewer,
+            AcpSlotSession {
+                slot: AcpRoleSlot::Reviewer,
+                session_id: "sess-reviewer".to_string(),
+                cwd: "/novel".to_string(),
+                config_options: vec![json!({ "id": "model", "currentValue": "gemini-2.5-flash" })],
+                attached_local_mcp: true,
+                local_mcp_scope: Some("project".to_string()),
+                effective_mcp_scope: Some("read".to_string()),
+                local_mcp_profile: Some("reviewer".to_string()),
+                attached_mcp_binding: Some(binding.clone()),
+                parent_code_repo_warning: Some("parent repo".to_string()),
+                in_flight_prompt: Arc::new(AtomicBool::new(true)),
+            },
+        );
+
+        let mut writer_perm = parse_permission_request(
+            "10".to_string(),
+            &json!({ "sessionId": "sess-writer", "title": "Write draft" }),
+        );
+        writer_perm.slot = Some("writer".to_string());
+        let mut reviewer_perm = parse_permission_request(
+            "20".to_string(),
+            &json!({ "sessionId": "sess-reviewer", "title": "Inspect canon" }),
+        );
+        reviewer_perm.slot = Some("reviewer".to_string());
+        let all_pending = vec![writer_perm, reviewer_perm];
+
+        let base = AcpStatusSnapshot {
+            connected: true,
+            http_mcp_enabled: true,
+            ..Default::default()
+        };
+
+        // Active = writer: top-level projects writer, slots retains BOTH writer and reviewer.
+        let snap_writer = project_pool_status_snapshot(
+            base.clone(),
+            &slots,
+            AcpRoleSlot::Writer,
+            Some("/connect-cwd"),
+            Some("connect warning"),
+            &all_pending,
+            Some(&binding),
+        );
+        assert_eq!(snap_writer.active_slot, "writer");
+        assert_eq!(snap_writer.active_session_id.as_deref(), Some("sess-writer"));
+        assert_eq!(snap_writer.local_mcp_profile.as_deref(), Some("writer-sub"));
+        assert!(!snap_writer.in_flight_prompt);
+        assert_eq!(snap_writer.config_options[0]["currentValue"], json!("gemini-2.5-pro"));
+        assert_eq!(snap_writer.pending_permissions.len(), 1);
+        assert_eq!(snap_writer.pending_permissions[0].request_id, "10");
+        assert_eq!(snap_writer.slots.len(), 2);
+        let rev_slot_snap = &snap_writer.slots["reviewer"];
+        assert_eq!(rev_slot_snap.session_id, "sess-reviewer");
+        assert!(rev_slot_snap.read_only);
+        assert_eq!(rev_slot_snap.local_mcp_scope.as_deref(), Some("project"));
+        assert_eq!(rev_slot_snap.effective_mcp_scope.as_deref(), Some("read"));
+        assert_eq!(rev_slot_snap.local_mcp_profile.as_deref(), Some("reviewer"));
+        assert!(rev_slot_snap.in_flight_prompt);
+        assert_eq!(rev_slot_snap.pending_permissions.len(), 1);
+        assert_eq!(rev_slot_snap.pending_permissions[0].request_id, "20");
+
+        // Switch active slot to reviewer non-destructively: writer MUST remain completely preserved.
+        let active_slot = resolve_acp_slot(Some("reviewer"), AcpRoleSlot::Writer).unwrap();
+        let snap_reviewer = project_pool_status_snapshot(
+            base.clone(),
+            &slots,
+            active_slot,
+            Some("/connect-cwd"),
+            Some("connect warning"),
+            &all_pending,
+            Some(&binding),
+        );
+        assert_eq!(snap_reviewer.active_slot, "reviewer");
+        assert_eq!(
+            snap_reviewer.active_session_id.as_deref(),
+            Some("sess-reviewer")
+        );
+        assert_eq!(snap_reviewer.local_mcp_profile.as_deref(), Some("reviewer"));
+        assert!(snap_reviewer.in_flight_prompt);
+        assert_eq!(
+            snap_reviewer.config_options[0]["currentValue"],
+            json!("gemini-2.5-flash")
+        );
+        assert_eq!(snap_reviewer.pending_permissions.len(), 1);
+        assert_eq!(snap_reviewer.pending_permissions[0].request_id, "20");
+        assert_eq!(snap_reviewer.slots["writer"].session_id, "sess-writer");
+        assert_eq!(
+            snap_reviewer.slots["writer"].config_options[0]["currentValue"],
+            json!("gemini-2.5-pro")
+        );
+        assert_eq!(snap_reviewer.slots["writer"].pending_permissions.len(), 1);
+
+        // Switching to uninitialized architect slot falls back cwd & parent warning to connect defaults
+        // without losing writer or reviewer sessions.
+        let snap_arch = project_pool_status_snapshot(
+            base,
+            &slots,
+            AcpRoleSlot::Architect,
+            Some("/connect-cwd"),
+            Some("connect warning"),
+            &all_pending,
+            Some(&binding),
+        );
+        assert_eq!(snap_arch.active_slot, "architect");
+        assert_eq!(snap_arch.active_session_id, None);
+        assert_eq!(snap_arch.cwd.as_deref(), Some("/connect-cwd"));
+        assert_eq!(
+            snap_arch.parent_code_repo_warning.as_deref(),
+            Some("connect warning")
+        );
+        assert!(snap_arch.pending_permissions.is_empty());
+        assert_eq!(snap_arch.slots.len(), 2);
+
+        // Strict command slot resolution prevents cross-slot session mismatch.
+        assert_eq!(
+            resolve_live_slot_for_command(&slots, AcpRoleSlot::Writer, "sess-reviewer", Some("reviewer"))
+                .unwrap()
+                .slot,
+            AcpRoleSlot::Reviewer
+        );
+        assert!(
+            resolve_live_slot_for_command(&slots, AcpRoleSlot::Writer, "sess-writer", Some("reviewer"))
+                .is_err()
+        );
+        assert!(
+            resolve_live_slot_for_command(&slots, AcpRoleSlot::Writer, "sess-writer", Some("architect"))
+                .is_err()
+        );
+        assert_eq!(
+            resolve_live_slot_for_command(&slots, AcpRoleSlot::Writer, "sess-reviewer", None)
+                .unwrap()
+                .slot,
+            AcpRoleSlot::Reviewer
+        );
+        assert!(
+            resolve_live_slot_for_command(&slots, AcpRoleSlot::Writer, "sess-unknown", None)
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn resetting_reviewer_slot_drains_only_reviewer_permissions_keeping_writer_intact() {
+        let pending: PendingPermissionMap = Arc::new(Mutex::new(HashMap::new()));
+        let make_entry = |id: i64, sid: &str, slot: &str, title: &str| {
+            let mut info = parse_permission_request(
+                id.to_string(),
+                &json!({ "sessionId": sid, "title": title }),
+            );
+            info.slot = Some(slot.to_string());
+            PendingPermissionEntry {
+                rpc_id: json!(id),
+                info,
+            }
+        };
+        {
+            let mut map = pending.lock().await;
+            map.insert(
+                "10".to_string(),
+                make_entry(10, "sess-writer", "writer", "Writer draft"),
+            );
+            map.insert(
+                "20".to_string(),
+                make_entry(20, "sess-reviewer-1", "reviewer", "Reviewer read 1"),
+            );
+            map.insert(
+                "21".to_string(),
+                make_entry(21, "sess-reviewer-1", "reviewer", "Reviewer read 2"),
+            );
+            map.insert(
+                "30".to_string(),
+                make_entry(30, "sess-arch-old", "architect", "Stale architect"),
+            );
+        }
+
+        // Writer has an active in-flight prompt guard that MUST remain unaffected.
+        let writer_in_flight = Arc::new(AtomicBool::new(false));
+        let _writer_guard = InFlightPromptGuard::try_acquire(Arc::clone(&writer_in_flight))
+            .expect("writer guard must acquire");
+
+        // Pre-RPC drain of old reviewer session cancels ONLY reviewer-1 permissions.
+        let (stdin_tx, mut stdin_rx) = tokio::io::duplex(4096);
+        let shared_stdin = Arc::new(Mutex::new(stdin_tx));
+        let mut drained =
+            drain_session_permissions(&pending, &shared_stdin, "sess-reviewer-1").await;
+        drained.sort_by(|a, b| a.request_id.cmp(&b.request_id));
+        assert_eq!(
+            drained,
+            vec![
+                DrainedPermission {
+                    request_id: "20".to_string(),
+                    session_id: "sess-reviewer-1".to_string(),
+                    slot: Some("reviewer".to_string()),
+                },
+                DrainedPermission {
+                    request_id: "21".to_string(),
+                    session_id: "sess-reviewer-1".to_string(),
+                    slot: Some("reviewer".to_string()),
+                },
+            ]
+        );
+        drop(shared_stdin);
+
+        let mut reader = BufReader::new(&mut stdin_rx);
+        let mut cancelled_ids = Vec::new();
+        loop {
+            match read_bounded_stdout_line(&mut reader, 4096).await.unwrap() {
+                BoundedLineOutcome::Eof => break,
+                BoundedLineOutcome::Line(line) => {
+                    let v: Value = serde_json::from_str(&line).unwrap();
+                    assert_eq!(v["result"]["outcome"]["outcome"], json!("cancelled"));
+                    cancelled_ids.push(v["id"].as_i64().unwrap());
+                }
+                other => panic!("unexpected outcome: {other:?}"),
+            }
+        }
+        cancelled_ids.sort();
+        assert_eq!(cancelled_ids, vec![20, 21]);
+
+        // Writer's permission and in-flight guard remain completely intact.
+        assert!(writer_in_flight.load(Ordering::Acquire));
+        {
+            let remaining = pending.lock().await;
+            assert!(remaining.contains_key("10"));
+            assert!(remaining.contains_key("30"));
+            assert!(!remaining.contains_key("20"));
+            assert!(!remaining.contains_key("21"));
+        }
+
+        // Post-RPC unmapped drain keeps all live slots (writer + new reviewer-2) and cancels late/unmapped ones.
+        {
+            let mut map = pending.lock().await;
+            map.insert(
+                "22".to_string(),
+                make_entry(22, "sess-reviewer-1", "reviewer", "Late reviewer-1"),
+            );
+            map.insert(
+                "23".to_string(),
+                make_entry(23, "sess-reviewer-2", "reviewer", "Live reviewer-2"),
+            );
+        }
+        let live_ids: HashSet<String> = ["sess-writer".to_string(), "sess-reviewer-2".to_string()]
+            .into_iter()
+            .collect();
+        let (stdin_tx2, mut stdin_rx2) = tokio::io::duplex(4096);
+        let shared_stdin2 = Arc::new(Mutex::new(stdin_tx2));
+        let mut unmapped =
+            drain_unmapped_session_permissions(&pending, &shared_stdin2, &live_ids).await;
+        unmapped.sort_by(|a, b| a.request_id.cmp(&b.request_id));
+        assert_eq!(
+            unmapped
+                .iter()
+                .map(|d| (d.request_id.as_str(), d.session_id.as_str(), d.slot.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("22", "sess-reviewer-1", Some("reviewer")),
+                ("30", "sess-arch-old", Some("architect")),
+            ]
+        );
+        drop(shared_stdin2);
+
+        let mut reader2 = BufReader::new(&mut stdin_rx2);
+        let mut unmapped_ids = Vec::new();
+        loop {
+            match read_bounded_stdout_line(&mut reader2, 4096).await.unwrap() {
+                BoundedLineOutcome::Eof => break,
+                BoundedLineOutcome::Line(line) => {
+                    let v: Value = serde_json::from_str(&line).unwrap();
+                    assert_eq!(v["result"]["outcome"]["outcome"], json!("cancelled"));
+                    unmapped_ids.push(v["id"].as_i64().unwrap());
+                }
+                other => panic!("unexpected outcome: {other:?}"),
+            }
+        }
+        unmapped_ids.sort();
+        assert_eq!(unmapped_ids, vec![22, 30]);
+
+        // Verify permission_resolved helper emits additive sessionId and slot.
+        let resolved_evt = build_permission_resolved_event(
+            &unmapped[0].request_id,
+            None,
+            Some(&unmapped[0].session_id),
+            unmapped[0].slot.as_deref(),
+        );
+        assert_eq!(resolved_evt["kind"], json!("permission_resolved"));
+        assert_eq!(resolved_evt["requestId"], json!("22"));
+        assert_eq!(resolved_evt["optionId"], Value::Null);
+        assert_eq!(resolved_evt["sessionId"], json!("sess-reviewer-1"));
+        assert_eq!(resolved_evt["slot"], json!("reviewer"));
+
+        // Full disconnect_inner path (`drain_pending_permissions`) still drains ALL remaining slots.
+        let (stdin_tx3, mut stdin_rx3) = tokio::io::duplex(4096);
+        let shared_stdin3 = Arc::new(Mutex::new(stdin_tx3));
+        let mut all_drained = drain_pending_permissions(&pending, &shared_stdin3).await;
+        all_drained.sort();
+        assert_eq!(all_drained, vec!["10".to_string(), "23".to_string()]);
+        assert!(pending.lock().await.is_empty());
+        drop(shared_stdin3);
+
+        let mut reader3 = BufReader::new(&mut stdin_rx3);
+        let mut disconnect_ids = Vec::new();
+        loop {
+            match read_bounded_stdout_line(&mut reader3, 4096).await.unwrap() {
+                BoundedLineOutcome::Eof => break,
+                BoundedLineOutcome::Line(line) => {
+                    let v: Value = serde_json::from_str(&line).unwrap();
+                    assert_eq!(v["result"]["outcome"]["outcome"], json!("cancelled"));
+                    disconnect_ids.push(v["id"].as_i64().unwrap());
+                }
+                other => panic!("unexpected outcome: {other:?}"),
+            }
+        }
+        disconnect_ids.sort();
+        assert_eq!(disconnect_ids, vec![10, 23]);
+    }
+
+    #[test]
+    fn in_flight_prompt_guards_are_isolated_per_slot() {
+        let writer_flag = Arc::new(AtomicBool::new(false));
+        let reviewer_flag = Arc::new(AtomicBool::new(false));
+
+        let writer_guard = InFlightPromptGuard::try_acquire(Arc::clone(&writer_flag))
+            .expect("writer prompt must acquire");
+        assert!(
+            InFlightPromptGuard::try_acquire(Arc::clone(&writer_flag)).is_err(),
+            "same slot must reject overlapping prompt"
+        );
+
+        // Reviewer slot acquires independently while writer is in flight.
+        let reviewer_guard = InFlightPromptGuard::try_acquire(Arc::clone(&reviewer_flag))
+            .expect("reviewer prompt must not contend with writer slot");
+        assert!(
+            InFlightPromptGuard::try_acquire(Arc::clone(&reviewer_flag)).is_err(),
+            "reviewer slot must reject its own overlap"
+        );
+        assert!(writer_flag.load(Ordering::Acquire));
+        assert!(reviewer_flag.load(Ordering::Acquire));
+
+        // Dropping reviewer guard frees ONLY reviewer; writer remains locked.
+        drop(reviewer_guard);
+        assert!(!reviewer_flag.load(Ordering::Acquire));
+        assert!(writer_flag.load(Ordering::Acquire));
+        let reviewer_guard_2 = InFlightPromptGuard::try_acquire(Arc::clone(&reviewer_flag))
+            .expect("reviewer must re-acquire immediately after drop");
+        drop(reviewer_guard_2);
+
+        // Dropping writer guard frees writer.
+        drop(writer_guard);
+        assert!(!writer_flag.load(Ordering::Acquire));
+        assert!(InFlightPromptGuard::try_acquire(Arc::clone(&writer_flag)).is_ok());
+    }
+
+    #[tokio::test]
+    async fn demux_loop_routes_config_updates_and_events_with_slot_and_enforces_epoch_and_strict_session_match() {
+        struct MultiSlotMockDemuxSink {
+            my_epoch: u64,
+            conn_epoch: Arc<AtomicU64>,
+            slots: Arc<Mutex<HashMap<AcpRoleSlot, AcpSlotSession>>>,
+            active_slot: Arc<Mutex<AcpRoleSlot>>,
+            pending_permissions: PendingPermissionMap,
+            events: Arc<std::sync::Mutex<Vec<Value>>>,
+            client_replies: Arc<Mutex<Vec<Value>>>,
+        }
+
+        impl DemuxSessionSink for MultiSlotMockDemuxSink {
+            fn is_epoch_active(&self) -> bool {
+                self.conn_epoch.load(Ordering::Acquire) == self.my_epoch
+            }
+
+            fn resolve_rpc_response<'a>(
+                &'a self,
+                _key: String,
+                _result: Result<Value, AcpRpcError>,
+            ) -> BoxFuture<'a, ()> {
+                Box::pin(async {})
+            }
+
+            fn write_client_reply<'a>(&'a self, payload: Value) -> BoxFuture<'a, ()> {
+                Box::pin(async move {
+                    self.client_replies.lock().await.push(payload);
+                })
+            }
+
+            fn insert_pending_permission<'a>(
+                &'a self,
+                req_key: String,
+                entry: PendingPermissionEntry,
+            ) -> BoxFuture<'a, ()> {
+                Box::pin(async move {
+                    self.pending_permissions.lock().await.insert(req_key, entry);
+                })
+            }
+
+            fn update_config_options<'a>(
+                &'a self,
+                evt_sid: Option<String>,
+                opts: Vec<Value>,
+            ) -> BoxFuture<'a, ()> {
+                Box::pin(async move {
+                    let active_slot = *self.active_slot.lock().await;
+                    let mut slots = self.slots.lock().await;
+                    apply_config_options_update_to_slots(
+                        &mut slots,
+                        active_slot,
+                        evt_sid.as_deref(),
+                        opts,
+                    );
+                })
+            }
+
+            fn resolve_slot_for_session<'a>(
+                &'a self,
+                session_id: Option<&'a str>,
+            ) -> BoxFuture<'a, Option<String>> {
+                Box::pin(async move {
+                    let active_slot = *self.active_slot.lock().await;
+                    let slots = self.slots.lock().await;
+                    resolve_slot_for_session_in_pool(&slots, active_slot, session_id)
+                        .map(|s| s.as_str().to_string())
+                })
+            }
+
+            fn emit_event(&self, payload: Value) {
+                self.events.lock().unwrap().push(payload);
+            }
+
+            fn on_loop_exit<'a>(&'a self) -> BoxFuture<'a, ()> {
+                Box::pin(async move {
+                    if self.is_epoch_active() {
+                        self.emit_event(json!({ "kind": "disconnected", "reason": "eof" }));
+                    }
+                })
+            }
+        }
+
+        let make_slot = |slot: AcpRoleSlot, sid: &str| AcpSlotSession {
+            slot,
+            session_id: sid.to_string(),
+            cwd: "/novel".to_string(),
+            config_options: Vec::new(),
+            attached_local_mcp: false,
+            local_mcp_scope: None,
+            effective_mcp_scope: None,
+            local_mcp_profile: None,
+            attached_mcp_binding: None,
+            parent_code_repo_warning: None,
+            in_flight_prompt: Arc::new(AtomicBool::new(false)),
+        };
+
+        // 1) Empty slots pool MUST reject `(Some(_), None)` config updates without leaking.
+        let mut empty_slots = HashMap::new();
+        assert!(!apply_config_options_update_to_slots(
+            &mut empty_slots,
+            AcpRoleSlot::Writer,
+            Some("sess-ghost"),
+            vec![json!({ "id": "model", "value": "gemini" })],
+        ));
+        assert!(empty_slots.is_empty());
+
+        // 2) Active multi-slot routing over real duplex demux loop.
+        let epoch = Arc::new(AtomicU64::new(1));
+        let slots = Arc::new(Mutex::new(HashMap::from([
+            (AcpRoleSlot::Writer, make_slot(AcpRoleSlot::Writer, "sess-writer")),
+            (
+                AcpRoleSlot::Reviewer,
+                make_slot(AcpRoleSlot::Reviewer, "sess-reviewer"),
+            ),
+        ])));
+        let active_slot = Arc::new(Mutex::new(AcpRoleSlot::Writer));
+        let pending_perms: PendingPermissionMap = Arc::new(Mutex::new(HashMap::new()));
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let replies = Arc::new(Mutex::new(Vec::new()));
+
+        let sink = MultiSlotMockDemuxSink {
+            my_epoch: 1,
+            conn_epoch: Arc::clone(&epoch),
+            slots: Arc::clone(&slots),
+            active_slot: Arc::clone(&active_slot),
+            pending_permissions: Arc::clone(&pending_perms),
+            events: Arc::clone(&events),
+            client_replies: Arc::clone(&replies),
+        };
+        let (mut writer, reader) = tokio::io::duplex(16 * 1024);
+        let task = tokio::spawn(async move {
+            run_stdout_demux_loop(BufReader::new(reader), sink, MAX_ACP_STDOUT_LINE_BYTES).await;
+        });
+
+        let frames = [
+            // Reviewer config update routes ONLY to reviewer slot.
+            json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "sess-reviewer",
+                    "update": {
+                        "sessionUpdate": "config_option_update",
+                        "configOptions": [{ "id": "model", "currentValue": "gemini-flash" }]
+                    }
+                }
+            }),
+            // Unmapped sessionId MUST NOT leak into writer or reviewer.
+            json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "sess-unknown",
+                    "update": {
+                        "sessionUpdate": "config_option_update",
+                        "configOptions": [{ "id": "model", "currentValue": "leaked-model" }]
+                    }
+                }
+            }),
+            // Session-less config update routes to active_slot (writer).
+            json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "config_option_update",
+                        "configOptions": [{ "id": "model", "currentValue": "gemini-pro" }]
+                    }
+                }
+            }),
+            // Permission request for reviewer carries slot == "reviewer".
+            json!({
+                "jsonrpc": "2.0",
+                "id": 77,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "sess-reviewer",
+                    "title": "Read canon",
+                    "options": [{ "optionId": "allow_once", "name": "Allow once" }]
+                }
+            }),
+        ];
+        for frame in frames {
+            let mut line = serde_json::to_string(&frame).unwrap();
+            line.push('\n');
+            writer.write_all(line.as_bytes()).await.unwrap();
+        }
+        drop(writer);
+        task.await.unwrap();
+
+        {
+            let guard = slots.lock().await;
+            assert_eq!(
+                guard[&AcpRoleSlot::Reviewer].config_options,
+                vec![json!({ "id": "model", "currentValue": "gemini-flash" })]
+            );
+            assert_eq!(
+                guard[&AcpRoleSlot::Writer].config_options,
+                vec![json!({ "id": "model", "currentValue": "gemini-pro" })]
+            );
+        }
+        {
+            let perms = pending_perms.lock().await;
+            assert_eq!(perms["77"].info.slot.as_deref(), Some("reviewer"));
+        }
+        {
+            let evts = events.lock().unwrap();
+            let rev_update = evts
+                .iter()
+                .find(|e| {
+                    e["kind"] == "session_update"
+                        && e["params"]["sessionId"] == json!("sess-reviewer")
+                })
+                .expect("reviewer session_update emitted");
+            assert_eq!(rev_update["slot"], json!("reviewer"));
+
+            let unknown_update = evts
+                .iter()
+                .find(|e| {
+                    e["kind"] == "session_update"
+                        && e["params"]["sessionId"] == json!("sess-unknown")
+                })
+                .expect("unknown session_update emitted");
+            assert!(
+                unknown_update.get("slot").is_none(),
+                "unmapped session must not receive a guessed slot"
+            );
+
+            let perm_evt = evts
+                .iter()
+                .find(|e| e["kind"] == "permission_request")
+                .expect("permission_request emitted");
+            assert_eq!(perm_evt["slot"], json!("reviewer"));
+            assert_eq!(perm_evt["permission"]["slot"], json!("reviewer"));
+        }
+
+        // 3) Stale epoch MUST drop frames & suppress all events/mutations.
+        epoch.fetch_add(1, Ordering::AcqRel);
+        let stale_events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stale_sink = MultiSlotMockDemuxSink {
+            my_epoch: 1,
+            conn_epoch: Arc::clone(&epoch),
+            slots: Arc::clone(&slots),
+            active_slot: Arc::clone(&active_slot),
+            pending_permissions: Arc::clone(&pending_perms),
+            events: Arc::clone(&stale_events),
+            client_replies: Arc::clone(&replies),
+        };
+        let (mut stale_writer, stale_reader) = tokio::io::duplex(4096);
+        let stale_task = tokio::spawn(async move {
+            run_stdout_demux_loop(
+                BufReader::new(stale_reader),
+                stale_sink,
+                MAX_ACP_STDOUT_LINE_BYTES,
+            )
+            .await;
+        });
+        let stale_frame = format!(
+            "{}\n",
+            json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "sess-writer",
+                    "update": {
+                        "sessionUpdate": "config_option_update",
+                        "configOptions": [{ "id": "model", "currentValue": "stale-overwrite" }]
+                    }
+                }
+            })
+        );
+        let _ = stale_writer.write_all(stale_frame.as_bytes()).await;
+        drop(stale_writer);
+        stale_task.await.unwrap();
+
+        assert!(stale_events.lock().unwrap().is_empty());
+        assert_eq!(
+            slots.lock().await[&AcpRoleSlot::Writer].config_options,
+            vec![json!({ "id": "model", "currentValue": "gemini-pro" })]
+        );
+    }
+
+    #[test]
+    fn poison_safe_exit_guard_recovers_from_poisoned_mutex_and_respects_epoch() {
+        let guard: Arc<std::sync::Mutex<Option<(u64, ProcessTree)>>> =
+            Arc::new(std::sync::Mutex::new(None));
+
+        #[cfg(windows)]
+        let mut maybe_child = {
+            let child = std::process::Command::new("cmd")
+                .args(["/c", "ping", "-n", "15", "127.0.0.1"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("spawn dummy child");
+            if let Some(tree) = process_tree::attach_pid(child.id()) {
+                *guard.lock().unwrap() = Some((2, tree));
+            }
+            Some(child)
+        };
+
+        // Intentionally poison the mutex while it holds epoch 2's entry.
+        let poison_clone = Arc::clone(&guard);
+        let _ = std::thread::spawn(move || {
+            let _held = poison_clone.lock().unwrap();
+            panic!("intentional poison to test epoch-fenced recovery");
+        })
+        .join();
+        assert!(guard.is_poisoned());
+
+        // Stale epoch 1 MUST recover without panicking/deadlocking and MUST NOT clear epoch 2.
+        clear_exit_guard_if_epoch(&guard, 1);
+        #[cfg(windows)]
+        {
+            let inner = match guard.lock() {
+                Ok(g) => g,
+                Err(p) => p.into_inner(),
+            };
+            assert!(
+                inner.as_ref().is_some_and(|(ep, _)| *ep == 2),
+                "stale epoch must preserve newer epoch entry even when mutex is poisoned"
+            );
+        }
+
+        // Matching epoch 2 MUST recover from poisoned mutex and clear the entry.
+        clear_exit_guard_if_epoch(&guard, 2);
+        {
+            let inner = match guard.lock() {
+                Ok(g) => g,
+                Err(p) => p.into_inner(),
+            };
+            assert!(
+                inner.is_none(),
+                "matching epoch must clear exit_guard even when mutex is poisoned"
+            );
+        }
+
+        #[cfg(windows)]
+        if let Some(ref mut child) = maybe_child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        // `stop_sync` also recovers from a poisoned `exit_guard` and bumps `conn_epoch`.
+        let state = AntigravityAcpState::default();
+        let before_epoch = state.conn_epoch.load(Ordering::Acquire);
+        let state_guard = Arc::clone(&state.exit_guard);
+        let _ = std::thread::spawn(move || {
+            let _g = state_guard.lock().unwrap();
+            panic!("poison state.exit_guard");
+        })
+        .join();
+        assert!(state.exit_guard.is_poisoned());
+        state.stop_sync();
+        assert_eq!(state.conn_epoch.load(Ordering::Acquire), before_epoch + 1);
+    }
+
+    #[test]
+    fn slot_reset_guard_blocks_same_slot_allows_parallel_slot_and_recovers_from_poison() {
+        let resetting: ResettingSlotsSet = Arc::new(std::sync::Mutex::new(HashSet::new()));
+
+        assert!(!SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Writer));
+        assert!(!SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+
+        // Acquire on Writer marks Writer resetting and blocks concurrent acquire on Writer.
+        let writer_guard =
+            SlotResetGuard::try_acquire(Arc::clone(&resetting), AcpRoleSlot::Writer)
+                .expect("initial writer acquire must succeed");
+        assert!(SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Writer));
+
+        let dup_err = SlotResetGuard::try_acquire(Arc::clone(&resetting), AcpRoleSlot::Writer)
+            .err()
+            .expect("concurrent acquire on same slot must be rejected");
+        assert!(
+            dup_err.contains("writer") && dup_err.contains("resetting"),
+            "unexpected error: {dup_err}"
+        );
+
+        // Parallel acquire on another slot (Reviewer) MUST succeed independently.
+        let reviewer_guard =
+            SlotResetGuard::try_acquire(Arc::clone(&resetting), AcpRoleSlot::Reviewer)
+                .expect("parallel acquire on another slot must succeed");
+        assert!(SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+
+        // Dropping Writer releases only Writer while Reviewer remains resetting.
+        drop(writer_guard);
+        assert!(!SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Writer));
+        assert!(SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+
+        // Intentionally poison the mutex while Reviewer is still held; drop & re-acquire MUST recover.
+        let poison_clone = Arc::clone(&resetting);
+        let _ = std::thread::spawn(move || {
+            let _held = poison_clone.lock().unwrap();
+            panic!("intentional poison to test poison-safe SlotResetGuard");
+        })
+        .join();
+        assert!(resetting.is_poisoned());
+        assert!(SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+
+        drop(reviewer_guard);
+        assert!(!SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+
+        // Re-acquiring Reviewer after poisoned drop MUST succeed and release cleanly on drop.
+        let reacquired =
+            SlotResetGuard::try_acquire(Arc::clone(&resetting), AcpRoleSlot::Reviewer)
+                .expect("re-acquire after poison-safe drop must succeed");
+        assert!(SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+        drop(reacquired);
+        assert!(!SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
     }
 }

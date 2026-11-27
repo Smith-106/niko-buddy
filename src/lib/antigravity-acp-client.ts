@@ -21,6 +21,13 @@ export const MCP_TOOL_PROFILES = [
 ] as const
 export type McpToolProfile = (typeof MCP_TOOL_PROFILES)[number]
 
+export const ACP_ROLE_SLOTS = ["writer", "reviewer", "architect"] as const
+export type AcpRoleSlotId = (typeof ACP_ROLE_SLOTS)[number]
+
+export function isAcpRoleSlotId(value: unknown): value is AcpRoleSlotId {
+  return typeof value === "string" && (ACP_ROLE_SLOTS as readonly string[]).includes(value)
+}
+
 export type WriterPluginProjectState = "synced" | "needs_update" | "not_synced"
 
 export interface WriterPluginStatus {
@@ -83,6 +90,7 @@ export interface AcpPermissionOption {
 export interface AcpPendingPermission {
   requestId: string
   sessionId: string
+  slot?: AcpRoleSlotId | null
   title: string
   options: AcpPermissionOption[]
   rawParams?: unknown
@@ -98,6 +106,23 @@ export type LocalMcpStaleReason =
   | "scope_changed"
   | "server_restarted"
 
+export interface AcpSlotStatusSnapshot {
+  slot: AcpRoleSlotId
+  sessionId: string
+  cwd: string
+  configOptions: unknown[]
+  pendingPermissions: AcpPendingPermission[]
+  attachedLocalMcp: boolean
+  localMcpScope?: string | null
+  effectiveMcpScope?: string | null
+  localMcpProfile?: McpToolProfile | null
+  readOnly: boolean
+  inFlightPrompt: boolean
+  localMcpStale?: boolean
+  localMcpStaleReason?: LocalMcpStaleReason | null
+  parentCodeRepoWarning?: string | null
+}
+
 export interface AcpStatusSnapshot {
   connected: boolean
   binaryPath: string | null
@@ -105,6 +130,8 @@ export interface AcpStatusSnapshot {
   agentVersion: string | null
   protocolVersion: number | null
   authMethods: AcpAuthMethod[]
+  activeSlot?: AcpRoleSlotId
+  slots?: Partial<Record<AcpRoleSlotId, AcpSlotStatusSnapshot>>
   activeSessionId: string | null
   cwd: string | null
   configOptions: unknown[]
@@ -122,14 +149,17 @@ export interface AcpStatusSnapshot {
 }
 
 export interface AcpSessionResult {
+  slot?: AcpRoleSlotId
   sessionId: string
   cwd: string
   configOptions: unknown[]
   attachedLocalMcp: boolean
   rawResult: unknown
   localMcpScope?: string | null
+  effectiveMcpScope?: string | null
   localMcpProfile?: McpToolProfile | null
   localMcpSkipReason?: "http_mcp_disabled" | "agent_unsupported" | "mcp_server_not_running" | null
+  readOnly?: boolean
   parentCodeRepoWarning?: string | null
 }
 
@@ -154,9 +184,15 @@ export interface AcpConfigOption {
 }
 
 export type AcpEventPayload =
-  | { kind: "session_update"; params: Record<string, unknown> }
-  | { kind: "permission_request"; permission: AcpPendingPermission }
-  | { kind: "permission_resolved"; requestId: string; optionId: string | null }
+  | { kind: "session_update"; params: Record<string, unknown>; slot?: AcpRoleSlotId | null }
+  | { kind: "permission_request"; permission: AcpPendingPermission; slot?: AcpRoleSlotId | null }
+  | {
+      kind: "permission_resolved"
+      requestId: string
+      optionId: string | null
+      sessionId?: string | null
+      slot?: AcpRoleSlotId | null
+    }
   | { kind: "stderr"; message: string }
   | { kind: "disconnected"; reason: string }
   | {
@@ -364,18 +400,27 @@ export async function createAntigravityAcpSession(
   cwd: string,
   attachLocalMcp = false,
   mcpProfile?: McpToolProfile | null,
+  slot?: AcpRoleSlotId,
 ): Promise<AcpSessionResult> {
+  const payload: {
+    cwd: string
+    attachLocalMcp: boolean
+    mcpProfile?: McpToolProfile | null
+    slot?: AcpRoleSlotId
+  } = { cwd, attachLocalMcp }
   if (mcpProfile !== undefined) {
-    return invoke<AcpSessionResult>("antigravity_acp_new_session", {
-      cwd,
-      attachLocalMcp,
-      mcpProfile,
-    })
+    payload.mcpProfile = mcpProfile
   }
-  return invoke<AcpSessionResult>("antigravity_acp_new_session", {
-    cwd,
-    attachLocalMcp,
-  })
+  if (slot !== undefined) {
+    payload.slot = slot
+  }
+  return invoke<AcpSessionResult>("antigravity_acp_new_session", payload)
+}
+
+export async function switchAntigravityAcpSlot(
+  slot: AcpRoleSlotId,
+): Promise<AcpStatusSnapshot> {
+  return invoke<AcpStatusSnapshot>("antigravity_acp_switch_slot", { slot })
 }
 
 export async function getWriterPluginStatus(
@@ -409,16 +454,34 @@ export async function sendAntigravityAcpPrompt(params: {
   text: string
   contextTitle?: string | null
   contextText?: string | null
+  slot?: AcpRoleSlotId
 }): Promise<AcpPromptResult> {
-  return invoke<AcpPromptResult>("antigravity_acp_prompt", {
+  const payload: {
+    sessionId: string
+    text: string
+    contextTitle: string | null
+    contextText: string | null
+    slot?: AcpRoleSlotId
+  } = {
     sessionId: params.sessionId,
     text: params.text,
     contextTitle: params.contextTitle ?? null,
     contextText: params.contextText ?? null,
-  })
+  }
+  if (params.slot !== undefined) {
+    payload.slot = params.slot
+  }
+  return invoke<AcpPromptResult>("antigravity_acp_prompt", payload)
 }
 
-export async function cancelAntigravityAcpTurn(sessionId: string): Promise<void> {
+export async function cancelAntigravityAcpTurn(
+  sessionId: string,
+  slot?: AcpRoleSlotId,
+): Promise<void> {
+  if (slot !== undefined) {
+    await invoke("antigravity_acp_cancel", { sessionId, slot })
+    return
+  }
   await invoke("antigravity_acp_cancel", { sessionId })
 }
 
@@ -426,7 +489,16 @@ export async function setAntigravityAcpConfigOption(
   sessionId: string,
   configId: string,
   value: string,
+  slot?: AcpRoleSlotId,
 ): Promise<unknown> {
+  if (slot !== undefined) {
+    return invoke("antigravity_acp_set_config_option", {
+      sessionId,
+      configId,
+      value,
+      slot,
+    })
+  }
   return invoke("antigravity_acp_set_config_option", {
     sessionId,
     configId,

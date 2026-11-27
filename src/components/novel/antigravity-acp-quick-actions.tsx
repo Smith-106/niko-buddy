@@ -180,14 +180,14 @@ export function buildWriterQuickActionPrompt(
     if (isZh) {
       return [
         `请执行只读的「下一步写作指引」（严禁调用任何写入工具）：`,
-        `1. 仅调用只读工具 workflow.next、project.state、draft.list 与 foreshadowing.list，核查当前写作阶段、待审草稿积压与临期伏笔债务。`,
+        `1. 仅调用只读工具 workflow.next、project.state、draft.list 与 foreshadowing.list（可按需只读调用 skills.list / skills.get 查阅写作与审校清单），核查当前写作阶段、待审草稿积压与临期伏笔债务。`,
         `2. 结合门控优先级（Consistency(P0) > Anti-AI(P1) > Quality(P2)）给出当下最优先的单一执行步骤与推荐 MCP 档位。`,
         `3. 仅输出建议与核查清单，不要写入任何草稿、大纲或正式章节。`,
       ].join("\n")
     }
     return [
       `Please run a read-only Next-Step Workflow Guide (zero write calls):`,
-      `1. Call ONLY read-only tools: workflow.next, project.state, draft.list, and foreshadowing.list to inspect current stage, pending draft queue, and due foreshadowing debts.`,
+      `1. Call ONLY read-only tools: workflow.next, project.state, draft.list, and foreshadowing.list (optionally skills.list / skills.get to inspect writing and review rubrics) to inspect current stage, pending draft queue, and due foreshadowing debts.`,
       `2. Recommend the single highest-priority next action and matching MCP profile respecting Consistency(P0) > Anti-AI(P1) > Quality(P2).`,
       `3. Output guidance and checklist only — do NOT call any write tools.`,
     ].join("\n")
@@ -201,7 +201,7 @@ export function buildWriterQuickActionPrompt(
           : "若已有前文请按需用 chapter.read 读取衔接"
       return [
         `请协助起草第 ${ctx.nextChapter} 章草稿：`,
-        `1. 可先用 workflow.next 核对当前步骤，再调用 context.prepare_write({ targetChapter: ${ctx.nextChapter}, retrievalMode: "local_only" }) 与 rules.get({ sections: ["bookRules"], compact: true })（记录返回的 prepareId 供后续审校复用，并按需辅以 foreshadowing.list / character.read / outline.read / style.exemplars / project.state / canon.query）打包本章上下文、写作规则与正典设定，${prevHint}。`,
+        `1. 可先用 workflow.next 核对当前步骤，再调用 context.prepare_write({ targetChapter: ${ctx.nextChapter}, retrievalMode: "local_only" }) 与 rules.get({ sections: ["bookRules"], compact: true })（记录返回的 prepareId 供后续审校复用，并按需辅以 foreshadowing.list / character.read / outline.read / style.exemplars / project.state / canon.query / skills.list / skills.get）打包本章上下文、写作规则与正典设定，${prevHint}。`,
         `2. 严格遵守 Draft-first 安全边界：仅通过 chapter.write 将第 ${ctx.nextChapter} 章写入待审草稿区，切勿直接覆盖正式章节或正式记忆。`,
         `3. 写完草稿后立即调用 gate.check_mechanical({ draftId: "<chapter.write 返回的 draftId>", detailLevel: "compact" }) 对新草稿做机械门控自检，按 Consistency(P0) > Anti-AI(P1) > Quality(P2) 优先级汇报问题与改进建议。`,
       ].join("\n")
@@ -212,7 +212,7 @@ export function buildWriterQuickActionPrompt(
         : "and call chapter.read on any prior chapter for continuity if needed"
     return [
       `Please draft Chapter ${ctx.nextChapter} into the Draft area:`,
-      `1. Optionally check workflow.next first, then call context.prepare_write({ targetChapter: ${ctx.nextChapter}, retrievalMode: "local_only" }) and rules.get({ sections: ["bookRules"], compact: true }) (keep the returned prepareId for downstream review reuse; optionally call foreshadowing.list / character.read / outline.read / style.exemplars / project.state / canon.query) to assemble the writing context, rules, and canon facts, ${prevHint}.`,
+      `1. Optionally check workflow.next first, then call context.prepare_write({ targetChapter: ${ctx.nextChapter}, retrievalMode: "local_only" }) and rules.get({ sections: ["bookRules"], compact: true }) (keep the returned prepareId for downstream review reuse; optionally call foreshadowing.list / character.read / outline.read / style.exemplars / project.state / canon.query / skills.list / skills.get) to assemble the writing context, rules, and canon facts, ${prevHint}.`,
       `2. Strictly obey the Draft-first safety boundary: write Chapter ${ctx.nextChapter} ONLY via chapter.write to the pending draft area (never overwrite formal chapters or formal memory directly).`,
       `3. Immediately run gate.check_mechanical({ draftId: "<draftId returned by chapter.write>", detailLevel: "compact" }) on the new draft and summarize findings prioritized as Consistency(P0) > Anti-AI(P1) > Quality(P2).`,
     ].join("\n")
@@ -247,14 +247,14 @@ export function buildWriterQuickActionPrompt(
     if (isZh) {
       return [
         `请对${targetLabelZh}执行深度审稿：`,
-        `1. 先调用 draft.list 检查待审草稿，复用此前 context.prepare_write 返回的 prepareId 或按需使用 draft.read / chapter.read 读取正文，再调用 rules.get({ sections: ["bookRules"], compact: true })、canon.query 及原子只读工具（foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search）核对设定规则、伏笔与文风。`,
+        `1. 先调用 draft.list 检查待审草稿，复用此前 context.prepare_write 返回的 prepareId 或按需使用 draft.read / chapter.read 读取正文，再调用 rules.get({ sections: ["bookRules"], compact: true })、canon.query 及原子只读工具（foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search，按需结合 skills.list / skills.get 查阅审校细则）核对设定规则、伏笔与文风。`,
         `2. 机械门控检查请区分来源：待审草稿调用 gate.check_mechanical({ draftId: "<draft.list 返回的 draftId>", detailLevel: "compact" })；已入库正式章调用 gate.check_mechanical({ chapter: ${formalChapterArgZh}, detailLevel: "compact" })（chapter 须为带引号的字符串）。严格遵循门控优先级：Consistency(P0) > Anti-AI(P1) > Quality(P2)（文学分不得覆盖一致性失败）。`,
         `3. 输出分优先级的结构化审稿结论与段落返修清单：若当前处于只读 reviewer 档位，请输出结构化 verdict 交由 writer-sub 调用 draft.record_review 记录；本次审查绝不直接修改或采纳正式正文。`,
       ].join("\n")
     }
     return [
       `Please review ${targetLabelEn} thoroughly:`,
-      `1. Call draft.list to locate pending drafts, reuse prepareId from context.prepare_write if available, read text via draft.read or chapter.read, and cross-check rules.get({ sections: ["bookRules"], compact: true }), canon.query, and atomic read tools (foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search).`,
+      `1. Call draft.list to locate pending drafts, reuse prepareId from context.prepare_write if available, read text via draft.read or chapter.read, and cross-check rules.get({ sections: ["bookRules"], compact: true }), canon.query, and atomic read tools (foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search; optionally skills.list / skills.get for review rubrics).`,
       `2. Run mechanical gates by target type: for a pending draft call gate.check_mechanical({ draftId: "<draftId from draft.list>", detailLevel: "compact" }); for a formal chapter call gate.check_mechanical({ chapter: ${formalChapterArgEn}, detailLevel: "compact" }) (chapter must be a quoted string). Strictly prioritize findings as Consistency(P0) > Anti-AI(P1) > Quality(P2) (Quality scores must never override Consistency failures).`,
       `3. Output a prioritized, structured review verdict and actionable revision checklist: in read-only reviewer profile, output the structured verdict for writer-sub to record via draft.record_review; never directly modify or adopt formal chapters.`,
     ].join("\n")

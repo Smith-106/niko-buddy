@@ -38,7 +38,17 @@ const mocks = vi.hoisted(() => ({
   setActiveSettingsCategory: vi.fn(),
   bumpDataVersion: vi.fn(),
   writeDraft: vi.fn(),
-  listChapterDrafts: vi.fn(async () => [] as Array<{ chapterName: string; status: string }>),
+  listChapterDrafts: vi.fn(
+    async () =>
+      [] as Array<{
+        id?: string
+        chapterName: string
+        status: string
+        createdAt?: number
+        revisionRound?: number
+        adoptionGate?: { status: string }
+      }>,
+  ),
   prepareInteractiveChapterSnapshot: vi.fn(),
   commitInteractiveChapterSnapshot: vi.fn(),
   usePendingDraftCount: vi.fn<(projectPath: string, reloadKey: unknown) => number | null>(() => 0),
@@ -1344,21 +1354,78 @@ describe("AntigravityAcpView", () => {
     expect(screen.getByTestId("acp-active-profile-badge")).toHaveTextContent("architect")
     expect(screen.queryByTestId("acp-profile-pending-hint")).toBeNull()
 
-    // Populate composer input & prior transcript, then click 1-click Isolated Read-Only Review
+    // Populate writer composer input & transcript, then click non-destructive Hand off to Reviewer Slot
+    mocks.listChapterDrafts.mockResolvedValueOnce([
+      {
+        id: "draft-ch03-xyz",
+        chapterName: "第3章 夜雨",
+        status: "draft",
+        createdAt: 1700000000,
+        revisionRound: 1,
+        adoptionGate: { status: "blocked" },
+      },
+    ])
+    act(() => {
+      emitEvent?.({
+        kind: "session_update",
+        params: {
+          sessionId: "sess-arch-2",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "起草完成，context.prepare_write prepareId: prep-ch03-77" },
+          },
+        },
+      })
+    })
     fireEvent.change(screen.getByTestId("acp-prompt-input"), { target: { value: "Unsent writer note" } })
-    fireEvent.click(screen.getByTestId("acp-isolated-reviewer-btn"))
+    fireEvent.click(screen.getByTestId("acp-handoff-reviewer-slot-btn"))
     await waitFor(() => {
       expect(mocks.invoke).toHaveBeenCalledWith("antigravity_acp_new_session", {
         cwd: "C:\\books\\demo",
         attachLocalMcp: true,
         mcpProfile: "reviewer",
+        slot: "reviewer",
       })
     })
-    expect((screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement).value).toBe("")
+    // Reviewer tab is active, profile selector is protocol-locked [RO], and composer is PRE-FILLED ONLY (zero auto-send!)
+    expect(screen.getByTestId("acp-slot-tab-reviewer")).toHaveAttribute("aria-selected", "true")
     expect(profileSelect.value).toBe("reviewer")
+    expect(profileSelect).toBeDisabled()
+    expect(screen.getByTestId("acp-reviewer-profile-locked-hint")).toBeInTheDocument()
     expect(screen.getByTestId("acp-active-profile-badge")).toHaveTextContent("reviewer")
-    // Explicit parentCodeRepoWarning: null cleared the stale banner
+    const reviewerPromptVal = (screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement).value
+    expect(reviewerPromptVal).toContain("draft-ch03-xyz")
+    expect(reviewerPromptVal).toContain("第3章 夜雨")
+    expect(reviewerPromptVal).toContain("prep-ch03-77")
+    expect(reviewerPromptVal).toContain("blocked")
+    expect(reviewerPromptVal).toContain("Consistency(P0) > Anti-AI(P1) > Quality(P2)")
+    expect(mocks.invoke).not.toHaveBeenCalledWith("antigravity_acp_prompt", expect.anything())
+    // Explicit parentCodeRepoWarning: null cleared the stale banner on reviewer slot
     expect(screen.queryByTestId("acp-parent-repo-warning-banner")).toBeNull()
+
+    // Switching back to Writer slot proves Writer's sessionId, transcript, unsent composerText, and mcpProfile are 100% intact!
+    fireEvent.click(screen.getByTestId("acp-slot-tab-writer"))
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("antigravity_acp_switch_slot", { slot: "writer" })
+    })
+    expect(screen.getByTestId("acp-slot-tab-writer")).toHaveAttribute("aria-selected", "true")
+    expect((screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement).value).toBe("Unsent writer note")
+    expect(screen.getByTestId("acp-transcript").textContent).toContain("prep-ch03-77")
+    expect(profileSelect.value).toBe("architect")
+    expect(useAntigravityAcpStore.getState().slots.writer.sessionId).toBe("sess-arch-2")
+
+    // Clicking Hand off again while reviewer slot already has a non-stale session REUSES it via switch_slot (no new_session!)
+    const newSessionCallsBeforeReuse = mocks.invoke.mock.calls.filter(
+      ([c]) => c === "antigravity_acp_new_session",
+    ).length
+    fireEvent.click(screen.getByTestId("acp-handoff-reviewer-slot-btn"))
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("antigravity_acp_switch_slot", { slot: "reviewer" })
+    })
+    expect(
+      mocks.invoke.mock.calls.filter(([c]) => c === "antigravity_acp_new_session").length,
+    ).toBe(newSessionCallsBeforeReuse)
+    expect(mocks.invoke).not.toHaveBeenCalledWith("antigravity_acp_prompt", expect.anything())
 
     // Writer Plugin Card: check includeClaudeMd, sync project, then install disabled global plugin
     expect(screen.getByTestId("acp-writer-plugin-state-badge")).toHaveTextContent(/未同步|Not synced/)
@@ -1465,8 +1532,8 @@ describe("AntigravityAcpView", () => {
     fireEvent.change(promptInput, { target: { value: "Unsent ch04 revision note" } })
     expect(profileSelect.value).toBe("architect")
 
-    // Click isolated reviewer -> RPC fails -> composer input, savedDraftMsgMap, and mcpProfile remain 100% intact!
-    fireEvent.click(screen.getByTestId("acp-isolated-reviewer-btn"))
+    // Click handoff to reviewer slot -> RPC fails -> writer composer input, savedDraftMsgMap, and mcpProfile remain 100% intact!
+    fireEvent.click(screen.getByTestId("acp-handoff-reviewer-slot-btn"))
     await waitFor(() => {
       expect(screen.getByTestId("acp-error-banner")).toHaveTextContent(
         "RPC timeout while creating reviewer session",
@@ -1474,11 +1541,13 @@ describe("AntigravityAcpView", () => {
     })
     expect(promptInput.value).toBe("Unsent ch04 revision note")
     expect(profileSelect.value).toBe("architect")
+    expect(useAntigravityAcpStore.getState().activeSlot).toBe("writer")
     expect(useAntigravityAcpStore.getState().mcpProfile).toBe("architect")
     expect(saveBtn).toHaveTextContent(/已存入草稿|Saved to drafts/)
+    expect(mocks.invoke).not.toHaveBeenCalledWith("antigravity_acp_prompt", expect.anything())
   })
 
-  it("shows honest no-MCP system message when isolated reviewer session starts with attachedLocalMcp=false", async () => {
+  it("shows honest no-MCP system message when reviewer slot handoff starts with attachedLocalMcp=false while keeping writer composer intact", async () => {
     mocks.invoke.mockImplementation(async (cmd: string) => {
       switch (cmd) {
         case "antigravity_cli_detect":
@@ -1492,12 +1561,14 @@ describe("AntigravityAcpView", () => {
           }
         case "antigravity_acp_new_session":
           return {
+            slot: "reviewer",
             sessionId: "sess-rev-nomcp-7",
             cwd: "C:\\books\\demo",
             attachedLocalMcp: false,
             localMcpScope: null,
             localMcpProfile: null,
             localMcpSkipReason: "http_mcp_disabled",
+            readOnly: true,
             parentCodeRepoWarning: null,
             configOptions: [],
             rawResult: {},
@@ -1511,7 +1582,7 @@ describe("AntigravityAcpView", () => {
     await screen.findByTestId("acp-connected-badge")
 
     fireEvent.change(screen.getByTestId("acp-prompt-input"), { target: { value: "Old writer note" } })
-    fireEvent.click(screen.getByTestId("acp-isolated-reviewer-btn"))
+    fireEvent.click(screen.getByTestId("acp-handoff-reviewer-slot-btn"))
 
     const transcript = screen.getByTestId("acp-transcript")
     await waitFor(() => {
@@ -1521,7 +1592,10 @@ describe("AntigravityAcpView", () => {
     expect(transcript.textContent).toMatch(/未挂载本地只读 MCP|local read-only MCP tools were not attached/)
     expect(transcript.textContent).not.toContain("仅挂载只读审稿工具")
     expect(transcript.textContent).not.toContain("with read-only review tools")
-    expect((screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement).value).toBe("")
+    // Reviewer composer pre-filled with read-only handoff (zero auto-send), while Writer's unsent note is preserved!
+    expect((screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement).value).toContain("[RO]")
+    expect(useAntigravityAcpStore.getState().slots.writer.composerText).toBe("Old writer note")
+    expect(mocks.invoke).not.toHaveBeenCalledWith("antigravity_acp_prompt", expect.anything())
   })
 
   it("renders pure_subscription memory banner (role=status, zero extra mount invokes), navigates to Novel extract settings, and supports interactive snapshot dialog pre-fill & commit", async () => {
@@ -1920,5 +1994,157 @@ describe("AntigravityAcpView", () => {
     )
     expect(mocks.commitInteractiveChapterSnapshot).not.toHaveBeenCalled()
     expect(mocks.invoke).not.toHaveBeenCalledWith("antigravity_acp_prompt", expect.anything())
+  })
+
+  it("isolates streaming updates, pending permissions, and savedDraftMsgMap across Writer and Reviewer slots during tab round-trips", async () => {
+    let serverActiveSlot: "writer" | "reviewer" | "architect" = "writer"
+    const reviewerPerms: Array<{
+      requestId: string
+      sessionId: string
+      slot: "reviewer"
+      title: string
+      options: Array<{ optionId: string; name: string }>
+    }> = []
+    const buildStatus = () => ({
+      ...CONNECTED_STATUS,
+      httpMcpEnabled: true,
+      activeSlot: serverActiveSlot,
+      activeSessionId: serverActiveSlot === "reviewer" ? "sess-r1" : "sess-w1",
+      attachedLocalMcp: true,
+      localMcpScope: "project",
+      localMcpProfile: serverActiveSlot === "reviewer" ? "reviewer" : "writer-sub",
+      pendingPermissions: serverActiveSlot === "reviewer" ? [...reviewerPerms] : [],
+      slots: {
+        writer: {
+          slot: "writer" as const,
+          sessionId: "sess-w1",
+          cwd: "C:\\books\\demo",
+          configOptions: [],
+          pendingPermissions: [],
+          attachedLocalMcp: true,
+          localMcpScope: "project",
+          effectiveMcpScope: "project",
+          localMcpProfile: "writer-sub" as const,
+          readOnly: false,
+          inFlightPrompt: false,
+        },
+        reviewer: {
+          slot: "reviewer" as const,
+          sessionId: "sess-r1",
+          cwd: "C:\\books\\demo",
+          configOptions: [],
+          pendingPermissions: [...reviewerPerms],
+          attachedLocalMcp: true,
+          localMcpScope: "project",
+          effectiveMcpScope: "read",
+          localMcpProfile: "reviewer" as const,
+          readOnly: true,
+          inFlightPrompt: false,
+        },
+      },
+    })
+
+    mocks.invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      switch (cmd) {
+        case "antigravity_cli_detect":
+          return { installed: true, version: "1.6.0", path: "agy.exe", error: null, acp_supported: true }
+        case "antigravity_acp_status":
+          return buildStatus()
+        case "antigravity_acp_switch_slot":
+          serverActiveSlot = (args?.slot as "writer" | "reviewer" | "architect") ?? "writer"
+          return buildStatus()
+        default:
+          return undefined
+      }
+    })
+
+    render(<AntigravityAcpView />)
+    await screen.findByTestId("acp-slot-bar")
+    await screen.findByTestId("acp-slot-connected-writer")
+    expect(screen.getByTestId("acp-slot-connected-reviewer")).toBeInTheDocument()
+    const tabpanel = screen.getByRole("tabpanel")
+    expect(tabpanel).toHaveAttribute("id", "acp-slot-tabpanel")
+    expect(tabpanel).toHaveAttribute("aria-labelledby", "acp-slot-tab-writer")
+    expect(screen.getByTestId("acp-slot-tab-writer")).toHaveAttribute("aria-controls", "acp-slot-tabpanel")
+
+    // Writer gets an assistant message and saves it as draft
+    act(() => {
+      emitEvent?.({
+        kind: "session_update",
+        slot: "writer",
+        params: {
+          sessionId: "sess-w1",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "# 第六章 孤灯\n\n风雪拍打木窗。" },
+          },
+        },
+      })
+    })
+    const saveBtn = await waitFor(() => {
+      const btn = document.querySelector('[data-testid^="acp-save-draft-msg-"]') as HTMLButtonElement | null
+      expect(btn).toBeTruthy()
+      return btn!
+    })
+    fireEvent.click(saveBtn)
+    await waitFor(() => {
+      expect(saveBtn).toHaveTextContent(/已存入草稿|Saved to drafts/)
+    })
+    fireEvent.change(screen.getByTestId("acp-prompt-input"), { target: { value: "Writer draft note" } })
+
+    // While viewing Writer, Reviewer receives a streaming chunk & permission request -> ZERO leakage into Writer UI!
+    const revPerm = {
+      requestId: "perm-rev-isolated",
+      sessionId: "sess-r1",
+      slot: "reviewer" as const,
+      title: "draft.read",
+      options: [{ optionId: "allow_once", name: "Allow" }],
+    }
+    reviewerPerms.push(revPerm)
+    act(() => {
+      emitEvent?.({
+        kind: "session_update",
+        slot: "reviewer",
+        params: {
+          sessionId: "sess-r1",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Reviewer isolated verdict: P0 PASS" },
+          },
+        },
+      })
+      emitEvent?.({
+        kind: "permission_request",
+        slot: "reviewer",
+        permission: revPerm,
+      })
+    })
+
+    expect(screen.getByTestId("acp-transcript").textContent).toContain("风雪拍打木窗")
+    expect(screen.getByTestId("acp-transcript").textContent).not.toContain("Reviewer isolated verdict")
+    expect(screen.queryByTestId("acp-permission-perm-rev-isolated")).toBeNull()
+    expect(screen.getByTestId("acp-slot-perm-badge-reviewer")).toHaveTextContent("1")
+
+    // Switch to Reviewer tab -> Reviewer transcript & permission card appear
+    fireEvent.click(screen.getByTestId("acp-slot-tab-reviewer"))
+    await waitFor(() => {
+      expect(screen.getByTestId("acp-slot-tab-reviewer")).toHaveAttribute("aria-selected", "true")
+    })
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "acp-slot-tab-reviewer")
+    expect(screen.getByTestId("acp-transcript").textContent).toContain("Reviewer isolated verdict: P0 PASS")
+    expect(screen.getByTestId("acp-transcript").textContent).not.toContain("风雪拍打木窗")
+    expect(screen.getByTestId("acp-permission-perm-rev-isolated")).toBeInTheDocument()
+
+    // Switch back to Writer -> Writer transcript, unsent composerText, and saved-draft badge are 100% preserved!
+    fireEvent.click(screen.getByTestId("acp-slot-tab-writer"))
+    await waitFor(() => {
+      expect(screen.getByTestId("acp-slot-tab-writer")).toHaveAttribute("aria-selected", "true")
+    })
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "acp-slot-tab-writer")
+    expect((screen.getByTestId("acp-prompt-input") as HTMLTextAreaElement).value).toBe("Writer draft note")
+    expect(screen.getByTestId("acp-transcript").textContent).toContain("风雪拍打木窗")
+    expect(screen.queryByTestId("acp-permission-perm-rev-isolated")).toBeNull()
+    const restoredSaveBtn = document.querySelector('[data-testid^="acp-save-draft-msg-"]') as HTMLButtonElement | null
+    expect(restoredSaveBtn).toHaveTextContent(/已存入草稿|Saved to drafts/)
   })
 })

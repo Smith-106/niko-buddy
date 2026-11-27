@@ -302,6 +302,7 @@ pub fn run() {
             commands::antigravity_acp::antigravity_acp_cancel,
             commands::antigravity_acp::antigravity_acp_set_config_option,
             commands::antigravity_acp::antigravity_acp_respond_permission,
+            commands::antigravity_acp::antigravity_acp_switch_slot,
             commands::writer_plugin::writer_plugin_status,
             commands::writer_plugin::writer_plugin_sync_project,
             commands::writer_plugin::writer_plugin_install_global,

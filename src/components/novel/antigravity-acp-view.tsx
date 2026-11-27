@@ -24,7 +24,6 @@ import {
   Copy,
   Database,
   Download,
-  Eye,
   FilePlus2,
   FileText,
   FolderOpen,
@@ -73,8 +72,10 @@ import {
   respondAntigravityAcpPermission,
   sendAntigravityAcpPrompt,
   setAntigravityAcpConfigOption,
+  switchAntigravityAcpSlot,
   syncProjectWriterPlugin,
   type AcpPendingPermission,
+  type AcpRoleSlotId,
   type LocalMcpStaleReason,
   type McpToolProfile,
   type WriterPluginGlobalResult,
@@ -86,6 +87,14 @@ import {
   inferChapterContext,
 } from "./antigravity-acp-quick-actions"
 import { AntigravityAcpDraftDrawer } from "./antigravity-acp-draft-drawer"
+import { AntigravityAcpSlotBar } from "./antigravity-acp-slot-bar"
+import {
+  buildReviewerHandoffContextFromDrafts,
+  buildReviewerHandoffPrompt,
+  pruneSavedDraftMapForTranscript,
+  resolveEffectiveSlotProfileArg,
+  resolveSessionSlotArg,
+} from "./antigravity-acp-handoff-helpers"
 import { extractSnapshotJsonCandidate, type SnapshotJsonCandidate } from "./antigravity-acp-snapshot-helpers"
 import { AntigravitySnapshotIngestDialog } from "./antigravity-snapshot-ingest-dialog"
 import { SafeMarkdownProse } from "./safe-markdown-prose"
@@ -215,12 +224,8 @@ function resolveStaleReasonI18nKey(reason: LocalMcpStaleReason | null | undefine
   return "antigravityAcp.mcpStrip.staleReasons.unknown"
 }
 
-function resolveSessionMcpProfileArg(profile: McpToolProfile): McpToolProfile | undefined {
-  return profile === "writer-sub" ? undefined : profile
-}
-
 export function AntigravityAcpView() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const fileTree = useWikiStore((s) => s.fileTree)
   const selectedFile = useWikiStore((s) => s.selectedFile)
@@ -237,7 +242,10 @@ export function AntigravityAcpView() {
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
 
   const status = useAntigravityAcpStore((s) => s.status)
+  const activeSlot = useAntigravityAcpStore((s) => s.activeSlot)
+  const slots = useAntigravityAcpStore((s) => s.slots)
   const transcript = useAntigravityAcpStore((s) => s.transcript)
+  const composerText = useAntigravityAcpStore((s) => s.composerText)
   const prompting = useAntigravityAcpStore((s) => s.prompting)
   const stderrLogs = useAntigravityAcpStore((s) => s.stderrLogs)
   const pendingPermissions = useAntigravityAcpStore((s) => s.pendingPermissions)
@@ -258,6 +266,9 @@ export function AntigravityAcpView() {
   const applySessionCreated = useAntigravityAcpStore((s) => s.applySessionCreated)
   const beginPromptTurn = useAntigravityAcpStore((s) => s.beginPromptTurn)
   const finishPromptTurn = useAntigravityAcpStore((s) => s.finishPromptTurn)
+  const setActiveSlot = useAntigravityAcpStore((s) => s.setActiveSlot)
+  const setSlotComposerText = useAntigravityAcpStore((s) => s.setSlotComposerText)
+  const setComposerText = useAntigravityAcpStore((s) => s.setComposerText)
   const setConfigOptions = useAntigravityAcpStore((s) => s.setConfigOptions)
   const setMcpProfile = useAntigravityAcpStore((s) => s.setMcpProfile)
   const setAuthRequired = useAntigravityAcpStore((s) => s.setAuthRequired)
@@ -287,7 +298,6 @@ export function AntigravityAcpView() {
   const [enableHttpMcp, setEnableHttpMcp] = useState(status?.httpMcpEnabled ?? false)
   const [attachContext, setAttachContext] = useState(false)
   const [workspacePath, setWorkspacePath] = useState(status?.cwd ?? project?.path ?? "")
-  const [input, setInput] = useState("")
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null)
   const [savingDraftMsgId, setSavingDraftMsgId] = useState<string | null>(null)
   const [savedDraftMsgMap, setSavedDraftMsgMap] = useState<Record<string, string>>({})
@@ -487,6 +497,12 @@ export function AntigravityAcpView() {
     [applyStatusSnapshot, connected, fetchMcpStatus, mcpBusy, setError],
   )
 
+  const clearSavedDraftsForSlot = useCallback(
+    (slotTranscript: readonly { id: string }[]) =>
+      setSavedDraftMsgMap((prev) => pruneSavedDraftMapForTranscript(prev, slotTranscript)),
+    [],
+  )
+
   const handleRebuildSessionWithMcp = useCallback(async () => {
     if (prompting || busy) return
     const cwd = workspacePath.trim()
@@ -494,6 +510,8 @@ export function AntigravityAcpView() {
       setError(t("antigravityAcp.workspaceRequired"))
       return
     }
+    const targetSlot = activeSlot
+    const slotArg = resolveSessionSlotArg(targetSlot, status?.activeSlot)
     setBusy(true)
     setError(null)
     setEnableHttpMcp(true)
@@ -509,7 +527,12 @@ export function AntigravityAcpView() {
         if (!mountedRef.current) return
         applyStatusSnapshot(nextStatus)
       }
-      const res = await createAntigravityAcpSession(cwd, true, resolveSessionMcpProfileArg(mcpProfile))
+      const res = await createAntigravityAcpSession(
+        cwd,
+        true,
+        resolveEffectiveSlotProfileArg(targetSlot, mcpProfile),
+        slotArg,
+      )
       const [latestStatus, latestMcp] = await Promise.all([
         getAntigravityAcpStatus().catch(() => null),
         fetchMcpStatus(),
@@ -517,11 +540,11 @@ export function AntigravityAcpView() {
       if (!mountedRef.current) return
       if (latestStatus) applyStatusSnapshot(latestStatus)
       if (latestMcp) setMcpStatus(latestMcp)
-      setSavedDraftMsgMap({})
+      clearSavedDraftsForSlot(transcript)
       const sysMsg = res.attachedLocalMcp
         ? t("antigravityAcp.sessionStartedWithMcp", { sessionId: res.sessionId.slice(0, 8) })
         : t("antigravityAcp.sessionStarted", { sessionId: res.sessionId.slice(0, 8) })
-      applySessionCreated(res, sysMsg)
+      applySessionCreated(res, sysMsg, targetSlot)
     } catch (e) {
       const msg = toErrorMessage(e)
       if (isAcpAuthRequiredError(msg)) {
@@ -532,17 +555,21 @@ export function AntigravityAcpView() {
       if (mountedRef.current) setBusy(false)
     }
   }, [
+    activeSlot,
     applySessionCreated,
     applyStatusSnapshot,
     busy,
+    clearSavedDraftsForSlot,
     connected,
     fetchMcpStatus,
     mcpProfile,
     prompting,
     setAuthRequired,
     setError,
+    status?.activeSlot,
     status?.httpMcpEnabled,
     t,
+    transcript,
     workspacePath,
   ])
 
@@ -553,6 +580,8 @@ export function AntigravityAcpView() {
       setError(t("antigravityAcp.workspaceRequired"))
       return
     }
+    const targetSlot = activeSlot
+    const slotArg = resolveSessionSlotArg(targetSlot, status?.activeSlot)
     setMcpBusy(true)
     setBusy(true)
     setError(null)
@@ -570,7 +599,12 @@ export function AntigravityAcpView() {
         if (!mountedRef.current) return
         applyStatusSnapshot(nextStatus)
       }
-      const res = await createAntigravityAcpSession(cwd, true, resolveSessionMcpProfileArg(mcpProfile))
+      const res = await createAntigravityAcpSession(
+        cwd,
+        true,
+        resolveEffectiveSlotProfileArg(targetSlot, mcpProfile),
+        slotArg,
+      )
       const [latestStatus, latestMcp] = await Promise.all([
         getAntigravityAcpStatus().catch(() => null),
         fetchMcpStatus(),
@@ -578,11 +612,11 @@ export function AntigravityAcpView() {
       if (!mountedRef.current) return
       if (latestStatus) applyStatusSnapshot(latestStatus)
       if (latestMcp) setMcpStatus(latestMcp)
-      setSavedDraftMsgMap({})
+      clearSavedDraftsForSlot(transcript)
       const sysMsg = res.attachedLocalMcp
         ? t("antigravityAcp.sessionStartedWithMcp", { sessionId: res.sessionId.slice(0, 8) })
         : t("antigravityAcp.sessionStarted", { sessionId: res.sessionId.slice(0, 8) })
-      applySessionCreated(res, sysMsg)
+      applySessionCreated(res, sysMsg, targetSlot)
     } catch (e) {
       const msg = toErrorMessage(e)
       if (isAcpAuthRequiredError(msg)) {
@@ -596,9 +630,11 @@ export function AntigravityAcpView() {
       }
     }
   }, [
+    activeSlot,
     applySessionCreated,
     applyStatusSnapshot,
     busy,
+    clearSavedDraftsForSlot,
     connected,
     fetchMcpStatus,
     mcpBusy,
@@ -606,8 +642,10 @@ export function AntigravityAcpView() {
     prompting,
     setAuthRequired,
     setError,
+    status?.activeSlot,
     status?.httpMcpEnabled,
     t,
+    transcript,
     workspacePath,
   ])
 
@@ -668,25 +706,28 @@ export function AntigravityAcpView() {
       setError(t("antigravityAcp.workspaceRequired"))
       return
     }
+    const targetSlot = activeSlot
+    const slotArg = resolveSessionSlotArg(targetSlot, status?.activeSlot)
     setBusy(true)
     setError(null)
     try {
       const res = await createAntigravityAcpSession(
         cwd,
         enableHttpMcp,
-        resolveSessionMcpProfileArg(mcpProfile),
+        resolveEffectiveSlotProfileArg(targetSlot, mcpProfile),
+        slotArg,
       )
       const latestMcp = await fetchMcpStatus()
       if (mountedRef.current) {
         if (latestMcp) {
           setMcpStatus(latestMcp)
         }
-        setSavedDraftMsgMap({})
+        clearSavedDraftsForSlot(transcript)
       }
       const sysMsg = res.attachedLocalMcp
         ? t("antigravityAcp.sessionStartedWithMcp", { sessionId: res.sessionId.slice(0, 8) })
         : t("antigravityAcp.sessionStarted", { sessionId: res.sessionId.slice(0, 8) })
-      applySessionCreated(res, sysMsg)
+      applySessionCreated(res, sysMsg, targetSlot)
     } catch (e) {
       const msg = toErrorMessage(e)
       if (isAcpAuthRequiredError(msg)) {
@@ -697,65 +738,129 @@ export function AntigravityAcpView() {
       if (mountedRef.current) setBusy(false)
     }
   }, [
+    activeSlot,
     applySessionCreated,
+    clearSavedDraftsForSlot,
     enableHttpMcp,
     fetchMcpStatus,
     mcpProfile,
     prompting,
     setAuthRequired,
     setError,
+    status?.activeSlot,
     t,
+    transcript,
     workspacePath,
   ])
 
-  const handleStartIsolatedReviewerSession = useCallback(async () => {
-    if (!connected || prompting || busy) return
+  const handleSwitchSlot = useCallback(
+    async (targetSlot: AcpRoleSlotId) => {
+      if (busy || targetSlot === activeSlot) return
+      if (!connected) {
+        setActiveSlot(targetSlot)
+        return
+      }
+      setBusy(true)
+      setError(null)
+      try {
+        const nextStatus = await switchAntigravityAcpSlot(targetSlot)
+        if (!mountedRef.current) return
+        if (nextStatus && typeof nextStatus === "object" && "connected" in nextStatus) {
+          applyStatusSnapshot(nextStatus)
+          if (useAntigravityAcpStore.getState().activeSlot !== targetSlot) {
+            setActiveSlot(targetSlot)
+          }
+        } else {
+          setActiveSlot(targetSlot)
+        }
+      } catch (e) {
+        if (mountedRef.current) setError(toErrorMessage(e))
+      } finally {
+        if (mountedRef.current) setBusy(false)
+      }
+    },
+    [activeSlot, applyStatusSnapshot, busy, connected, setActiveSlot, setError],
+  )
+
+  const handleHandOffToReviewerSlot = useCallback(async () => {
+    if (!connected || busy || slots.reviewer.prompting) return
     const cwd = workspacePath.trim()
     if (!cwd) {
       setError(t("antigravityAcp.workspaceRequired"))
       return
     }
-    const attachLocalMcp = status?.httpMcpEnabled ?? enableHttpMcp
     setBusy(true)
     setError(null)
     try {
-      const res = await createAntigravityAcpSession(cwd, attachLocalMcp, "reviewer")
-      const latestMcp = await fetchMcpStatus()
-      if (mountedRef.current) {
-        if (latestMcp) {
-          setMcpStatus(latestMcp)
+      const projectPath = project?.path?.trim()
+      const drafts = projectPath ? await listChapterDrafts(projectPath).catch(() => []) : []
+      const reviewerSlot = useAntigravityAcpStore.getState().slots.reviewer
+      let attachedLocalMcp = reviewerSlot.attachedLocalMcp
+
+      if (reviewerSlot.sessionId && !reviewerSlot.localMcpStale) {
+        const switched = await switchAntigravityAcpSlot("reviewer")
+        if (!mountedRef.current) return
+        if (switched && typeof switched === "object" && "connected" in switched) {
+          applyStatusSnapshot(switched)
         }
-        setInput("")
-        setSavedDraftMsgMap({})
+        if (useAntigravityAcpStore.getState().activeSlot !== "reviewer") {
+          setActiveSlot("reviewer")
+        }
+        attachedLocalMcp = useAntigravityAcpStore.getState().slots.reviewer.attachedLocalMcp
+        appendSystemMessage(
+          t("antigravityAcp.handoff.reviewerReused", {
+            sessionId: reviewerSlot.sessionId.slice(0, 8),
+          }),
+          "reviewer",
+        )
+      } else {
+        const attachLocalMcp = status?.httpMcpEnabled ?? enableHttpMcp
+        const res = await createAntigravityAcpSession(cwd, attachLocalMcp, "reviewer", "reviewer")
+        const latestMcp = await fetchMcpStatus()
+        if (mountedRef.current) {
+          if (latestMcp) setMcpStatus(latestMcp)
+          clearSavedDraftsForSlot(reviewerSlot.transcript)
+        }
+        const sysMsg = res.attachedLocalMcp
+          ? t("antigravityAcp.handoff.reviewerStarted", { sessionId: res.sessionId.slice(0, 8) })
+          : t("antigravityAcp.handoff.reviewerStartedNoMcp", {
+              sessionId: res.sessionId.slice(0, 8),
+            })
+        applySessionCreated(res, sysMsg, "reviewer")
+        attachedLocalMcp = res.attachedLocalMcp
       }
-      setMcpProfile("reviewer")
-      const sysMsg = res.attachedLocalMcp
-        ? t("antigravityAcp.isolatedReviewerStarted", {
-            sessionId: res.sessionId.slice(0, 8),
-          })
-        : t("antigravityAcp.isolatedReviewerStartedNoMcp", {
-            sessionId: res.sessionId.slice(0, 8),
-          })
-      applySessionCreated(res, sysMsg)
+
+      const handoffCtx = buildReviewerHandoffContextFromDrafts(
+        drafts,
+        useAntigravityAcpStore.getState().slots.writer.transcript,
+        attachedLocalMcp,
+        i18n.language,
+      )
+      setSlotComposerText("reviewer", buildReviewerHandoffPrompt(handoffCtx, i18n.language))
+      if (mountedRef.current) promptInputRef.current?.focus()
     } catch (e) {
       const msg = toErrorMessage(e)
-      if (isAcpAuthRequiredError(msg)) {
-        setAuthRequired(true)
-      }
+      if (isAcpAuthRequiredError(msg)) setAuthRequired(true)
       if (mountedRef.current) setError(msg)
     } finally {
       if (mountedRef.current) setBusy(false)
     }
   }, [
+    appendSystemMessage,
     applySessionCreated,
+    applyStatusSnapshot,
     busy,
+    clearSavedDraftsForSlot,
     connected,
     enableHttpMcp,
     fetchMcpStatus,
-    prompting,
+    i18n.language,
+    project?.path,
+    setActiveSlot,
     setAuthRequired,
     setError,
-    setMcpProfile,
+    setSlotComposerText,
+    slots.reviewer.prompting,
     status?.httpMcpEnabled,
     t,
     workspacePath,
@@ -822,6 +927,8 @@ export function AntigravityAcpView() {
       setError(t("antigravityAcp.workspaceRequired"))
       return
     }
+    const targetSlot = activeSlot
+    const slotArg = targetSlot === "writer" ? undefined : targetSlot
     setBusy(true)
     setError(null)
     setAuthRequired(false)
@@ -835,19 +942,20 @@ export function AntigravityAcpView() {
       const res = await createAntigravityAcpSession(
         cwd,
         enableHttpMcp,
-        resolveSessionMcpProfileArg(mcpProfile),
+        resolveEffectiveSlotProfileArg(targetSlot, mcpProfile),
+        slotArg,
       )
       const latestMcp = await fetchMcpStatus()
       if (mountedRef.current) {
         if (latestMcp) {
           setMcpStatus(latestMcp)
         }
-        setSavedDraftMsgMap({})
+        clearSavedDraftsForSlot(transcript)
       }
       const sysMsg = res.attachedLocalMcp
         ? t("antigravityAcp.sessionStartedWithMcp", { sessionId: res.sessionId.slice(0, 8) })
         : t("antigravityAcp.sessionStarted", { sessionId: res.sessionId.slice(0, 8) })
-      applySessionCreated(res, sysMsg)
+      applySessionCreated(res, sysMsg, targetSlot)
     } catch (e) {
       const msg = toErrorMessage(e)
       if (isAcpAuthRequiredError(msg)) {
@@ -858,9 +966,11 @@ export function AntigravityAcpView() {
       if (mountedRef.current) setBusy(false)
     }
   }, [
+    activeSlot,
     applySessionCreated,
     applyStatusSnapshot,
     canConnect,
+    clearSavedDraftsForSlot,
     enableHttpMcp,
     fetchMcpStatus,
     mcpProfile,
@@ -868,6 +978,7 @@ export function AntigravityAcpView() {
     setAuthRequired,
     setError,
     t,
+    transcript,
     workspacePath,
   ])
 
@@ -885,9 +996,11 @@ export function AntigravityAcpView() {
   const handleConfigChange = useCallback(
     async (configId: string, value: string) => {
       if (!activeSessionId) return
+      const targetSlot = activeSlot
+      const slotArg = resolveSessionSlotArg(targetSlot, status?.activeSlot)
       setError(null)
       try {
-        const res = await setAntigravityAcpConfigOption(activeSessionId, configId, value)
+        const res = await setAntigravityAcpConfigOption(activeSessionId, configId, value, slotArg)
         const maybeUpdated =
           res &&
           typeof res === "object" &&
@@ -895,24 +1008,29 @@ export function AntigravityAcpView() {
             ? parseAcpConfigOptions((res as { configOptions: unknown[] }).configOptions)
             : null
         if (maybeUpdated && maybeUpdated.length > 0) {
-          setConfigOptions(maybeUpdated)
+          setConfigOptions(maybeUpdated, targetSlot)
         } else {
-          setConfigOptions((prev) =>
-            prev.map((opt) => (opt.id === configId ? { ...opt, currentValue: value } : opt)),
+          setConfigOptions(
+            (prev) =>
+              prev.map((opt) => (opt.id === configId ? { ...opt, currentValue: value } : opt)),
+            targetSlot,
           )
         }
       } catch (e) {
         setError(toErrorMessage(e))
       }
     },
-    [activeSessionId, setConfigOptions, setError],
+    [activeSessionId, activeSlot, setConfigOptions, setError, status?.activeSlot],
   )
 
   const handleSend = useCallback(async () => {
-    const text = input.trim()
-    if (!text || !activeSessionId || prompting) return
-    setInput("")
-    beginPromptTurn(text)
+    const sendSlot = activeSlot
+    const sendSessionId = activeSessionId
+    const text = composerText.trim()
+    if (!text || !sendSessionId || prompting) return
+    const slotArg = resolveSessionSlotArg(sendSlot, status?.activeSlot)
+    setSlotComposerText(sendSlot, "")
+    beginPromptTurn(text, sendSlot)
 
     let stopReason: string | null = null
     try {
@@ -921,10 +1039,11 @@ export function AntigravityAcpView() {
           ? truncateSurrogateSafe(fileContent, ACP_CONTEXT_MAX_CHARS).text
           : null
       const result = await sendAntigravityAcpPrompt({
-        sessionId: activeSessionId,
+        sessionId: sendSessionId,
         text,
         contextTitle: snippet ? selectedFile : null,
         contextText: snippet,
+        ...(slotArg ? { slot: slotArg } : {}),
       })
       stopReason = result?.stopReason ?? null
     } catch (e) {
@@ -934,29 +1053,33 @@ export function AntigravityAcpView() {
       }
       setError(msg)
     } finally {
-      finishPromptTurn(stopReason)
+      finishPromptTurn(stopReason, sendSlot)
     }
   }, [
     activeSessionId,
+    activeSlot,
     attachContext,
     beginPromptTurn,
+    composerText,
     fileContent,
     finishPromptTurn,
-    input,
     prompting,
     selectedFile,
     setAuthRequired,
     setError,
+    setSlotComposerText,
+    status?.activeSlot,
   ])
 
   const handleCancel = useCallback(async () => {
     if (!activeSessionId) return
+    const slotArg = resolveSessionSlotArg(activeSlot, status?.activeSlot)
     try {
-      await cancelAntigravityAcpTurn(activeSessionId)
+      await cancelAntigravityAcpTurn(activeSessionId, slotArg)
     } catch (e) {
       if (mountedRef.current) setError(toErrorMessage(e))
     }
-  }, [activeSessionId, setError])
+  }, [activeSessionId, activeSlot, setError, status?.activeSlot])
 
   const handlePermissionDecision = useCallback(
     async (requestId: string, optionId: string | null) => {
@@ -980,10 +1103,13 @@ export function AntigravityAcpView() {
     [setError],
   )
 
-  const handleSelectQuickActionPrompt = useCallback((prompt: string) => {
-    setInput(prompt)
-    promptInputRef.current?.focus()
-  }, [])
+  const handleSelectQuickActionPrompt = useCallback(
+    (prompt: string) => {
+      setComposerText(prompt)
+      promptInputRef.current?.focus()
+    },
+    [setComposerText],
+  )
 
   const handleSaveMessageAsDraft = useCallback(
     async (msgId: string, text: string) => {
@@ -994,6 +1120,7 @@ export function AntigravityAcpView() {
       }
       const body = text.trim()
       if (!body || savingDraftMsgId === msgId) return
+      const saveSlot = activeSlot
       setSavingDraftMsgId(msgId)
       setError(null)
       try {
@@ -1018,7 +1145,7 @@ export function AntigravityAcpView() {
         })
         if (!mountedRef.current) return
         bumpDataVersion()
-        markRecentDraftWrite(t("antigravityAcp.savedAsDraft", { chapter: chapterName }))
+        markRecentDraftWrite(t("antigravityAcp.savedAsDraft", { chapter: chapterName }), saveSlot)
         setSavedDraftMsgMap((prev) => ({ ...prev, [msgId]: chapterName }))
       } catch (e) {
         if (mountedRef.current) {
@@ -1032,6 +1159,7 @@ export function AntigravityAcpView() {
     },
     [
       activeSessionId,
+      activeSlot,
       bumpDataVersion,
       chapterContext.nextChapter,
       markRecentDraftWrite,
@@ -1164,8 +1292,13 @@ export function AntigravityAcpView() {
     ? parentCodeRepoWarning?.trim() || null
     : parentCodeRepoWarning?.trim() || writerPluginStatus?.parentCodeRepoWarning?.trim() || null
 
+  const isReviewerSlot = activeSlot === "reviewer"
   const profileChangePending =
-    connected && Boolean(activeSessionId) && Boolean(localMcpProfile) && mcpProfile !== localMcpProfile
+    !isReviewerSlot &&
+    connected &&
+    Boolean(activeSessionId) &&
+    Boolean(localMcpProfile) &&
+    mcpProfile !== localMcpProfile
 
   const globalEnableCommand =
     globalInstallResult?.enableCommand || "agy plugin enable niko-buddy-writer"
@@ -1255,8 +1388,8 @@ export function AntigravityAcpView() {
             variant="outline"
             size="sm"
             onClick={() => {
-              clearTranscript()
-              setSavedDraftMsgMap({})
+              clearSavedDraftsForSlot(transcript)
+              clearTranscript(activeSlot)
             }}
             disabled={transcript.length === 0 || prompting}
             data-testid="acp-clear-transcript-btn"
@@ -1398,17 +1531,6 @@ export function AntigravityAcpView() {
             >
               {t("antigravityAcp.newSession")}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!connected || busy || prompting || !workspacePath.trim()}
-              onClick={() => void handleStartIsolatedReviewerSession()}
-              data-testid="acp-isolated-reviewer-btn"
-            >
-              <Eye className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-              {t("antigravityAcp.isolatedReviewerBtn")}
-            </Button>
           </div>
           <label className="flex items-center gap-2 text-muted-foreground">
             <input
@@ -1505,10 +1627,11 @@ export function AntigravityAcpView() {
           <select
             id="acp-mcp-profile-select"
             value={mcpProfile}
-            disabled={busy || prompting}
+            disabled={busy || prompting || isReviewerSlot}
+            aria-disabled={isReviewerSlot || undefined}
             onChange={(e) => setMcpProfile(e.target.value as McpToolProfile)}
             data-testid="acp-mcp-profile-select"
-            className="rounded border border-border bg-background px-2 py-0.5 text-xs"
+            className="rounded border border-border bg-background px-2 py-0.5 text-xs disabled:opacity-60"
           >
             {MCP_TOOL_PROFILES.map((profile) => (
               <option key={profile} value={profile}>
@@ -1516,6 +1639,14 @@ export function AntigravityAcpView() {
               </option>
             ))}
           </select>
+          {isReviewerSlot && (
+            <span
+              data-testid="acp-reviewer-profile-locked-hint"
+              className="text-[11px] font-medium text-warning-foreground"
+            >
+              {t("antigravityAcp.slots.reviewerLockedHint")}
+            </span>
+          )}
           {connected && activeSessionId && localMcpProfile && (
             <span
               data-testid="acp-active-profile-badge"
@@ -1934,6 +2065,24 @@ export function AntigravityAcpView() {
         )}
       </div>
 
+      {/* Multi-role ACP slot switcher & non-destructive Reviewer [RO] handoff bar */}
+      <AntigravityAcpSlotBar
+        activeSlot={activeSlot}
+        slots={slots}
+        connected={connected}
+        busy={busy}
+        workspaceReady={Boolean(workspacePath.trim())}
+        hasRecentDraftWrite={slots.writer.hasRecentDraftWrite}
+        onSwitchSlot={(slot) => void handleSwitchSlot(slot)}
+        onHandOffToReviewer={() => void handleHandOffToReviewerSlot()}
+      />
+
+      <div
+        id="acp-slot-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`acp-slot-tab-${activeSlot}`}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+      >
       {/* Authentication panel when required or available before session */}
       {connected && (authRequired || (!activeSessionId && authMethods.length > 0)) && (
         <div
@@ -2055,7 +2204,7 @@ export function AntigravityAcpView() {
               variant="ghost"
               size="sm"
               className="h-7 px-2 text-xs"
-              onClick={dismissDraftWriteBanner}
+              onClick={() => dismissDraftWriteBanner(activeSlot)}
               data-testid="acp-handoff-dismiss"
               aria-label={t("antigravityAcp.draftHandoff.dismiss")}
             >
@@ -2447,8 +2596,8 @@ export function AntigravityAcpView() {
         <div className="flex items-end gap-2">
           <textarea
             ref={promptInputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
+            value={composerText}
+            onChange={(e) => setComposerText(e.target.value)}
             onKeyDown={(e) => {
               if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
                 e.preventDefault()
@@ -2480,7 +2629,7 @@ export function AntigravityAcpView() {
             <Button
               type="button"
               onClick={() => void handleSend()}
-              disabled={!activeSessionId || !input.trim()}
+              disabled={!activeSessionId || !composerText.trim()}
               data-testid="acp-send-btn"
             >
               <Send className="mr-1 h-4 w-4" aria-hidden="true" />
@@ -2491,6 +2640,7 @@ export function AntigravityAcpView() {
         <p className="text-[11px] text-muted-foreground" data-testid="acp-compliance-notice">
           {t("antigravityAcp.complianceNotice")}
         </p>
+      </div>
       </div>
 
       <AntigravitySnapshotIngestDialog
