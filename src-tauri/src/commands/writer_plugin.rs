@@ -33,9 +33,16 @@ use crate::agent_gate_policy::{
 };
 
 pub const WRITER_PLUGIN_NAME: &str = "niko-buddy-writer";
-pub const WRITER_PLUGIN_VERSION: &str = "1.3.0";
+pub const WRITER_PLUGIN_VERSION: &str = "1.4.0";
 const WRITER_PLUGIN_AUTHOR: &str = "Niko Buddy";
 const WRITER_PLUGIN_DESCRIPTION: &str = "Pure-declarative long-form novel writing workspace plugin for Antigravity + Niko Buddy MCP (Draft-first, zero-LLM mechanical gates, 6 skills, 5 editorial role playbooks).";
+
+pub const DUAL_PROFILE_MCP_WRITER_SERVER_NAME: &str = "niko-buddy-writer";
+pub const DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME: &str = "niko-buddy-reviewer";
+pub const DUAL_PROFILE_MCP_TIMEOUT_SECONDS: u64 = 600;
+pub const DUAL_PROFILE_MCP_TOKEN_PLACEHOLDER: &str = "<YOUR_BEARER_TOKEN>";
+const DUAL_PROFILE_MCP_DEFAULT_ENDPOINT: &str = "http://127.0.0.1:45871/mcp";
+const DUAL_PROFILE_MCP_EXAMPLE_FILENAME: &str = "mcp_config.dual-profile.example.json";
 
 const ISOLATED_PLUGIN_ROOT_REF: &str = "~/.niko-buddy/agy-plugin";
 const MARKER_START: &str = "<!-- niko-buddy-writer:start -->";
@@ -48,25 +55,25 @@ const DISABLE_GLOBAL_COMMAND: &str = "agy plugin disable niko-buddy-writer";
 
 const RULES_AGENTS_MD: &str = r#"# Niko Buddy Writing Workspace Rules
 
-Long-form fiction workspace managed by **Niko Buddy** (not a code repo). Stay strictly inside narrative planning, drafting, editing, and review.
+Long-form fiction workspace managed by **Niko Buddy** (not a code repo). Stay inside narrative planning, drafting, editing, and review.
 
-## Safety Boundaries
-- **Draft-first**: Create drafts via `chapter.write`, patch via `draft.patch` (`expectedSha256` from `draft.read`, `HARD_FUSE_LIMIT=5`), record gates via `draft.record_review` (at most `pending -> ready`, NEVER accepts; human accepts in UI). Never overwrite formal chapters/memory.
-- **Gate Priority**: `Consistency(P0) > Anti-AI(P1) > Quality(P2)`. Quality never overrides P0 failure.
-- **Zero-LLM Loop**: `workflow.next` -> `context.prepare_write` (`prepareId`+`page`) + `rules.get(compact:true)` + `foreshadowing.list`/`character.read`/`outline.read`/`style.exemplars`/`chapter.search`/`audit.longform_health` -> host model -> `chapter.write`/`draft.patch` -> `draft.diff` + `gate.check_mechanical` -> `draft.record_review`.
+## Boundaries
+- **Draft-first**: Draft via `chapter.write`, patch via `draft.patch` (`expectedSha256` from `draft.read`, `HARD_FUSE_LIMIT=5`), record via `draft.record_review` (`pending -> ready`, NEVER accepts; human accepts in UI). Never overwrite formal chapters/memory.
+- **Gate Priority**: `Consistency(P0) > Anti-AI(P1) > Quality(P2)` (Quality never overrides P0).
+- **Zero-LLM Loop**: `workflow.next` -> `context.prepare_write` (`prepareId`+`page`) + `rules.get(compact:true)` + `skills.list`/`skills.get` + `canon.facts_known_by`/`canon.episodes` + `foreshadowing.list`/`character.read`/`outline.read`/`style.exemplars`/`chapter.search`/`audit.longform_health` -> model -> `chapter.write`/`draft.patch` -> `draft.diff` + `gate.check_mechanical` -> `draft.record_review`.
 - **Planning Writes** (`architect`/`writer-sub`): `director.upsert_world`, `director.commit_phase`, `rules.upsert_book_rules`, `compass.update`, `foreshadowing.upsert`, `subplot.upsert`, `outline.write`, `character.upsert`.
 
 ## Skills (`skills/*/SKILL.md`)
-- `nb-book-architect` — World, rules, outlines, characters
-- `nb-chapter-draft` — Drafting, patching, gates
-- `nb-consistency-audit` — RO P0 canon audit
-- `nb-de-ai-polish` — Anti-AI prose polish
-- `nb-six-dim-review` — RO six-dim review
-- `nb-story-ops` — Routing, ledgers, `ChapterSnapshot`
+- `nb-book-architect` - World, rules, outlines, characters
+- `nb-chapter-draft` - Drafting, patching, gates
+- `nb-consistency-audit` - RO P0 canon audit
+- `nb-de-ai-polish` - Anti-AI prose polish
+- `nb-six-dim-review` - RO six-dim review
+- `nb-story-ops` - Routing, ledgers, `ChapterSnapshot`
 
 ## Playbooks (`agents/*.md`)
 - `novel-architect` (`architect`/`writer-sub`), `novel-writer` / `de-ai-stylist` (`writer-sub`)
-- `canon-auditor` `[RO]`, `literary-critic` `[RO]` (enforced by MCP `reviewer` + `SessionScope::Read`)
+- `canon-auditor` `[RO]`, `literary-critic` `[RO]` (`reviewer` + `SessionScope::Read`; `mcp_config.dual-profile.example.json`)
 "#;
 
 const SKILL_BOOK_ARCHITECT: &str = r#"---
@@ -82,8 +89,8 @@ Use this skill when designing or updating book setup, volume outlines, or charac
 - `architect` or `writer-sub` with `SessionScope::Project`.
 
 ## Steps
-1. Call `workflow.next`, `director.check`, `project.state`, and `rules.get(compact:true)` to inspect current phase gates and book rules.
-2. Read existing planning state with `outline.read` (by volume/chapter window or safe `.md` filename), `character.read`, `foreshadowing.list`, `audit.longform_health`, `canon.query`, `chapter.list`, `draft.list`, and `chapter.search`.
+1. Call `workflow.next`, `director.check`, `project.state`, `rules.get(compact:true)`, and `skills.list(stage: "outline")` / `skills.get(stage: "outline")` to inspect current phase gates, book rules, and enabled planning skills.
+2. Read existing planning state with `outline.read` (by volume/chapter window or safe `.md` filename), `character.read`, `foreshadowing.list`, `audit.longform_health`, `canon.query`, `canon.facts_known_by`, `canon.episodes`, `chapter.list`, `draft.list`, and `chapter.search`.
 3. Assemble planning context via `context.prepare_write(includePlanningView:true)` when expanding an ongoing book; reuse `prepareId` + `page` for paged context without rebuilding.
 4. Author world layers, book rules, outlines, character cards, compass goals, foreshadowing, and subplots directly using the host subscription model — do not invoke legacy internal LLM generators.
 5. Persist planning/governance artifacts safely with `director.upsert_world`, `rules.upsert_book_rules`, `outline.write` (safe `.md` filename under `wiki/outlines/`), `character.upsert`, `compass.update`, `foreshadowing.upsert`, `subplot.upsert`, and commit verified setup gates via `director.commit_phase`.
@@ -105,7 +112,7 @@ Use this skill to write a new chapter or revise an active draft with zero intern
 ## Steps
 1. Call `workflow.next(targetChapter: N)` to confirm the deterministic next action from `.novel/status.json`.
 2. Call `context.prepare_write(targetChapter: N, includePlanningView: true, retrievalMode: "local_only")`. Reuse the returned `prepareId` with 1-based `page` (mutually exclusive with `offset`) to page context without rebuilding.
-3. Load style and canon references via `rules.get(compact: true)`, `style.exemplars`, `outline.read`, `character.read`, `foreshadowing.list`, `canon.query`, and `chapter.search`.
+3. Load style, skill, and canon references via `rules.get(compact: true)`, `skills.list(stage: "writing")` / `skills.get(stage: "writing")`, `style.exemplars`, `outline.read`, `character.read`, `foreshadowing.list`, `canon.query`, `canon.facts_known_by(pov, atChapter)`, `canon.episodes(chapterNumber)`, and `chapter.search`.
 4. Draft the full chapter prose directly in the host subscription model while honoring voice, pacing, foreshadowing threads, and character knowledge constraints.
 5. Save the initial draft via `chapter.write(chapterName, content)`. This writes ONLY to `.qm-drafts/` (Draft-first).
 6. Run `gate.check_mechanical(draftId, detailLevel: "compact")` to verify zero-LLM P0 Continuity preflight, BookRules, and P1 Anti-AI checks.
@@ -124,12 +131,12 @@ description: Run read-only P0 continuity, canon, and timeline audits on drafts o
 Use this skill to perform a strict P0 continuity and canon verification pass.
 
 ## Recommended MCP Profile
-- `reviewer` with `SessionScope::Read` (strictly zero write tools).
+- `reviewer` (`niko-buddy-reviewer`, `?profile=reviewer`) with `SessionScope::Read` (strictly zero write tools; see `mcp_config.dual-profile.example.json`).
 
 ## Steps
 1. Call `workflow.next` and locate the target via `draft.list` + `draft.read` (note `bodySha256` and line numbers) or `chapter.list` + `chapter.read`.
 2. Run `gate.check_mechanical(draftId|chapter, detailLevel: "full")` to collect deterministic P0 Continuity preflight and BookRules diagnostics (when auditing raw `text`, always pass `chapterNumber`).
-3. Cross-check character states, knowledge boundaries, foreshadowing debt, outline beats, and prior chapters using `character.read`, `foreshadowing.list`, `outline.read`, `canon.query`, `chapter.search`, and `context.inspect` / `context.prepare_write` (reusing `prepareId` + `page`).
+3. Audit POV cognition isolation via `canon.facts_known_by(pov, atChapter)`, check chapter provenance via `canon.episodes(chapterNumber)`, hydrate relevant review rules on demand via `skills.list` / `skills.get(stage: "review")`, and cross-check ledgers with `character.read`, `foreshadowing.list`, `outline.read`, `canon.query`, `chapter.search`, and `context.inspect` / `context.prepare_write` (reusing `prepareId` + `page`).
 4. Report findings ordered strictly by `Consistency(P0) > Anti-AI(P1) > Quality(P2)` with exact line/quote locations, violated canon facts, and structured patch/gate data for `writer-sub` to apply via `draft.patch` and record via `draft.record_review`.
 5. Never write or modify project files during an audit.
 "#;
@@ -147,8 +154,8 @@ Use this skill to refine prose texture and eliminate AI writing habits without b
 - `writer-sub` with `SessionScope::Project`.
 
 ## Steps
-1. Fetch active prose rules and author benchmarks via `rules.get(sections: ["writingStyle", "antiAi"], compact: true)` and `style.exemplars(markTypes: ["style", "voice", "pacing"])`.
-2. Read the target draft via `draft.read` (capture `bodySha256` and 1-based line numbers) and inspect flagged tells via `gate.check_mechanical(draftId, detailLevel: "full")`.
+1. Fetch active prose rules, De-AI skills, and author benchmarks via `rules.get(sections: ["writingStyle", "antiAi"], compact: true)`, `skills.list(kind: "de_ai")` / `skills.get(stage: "rewrite", includeDeAi: true)`, and `style.exemplars(markTypes: ["style", "voice", "pacing"])`.
+2. Read the target draft via `draft.read` (capture `bodySha256` and 1-based line numbers), verify POV knowledge bounds via `canon.facts_known_by`, and inspect flagged tells via `gate.check_mechanical(draftId, detailLevel: "full")`.
 3. Apply targeted rewrites via `draft.patch(draftId, expectedSha256, edits)` (preserving `parentDraftId`, respecting `HARD_FUSE_LIMIT=5`) to restore natural sentence cadence, concrete sensory detail, and character-specific dialogue while keeping every canon fact and plot beat intact.
 4. Verify surgical deltas via `draft.diff` and re-run `gate.check_mechanical(draftId, detailLevel: "compact")` to confirm both P0 Continuity and P1 Anti-AI pass — never trade P0 continuity for style.
 5. Record the updated review status via `draft.record_review(draftId, expectedSha256, gates, ...)` (promotes at most `pending -> ready`, never accepts).
@@ -164,12 +171,12 @@ description: Evaluate a chapter or draft across six dimensions (thrill, consiste
 Use this skill to produce a structured diagnostic review across Niko Buddy's six literary dimensions.
 
 ## Recommended MCP Profile
-- `reviewer` with `SessionScope::Read` (strictly zero write tools).
+- `reviewer` (`niko-buddy-reviewer`, `?profile=reviewer`) with `SessionScope::Read` (strictly zero write tools; see `mcp_config.dual-profile.example.json`).
 
 ## Steps
 1. Run `gate.check_mechanical(draftId|chapter, detailLevel: "compact")` first to establish the Track A hard gate (`Consistency(P0)` and `Anti-AI(P1)`).
 2. Read the chapter or draft via `chapter.read` / `draft.read` (note `bodySha256`) and load dimension prompts via `context.prepare_write` (reuse `prepareId` + `page` across all six dimensions: `thrill`, `consistency`, `pacing`, `character`, `continuity`, `pull`) or `context.inspect`.
-3. Cross-reference author benchmarks, revision deltas, and narrative ledgers via `style.exemplars`, `draft.diff`, `foreshadowing.list`, `character.read`, `outline.read`, and `chapter.search`.
+3. Hydrate style/De-AI skill rules on demand via `skills.list` / `skills.get(stage: "review")` and cross-reference author benchmarks, POV cognition, chapter provenance, revision deltas, and narrative ledgers via `canon.facts_known_by`, `canon.episodes`, `style.exemplars`, `draft.diff`, `foreshadowing.list`, `character.read`, `outline.read`, and `chapter.search`.
 4. Score each dimension with grounded textual evidence and return structured `gates`, `overallScore`, `dimensionScores`, `summary`, and `blockingIssues` so `writer-sub` can persist them via `draft.record_review`.
 5. Keep Track A (P0/P1 hard gates) strictly separate from Track B (literary quality scores): a high literary score never overrides a P0 consistency failure. Never modify files during review.
 "#;
@@ -189,8 +196,8 @@ Use this skill for fast read-only situational awareness, ledger diagnostics, and
 ## Steps
 1. Call `app.status` and `workflow.next` to confirm active MCP `scope`, frozen `profile`, and deterministic next recommended step.
 2. Call `project.state`, `director.check`, `chapter.list`, and `draft.list` to inspect `.novel/status.json` progress, blocked director gates, published chapters, and pending/ready drafts awaiting author acceptance.
-3. Query narrative health via `audit.longform_health`, `foreshadowing.list(includeDebt: true)`, `character.read(includeState: true)`, `outline.read(includeSummaryOnly: true)`, and `chapter.search` as needed.
-4. **Interactive `ChapterSnapshot` JSON Preparation (Read-Only)**: When an author asks to ingest an already accepted formal chapter into formal memory without internal API LLM calls, read the chapter via `chapter.read` plus existing ledgers (`character.read`, `foreshadowing.list`, `canon.query`), then generate a clean structured `ChapterSnapshot` JSON candidate (summary, character state deltas, foreshadowing updates, new canon facts) for the human author to inspect and confirm inside Niko Buddy via `commitPreparedChapterIngest`.
+3. Query narrative health and skill catalogs via `audit.longform_health`, `skills.list` / `skills.get`, `foreshadowing.list(includeDebt: true)`, `character.read(includeState: true)`, `outline.read(includeSummaryOnly: true)`, `canon.facts_known_by`, `canon.episodes`, and `chapter.search` as needed.
+4. **Interactive `ChapterSnapshot` JSON Preparation (Read-Only)**: When an author asks to ingest an already accepted formal chapter into formal memory without internal API LLM calls, read the chapter via `chapter.read` plus existing ledgers (`character.read`, `foreshadowing.list`, `canon.query`, `canon.facts_known_by`, `canon.episodes`), then generate a clean structured `ChapterSnapshot` JSON candidate (summary, character state deltas, foreshadowing updates, new canon facts) for the human author to inspect and confirm inside Niko Buddy via `commitPreparedChapterIngest`.
 5. Never write formal memory or accept drafts directly from this workflow.
 "#;
 
@@ -203,8 +210,8 @@ Declarative editorial-room persona for book structure, worldbuilding, outlines, 
 - MCP Scope: `project`
 
 ## Responsibilities
-- Route and audit setup readiness with `workflow.next`, `director.check`, `project.state`, and `rules.get(compact:true)`.
-- Inspect existing outlines, characters, foreshadowing, book-wide health, and prior chapters via `outline.read`, `character.read`, `foreshadowing.list`, `audit.longform_health`, `canon.query`, and `chapter.search`.
+- Route and audit setup readiness with `workflow.next`, `director.check`, `project.state`, `rules.get(compact:true)`, and `skills.list`/`skills.get`.
+- Inspect existing outlines, characters, foreshadowing, book-wide health, canon ledgers, and prior chapters via `outline.read`, `character.read`, `foreshadowing.list`, `audit.longform_health`, `canon.query`, `canon.facts_known_by`, `canon.episodes`, and `chapter.search`.
 - Prepare planning context with `context.prepare_write(includePlanningView:true)` (reusing `prepareId` + `page` when paging).
 - Author world layers, book rules, outlines, character docs, compass, foreshadowing, and subplot plans directly with the host model and save via `director.upsert_world`, `rules.upsert_book_rules`, `outline.write`, `character.upsert`, `compass.update`, `foreshadowing.upsert`, `subplot.upsert`, and `director.commit_phase`.
 
@@ -218,12 +225,12 @@ const AGENT_NOVEL_WRITER: &str = r#"# Role Playbook: Novel Writer
 Declarative editorial-room persona for scene-level long-form chapter drafting and surgical draft revision.
 
 ## Recommended Session Binding
-- MCP Profile: `writer-sub`
+- MCP Profile: `writer-sub` (`niko-buddy-writer`, `?profile=writer-sub`)
 - MCP Scope: `project`
 
 ## Responsibilities
-- Start with `workflow.next` and assemble context via `context.prepare_write(targetChapter, includePlanningView:true)` (reuse `prepareId` + `page` instead of rebuilding) and `rules.get(compact:true)`.
-- Check character state, foreshadowing threads, outlines, style exemplars, and canon edges via `character.read`, `foreshadowing.list`, `outline.read`, `style.exemplars`, `chapter.search`, and `canon.query`.
+- Start with `workflow.next` and assemble context via `context.prepare_write(targetChapter, includePlanningView:true)` (reuse `prepareId` + `page` instead of rebuilding), `rules.get(compact:true)`, and `skills.list`/`skills.get`.
+- Check character state, POV cognition, chapter provenance, foreshadowing threads, outlines, style exemplars, and canon edges via `character.read`, `foreshadowing.list`, `outline.read`, `style.exemplars`, `chapter.search`, `canon.query`, `canon.facts_known_by`, and `canon.episodes`.
 - Draft full chapters in the host subscription model and save initial drafts strictly to `.qm-drafts/` via `chapter.write`.
 - Self-check every draft via `gate.check_mechanical(draftId, detailLevel:"compact")`, apply surgical fixes via `draft.patch(draftId, expectedSha256, edits)` (`HARD_FUSE_LIMIT=5`, using `bodySha256` from `draft.read`), verify changes via `draft.diff`, and record verified outcomes via `draft.record_review` (promotes at most `pending -> ready`, never accepts).
 
@@ -233,14 +240,16 @@ Declarative editorial-room persona for scene-level long-form chapter drafting an
 
 const AGENT_CANON_AUDITOR: &str = r#"# Role Playbook: Canon Auditor [RO]
 
-Strictly **read-only** editorial-room persona for P0 continuity, canon ledger, and timeline verification.
+Strictly **read-only** editorial-room persona for P0 continuity, POV cognition isolation, canon ledger, and timeline verification.
 
 ## Security Enforcement Note
-- `[RO]` write prohibition is enforced externally by binding this session to MCP profile `reviewer` + `SessionScope::Read` (zero write tools exposed). Do not attempt any file or project mutation.
+- `[RO]` write prohibition is enforced externally by binding this session to dual-profile MCP server `niko-buddy-reviewer` (`?profile=reviewer`, `SessionScope::Read`, zero write tools exposed; see `mcp_config.dual-profile.example.json`). Do not attempt any file or project mutation.
 
 ## Responsibilities
 - Check routing via `workflow.next` and read drafts/chapters via `draft.list`, `draft.read` (recording `bodySha256`), `chapter.list`, `chapter.read`.
-- Cross-verify character states, foreshadowing threads, outlines, and past text via `character.read`, `foreshadowing.list`, `outline.read`, `chapter.search`, `canon.query`, and `context.inspect`.
+- Audit POV cognition isolation strictly with `canon.facts_known_by(pov, atChapter)` (ensuring characters never act on unknown facts) and verify chapter provenance with `canon.episodes(chapterNumber)` alongside `canon.query`.
+- Hydrate relevant writing/review rules on demand via `skills.list` and `skills.get` without loading unused skill bodies.
+- Cross-verify character states, foreshadowing threads, outlines, and past text via `character.read`, `foreshadowing.list`, `outline.read`, `chapter.search`, `audit.longform_health`, and `context.inspect`.
 - Run `gate.check_mechanical(draftId|chapter, detailLevel:"full")` (include `chapterNumber` for raw `text`).
 - Deliver precise P0 continuity findings with line citations and structured repair/gate payloads back to `writer-sub` (do not invoke any write tool from this read-only session).
 "#;
@@ -254,8 +263,8 @@ Declarative editorial-room persona for prose naturalness, voice differentiation,
 - MCP Scope: `project`
 
 ## Responsibilities
-- Load active prose guidelines and author benchmarks via `rules.get(sections:["writingStyle","antiAi"], compact:true)` and `style.exemplars`.
-- Inspect draft text via `draft.read` (`bodySha256` + line numbers) and mechanical tells via `gate.check_mechanical(draftId, detailLevel:"full")`.
+- Load active prose guidelines, De-AI skills, and author benchmarks via `rules.get(sections:["writingStyle","antiAi"], compact:true)`, `skills.list`/`skills.get`, and `style.exemplars`.
+- Inspect draft text via `draft.read` (`bodySha256` + line numbers), check POV knowledge boundaries via `canon.facts_known_by`, and check mechanical tells via `gate.check_mechanical(draftId, detailLevel:"full")`.
 - Rewrite AI clichés and monotonous cadence using surgical `draft.patch(draftId, expectedSha256, edits)` (`HARD_FUSE_LIMIT=5`) while preserving 100% of canon facts, character knowledge, and plot beats.
 - Inspect revision deltas via `draft.diff`, re-verify via `gate.check_mechanical(draftId, detailLevel:"compact")`, and update draft status via `draft.record_review` (never accepts).
 
@@ -268,18 +277,19 @@ const AGENT_LITERARY_CRITIC: &str = r#"# Role Playbook: Literary Critic [RO]
 Strictly **read-only** editorial-room persona for six-dimension literary critique (`thrill`, `consistency`, `pacing`, `character`, `continuity`, `pull`).
 
 ## Security Enforcement Note
-- `[RO]` write prohibition is enforced externally by binding this session to MCP profile `reviewer` + `SessionScope::Read` (zero write tools exposed). Do not attempt any file or project mutation.
+- `[RO]` write prohibition is enforced externally by binding this session to dual-profile MCP server `niko-buddy-reviewer` (`?profile=reviewer`, `SessionScope::Read`, zero write tools exposed; see `mcp_config.dual-profile.example.json`). Do not attempt any file or project mutation.
 
 ## Responsibilities
 - Verify Track A hard gate status first via `gate.check_mechanical(draftId|chapter, detailLevel:"compact")`.
 - Read chapter/draft text and dimension prompts via `chapter.read`, `draft.read` (`bodySha256`), `context.prepare_write` (reuse `prepareId` + `page` across dimensions), and `context.inspect`.
+- Hydrate style and De-AI review criteria on demand via `skills.list` and `skills.get(stage:"review")`, and verify character cognition and chapter beats via `canon.facts_known_by` and `canon.episodes`.
 - Ground critique in author benchmarks, draft diffs, and story ledgers via `style.exemplars`, `draft.diff`, `foreshadowing.list`, `character.read`, `outline.read`, and `chapter.search`.
 - Score all six dimensions with line-level evidence and hand structured `gates` / `overallScore` / `dimensionScores` / `blockingIssues` back to `writer-sub` (do not invoke any write tool from this read-only session).
 - Respect gate priority: literary quality scores never override a P0 consistency failure.
 "#;
 
 const PROJECT_AGENTS_MD_BLOCK: &str = r#"<!-- niko-buddy-writer:start -->
-<!-- niko-buddy-writer:version=1.3.0 -->
+<!-- niko-buddy-writer:version=1.4.0 -->
 # Niko Buddy Novel Workspace
 This directory is a long-form fiction project managed by Niko Buddy (not a code repository).
 - Use `niko-buddy-writer` (`.agents/plugins.json`) and Niko Buddy MCP (`writer-sub` / `reviewer` / `architect`), starting with `workflow.next`.
@@ -288,7 +298,7 @@ This directory is a long-form fiction project managed by Niko Buddy (not a code 
 <!-- niko-buddy-writer:end -->"#;
 
 const PROJECT_CLAUDE_MD_BLOCK: &str = r#"<!-- niko-buddy-writer:start -->
-<!-- niko-buddy-writer:version=1.3.0 -->
+<!-- niko-buddy-writer:version=1.4.0 -->
 @AGENTS.md
 <!-- niko-buddy-writer:end -->"#;
 
@@ -379,9 +389,102 @@ fn render_plugin_manifest(disabled: Option<bool>) -> String {
     out
 }
 
+fn append_profile_query(base_endpoint: &str, profile: &str) -> String {
+    let trimmed = base_endpoint.trim();
+    let effective = if trimmed.is_empty() {
+        DUAL_PROFILE_MCP_DEFAULT_ENDPOINT
+    } else {
+        trimmed
+    };
+    let (without_frag, frag) = match effective.split_once('#') {
+        Some((head, tail)) => (head, Some(tail)),
+        None => (effective, None),
+    };
+    let (base, existing_query) = match without_frag.split_once('?') {
+        Some((head, tail)) => (head, Some(tail)),
+        None => (without_frag, None),
+    };
+    let mut kept_params: Vec<&str> = Vec::new();
+    if let Some(q) = existing_query {
+        for part in q.split('&') {
+            if part.is_empty() {
+                continue;
+            }
+            let key = part.split_once('=').map(|(k, _)| k).unwrap_or(part);
+            if key.eq_ignore_ascii_case("profile") {
+                continue;
+            }
+            kept_params.push(part);
+        }
+    }
+    let mut out = String::from(base);
+    out.push('?');
+    for part in kept_params {
+        out.push_str(part);
+        out.push('&');
+    }
+    out.push_str("profile=");
+    out.push_str(profile);
+    if let Some(f) = frag {
+        out.push('#');
+        out.push_str(f);
+    }
+    out
+}
+
+/// 构造标准双 Profile Antigravity IDE `mcp_config.json` 值对象：
+/// - `niko-buddy-writer` 指向 `?profile=writer-sub`（写/改草稿）；
+/// - `niko-buddy-reviewer` 指向 `?profile=reviewer`（严格全只读隔离审校）；
+/// - 自动剥离 `base_endpoint` 中已有的重复 `profile` query 参数，未提供 token 时默认填充 `<YOUR_BEARER_TOKEN>` 占位符。
+pub fn build_dual_profile_antigravity_mcp_config(
+    base_endpoint: &str,
+    bearer_token: Option<&str>,
+) -> Value {
+    let token = bearer_token
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .unwrap_or(DUAL_PROFILE_MCP_TOKEN_PLACEHOLDER);
+    let auth_header = format!("Bearer {token}");
+    let writer_url = append_profile_query(base_endpoint, "writer-sub");
+    let reviewer_url = append_profile_query(base_endpoint, "reviewer");
+    json!({
+        "mcpServers": {
+            DUAL_PROFILE_MCP_WRITER_SERVER_NAME: {
+                "serverUrl": writer_url,
+                "headers": {
+                    "Authorization": auth_header,
+                },
+                "timeoutSeconds": DUAL_PROFILE_MCP_TIMEOUT_SECONDS,
+            },
+            DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME: {
+                "serverUrl": reviewer_url,
+                "headers": {
+                    "Authorization": auth_header,
+                },
+                "timeoutSeconds": DUAL_PROFILE_MCP_TIMEOUT_SECONDS,
+            },
+        }
+    })
+}
+
+/// 渲染格式化后的双 Profile Antigravity IDE `mcp_config.json` 文本（以换行结尾）。
+pub fn render_dual_profile_antigravity_mcp_config_json(
+    base_endpoint: &str,
+    bearer_token: Option<&str>,
+) -> String {
+    let doc = build_dual_profile_antigravity_mcp_config(base_endpoint, bearer_token);
+    let mut out = serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".to_string());
+    out.push('\n');
+    out
+}
+
 fn build_plugin_bundle(disabled: Option<bool>) -> Vec<(String, String)> {
-    let mut files = Vec::with_capacity(1 + STATIC_PLUGIN_MARKDOWN_FILES.len());
+    let mut files = Vec::with_capacity(2 + STATIC_PLUGIN_MARKDOWN_FILES.len());
     files.push(("plugin.json".to_string(), render_plugin_manifest(disabled)));
+    files.push((
+        DUAL_PROFILE_MCP_EXAMPLE_FILENAME.to_string(),
+        render_dual_profile_antigravity_mcp_config_json(DUAL_PROFILE_MCP_DEFAULT_ENDPOINT, None),
+    ));
     for (rel, body) in STATIC_PLUGIN_MARKDOWN_FILES {
         files.push((rel.to_string(), body.to_string()));
     }
@@ -1084,8 +1187,8 @@ mod tests {
         let bundle = build_plugin_bundle(None);
         assert_eq!(
             bundle.len(),
-            13,
-            "plugin bundle must contain exactly 13 files"
+            14,
+            "plugin bundle must contain exactly 14 declarative files"
         );
         assert!(
             RULES_AGENTS_MD.len() <= 1800,
@@ -1214,8 +1317,8 @@ mod tests {
         assert!(RULES_AGENTS_MD.contains("SessionScope::Read"));
         assert!(RULES_AGENTS_MD.contains("Consistency(P0) > Anti-AI(P1) > Quality(P2)"));
 
-        // Phase 2/3/v1.3.0 canonical tools and interactive ChapterSnapshot ingest prep must be taught.
-        assert_eq!(WRITER_PLUGIN_VERSION, "1.3.0");
+        // Phase 2/3/v1.4.0 canonical tools and interactive ChapterSnapshot ingest prep must be taught.
+        assert_eq!(WRITER_PLUGIN_VERSION, "1.4.0");
         for needle in [
             "workflow.next",
             "prepareId",
@@ -1231,6 +1334,11 @@ mod tests {
             "chapter.search",
             "draft.diff",
             "audit.longform_health",
+            "skills.list",
+            "skills.get",
+            "canon.facts_known_by",
+            "canon.episodes",
+            "mcp_config.dual-profile.example.json",
             "director.upsert_world",
             "director.commit_phase",
             "rules.upsert_book_rules",
@@ -1267,8 +1375,11 @@ mod tests {
         ] {
             for write_tool in [
                 "chapter.write",
+                "chapter.write_direct",
+                "draft.write",
                 "draft.patch",
                 "draft.record_review",
+                "draft.accept",
                 "outline.write",
                 "character.upsert",
                 "director.upsert_world",
@@ -1277,10 +1388,26 @@ mod tests {
                 "compass.update",
                 "foreshadowing.upsert",
                 "subplot.upsert",
+                "settings.set",
+                "memory.write",
+                "undo_last",
             ] {
                 assert!(
                     !ro_agent.1.contains(write_tool),
                     "[RO] agent `{}` must NEVER mention write tool `{write_tool}`",
+                    ro_agent.0
+                );
+            }
+            for ro_read_tool in [
+                "canon.facts_known_by",
+                "canon.episodes",
+                "skills.list",
+                "skills.get",
+                "niko-buddy-reviewer",
+            ] {
+                assert!(
+                    ro_agent.1.contains(ro_read_tool),
+                    "[RO] agent `{}` must teach `{ro_read_tool}`",
                     ro_agent.0
                 );
             }
@@ -1299,8 +1426,35 @@ mod tests {
         assert!(AGENT_NOVEL_ARCHITECT.contains("audit.longform_health"));
         assert!(SKILL_STORY_OPS.contains("ChapterSnapshot"));
         assert!(SKILL_STORY_OPS.contains("commitPreparedChapterIngest"));
-        assert!(PROJECT_AGENTS_MD_BLOCK.contains("version=1.3.0"));
-        assert!(PROJECT_CLAUDE_MD_BLOCK.contains("version=1.3.0"));
+        assert!(PROJECT_AGENTS_MD_BLOCK.contains("version=1.4.0"));
+        assert!(PROJECT_CLAUDE_MD_BLOCK.contains("version=1.4.0"));
+
+        // Declarative dual-profile MCP template must exist in bundle and strictly use placeholder token.
+        let (_, dual_tpl) = bundle
+            .iter()
+            .find(|(rel, _)| rel == DUAL_PROFILE_MCP_EXAMPLE_FILENAME)
+            .expect("bundle must contain mcp_config.dual-profile.example.json");
+        let dual_json: Value = serde_json::from_str(dual_tpl).expect("valid dual-profile json");
+        let writer_entry = &dual_json["mcpServers"][DUAL_PROFILE_MCP_WRITER_SERVER_NAME];
+        let reviewer_entry = &dual_json["mcpServers"][DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME];
+        assert_eq!(
+            writer_entry["serverUrl"],
+            json!("http://127.0.0.1:45871/mcp?profile=writer-sub")
+        );
+        assert_eq!(
+            reviewer_entry["serverUrl"],
+            json!("http://127.0.0.1:45871/mcp?profile=reviewer")
+        );
+        assert_eq!(
+            writer_entry["headers"]["Authorization"],
+            json!("Bearer <YOUR_BEARER_TOKEN>")
+        );
+        assert_eq!(
+            reviewer_entry["headers"]["Authorization"],
+            json!("Bearer <YOUR_BEARER_TOKEN>")
+        );
+        assert_eq!(writer_entry["timeoutSeconds"], json!(600));
+        assert_eq!(reviewer_entry["timeoutSeconds"], json!(600));
     }
 
     #[test]
@@ -1327,10 +1481,10 @@ mod tests {
         assert!(!before.global_installed);
         assert!(!before.project_has_claude_md);
 
-        // First sync (include_claude_md = false): writes 13 isolated + 2 project = 15 files.
+        // First sync (include_claude_md = false): writes 14 isolated + 2 project = 16 files.
         let sync1 = sync_project_in(&home.0, &project.0.to_string_lossy(), false).expect("sync1");
         assert!(sync1.ok);
-        assert_eq!(sync1.written_files.len(), 15);
+        assert_eq!(sync1.written_files.len(), 16);
         assert!(sync1.unchanged_files.is_empty());
         assert!(sync1.agents_md_preserved_user_content);
         assert_eq!(sync1.status.project_state, "synced");
@@ -1363,17 +1517,17 @@ mod tests {
         assert!(agents_text.contains(MARKER_START));
         assert!(agents_text.contains(MARKER_END));
 
-        // Second sync is 100% idempotent: 0 written, 15 unchanged!
+        // Second sync is 100% idempotent: 0 written, 16 unchanged!
         let sync2 = sync_project_in(&home.0, &project.0.to_string_lossy(), false).expect("sync2");
         assert!(sync2.written_files.is_empty());
-        assert_eq!(sync2.unchanged_files.len(), 15);
+        assert_eq!(sync2.unchanged_files.len(), 16);
         assert!(sync2.agents_md_preserved_user_content);
         assert_eq!(sync2.status.project_state, "synced");
 
         // Sync with `include_claude_md = true` writes only `CLAUDE.md` with `@AGENTS.md`.
         let sync3 = sync_project_in(&home.0, &project.0.to_string_lossy(), true).expect("sync3");
         assert_eq!(sync3.written_files.len(), 1);
-        assert_eq!(sync3.unchanged_files.len(), 15);
+        assert_eq!(sync3.unchanged_files.len(), 16);
         assert!(sync3.status.project_has_claude_md);
         let claude_text = fs::read_to_string(project.0.join("CLAUDE.md")).unwrap();
         assert!(claude_text.contains("@AGENTS.md"));
@@ -1456,12 +1610,12 @@ mod tests {
     fn install_global_defaults_disabled_toggles_cleanly_and_never_touches_config_json() {
         let home = TempDirGuard::new("home-global");
 
-        // Default install (`enable = false`) writes 13 files with `"disabled": true`.
+        // Default install (`enable = false`) writes 14 files with `"disabled": true`.
         let res1 = install_global_in(&home.0, false).expect("install global disabled");
         assert!(res1.ok);
         assert!(!res1.enabled);
         assert!(res1.disabled);
-        assert_eq!(res1.written_files.len(), 13);
+        assert_eq!(res1.written_files.len(), 14);
         assert!(res1.unchanged_files.is_empty());
         assert!(!res1.enable_command.is_empty());
         assert!(!res1.disable_command.is_empty());
@@ -1481,12 +1635,12 @@ mod tests {
         assert!(st1.global_up_to_date);
         assert_eq!(st1.global_path.as_deref(), Some(res1.install_path.as_str()));
 
-        // Toggle to `enable = true`: updates ONLY `plugin.json`, leaves 12 md files unchanged!
+        // Toggle to `enable = true`: updates ONLY `plugin.json`, leaves 13 static declarative files unchanged!
         let res2 = install_global_in(&home.0, true).expect("install global enabled");
         assert!(res2.enabled);
         assert!(!res2.disabled);
         assert_eq!(res2.written_files.len(), 1);
-        assert_eq!(res2.unchanged_files.len(), 12);
+        assert_eq!(res2.unchanged_files.len(), 13);
 
         let st2 = status_in(&home.0, None).expect("status after enabled global");
         assert!(st2.global_installed);
@@ -1634,5 +1788,79 @@ mod tests {
             "escape write must never land outside project"
         );
         let _ = fs::remove_dir(&linked_agents);
+    }
+
+    #[test]
+    fn dual_profile_antigravity_mcp_config_helper_strips_duplicate_profile_and_uses_placeholder() {
+        // 1) Default placeholder token + strips existing profile query
+        let cfg = build_dual_profile_antigravity_mcp_config(
+            "http://127.0.0.1:49999/mcp?profile=full-legacy",
+            None,
+        );
+        let servers = cfg["mcpServers"].as_object().expect("mcpServers object");
+        assert_eq!(servers.len(), 2);
+        assert_eq!(
+            servers[DUAL_PROFILE_MCP_WRITER_SERVER_NAME]["serverUrl"],
+            json!("http://127.0.0.1:49999/mcp?profile=writer-sub")
+        );
+        assert_eq!(
+            servers[DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME]["serverUrl"],
+            json!("http://127.0.0.1:49999/mcp?profile=reviewer")
+        );
+        assert_eq!(
+            servers[DUAL_PROFILE_MCP_WRITER_SERVER_NAME]["headers"]["Authorization"],
+            json!(format!("Bearer {DUAL_PROFILE_MCP_TOKEN_PLACEHOLDER}"))
+        );
+        assert_eq!(
+            servers[DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME]["headers"]["Authorization"],
+            json!(format!("Bearer {DUAL_PROFILE_MCP_TOKEN_PLACEHOLDER}"))
+        );
+        assert_eq!(
+            servers[DUAL_PROFILE_MCP_WRITER_SERVER_NAME]["timeoutSeconds"],
+            json!(DUAL_PROFILE_MCP_TIMEOUT_SECONDS)
+        );
+        assert_eq!(
+            servers[DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME]["timeoutSeconds"],
+            json!(DUAL_PROFILE_MCP_TIMEOUT_SECONDS)
+        );
+
+        // 2) Preserves unrelated query params and strips duplicate/case-insensitive profile params
+        let preserved = build_dual_profile_antigravity_mcp_config(
+            "http://127.0.0.1:45871/mcp?foo=bar&profile=architect&Profile=reviewer&baz=1",
+            Some("  tok-abc-123  "),
+        );
+        assert_eq!(
+            preserved["mcpServers"][DUAL_PROFILE_MCP_WRITER_SERVER_NAME]["serverUrl"],
+            json!("http://127.0.0.1:45871/mcp?foo=bar&baz=1&profile=writer-sub")
+        );
+        assert_eq!(
+            preserved["mcpServers"][DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME]["serverUrl"],
+            json!("http://127.0.0.1:45871/mcp?foo=bar&baz=1&profile=reviewer")
+        );
+        assert_eq!(
+            preserved["mcpServers"][DUAL_PROFILE_MCP_WRITER_SERVER_NAME]["headers"]["Authorization"],
+            json!("Bearer tok-abc-123")
+        );
+        assert_eq!(
+            preserved["mcpServers"][DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME]["headers"]["Authorization"],
+            json!("Bearer tok-abc-123")
+        );
+
+        // 3) Blank endpoint falls back to default loopback endpoint; blank token falls back to placeholder
+        let fallback_json = render_dual_profile_antigravity_mcp_config_json("   ", Some("   "));
+        assert!(fallback_json.ends_with('\n'));
+        let parsed: Value = serde_json::from_str(&fallback_json).expect("valid rendered json");
+        assert_eq!(
+            parsed["mcpServers"][DUAL_PROFILE_MCP_WRITER_SERVER_NAME]["serverUrl"],
+            json!("http://127.0.0.1:45871/mcp?profile=writer-sub")
+        );
+        assert_eq!(
+            parsed["mcpServers"][DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME]["serverUrl"],
+            json!("http://127.0.0.1:45871/mcp?profile=reviewer")
+        );
+        assert_eq!(
+            parsed["mcpServers"][DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME]["headers"]["Authorization"],
+            json!("Bearer <YOUR_BEARER_TOKEN>")
+        );
     }
 }

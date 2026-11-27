@@ -2711,4 +2711,147 @@ describe("handleStateRequest — P2-B4 (8 个新操作 / mcp:draft.patch 元数�
       Object.keys(mod).filter((name) => /^(set|write|remove|delete|update)/i.test(name)),
     ).toEqual([])
   })
+
+  it("8) Wave 2 只读 op（skills-list / skills-get）：未打开项目报错、转发 DI 与默认零写盘执行且永不触发 onDraftWritten", async () => {
+    const noProj = deps({ readProjectPath: () => "" })
+    for (const op of ["skills-list", "skills-get"] as const) {
+      const res = await handleStateRequest(request({ op, params: {} }), noProj)
+      expect(res.ok).toBe(false)
+      expect(res.error).toContain("未打开项目")
+    }
+
+    const onDraftWritten = vi.fn()
+    const called: string[] = []
+    const injected = deps({
+      onDraftWritten,
+      skillsList: async (pp, params) => {
+        called.push(`skills-list:${pp}:${String(params.stage ?? "")}`)
+        return { total: 1, returned: 1, items: [] }
+      },
+      skillsGet: async (pp, params) => {
+        called.push(`skills-get:${pp}:${JSON.stringify(params.names ?? [])}`)
+        return { returned: 1, skills: [] }
+      },
+    })
+
+    const rList = await handleStateRequest(request({ op: "skills-list", params: { stage: "outline" } }), injected)
+    const rGet = await handleStateRequest(request({ op: "skills-get", params: { names: ["综合去AI味"] } }), injected)
+    expect(rList.ok).toBe(true)
+    expect(rGet.ok).toBe(true)
+    expect(called).toEqual([
+      "skills-list:/proj:outline",
+      'skills-get:/proj:["综合去AI味"]',
+    ])
+    expect(onDraftWritten).not.toHaveBeenCalled()
+
+    // 默认路径（未注入 DI）：走 skills-read-tools 真实逻辑，零写盘且透传 readFileText
+    tauriInvoke.mockReset()
+    const defaultList = await handleStateRequest(
+      request({ op: "skills-list", params: { kind: "writing", limit: 10 } }),
+      deps({
+        onDraftWritten,
+        readFileText: async () => {
+          throw new Error("ENOENT")
+        },
+      }),
+    )
+    expect(defaultList.ok).toBe(true)
+    const listVal = defaultList.value as { total: number; items: Array<Record<string, unknown>> }
+    expect(listVal.total).toBeGreaterThan(0)
+    expect(listVal.items.every((item) => !("content" in item))).toBe(true)
+
+    const defaultGet = await handleStateRequest(
+      request({ op: "skills-get", params: { names: ["综合去AI味"] } }),
+      deps({
+        onDraftWritten,
+        readFileText: async () => {
+          throw new Error("ENOENT")
+        },
+      }),
+    )
+    expect(defaultGet.ok).toBe(true)
+    const getVal = defaultGet.value as { skills: Array<{ id: string; content: string }> }
+    expect(getVal.skills[0]?.id).toBe("built-in:comprehensive")
+    expect(getVal.skills[0]?.content.length).toBeGreaterThan(0)
+    expect(tauriInvoke).not.toHaveBeenCalled()
+    expect(onDraftWritten).not.toHaveBeenCalled()
+  })
+
+  it("9) rules-get(writingStyle) 回归：无 writing-skills.json 仍返回内置写作技能且零写盘、有文件遵守 disabledSkillIds、compact=true 省略 content / compact=false 保留 content", async () => {
+    tauriInvoke.mockReset()
+    const enoentReader = async () => {
+      throw new Error("ENOENT")
+    }
+
+    // 1. 无 writing-skills.json + compact=false → 返回非空内置写作技能且保留 content，零写盘
+    const fullNoFile = await handleStateRequest(
+      request({ op: "rules-get", params: { sections: ["writingStyle"], compact: false } }),
+      deps({ readFileText: enoentReader }),
+    )
+    expect(fullNoFile.ok).toBe(true)
+    expect(tauriInvoke).not.toHaveBeenCalled()
+    const fullSkills = (
+      fullNoFile.value as { writingStyle: { enabledWritingSkills: Array<Record<string, unknown>> } }
+    ).writingStyle.enabledWritingSkills
+    expect(fullSkills.length).toBeGreaterThan(0)
+    expect(fullSkills.every((s) => typeof s.content === "string" && (s.content as string).length > 0)).toBe(true)
+
+    // 2. 无 writing-skills.json + compact=true → 返回内置写作技能但省略 content（带 contentChars）
+    const compactNoFile = await handleStateRequest(
+      request({ op: "rules-get", params: { sections: ["writingStyle"], compact: true } }),
+      deps({ readFileText: enoentReader }),
+    )
+    expect(compactNoFile.ok).toBe(true)
+    const compactSkills = (
+      compactNoFile.value as { writingStyle: { enabledWritingSkills: Array<Record<string, unknown>> } }
+    ).writingStyle.enabledWritingSkills
+    expect(compactSkills.length).toBe(fullSkills.length)
+    expect(compactSkills.every((s) => !("content" in s) && typeof s.contentChars === "number")).toBe(true)
+
+    // 3. 有 writing-skills.json 且含 disabledSkillIds → 遵守禁用项并保留其余内置 + 自定义技能
+    const disabledId = String(fullSkills[0].id)
+    const files = new Map<string, string>([
+      [
+        "/proj/.niko-buddy/writing-skills.json",
+        JSON.stringify({
+          version: 1,
+          selectedSkillId: "skill:proj-style",
+          disabledSkillIds: [disabledId],
+          skills: [
+            {
+              id: "skill:proj-style",
+              name: "项目文风",
+              description: "定制文风",
+              kind: ["style"],
+              stages: ["drafting"],
+              modes: ["standard"],
+              content: "短句快节奏。",
+              source: "uploaded",
+              priority: 10,
+              tags: [],
+              categoryId: "",
+            },
+          ],
+          categories: [],
+        }),
+      ],
+    ])
+    const withFile = await handleStateRequest(
+      request({ op: "rules-get", params: { sections: ["writingStyle"], compact: false } }),
+      deps({
+        readFileText: async (path) => {
+          if (files.has(path)) return files.get(path)!
+          throw new Error(`ENOENT: ${path}`)
+        },
+      }),
+    )
+    expect(withFile.ok).toBe(true)
+    const filteredSkills = (
+      withFile.value as { writingStyle: { enabledWritingSkills: Array<{ id: string; content?: string }> } }
+    ).writingStyle.enabledWritingSkills
+    expect(filteredSkills.some((s) => s.id === disabledId)).toBe(false)
+    expect(filteredSkills.some((s) => s.id === "skill:proj-style" && s.content === "短句快节奏。")).toBe(true)
+    expect(filteredSkills.length).toBe(fullSkills.length)
+    expect(tauriInvoke).not.toHaveBeenCalled()
+  })
 })

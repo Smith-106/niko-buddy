@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * MainControl 应用内只读零 LLM MCP 门面工具集（TASK-005）。
+ * MainControl 应用内只读零 LLM MCP 门面工具集（TASK-005 + Wave 2 技能桥）。
  *
  * 硬边界：
- * - 全部 6 个工具均为 `category: "read"`、`permission: "auto"`，零 LLM 调用、零磁盘写入；
+ * - 全部 8 个工具均为 `category: "read"`、`permission: "auto"`，零 LLM 调用、零磁盘写入；
  * - 序列化输出统一封顶 `<= 12000` 字符并附显式截断提示，防爆 Agent 上下文窗口；
  * - 顶层仅使用 `import type`，所有 `@/lib/mcp/*` 与重型模块均在 `execute()` 内按需动态
  *   `await import(...)`（对齐 `outline-generation.ts:876`），杜绝经 `src/lib/novel/index.ts`
@@ -17,6 +17,7 @@ import type { Tool } from "@/lib/agent/types"
 import type { CharacterReadResult, ForeshadowingListResult } from "@/lib/mcp/atomic-read-tools"
 import type { MechanicalGateAnyReport, MechanicalGateInput } from "@/lib/mcp/mechanical-gate"
 import type { AuditLongformHealthResult } from "@/lib/mcp/phase3-read-tools"
+import type { SkillsGetResult, SkillsListResult } from "@/lib/mcp/skills-read-tools"
 import type { WorkflowNextResult } from "@/lib/mcp/workflow-draft-tools"
 import type { CanonEdgeFilter, CanonEdgeKind, CanonFact } from "./canon-graph-client"
 import type { ChapterSnapshot } from "./chapter-ingest"
@@ -30,6 +31,8 @@ export const MAIN_CONTROL_MCP_TOOL_NAMES = [
   "foreshadowing_list",
   "character_read",
   "workflow_next",
+  "skills_list",
+  "skills_get",
 ] as const
 
 export type MainControlMcpToolName = (typeof MAIN_CONTROL_MCP_TOOL_NAMES)[number]
@@ -89,6 +92,28 @@ const WORKFLOW_NEXT_ALLOWED_KEYS = [
   "draftId",
 ] as const
 
+const SKILLS_LIST_ALLOWED_KEYS = [
+  "stage",
+  "kind",
+  "includeDeAi",
+  "includeBuiltin",
+  "enabledOnly",
+  "query",
+  "offset",
+  "limit",
+] as const
+
+const SKILLS_GET_ALLOWED_KEYS = [
+  "ids",
+  "names",
+  "stage",
+  "includeDeAi",
+  "includeDisabled",
+  "stripFrontmatter",
+  "maxCharsPerSkill",
+  "maxTotalChars",
+] as const
+
 export interface MainControlMcpToolDeps {
   runMechanicalGateForMcp: (input: MechanicalGateInput) => Promise<MechanicalGateAnyReport>
   runAuditLongformHealth: (
@@ -107,6 +132,14 @@ export interface MainControlMcpToolDeps {
     projectPath: string,
     params?: Record<string, unknown>,
   ) => Promise<WorkflowNextResult>
+  runSkillsList: (
+    projectPath: string,
+    params?: Record<string, unknown>,
+  ) => Promise<SkillsListResult>
+  runSkillsGet: (
+    projectPath: string,
+    params?: Record<string, unknown>,
+  ) => Promise<SkillsGetResult>
   queryCanonEdges: (projectId: string, filter: CanonEdgeFilter) => Promise<CanonFact[]>
   loadAllSnapshots: (projectPath: string) => Promise<ChapterSnapshot[]>
   loadProjectionStatusLedger: (projectPath: string) => Promise<ProjectionStatusLedger | undefined>
@@ -599,6 +632,76 @@ export function createMainControlMcpTools(
     },
   }
 
+  const skillsListTool: Tool = {
+    name: "skills_list",
+    description:
+      "只读零 LLM 技能目录浏览（对应 MCP skills.list）：按阶段、类别、启用状态与关键词检索内置写作技能、项目技能与去 AI 味技能的轻量目录（不含正文），不修改磁盘。",
+    category: "read",
+    permission: "auto",
+    parameters: {
+      stage: {
+        type: "string",
+        description: "按写作阶段或任务键过滤（planning/drafting/review/rewrite/output/outline/writing/summary/extract）",
+        enum: ["planning", "drafting", "review", "rewrite", "output", "outline", "writing", "summary", "extract"],
+      },
+      kind: {
+        type: "string",
+        description: "技能库类别过滤（writing/de_ai/all，默认 all）",
+        enum: ["writing", "de_ai", "all"],
+      },
+      includeDeAi: { type: "boolean", description: "是否包含去 AI 味技能（默认 true）" },
+      includeBuiltin: { type: "boolean", description: "是否包含内置技能（默认 true）" },
+      enabledOnly: { type: "boolean", description: "是否仅返回已启用技能（默认 false）" },
+      query: { type: "string", description: "按 ID、名称、描述或标签关键词筛选" },
+      offset: { type: "integer", description: "分页偏移（默认 0）" },
+      limit: { type: "integer", description: "每页条数（1-200，默认 50）" },
+    },
+    execute: async (params) => {
+      try {
+        const runList = deps?.runSkillsList
+          ?? (await import("@/lib/mcp/skills-read-tools")).runSkillsList
+        const cleanParams = pickDefinedParams(params, SKILLS_LIST_ALLOWED_KEYS)
+        const result = await runList(projectPath, cleanParams)
+        return formatMainControlMcpOutput(result, maxOutputChars)
+      } catch (err) {
+        return `错误：skills_list 执行失败 - ${toErrorMessage(err)}`
+      }
+    },
+  }
+
+  const skillsGetTool: Tool = {
+    name: "skills_get",
+    description:
+      "只读零 LLM 技能正文按需读取（对应 MCP skills.get）：按 ids、names 或 stage 水合指定技能正文（默认剥离 YAML frontmatter 并按预算截断），不修改磁盘。",
+    category: "read",
+    permission: "auto",
+    parameters: {
+      ids: { type: "array", description: "按技能 ID 列表精确获取（1-20 项）" },
+      names: { type: "array", description: "按技能名称或路由别名获取（1-20 项）" },
+      stage: {
+        type: "string",
+        description: "按阶段批量获取（planning/drafting/review/rewrite/output/outline/writing/summary/extract）",
+        enum: ["planning", "drafting", "review", "rewrite", "output", "outline", "writing", "summary", "extract"],
+      },
+      includeDeAi: { type: "boolean", description: "是否包含去 AI 味技能池（默认 true）" },
+      includeDisabled: { type: "boolean", description: "是否允许返回已禁用技能（默认 false）" },
+      stripFrontmatter: { type: "boolean", description: "是否剥离 YAML frontmatter（默认 true）" },
+      maxCharsPerSkill: { type: "integer", description: "单条技能正文字符上限（200-20000，默认 6000）" },
+      maxTotalChars: { type: "integer", description: "本次返回技能正文总字符上限（500-30000，默认 18000）" },
+    },
+    execute: async (params) => {
+      try {
+        const runGet = deps?.runSkillsGet
+          ?? (await import("@/lib/mcp/skills-read-tools")).runSkillsGet
+        const cleanParams = pickDefinedParams(params, SKILLS_GET_ALLOWED_KEYS)
+        const result = await runGet(projectPath, cleanParams)
+        return formatMainControlMcpOutput(result, maxOutputChars)
+      } catch (err) {
+        return `错误：skills_get 执行失败 - ${toErrorMessage(err)}`
+      }
+    },
+  }
+
   return [
     gateCheckMechanicalTool,
     auditLongformHealthTool,
@@ -606,5 +709,7 @@ export function createMainControlMcpTools(
     foreshadowingListTool,
     characterReadTool,
     workflowNextTool,
+    skillsListTool,
+    skillsGetTool,
   ]
 }

@@ -19,10 +19,10 @@ impl ToolProfile {
     /// 判断某个工具名是否在当前 Profile 下可见、可调。
     ///
     /// 与 `SessionScope` 取交集：
-    /// - `FullLegacy`：全部 46 个已注册工具；
-    /// - `WriterSub`（32 个）：零 LLM 读写原语 + Draft-first 写工具 + 6 个零 LLM 规划/治理写工具，隐藏全部内部 API LLM 管线与全量直写工具；
-    /// - `Reviewer`（21 个）：严格全只读工具，零写工具；
-    /// - `Architect`（24 个）：聚焦开书/世界观/大纲/角色/书规/指南针/伏笔/支线规划与长篇健康诊断，不含正文写入、草稿修审、行级草稿比对与风格范例工具。
+    /// - `FullLegacy`：全部 50 个已注册工具；
+    /// - `WriterSub`（36 个）：零 LLM 读写原语 + Draft-first 写工具 + 6 个零 LLM 规划/治理写工具，隐藏全部内部 API LLM 管线与全量直写工具；
+    /// - `Reviewer`（25 个）：严格全只读工具，零写工具；
+    /// - `Architect`（28 个）：聚焦开书/世界观/大纲/角色/书规/指南针/伏笔/支线规划与长篇健康诊断，不含正文写入、草稿修审、行级草稿比对与风格范例工具。
     pub fn allows(self, tool_name: &str) -> bool {
         match self {
             Self::FullLegacy => true,
@@ -35,6 +35,8 @@ impl ToolProfile {
                     | "chapter.read"
                     | "context.inspect"
                     | "canon.query"
+                    | "canon.facts_known_by"
+                    | "canon.episodes"
                     | "draft.list"
                     | "draft.read"
                     | "rules.get"
@@ -49,6 +51,8 @@ impl ToolProfile {
                     | "chapter.search"
                     | "draft.diff"
                     | "audit.longform_health"
+                    | "skills.list"
+                    | "skills.get"
                     | "chapter.write"
                     | "draft.patch"
                     | "draft.record_review"
@@ -70,6 +74,8 @@ impl ToolProfile {
                     | "chapter.read"
                     | "context.inspect"
                     | "canon.query"
+                    | "canon.facts_known_by"
+                    | "canon.episodes"
                     | "draft.list"
                     | "draft.read"
                     | "rules.get"
@@ -84,6 +90,8 @@ impl ToolProfile {
                     | "chapter.search"
                     | "draft.diff"
                     | "audit.longform_health"
+                    | "skills.list"
+                    | "skills.get"
             ),
             Self::Architect => matches!(
                 tool_name,
@@ -93,6 +101,8 @@ impl ToolProfile {
                     | "chapter.list"
                     | "chapter.read"
                     | "canon.query"
+                    | "canon.facts_known_by"
+                    | "canon.episodes"
                     | "draft.list"
                     | "rules.get"
                     | "context.prepare_write"
@@ -103,6 +113,8 @@ impl ToolProfile {
                     | "outline.read"
                     | "chapter.search"
                     | "audit.longform_health"
+                    | "skills.list"
+                    | "skills.get"
                     | "outline.write"
                     | "character.upsert"
                     | "director.upsert_world"
@@ -616,7 +628,7 @@ mod tests {
     #[test]
     fn profile_visibility_matrix_is_monotonic_and_matches_exact_counts() {
         let reg = crate::mcp_server::tools::build_registry();
-        assert_eq!(reg.len(), 46, "全量注册表应保持 46 个工具");
+        assert_eq!(reg.len(), 50, "全量注册表应保持 50 个工具");
 
         let full_read = reg.names_visible_to_profile(SessionScope::Read, ToolProfile::FullLegacy);
         let full_settings =
@@ -625,18 +637,18 @@ mod tests {
             reg.names_visible_to_profile(SessionScope::Project, ToolProfile::FullLegacy);
         let full_auto = reg.names_visible_to_profile(SessionScope::Auto, ToolProfile::FullLegacy);
         let full_all = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::FullLegacy);
-        assert_eq!(full_read.len(), 24);
-        assert_eq!(full_settings.len(), 25);
-        assert_eq!(full_project.len(), 42);
-        assert_eq!(full_auto.len(), 43);
-        assert_eq!(full_all.len(), 46);
+        assert_eq!(full_read.len(), 28);
+        assert_eq!(full_settings.len(), 29);
+        assert_eq!(full_project.len(), 46);
+        assert_eq!(full_auto.len(), 47);
+        assert_eq!(full_all.len(), 50);
 
         let writer_read = reg.names_visible_to_profile(SessionScope::Read, ToolProfile::WriterSub);
         let writer_full = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::WriterSub);
         let writer_proj =
             reg.names_visible_to_profile(SessionScope::Project, ToolProfile::WriterSub);
-        assert_eq!(writer_read.len(), 21);
-        assert_eq!(writer_full.len(), 32);
+        assert_eq!(writer_read.len(), 25);
+        assert_eq!(writer_full.len(), 36);
         assert_eq!(
             writer_full, writer_proj,
             "WriterSub 即使在 Full scope 下也不得暴露任何 Full 专属工具或 Settings 工具"
@@ -644,7 +656,7 @@ mod tests {
 
         let reviewer_full = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::Reviewer);
         let reviewer_read = reg.names_visible_to_profile(SessionScope::Read, ToolProfile::Reviewer);
-        assert_eq!(reviewer_full.len(), 21);
+        assert_eq!(reviewer_full.len(), 25);
         assert_eq!(
             reviewer_full, reviewer_read,
             "Reviewer 必须严格全只读：Full 与 Read 下工具集合完全一致"
@@ -663,8 +675,8 @@ mod tests {
             reg.names_visible_to_profile(SessionScope::Full, ToolProfile::Architect);
         let architect_proj =
             reg.names_visible_to_profile(SessionScope::Project, ToolProfile::Architect);
-        assert_eq!(architect_read.len(), 16);
-        assert_eq!(architect_full.len(), 24);
+        assert_eq!(architect_read.len(), 20);
+        assert_eq!(architect_full.len(), 28);
         assert_eq!(architect_full, architect_proj);
 
         // 单调子集不变量：任意 (scope, profile) 必为 names_visible_to(scope) 子集，且 list_for 与 names_visible_to_profile 1:1 对齐。
@@ -845,6 +857,26 @@ mod tests {
             for alt in repl {
                 assert!(ToolProfile::Reviewer.allows(alt));
                 assert_eq!(reg.required_scope(alt), Some(SessionScope::Read));
+            }
+        }
+
+        // 核对 Wave 2 新增 4 项严格只读工具在全部 4 档 Profile 下放行且声明 Read 作用域。
+        for readonly_tool in [
+            "canon.facts_known_by",
+            "canon.episodes",
+            "skills.list",
+            "skills.get",
+        ] {
+            assert_eq!(
+                reg.required_scope(readonly_tool),
+                Some(SessionScope::Read),
+                "{readonly_tool} 必须严格声明 SessionScope::Read"
+            );
+            for profile in ToolProfile::ALL {
+                assert!(
+                    profile.allows(readonly_tool),
+                    "{profile:?} 必须放行只读工具 {readonly_tool}"
+                );
             }
         }
     }

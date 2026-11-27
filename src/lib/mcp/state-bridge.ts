@@ -73,8 +73,6 @@ import {
   loadNovelSessionStatus,
   loadWorldBlueprint,
   normalizeBookRules,
-  normalizeDeAiSkillConfig,
-  normalizeUserSkillConfig,
   parseOutlineMarkdownToModel,
   phaseGapHint,
   readDraftChapterNumber,
@@ -88,8 +86,6 @@ import {
   validateWorldBlueprint,
   type BookRules,
   type ChapterDraft,
-  type DeAiSkill,
-  type DeAiSkillConfig,
   type DirectorPersistedFile,
   type DirectorSnapshot,
   type ForeshadowingStore,
@@ -157,6 +153,12 @@ import {
   runRulesUpsertBookRules,
   runSubplotUpsert,
 } from "./planning-write-tools"
+import {
+  loadDeAiSkillConfigReadOnly,
+  loadWritingSkillConfigReadOnly,
+  runSkillsGet,
+  runSkillsList,
+} from "./skills-read-tools"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
@@ -206,6 +208,8 @@ export type StateOp =
   | "compass-update"
   | "foreshadowing-upsert"
   | "subplot-upsert"
+  | "skills-list"
+  | "skills-get"
 
 export interface StateRequestPayload {
   id: string
@@ -366,6 +370,9 @@ export interface StateBridgeDeps {
   compassUpdate?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
   foreshadowingUpsert?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
   subplotUpsert?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  /** Wave 2 零 LLM 只读技能工具依赖注入点（缺省走默认实现）。 */
+  skillsList?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  skillsGet?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
 }
 
 const defaultDeps: StateBridgeDeps = {
@@ -621,97 +628,48 @@ function projectPublicNovelConfig(novelConfig: NovelConfig): Record<string, stri
 async function readDeAiSkillConfigReadOnly(
   projectPath: string,
   readFileText: (path: string) => Promise<string>,
-): Promise<{
-  config: DeAiSkillConfig
-  source: "project_v2" | "legacy_json" | "legacy_txt" | "built_in_default"
-  corrupt: boolean
-}> {
-  const root = projectRoot(projectPath)
-  try {
-    const raw = await readFileText(`${root}/.niko-buddy/de-ai-skills.json`)
-    try {
-      return {
-        config: normalizeDeAiSkillConfig(JSON.parse(raw)),
-        source: "project_v2",
-        corrupt: false,
-      }
-    } catch {
-      return {
-        config: normalizeDeAiSkillConfig(null),
-        source: "built_in_default",
-        corrupt: true,
-      }
-    }
-  } catch {
-    // 新路径不存在，只读回退旧路径（不迁移落盘）
-  }
-
-  try {
-    const legacyRaw = await readFileText(`${root}/de-ai-skills.json`)
-    return {
-      config: normalizeDeAiSkillConfig(JSON.parse(legacyRaw)),
-      source: "legacy_json",
-      corrupt: false,
-    }
-  } catch {
-    // 无旧 JSON，回退旧 txt
-  }
-
-  try {
-    const legacyTxt = (await readFileText(`${root}/de-ai-skill.txt`)).trim()
-    if (legacyTxt) {
-      const legacySkill: DeAiSkill = {
-        id: "project:legacy-de-ai-skill",
-        name: "旧版自定义去AI味 Skill",
-        description: "从旧版 de-ai-skill.txt 读取的项目规则。",
-        templateId: "legacy",
-        content: legacyTxt,
-        source: "legacy",
-      }
-      return {
-        config: normalizeDeAiSkillConfig({
-          defaultSkillId: legacySkill.id,
-          projectSkills: [legacySkill],
-        }),
-        source: "legacy_txt",
-        corrupt: false,
-      }
-    }
-  } catch {
-    // 无旧 txt，回退内置默认
-  }
-
-  return {
-    config: normalizeDeAiSkillConfig(null),
-    source: "built_in_default",
-    corrupt: false,
-  }
+) {
+  return loadDeAiSkillConfigReadOnly(projectPath, readFileText)
 }
 
-/** 纯只读读取项目写作技能配置（绝不调用 `loadUserSkillConfig`，零惰性迁移写盘）。 */
+/** 纯只读读取项目写作技能配置（经 `loadWritingSkillConfigReadOnly` 合并全部内置写作技能，绝不触发惰性迁移写盘）。 */
 async function readEnabledWritingSkillsReadOnly(
   projectPath: string,
   readFileText: (path: string) => Promise<string>,
-): Promise<Array<{ id: string; name: string; description: string; kind: string[]; stages: string[]; modes: string[]; content: string }>> {
-  const root = projectRoot(projectPath)
-  for (const rel of [".niko-buddy/writing-skills.json", "writing-skills.json"]) {
-    try {
-      const raw = await readFileText(`${root}/${rel}`)
-      const config = normalizeUserSkillConfig(JSON.parse(raw))
-      return resolveEnabledWritingSkills(config).map((skill) => ({
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-        kind: [...skill.kind],
-        stages: [...skill.stages],
-        modes: [...skill.modes],
-        content: skill.content,
-      }))
-    } catch {
-      // 文件不存在或损坏则继续尝试下一候选项
-    }
-  }
-  return []
+  options?: { compact?: boolean },
+): Promise<Array<{
+  id: string
+  name: string
+  description: string
+  kind: string[]
+  stages: string[]
+  modes: string[]
+  content?: string
+  contentChars?: number
+}>> {
+  const compact = options?.compact === true
+  const { config } = await loadWritingSkillConfigReadOnly(projectPath, readFileText)
+  return resolveEnabledWritingSkills(config).map((skill) =>
+    compact
+      ? {
+          id: skill.id,
+          name: skill.name,
+          description: skill.description,
+          kind: [...skill.kind],
+          stages: [...skill.stages],
+          modes: [...skill.modes],
+          contentChars: skill.content.length,
+        }
+      : {
+          id: skill.id,
+          name: skill.name,
+          description: skill.description,
+          kind: [...skill.kind],
+          stages: [...skill.stages],
+          modes: [...skill.modes],
+          content: skill.content,
+        },
+  )
 }
 
 async function readUserMemoryStoreReadOnly(
@@ -769,7 +727,7 @@ async function collectRulesSnapshotReadOnly(
   }
 
   if (wanted.has("writingStyle")) {
-    const enabledWritingSkills = await readEnabledWritingSkillsReadOnly(projectPath, readFileText)
+    const enabledWritingSkills = await readEnabledWritingSkillsReadOnly(projectPath, readFileText, { compact })
     if (compact) {
       out.writingStyle = {
         omittedAsProvidedByPrepareWrite: ["soulDoc", "enabledPreset"],
@@ -1933,6 +1891,32 @@ export async function handleStateRequest(
               loadStatus: async (path) => (await deps.loadStatus(path)) as NovelSessionStatus | null,
               listDrafts: deps.listDrafts ?? defaultDeps.listDrafts!,
               listChapters: deps.listChapters,
+            }))
+        const value = await runner(projectPath, params)
+        return { ok: true, value }
+      }
+
+      case "skills-list": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.skillsList
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runSkillsList(pp, p, {
+              readFileText: deps.readFileText,
+            }))
+        const value = await runner(projectPath, params)
+        return { ok: true, value }
+      }
+
+      case "skills-get": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.skillsGet
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runSkillsGet(pp, p, {
+              readFileText: deps.readFileText,
             }))
         const value = await runner(projectPath, params)
         return { ok: true, value }

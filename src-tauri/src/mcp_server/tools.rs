@@ -892,6 +892,264 @@ impl super::registry::McpTool for CanonQueryTool {
     }
 }
 
+const CANON_POV_MAX_CHARS: usize = 128;
+const CANON_READ_DEFAULT_LIMIT: usize = 50;
+const CANON_READ_MAX_LIMIT: u64 = 200;
+const CANON_READ_MAX_OFFSET: u64 = 100_000;
+const CANON_READ_MAX_CHAPTER: u64 = 100_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedCanonFactsKnownByArgs {
+    pov: String,
+    at_chapter: Option<i32>,
+    include_invalidated: Option<bool>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+}
+
+fn parse_canon_facts_known_by_args(args: &Value) -> Result<ParsedCanonFactsKnownByArgs, ToolError> {
+    let tool = "canon.facts_known_by";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &["pov", "atChapter", "includeInvalidated", "offset", "limit"],
+        &["pov"],
+    )?);
+
+    let raw_pov = match normalized.get("pov") {
+        Some(v) => v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `pov` 必须是字符串，收到 {v}"))
+        })?,
+        None => {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: 缺少必填字符串参数 `pov`"
+            )))
+        }
+    };
+    let valid_pov = validate_single_line_str(raw_pov, tool, "pov", 1, CANON_POV_MAX_CHARS)?;
+    let pov = valid_pov.trim().to_string();
+
+    let at_chapter =
+        optional_int_in_range(&normalized, tool, "atChapter", 1, CANON_READ_MAX_CHAPTER)?
+            .map(|n| n as i32);
+    let include_invalidated = optional_bool(&normalized, tool, "includeInvalidated")?;
+    let offset = optional_int_in_range(&normalized, tool, "offset", 0, CANON_READ_MAX_OFFSET)?
+        .map(|n| n as usize);
+    let limit = Some(
+        optional_int_in_range(&normalized, tool, "limit", 1, CANON_READ_MAX_LIMIT)?
+            .map(|n| n as usize)
+            .unwrap_or(CANON_READ_DEFAULT_LIMIT),
+    );
+
+    Ok(ParsedCanonFactsKnownByArgs {
+        pov,
+        at_chapter,
+        include_invalidated,
+        offset,
+        limit,
+    })
+}
+
+/// `canon.facts_known_by` —— 严格只读 POV 认知轴事实查询（直调 Rust `canon_facts_known_by_impl`）。
+pub struct CanonFactsKnownByTool;
+
+impl super::registry::McpTool for CanonFactsKnownByTool {
+    fn name(&self) -> &'static str {
+        "canon.facts_known_by"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM read-only query returning canon edges known by a specific POV character (strictly isolates facts unknown to that POV), optionally filtered at a world chapter number with pagination. Direct Rust CanonStore read; never writes to disk."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["pov"],
+            "properties": {
+                "pov": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": CANON_POV_MAX_CHARS,
+                    "description": "Required non-empty single-line POV character identifier (1..=128 characters)"
+                },
+                "atChapter": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": CANON_READ_MAX_CHAPTER,
+                    "description": "Optional 1-based world chapter number (validAtChapter, 1..=100000)"
+                },
+                "includeInvalidated": {
+                    "type": "boolean",
+                    "description": "Include invalidated/superseded canon edges (default false)"
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": CANON_READ_MAX_OFFSET,
+                    "description": "Optional pagination offset (0..=100000, default 0)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": CANON_READ_MAX_LIMIT,
+                    "description": format!("Optional page size limit (1..={CANON_READ_MAX_LIMIT}, default {CANON_READ_DEFAULT_LIMIT})")
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            use crate::canon::commands::CanonCommandState;
+            use crate::canon::commands_core::canon_facts_known_by_impl;
+
+            let parsed = parse_canon_facts_known_by_args(args)?;
+            let app = ctx.app()?.clone();
+            let project_path = ctx.project_path().await?;
+
+            let state = app.state::<CanonCommandState>();
+            let response = canon_facts_known_by_impl(
+                &state,
+                project_path,
+                parsed.pov,
+                parsed.at_chapter,
+                parsed.include_invalidated,
+                parsed.offset,
+                parsed.limit,
+            )
+            .await
+            .map_err(|e| ToolError {
+                code: crate::mcp_server::protocol::INTERNAL_ERROR,
+                message: e,
+            })?;
+            serde_json::to_value(response).map_err(|e| ToolError::internal(e.to_string()))
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedCanonEpisodesArgs {
+    chapter_number: i32,
+    offset: Option<usize>,
+    limit: Option<usize>,
+}
+
+fn parse_canon_episodes_args(args: &Value) -> Result<ParsedCanonEpisodesArgs, ToolError> {
+    let tool = "canon.episodes";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &["chapterNumber", "offset", "limit"],
+        &["chapterNumber"],
+    )?);
+
+    let chapter_number = match normalized.get("chapterNumber") {
+        Some(v) => match v.as_u64() {
+            Some(n) if (1..=CANON_READ_MAX_CHAPTER).contains(&n) => n as i32,
+            _ => {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `chapterNumber` 必须是 1..={CANON_READ_MAX_CHAPTER} 的整数，收到 {v}"
+                )))
+            }
+        },
+        None => {
+            return Err(ToolError::invalid_params(format!(
+                "{tool}: 缺少必填整数参数 `chapterNumber`"
+            )))
+        }
+    };
+    let offset = optional_int_in_range(&normalized, tool, "offset", 0, CANON_READ_MAX_OFFSET)?
+        .map(|n| n as usize);
+    let limit = Some(
+        optional_int_in_range(&normalized, tool, "limit", 1, CANON_READ_MAX_LIMIT)?
+            .map(|n| n as usize)
+            .unwrap_or(CANON_READ_DEFAULT_LIMIT),
+    );
+
+    Ok(ParsedCanonEpisodesArgs {
+        chapter_number,
+        offset,
+        limit,
+    })
+}
+
+/// `canon.episodes` —— 严格只读按章节查询 Canon Episodes（直调 Rust `canon_query_episodes_impl`）。
+pub struct CanonEpisodesTool;
+
+impl super::registry::McpTool for CanonEpisodesTool {
+    fn name(&self) -> &'static str {
+        "canon.episodes"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM read-only query returning ingested canon episode provenance rows for a specific 1-based chapter number with pagination. Direct Rust CanonStore read; never writes to disk."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["chapterNumber"],
+            "properties": {
+                "chapterNumber": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": CANON_READ_MAX_CHAPTER,
+                    "description": "Required 1-based chapter number to query ingested canon episodes (1..=100000)"
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": CANON_READ_MAX_OFFSET,
+                    "description": "Optional pagination offset (0..=100000, default 0)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": CANON_READ_MAX_LIMIT,
+                    "description": format!("Optional page size limit (1..={CANON_READ_MAX_LIMIT}, default {CANON_READ_DEFAULT_LIMIT})")
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            use crate::canon::commands::CanonCommandState;
+            use crate::canon::commands_core::canon_query_episodes_impl;
+
+            let parsed = parse_canon_episodes_args(args)?;
+            let app = ctx.app()?.clone();
+            let project_path = ctx.project_path().await?;
+
+            let state = app.state::<CanonCommandState>();
+            let response = canon_query_episodes_impl(
+                &state,
+                project_path,
+                parsed.chapter_number,
+                parsed.offset,
+                parsed.limit,
+            )
+            .await
+            .map_err(|e| ToolError {
+                code: crate::mcp_server::protocol::INTERNAL_ERROR,
+                message: e,
+            })?;
+            serde_json::to_value(response).map_err(|e| ToolError::internal(e.to_string()))
+        })
+    }
+}
+
 // ── Zero-LLM 只读创作辅助工具（draft.* / rules.get / gate.check_mechanical）───
 
 const DRAFT_ID_MAX_LEN: usize = 128;
@@ -2991,6 +3249,348 @@ impl super::registry::McpTool for AuditLongformHealthTool {
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
             let query = build_audit_longform_health_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+// ── Zero-LLM 只读技能目录与按需水合工具（skills.list / skills.get）───────────
+
+const SKILLS_STAGE_VALUES: [&str; 9] = [
+    "planning", "drafting", "review", "rewrite", "output", "outline", "writing", "summary",
+    "extract",
+];
+const SKILLS_KIND_VALUES: [&str; 3] = ["writing", "de_ai", "all"];
+const SKILLS_MAX_QUERY_CHARS: usize = 200;
+const SKILLS_MAX_SELECTOR_ITEMS: usize = 20;
+const SKILLS_DEFAULT_PAGE_LIMIT: u64 = 50;
+const SKILLS_MAX_PAGE_LIMIT: u64 = 200;
+const SKILLS_MAX_OFFSET: u64 = 100_000;
+const SKILLS_MIN_MAX_CHARS_PER_SKILL: u64 = 200;
+const SKILLS_DEFAULT_MAX_CHARS_PER_SKILL: u64 = 6_000;
+const SKILLS_MAX_MAX_CHARS_PER_SKILL: u64 = 20_000;
+const SKILLS_MIN_MAX_TOTAL_CHARS: u64 = 500;
+const SKILLS_DEFAULT_MAX_TOTAL_CHARS: u64 = 18_000;
+const SKILLS_MAX_MAX_TOTAL_CHARS: u64 = 30_000;
+
+fn parse_optional_skill_selector_array(
+    args: &Value,
+    tool: &str,
+    field: &str,
+) -> Result<Option<Vec<String>>, ToolError> {
+    match args.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => {
+            let arr = v.as_array().ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `{field}` 必须是非空字符串数组"))
+            })?;
+            if arr.is_empty() {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `{field}` 不能为空数组"
+                )));
+            }
+            if arr.len() > SKILLS_MAX_SELECTOR_ITEMS {
+                return Err(ToolError::invalid_params(format!(
+                    "{tool}: `{field}` 最多允许 {SKILLS_MAX_SELECTOR_ITEMS} 项，收到 {}",
+                    arr.len()
+                )));
+            }
+            let mut deduped = Vec::with_capacity(arr.len());
+            let mut seen = HashSet::with_capacity(arr.len());
+            for (idx, item) in arr.iter().enumerate() {
+                let raw = item.as_str().ok_or_else(|| {
+                    ToolError::invalid_params(format!(
+                        "{tool}: `{field}[{idx}]` 必须是字符串，收到 {item}"
+                    ))
+                })?;
+                let valid = validate_single_line_str(raw, tool, field, 1, SKILLS_MAX_QUERY_CHARS)?;
+                let trimmed = valid.trim().to_string();
+                if seen.insert(trimmed.clone()) {
+                    deduped.push(trimmed);
+                }
+            }
+            Ok(Some(deduped))
+        }
+    }
+}
+
+fn build_skills_list_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "skills.list";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "stage",
+            "kind",
+            "includeDeAi",
+            "includeBuiltin",
+            "enabledOnly",
+            "query",
+            "offset",
+            "limit",
+        ],
+        &[],
+    )?);
+
+    let mut params = json!({});
+    if let Some(stage) = optional_enum_str(&normalized, tool, "stage", &SKILLS_STAGE_VALUES)? {
+        params["stage"] = json!(stage);
+    }
+    if let Some(kind) = optional_enum_str(&normalized, tool, "kind", &SKILLS_KIND_VALUES)? {
+        params["kind"] = json!(kind);
+    }
+    if let Some(include_de_ai) = optional_bool(&normalized, tool, "includeDeAi")? {
+        params["includeDeAi"] = json!(include_de_ai);
+    }
+    if let Some(include_builtin) = optional_bool(&normalized, tool, "includeBuiltin")? {
+        params["includeBuiltin"] = json!(include_builtin);
+    }
+    if let Some(enabled_only) = optional_bool(&normalized, tool, "enabledOnly")? {
+        params["enabledOnly"] = json!(enabled_only);
+    }
+    if let Some(v) = normalized.get("query") {
+        let raw = v.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `query` 必须是字符串，收到 {v}"))
+        })?;
+        let valid = validate_single_line_str(raw, tool, "query", 1, SKILLS_MAX_QUERY_CHARS)?;
+        params["query"] = json!(valid.trim());
+    }
+    if let Some(offset) = optional_int_in_range(&normalized, tool, "offset", 0, SKILLS_MAX_OFFSET)?
+    {
+        params["offset"] = json!(offset);
+    }
+    if let Some(limit) =
+        optional_int_in_range(&normalized, tool, "limit", 1, SKILLS_MAX_PAGE_LIMIT)?
+    {
+        params["limit"] = json!(limit);
+    }
+
+    Ok(StateQuery::new("skills-list").with_params(params))
+}
+
+/// `skills.list` —— 严格只读、零 LLM 技能目录浏览（仅返回元数据与字符数，不返回正文）。
+pub struct SkillsListTool;
+
+impl super::registry::McpTool for SkillsListTool {
+    fn name(&self) -> &'static str {
+        "skills.list"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM read-only catalog listing for built-in + project writing and De-AI skills (returns lightweight metadata, stage mappings, and contentChars without skill bodies). Never writes to disk."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "stage": {
+                    "type": "string",
+                    "enum": SKILLS_STAGE_VALUES,
+                    "description": "Optional stage or task-key filter: planning, drafting, review, rewrite, output, outline, writing, summary, extract"
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": SKILLS_KIND_VALUES,
+                    "description": "Optional skill library filter: writing, de_ai, or all (default all)"
+                },
+                "includeDeAi": {
+                    "type": "boolean",
+                    "description": "Include De-AI skills in the catalog (default true)"
+                },
+                "includeBuiltin": {
+                    "type": "boolean",
+                    "description": "Include built-in skills alongside project-custom skills (default true)"
+                },
+                "enabledOnly": {
+                    "type": "boolean",
+                    "description": "Return only currently enabled skills (default false)"
+                },
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": SKILLS_MAX_QUERY_CHARS,
+                    "description": "Optional single-line keyword filter matching id, name, description, or tags (1..=200 chars)"
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": SKILLS_MAX_OFFSET,
+                    "description": "Optional pagination offset (0..=100000, default 0)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": SKILLS_MAX_PAGE_LIMIT,
+                    "description": format!("Optional page size limit (1..={SKILLS_MAX_PAGE_LIMIT}, default {SKILLS_DEFAULT_PAGE_LIMIT})")
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_skills_list_query(args)?;
+            ctx.bridge_query(query).await
+        })
+    }
+}
+
+fn build_skills_get_query(args: &Value) -> Result<StateQuery, ToolError> {
+    let tool = "skills.get";
+    let normalized = Value::Object(normalize_strict_object_args(
+        args,
+        tool,
+        &[
+            "ids",
+            "names",
+            "stage",
+            "includeDeAi",
+            "includeDisabled",
+            "stripFrontmatter",
+            "maxCharsPerSkill",
+            "maxTotalChars",
+        ],
+        &[],
+    )?);
+
+    let ids = parse_optional_skill_selector_array(&normalized, tool, "ids")?;
+    let names = parse_optional_skill_selector_array(&normalized, tool, "names")?;
+    let stage = optional_enum_str(&normalized, tool, "stage", &SKILLS_STAGE_VALUES)?;
+
+    if ids.is_none() && names.is_none() && stage.is_none() {
+        return Err(ToolError::invalid_params(format!(
+            "{tool}: 至少需要提供 `ids`、`names` 或 `stage` 之一"
+        )));
+    }
+
+    let mut params = json!({});
+    if let Some(ids) = ids {
+        params["ids"] = json!(ids);
+    }
+    if let Some(names) = names {
+        params["names"] = json!(names);
+    }
+    if let Some(stage) = stage {
+        params["stage"] = json!(stage);
+    }
+    if let Some(include_de_ai) = optional_bool(&normalized, tool, "includeDeAi")? {
+        params["includeDeAi"] = json!(include_de_ai);
+    }
+    if let Some(include_disabled) = optional_bool(&normalized, tool, "includeDisabled")? {
+        params["includeDisabled"] = json!(include_disabled);
+    }
+    if let Some(strip_frontmatter) = optional_bool(&normalized, tool, "stripFrontmatter")? {
+        params["stripFrontmatter"] = json!(strip_frontmatter);
+    }
+    if let Some(max_chars_per_skill) = optional_int_in_range(
+        &normalized,
+        tool,
+        "maxCharsPerSkill",
+        SKILLS_MIN_MAX_CHARS_PER_SKILL,
+        SKILLS_MAX_MAX_CHARS_PER_SKILL,
+    )? {
+        params["maxCharsPerSkill"] = json!(max_chars_per_skill);
+    }
+    if let Some(max_total_chars) = optional_int_in_range(
+        &normalized,
+        tool,
+        "maxTotalChars",
+        SKILLS_MIN_MAX_TOTAL_CHARS,
+        SKILLS_MAX_MAX_TOTAL_CHARS,
+    )? {
+        params["maxTotalChars"] = json!(max_total_chars);
+    }
+
+    Ok(StateQuery::new("skills-get").with_params(params))
+}
+
+/// `skills.get` —— 严格只读、零 LLM 按需水合技能正文（强制至少传 `ids`/`names`/`stage` 之一）。
+pub struct SkillsGetTool;
+
+impl super::registry::McpTool for SkillsGetTool {
+    fn name(&self) -> &'static str {
+        "skills.get"
+    }
+
+    fn description(&self) -> &'static str {
+        "Zero-LLM read-only on-demand hydration of writing/De-AI skill bodies by ids, names, or stage (at least one selector required), with YAML frontmatter stripping and strict per-skill / total character budgets. Never writes to disk."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": SKILLS_MAX_SELECTOR_ITEMS,
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": SKILLS_MAX_QUERY_CHARS
+                    },
+                    "description": "Optional list of 1..=20 skill IDs to hydrate (at least one of ids, names, or stage is required)"
+                },
+                "names": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": SKILLS_MAX_SELECTOR_ITEMS,
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": SKILLS_MAX_QUERY_CHARS
+                    },
+                    "description": "Optional list of 1..=20 skill names to hydrate (at least one of ids, names, or stage is required)"
+                },
+                "stage": {
+                    "type": "string",
+                    "enum": SKILLS_STAGE_VALUES,
+                    "description": "Optional stage or task-key selector to hydrate enabled skills (at least one of ids, names, or stage is required)"
+                },
+                "includeDeAi": {
+                    "type": "boolean",
+                    "description": "Include De-AI skills when resolving selectors (default true)"
+                },
+                "includeDisabled": {
+                    "type": "boolean",
+                    "description": "Include disabled skills instead of skipping them into disabledSkipped (default false)"
+                },
+                "stripFrontmatter": {
+                    "type": "boolean",
+                    "description": "Strip YAML frontmatter from returned skill bodies (default true)"
+                },
+                "maxCharsPerSkill": {
+                    "type": "integer",
+                    "minimum": SKILLS_MIN_MAX_CHARS_PER_SKILL,
+                    "maximum": SKILLS_MAX_MAX_CHARS_PER_SKILL,
+                    "description": format!("Per-skill body character budget ({SKILLS_MIN_MAX_CHARS_PER_SKILL}..={SKILLS_MAX_MAX_CHARS_PER_SKILL}, default {SKILLS_DEFAULT_MAX_CHARS_PER_SKILL})")
+                },
+                "maxTotalChars": {
+                    "type": "integer",
+                    "minimum": SKILLS_MIN_MAX_TOTAL_CHARS,
+                    "maximum": SKILLS_MAX_MAX_TOTAL_CHARS,
+                    "description": format!("Cumulative body character budget across returned skills ({SKILLS_MIN_MAX_TOTAL_CHARS}..={SKILLS_MAX_MAX_TOTAL_CHARS}, default {SKILLS_DEFAULT_MAX_TOTAL_CHARS})")
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let query = build_skills_get_query(args)?;
             ctx.bridge_query(query).await
         })
     }
@@ -6818,6 +7418,8 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(ChapterReadTool));
     r.register(Arc::new(ContextInspectTool));
     r.register(Arc::new(CanonQueryTool));
+    r.register(Arc::new(CanonFactsKnownByTool));
+    r.register(Arc::new(CanonEpisodesTool));
     r.register(Arc::new(DraftListTool));
     r.register(Arc::new(DraftReadTool));
     r.register(Arc::new(RulesGetTool));
@@ -6832,6 +7434,8 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(ChapterSearchTool));
     r.register(Arc::new(DraftDiffTool));
     r.register(Arc::new(AuditLongformHealthTool));
+    r.register(Arc::new(SkillsListTool));
+    r.register(Arc::new(SkillsGetTool));
     r.register(Arc::new(PipelineRunChapterTool));
     r.register(Arc::new(PipelineStatusTool));
     r.register(Arc::new(GateRunTool));
@@ -6921,6 +7525,8 @@ mod tests {
                 "chapter.read",
                 "context.inspect",
                 "canon.query",
+                "canon.facts_known_by",
+                "canon.episodes",
                 "draft.list",
                 "draft.read",
                 "rules.get",
@@ -6935,6 +7541,8 @@ mod tests {
                 "chapter.search",
                 "draft.diff",
                 "audit.longform_health",
+                "skills.list",
+                "skills.get",
                 "pipeline.run_chapter",
                 "pipeline.status",
                 "gate.run",
@@ -9131,7 +9739,7 @@ mod tests {
     #[test]
     fn phase2_eight_tools_have_expected_scopes_descriptions_and_no_draft_accept() {
         let r = build_registry();
-        assert_eq!(r.len(), 46);
+        assert_eq!(r.len(), 50);
         assert_eq!(r.privileged_tools().len(), 22);
         assert!(!r.names().contains(&"draft.accept"));
 
@@ -9948,7 +10556,7 @@ mod tests {
     #[tokio::test]
     async fn six_planning_write_tools_enforce_strict_schemas_null_tolerance_and_project_scope() {
         let reg = build_registry();
-        assert_eq!(reg.len(), 46, "全量工具注册表应为 46 个");
+        assert_eq!(reg.len(), 50, "全量工具注册表应为 50 个");
         assert!(!reg.names().contains(&"draft.accept"), "绝不允许注册 draft.accept");
 
         let new_tools = [
@@ -10100,5 +10708,481 @@ mod tests {
                 tool.name()
             );
         }
+    }
+
+    #[tokio::test]
+    async fn wave2_four_readonly_tools_enforce_strict_schemas_null_tolerance_and_read_scope() {
+        let reg = build_registry();
+        assert_eq!(reg.len(), 50, "全量注册表应为 50 个工具");
+        assert_eq!(reg.privileged_tools().len(), 22, "privileged 工具数必须严格锁定 22");
+        assert!(!reg.names().contains(&"draft.accept"), "绝不允许注册 draft.accept");
+
+        let write_like = crate::mcp_server::contains_write_like_tool(&reg);
+        let new_tools = [
+            "skills.list",
+            "skills.get",
+            "canon.facts_known_by",
+            "canon.episodes",
+        ];
+        for name in new_tools {
+            assert_eq!(
+                reg.required_scope(name),
+                Some(SessionScope::Read),
+                "{name} 必须严格为 SessionScope::Read"
+            );
+            assert!(
+                !reg.privileged_tools().contains(&name),
+                "{name} 不得进入 privileged 列表"
+            );
+            assert!(
+                !write_like.contains(&name),
+                "WRITE_HINTS 不得误报 {name}"
+            );
+        }
+
+        for schema in [
+            SkillsListTool.input_schema(),
+            SkillsGetTool.input_schema(),
+            CanonFactsKnownByTool.input_schema(),
+            CanonEpisodesTool.input_schema(),
+        ] {
+            assert_eq!(schema["type"], json!("object"));
+            assert_eq!(schema["additionalProperties"], json!(false));
+        }
+
+        // 1. skills.list: empty, full, and explicit optional nulls
+        let q_list_empty = build_skills_list_query(&json!({})).expect("skills.list empty ok");
+        assert_eq!(q_list_empty.op, "skills-list");
+        assert_eq!(q_list_empty.params, Some(json!({})));
+
+        let q_list_nulls = build_skills_list_query(&json!({
+            "stage": null,
+            "kind": null,
+            "includeDeAi": null,
+            "includeBuiltin": null,
+            "enabledOnly": null,
+            "query": null,
+            "offset": null,
+            "limit": null
+        }))
+        .expect("skills.list optional nulls ok");
+        assert_eq!(q_list_nulls.params, Some(json!({})));
+
+        let q_list_full = build_skills_list_query(&json!({
+            "stage": "outline",
+            "kind": "writing",
+            "includeDeAi": false,
+            "includeBuiltin": true,
+            "enabledOnly": true,
+            "query": "  节奏  ",
+            "offset": 0,
+            "limit": 50
+        }))
+        .expect("skills.list full ok");
+        assert_eq!(
+            q_list_full.params,
+            Some(json!({
+                "stage": "outline",
+                "kind": "writing",
+                "includeDeAi": false,
+                "includeBuiltin": true,
+                "enabledOnly": true,
+                "query": "节奏",
+                "offset": 0,
+                "limit": 50
+            }))
+        );
+
+        // 2. skills.get: ids/names/stage selectors, dedup/trim, optional nulls
+        let q_get_ids = build_skills_get_query(&json!({
+            "ids": [" skill-a ", "skill-a", "skill-b"],
+            "names": null,
+            "stage": null,
+            "includeDeAi": null,
+            "includeDisabled": true,
+            "stripFrontmatter": false,
+            "maxCharsPerSkill": 6000,
+            "maxTotalChars": 18000
+        }))
+        .expect("skills.get ids ok");
+        assert_eq!(q_get_ids.op, "skills-get");
+        assert_eq!(
+            q_get_ids.params,
+            Some(json!({
+                "ids": ["skill-a", "skill-b"],
+                "includeDisabled": true,
+                "stripFrontmatter": false,
+                "maxCharsPerSkill": 6000,
+                "maxTotalChars": 18000
+            }))
+        );
+
+        let q_get_stage = build_skills_get_query(&json!({
+            "stage": "review",
+            "ids": null,
+            "names": null,
+            "maxCharsPerSkill": null,
+            "maxTotalChars": null
+        }))
+        .expect("skills.get stage ok");
+        assert_eq!(q_get_stage.params, Some(json!({ "stage": "review" })));
+
+        // 3. canon.facts_known_by: required pov + default limit=50 + optional nulls
+        let parsed_pov_default = parse_canon_facts_known_by_args(&json!({
+            "pov": "  林澈  ",
+            "atChapter": null,
+            "includeInvalidated": null,
+            "offset": null,
+            "limit": null
+        }))
+        .expect("canon.facts_known_by defaults ok");
+        assert_eq!(
+            parsed_pov_default,
+            ParsedCanonFactsKnownByArgs {
+                pov: "林澈".to_string(),
+                at_chapter: None,
+                include_invalidated: None,
+                offset: None,
+                limit: Some(50),
+            }
+        );
+
+        let parsed_pov_full = parse_canon_facts_known_by_args(&json!({
+            "pov": "alice",
+            "atChapter": 12,
+            "includeInvalidated": true,
+            "offset": 5,
+            "limit": 200
+        }))
+        .expect("canon.facts_known_by full ok");
+        assert_eq!(
+            parsed_pov_full,
+            ParsedCanonFactsKnownByArgs {
+                pov: "alice".to_string(),
+                at_chapter: Some(12),
+                include_invalidated: Some(true),
+                offset: Some(5),
+                limit: Some(200),
+            }
+        );
+
+        // 4. canon.episodes: required chapterNumber + default limit=50 + optional nulls
+        let parsed_ep_default = parse_canon_episodes_args(&json!({
+            "chapterNumber": 7,
+            "offset": null,
+            "limit": null
+        }))
+        .expect("canon.episodes defaults ok");
+        assert_eq!(
+            parsed_ep_default,
+            ParsedCanonEpisodesArgs {
+                chapter_number: 7,
+                offset: None,
+                limit: Some(50),
+            }
+        );
+
+        let parsed_ep_full = parse_canon_episodes_args(&json!({
+            "chapterNumber": 100_000,
+            "offset": 10,
+            "limit": 1
+        }))
+        .expect("canon.episodes full ok");
+        assert_eq!(
+            parsed_ep_full,
+            ParsedCanonEpisodesArgs {
+                chapter_number: 100_000,
+                offset: Some(10),
+                limit: Some(1),
+            }
+        );
+
+        // Fail-closed validation across all 4 tools before touching bridge or AppHandle
+        let ctx = ToolContext::for_test();
+        let over_pov = "a".repeat(CANON_POV_MAX_CHARS + 1);
+        let over_query = "q".repeat(SKILLS_MAX_QUERY_CHARS + 1);
+        let too_many_ids: Vec<String> = (0..=SKILLS_MAX_SELECTOR_ITEMS)
+            .map(|i| format!("id-{i}"))
+            .collect();
+        let bad_cases: [(&dyn McpTool, Value); 31] = [
+            // skills.list
+            (&SkillsListTool, json!({ "unknown": null })),
+            (&SkillsListTool, json!({ "stage": "bogus" })),
+            (&SkillsListTool, json!({ "kind": "invalid" })),
+            (&SkillsListTool, json!({ "enabledOnly": "true" })),
+            (&SkillsListTool, json!({ "query": "   " })),
+            (&SkillsListTool, json!({ "query": "line1\nline2" })),
+            (&SkillsListTool, json!({ "query": over_query })),
+            (&SkillsListTool, json!({ "limit": 0 })),
+            (&SkillsListTool, json!({ "limit": 201 })),
+            (&SkillsListTool, json!({ "offset": 100_001 })),
+            // skills.get
+            (&SkillsGetTool, json!({})),
+            (&SkillsGetTool, json!({ "ids": null, "names": null, "stage": null })),
+            (&SkillsGetTool, json!({ "stage": "review", "extra": null })),
+            (&SkillsGetTool, json!({ "ids": [] })),
+            (&SkillsGetTool, json!({ "ids": ["   "] })),
+            (&SkillsGetTool, json!({ "ids": ["a\nb"] })),
+            (&SkillsGetTool, json!({ "ids": too_many_ids })),
+            (&SkillsGetTool, json!({ "stage": "review", "maxCharsPerSkill": 199 })),
+            (&SkillsGetTool, json!({ "stage": "review", "maxCharsPerSkill": 20_001 })),
+            (&SkillsGetTool, json!({ "stage": "review", "maxTotalChars": 499 })),
+            (&SkillsGetTool, json!({ "stage": "review", "maxTotalChars": 30_001 })),
+            // canon.facts_known_by
+            (&CanonFactsKnownByTool, json!({})),
+            (&CanonFactsKnownByTool, json!({ "pov": null })),
+            (&CanonFactsKnownByTool, json!({ "pov": "   " })),
+            (&CanonFactsKnownByTool, json!({ "pov": "alice\nbob" })),
+            (&CanonFactsKnownByTool, json!({ "pov": over_pov })),
+            (&CanonFactsKnownByTool, json!({ "pov": "alice", "atChapter": 0 })),
+            (&CanonFactsKnownByTool, json!({ "pov": "alice", "limit": 201 })),
+            (&CanonFactsKnownByTool, json!({ "pov": "alice", "unknown": null })),
+            // canon.episodes
+            (&CanonEpisodesTool, json!({ "chapterNumber": 0 })),
+            (&CanonEpisodesTool, json!({ "chapterNumber": 1, "unknown": null })),
+        ];
+        for (tool, bad) in bad_cases {
+            let err = tool.call(&ctx, &bad).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "{} must reject bad args: {bad}",
+                tool.name()
+            );
+        }
+        // Additional canon.episodes missing / negative / out-of-range checks
+        for bad in [
+            json!({}),
+            json!({ "chapterNumber": null }),
+            json!({ "chapterNumber": -1 }),
+            json!({ "chapterNumber": 100_001 }),
+            json!({ "chapterNumber": 1, "limit": 0 }),
+            json!({ "chapterNumber": 1, "limit": 201 }),
+            json!({ "chapterNumber": 1, "offset": 100_001 }),
+        ] {
+            let err = CanonEpisodesTool.call(&ctx, &bad).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "canon.episodes must reject bad args: {bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn canon_facts_known_by_and_episodes_verify_real_temp_canon_store() {
+        use crate::canon::commands::CanonCommandState;
+        use crate::canon::commands_core::{
+            canon_facts_known_by_impl, canon_ingest_episode_impl, canon_query_episodes_impl,
+        };
+        use crate::canon::store::CanonStore;
+        use crate::canon::types::{CanonEdge, CanonEpisode, EdgeKind};
+
+        struct TempCanonDir(PathBuf);
+        impl Drop for TempCanonDir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let dir = TempCanonDir(std::env::temp_dir().join(format!(
+            "nb-mcp-canon-read-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        )));
+        std::fs::create_dir_all(&dir.0).expect("create temp canon dir");
+        let project_id = dir.0.to_string_lossy().to_string();
+        let state = CanonCommandState::default();
+
+        // Seed real CanonStore with POV-isolated edges + chapter episodes
+        let store = CanonStore::open(&project_id).await.expect("open store");
+        let make_edge = |id: &str, v: Option<i32>, inv: Option<i32>, povs: &[&str]| {
+            let mut e = CanonEdge::new(id, "hero", "artifact", "knows_location", EdgeKind::WorldFact);
+            e.valid_at = v;
+            e.invalid_at = inv;
+            e.source_chapter = v;
+            e.known_by = povs.iter().map(|s| s.to_string()).collect();
+            e
+        };
+        store
+            .upsert_edge(make_edge("e_alice_only", Some(1), None, &["alice"]))
+            .await
+            .expect("upsert alice edge");
+        store
+            .upsert_edge(make_edge("e_bob_only", Some(1), None, &["bob"]))
+            .await
+            .expect("upsert bob edge");
+        store
+            .upsert_edge(make_edge(
+                "e_shared_capped",
+                Some(1),
+                Some(5),
+                &["alice", "bob"],
+            ))
+            .await
+            .expect("upsert shared capped edge");
+        drop(store);
+
+        for (ep_id, chapter, digest) in [
+            ("ep_ch3_1", 3, "digest-3-1"),
+            ("ep_ch3_2", 3, "digest-3-2"),
+            ("ep_ch3_3", 3, "digest-3-3"),
+            ("ep_ch4_1", 4, "digest-4-1"),
+        ] {
+            canon_ingest_episode_impl(
+                &state,
+                project_id.clone(),
+                CanonEpisode::new(ep_id, chapter, "alice", digest),
+            )
+            .await
+            .expect("ingest episode");
+        }
+        let rev_after_ingest = state.current_revision(&project_id);
+        assert_eq!(rev_after_ingest, 4);
+
+        // 1) POV alice @ chapter 4: sees e_alice_only + e_shared_capped, strictly excludes e_bob_only
+        let p1 = parse_canon_facts_known_by_args(&json!({
+            "pov": "alice",
+            "atChapter": 4
+        }))
+        .expect("parse pov ch4");
+        let r1 = canon_facts_known_by_impl(
+            &state,
+            project_id.clone(),
+            p1.pov,
+            p1.at_chapter,
+            p1.include_invalidated,
+            p1.offset,
+            p1.limit,
+        )
+        .await
+        .expect("facts known by alice ch4");
+        let r1_ids: Vec<&str> = r1.edges.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(r1.total, 2);
+        assert!(r1_ids.contains(&"e_alice_only"));
+        assert!(r1_ids.contains(&"e_shared_capped"));
+        assert!(!r1_ids.contains(&"e_bob_only"), "严禁泄露非 alice 已知事实");
+        assert_eq!(r1.max_revision, rev_after_ingest, "纯读不得自增 revision");
+
+        // 2) POV alice @ chapter 6 without invalidated: only e_alice_only survives
+        let p2 = parse_canon_facts_known_by_args(&json!({
+            "pov": "alice",
+            "atChapter": 6,
+            "includeInvalidated": false
+        }))
+        .expect("parse pov ch6 active");
+        let r2 = canon_facts_known_by_impl(
+            &state,
+            project_id.clone(),
+            p2.pov,
+            p2.at_chapter,
+            p2.include_invalidated,
+            p2.offset,
+            p2.limit,
+        )
+        .await
+        .expect("facts known by alice ch6");
+        assert_eq!(r2.total, 1);
+        assert_eq!(r2.edges.len(), 1);
+        assert_eq!(r2.edges[0].id, "e_alice_only");
+
+        // 3) POV alice pagination + includeInvalidated=true still isolates bob's exclusive fact
+        let p3 = parse_canon_facts_known_by_args(&json!({
+            "pov": "alice",
+            "includeInvalidated": true,
+            "offset": 0,
+            "limit": 1
+        }))
+        .expect("parse pov paged");
+        let r3 = canon_facts_known_by_impl(
+            &state,
+            project_id.clone(),
+            p3.pov,
+            p3.at_chapter,
+            p3.include_invalidated,
+            p3.offset,
+            p3.limit,
+        )
+        .await
+        .expect("facts known by alice paged");
+        assert_eq!(r3.total, 2);
+        assert_eq!(r3.edges.len(), 1);
+        assert_ne!(r3.edges[0].id, "e_bob_only");
+
+        // 4) Unrelated POV carol sees zero facts
+        let r_carol = canon_facts_known_by_impl(
+            &state,
+            project_id.clone(),
+            "carol".to_string(),
+            None,
+            Some(true),
+            None,
+            Some(50),
+        )
+        .await
+        .expect("carol empty");
+        assert_eq!(r_carol.total, 0);
+        assert!(r_carol.edges.is_empty());
+
+        // 5) canon.episodes pagination for chapter 3 (total=3, page1=2, page2=1) and chapter 4 (total=1)
+        let ep_p1 = parse_canon_episodes_args(&json!({
+            "chapterNumber": 3,
+            "offset": 0,
+            "limit": 2
+        }))
+        .expect("parse episodes ch3 p1");
+        let ep_r1 = canon_query_episodes_impl(
+            &state,
+            project_id.clone(),
+            ep_p1.chapter_number,
+            ep_p1.offset,
+            ep_p1.limit,
+        )
+        .await
+        .expect("query episodes ch3 p1");
+        assert_eq!(ep_r1.total, 3);
+        assert_eq!(ep_r1.episodes.len(), 2);
+        assert!(ep_r1.episodes.iter().all(|ep| ep.chapter_number == 3));
+        assert_eq!(ep_r1.max_revision, rev_after_ingest);
+
+        let ep_p2 = parse_canon_episodes_args(&json!({
+            "chapterNumber": 3,
+            "offset": 2,
+            "limit": 2
+        }))
+        .expect("parse episodes ch3 p2");
+        let ep_r2 = canon_query_episodes_impl(
+            &state,
+            project_id.clone(),
+            ep_p2.chapter_number,
+            ep_p2.offset,
+            ep_p2.limit,
+        )
+        .await
+        .expect("query episodes ch3 p2");
+        assert_eq!(ep_r2.total, 3);
+        assert_eq!(ep_r2.episodes.len(), 1);
+        assert_eq!(ep_r2.episodes[0].chapter_number, 3);
+
+        let ep_ch4 = parse_canon_episodes_args(&json!({ "chapterNumber": 4 }))
+            .expect("parse episodes ch4");
+        let ep_r4 = canon_query_episodes_impl(
+            &state,
+            project_id.clone(),
+            ep_ch4.chapter_number,
+            ep_ch4.offset,
+            ep_ch4.limit,
+        )
+        .await
+        .expect("query episodes ch4");
+        assert_eq!(ep_r4.total, 1);
+        assert_eq!(ep_r4.episodes.len(), 1);
+        assert_eq!(ep_r4.episodes[0].id, "ep_ch4_1");
+
+        // Verify JSON serialization succeeds cleanly for both responses
+        let facts_json = serde_json::to_value(&r1).expect("serialize facts response");
+        assert_eq!(facts_json["total"], json!(2));
+        let ep_json = serde_json::to_value(&ep_r1).expect("serialize episodes response");
+        assert_eq!(ep_json["total"], json!(3));
     }
 }

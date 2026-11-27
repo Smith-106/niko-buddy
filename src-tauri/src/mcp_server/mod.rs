@@ -1462,6 +1462,22 @@ mod tests {
                 "WRITE_HINTS 必须命中 {new_write}，实际: {write_like:?}"
             );
         }
+        for new_read in [
+            "skills.list",
+            "skills.get",
+            "canon.facts_known_by",
+            "canon.episodes",
+        ] {
+            assert!(
+                !write_like.contains(&new_read),
+                "WRITE_HINTS 不得误报只读工具 {new_read}，实际: {write_like:?}"
+            );
+            assert_eq!(
+                reg.required_scope(new_read),
+                Some(session::SessionScope::Read),
+                "{new_read} 必须严格声明 Read scope"
+            );
+        }
         let privileged = reg.privileged_tools();
         for name in &write_like {
             assert!(privileged.contains(name), "{name} 名字像写却没声明权限");
@@ -3027,7 +3043,7 @@ mod tests {
             Some(ToolProfile::WriterSub)
         );
 
-        // 3) 后续请求不带 profile 时沿用冻结的 `writer-sub`：`tools/list` 仅返回 26 工具。
+        // 3) 后续请求不带 profile 时沿用冻结的 `writer-sub`：`tools/list` 仅返回 36 工具。
         let list_resp = client
             .post(&base_url)
             .bearer_auth("secret-token")
@@ -3044,13 +3060,21 @@ mod tests {
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert_eq!(list_names.len(), 32);
+        assert_eq!(list_names.len(), 36);
         assert!(list_names.contains(&"chapter.write"));
         assert!(list_names.contains(&"workflow.next"));
         assert!(list_names.contains(&"draft.patch"));
         assert!(list_names.contains(&"draft.record_review"));
         assert!(list_names.contains(&"draft.diff"));
         assert!(list_names.contains(&"audit.longform_health"));
+        for new_read in [
+            "skills.list",
+            "skills.get",
+            "canon.facts_known_by",
+            "canon.episodes",
+        ] {
+            assert!(list_names.contains(&new_read));
+        }
         for planning_tool in [
             "director.upsert_world",
             "director.commit_phase",
@@ -3164,7 +3188,7 @@ mod tests {
         let unknown = http_call_tool(&client, &base_url, &sid, "nope.unknown", json!({})).await;
         assert_eq!(unknown["error"]["code"], json!(METHOD_NOT_FOUND));
 
-        // 6) `reviewer` 会话即便在 Project 服务端下也仅可见 21 个 Read 工具，且调写工具报 TOOL_HIDDEN_BY_PROFILE。
+        // 6) `reviewer` 会话即便在 Project 服务端下也仅可见 25 个 Read 工具，且调写工具报 TOOL_HIDDEN_BY_PROFILE。
         let rev_init = client
             .post(format!("{base_url}?profile=reviewer"))
             .bearer_auth("secret-token")
@@ -3196,11 +3220,19 @@ mod tests {
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert_eq!(rev_names.len(), 21);
+        assert_eq!(rev_names.len(), 25);
         assert!(rev_names.contains(&"workflow.next"));
         assert!(rev_names.contains(&"style.exemplars"));
         assert!(rev_names.contains(&"draft.diff"));
         assert!(rev_names.contains(&"audit.longform_health"));
+        for new_read in [
+            "skills.list",
+            "skills.get",
+            "canon.facts_known_by",
+            "canon.episodes",
+        ] {
+            assert!(rev_names.contains(&new_read));
+        }
         assert!(!rev_names.contains(&"draft.patch"));
         assert!(!rev_names.contains(&"draft.record_review"));
 
@@ -3229,7 +3261,7 @@ mod tests {
             assert_eq!(rev_hidden_json["activeProfile"], json!("reviewer"));
         }
 
-        // 7) `architect` 会话可见 18 个工具，放行 audit.longform_health，隐藏 draft.patch / draft.record_review / style.exemplars / draft.diff。
+        // 7) `architect` 会话可见 28 个工具，放行 audit.longform_health 及 4 项新只读工具，隐藏 draft.patch / draft.record_review / style.exemplars / draft.diff。
         let arch_init = client
             .post(format!("{base_url}?profile=architect"))
             .bearer_auth("secret-token")
@@ -3261,11 +3293,19 @@ mod tests {
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert_eq!(arch_names.len(), 24);
+        assert_eq!(arch_names.len(), 28);
         assert!(arch_names.contains(&"workflow.next"));
         assert!(arch_names.contains(&"outline.read"));
         assert!(arch_names.contains(&"character.read"));
         assert!(arch_names.contains(&"audit.longform_health"));
+        for new_read in [
+            "skills.list",
+            "skills.get",
+            "canon.facts_known_by",
+            "canon.episodes",
+        ] {
+            assert!(arch_names.contains(&new_read));
+        }
         for planning_tool in [
             "director.upsert_world",
             "director.commit_phase",
@@ -3317,7 +3357,7 @@ mod tests {
             }
         }
 
-        // 8) 核对 FullLegacy + Full scope 服务端下全量 tools/list 为 46 个工具。
+        // 8) 核对 FullLegacy + Full scope 服务端下全量 tools/list 为 50 个工具。
         let full_state = ServerState {
             token: "secret-token".into(),
             port: 0,
@@ -3355,7 +3395,21 @@ mod tests {
             .json()
             .await
             .expect("json");
-        assert_eq!(full_list["result"]["tools"].as_array().unwrap().len(), 46);
+        let full_names: Vec<&str> = full_list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert_eq!(full_names.len(), 50);
+        for new_read in [
+            "skills.list",
+            "skills.get",
+            "canon.facts_known_by",
+            "canon.episodes",
+        ] {
+            assert!(full_names.contains(&new_read));
+        }
         full_server.stop();
 
         server.stop();

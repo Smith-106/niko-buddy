@@ -128,7 +128,7 @@ describe("runMainControlAgent", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
-  it("注册白名单：包含只读/门控/技能/大纲节点/草稿写入共 20 项，正式记忆写工具严格排除", async () => {
+  it("注册白名单：包含只读/门控/技能/大纲节点/草稿写入共 22 项，正式记忆写工具严格排除", async () => {
     const registry = new ToolRegistry()
     await runMainControlAgent({
       projectPath: "/proj",
@@ -142,6 +142,8 @@ describe("runMainControlAgent", () => {
     expect(names).toContain("write_chapter")
     expect(names).toContain("apply_skill")
     expect(names).toContain("write_outline_node")
+    expect(names).toContain("skills_list")
+    expect(names).toContain("skills_get")
     for (const mcpName of MAIN_CONTROL_MCP_TOOL_NAMES) {
       expect(names).toContain(mcpName)
       expect(registry.get(mcpName)?.category).toBe("read")
@@ -346,7 +348,7 @@ describe("工具白名单收窄", () => {
     expect(MAIN_CONTROL_TOOLS).not.toContain("trim_context")
   })
 
-  it("F05 + TASK-005：主控内 route_task / trim_context / write_memory 不注册，基础白名单固定 20 项", async () => {
+  it("F05 + TASK-005 + Wave 2：主控内 route_task / trim_context / write_memory 不注册，基础白名单固定 22 项", async () => {
     const registry = new ToolRegistry()
     await runMainControlAgent({
       projectPath: "/proj",
@@ -359,9 +361,11 @@ describe("工具白名单收窄", () => {
     expect(names).not.toContain("route_task")
     expect(names).not.toContain("trim_context")
     expect(names).not.toContain("write_memory")
-    // RV-10：钉死字面量（12 原有 + apply_skill + write_outline_node + 6 零 LLM MCP 门面 = 20）
-    expect(MAIN_CONTROL_TOOLS).toHaveLength(20)
-    expect(names).toHaveLength(20)
+    expect(names).toContain("skills_list")
+    expect(names).toContain("skills_get")
+    // RV-10：钉死字面量（12 原有 + apply_skill + write_outline_node + 8 零 LLM MCP 门面 = 22）
+    expect(MAIN_CONTROL_TOOLS).toHaveLength(22)
+    expect(names).toHaveLength(22)
   })
 
   it("显式点名工具后只注册这些（含依赖工具）", async () => {
