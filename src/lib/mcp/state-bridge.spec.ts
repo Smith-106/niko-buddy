@@ -2379,3 +2379,190 @@ describe("handleStateRequest — P1-B3（rules-get compact / gate-check-mechanic
     expect(Object.keys(mod).filter((name) => /^(set|write|remove|delete|update)/i.test(name))).toEqual([])
   })
 })
+
+describe("handleStateRequest — P2-B4 (8 个新操作 / mcp:draft.patch 元数据 / prepareId+page 透传)", () => {
+  it("1) draft-list 与 draft-read 将 mcp:draft.patch 归为非门控外部写并透出 parentDraftId 与 revisionRound", async () => {
+    const patchDraft = {
+      id: "draft_patch_2",
+      chapterName: "第03章",
+      content: "# 第03章\n\n修补后正文。",
+      status: "draft" as const,
+      createdAt: 100,
+      sourceConversationId: "mcp:draft.patch",
+      parentDraftId: "draft_root_1",
+      revisionRound: 2,
+    }
+    const d = deps({ listDrafts: async () => [patchDraft] })
+
+    const listRes = await handleStateRequest(request({ op: "draft-list" }), d)
+    expect(listRes.ok).toBe(true)
+    const items = (listRes.value as { drafts: Array<Record<string, unknown>> }).drafts
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      draftId: "draft_patch_2",
+      adoptionGated: false,
+      gateStatus: "unassessed",
+      needsGateReview: false,
+      parentDraftId: "draft_root_1",
+      revisionRound: 2,
+    })
+
+    const readRes = await handleStateRequest(
+      request({ op: "draft-read", params: { draftId: "draft_patch_2" } }),
+      d,
+    )
+    expect(readRes.ok).toBe(true)
+    expect(readRes.value).toMatchObject({
+      draftId: "draft_patch_2",
+      adoptionGated: false,
+      gateStatus: "unassessed",
+      needsGateReview: false,
+      parentDraftId: "draft_root_1",
+      revisionRound: 2,
+    })
+  })
+
+  it("2) 全部 8 个新 op 在未打开项目时统一拒绝并返回显式错误", async () => {
+    const ops = [
+      "workflow-next",
+      "draft-patch",
+      "draft-record-review",
+      "foreshadowing-list",
+      "character-read",
+      "outline-read",
+      "style-exemplars",
+      "chapter-search",
+    ] as const
+    const d = deps({ readProjectPath: () => "" })
+
+    for (const op of ops) {
+      const res = await handleStateRequest(request({ op }), d)
+      expect(res.ok).toBe(false)
+      expect(res.error).toContain("未打开项目")
+    }
+  })
+
+  it("3) 全部 8 个新 op 正确转发 projectPath/params 并在 draft-patch 与 draft-record-review 成功后触发 onDraftWritten", async () => {
+    const onDraftWritten = vi.fn()
+    const called: string[] = []
+    const d = deps({
+      onDraftWritten,
+      workflowNext: async (pp, params) => {
+        called.push(`workflow-next:${pp}:${String(params?.targetChapter ?? "")}`)
+        return { route: "draft", ok: true }
+      },
+      draftPatch: async (pp, params) => {
+        called.push(`draft-patch:${pp}:${String(params?.draftId ?? "")}`)
+        return { draftId: "draft_patched_1", revisionRound: 1 }
+      },
+      draftRecordReview: async (pp, params) => {
+        called.push(`draft-record-review:${pp}:${String(params?.draftId ?? "")}`)
+        return { draftId: "draft_patched_1", gateStatus: "passed" }
+      },
+      foreshadowingList: async (pp, params) => {
+        called.push(`foreshadowing-list:${pp}:${String(params?.status ?? "")}`)
+        return { total: 0, items: [] }
+      },
+      characterRead: async (pp, params) => {
+        called.push(`character-read:${pp}:${String(params?.name ?? "")}`)
+        return { total: 0, characters: [] }
+      },
+      outlineRead: async (pp, params) => {
+        called.push(`outline-read:${pp}:${String(params?.chapterNumber ?? "")}`)
+        return { chapters: [] }
+      },
+      styleExemplars: async (pp, params) => {
+        called.push(`style-exemplars:${pp}:${String(params?.topK ?? "")}`)
+        return { items: [] }
+      },
+      chapterSearch: async (pp, params) => {
+        called.push(`chapter-search:${pp}:${String(params?.query ?? "")}`)
+        return { hits: [] }
+      },
+    })
+
+    const r1 = await handleStateRequest(request({ op: "workflow-next", params: { targetChapter: 4 } }), d)
+    const r2 = await handleStateRequest(request({ op: "draft-patch", params: { draftId: "d1" } }), d)
+    const r3 = await handleStateRequest(request({ op: "draft-record-review", params: { draftId: "d1" } }), d)
+    const r4 = await handleStateRequest(request({ op: "foreshadowing-list", params: { status: "overdue" } }), d)
+    const r5 = await handleStateRequest(request({ op: "character-read", params: { name: "林青" } }), d)
+    const r6 = await handleStateRequest(request({ op: "outline-read", params: { chapterNumber: 5 } }), d)
+    const r7 = await handleStateRequest(request({ op: "style-exemplars", params: { topK: 3 } }), d)
+    const r8 = await handleStateRequest(request({ op: "chapter-search", params: { query: "古玉" } }), d)
+
+    for (const r of [r1, r2, r3, r4, r5, r6, r7, r8]) {
+      expect(r.ok).toBe(true)
+    }
+    expect(onDraftWritten).toHaveBeenCalledTimes(2)
+    expect(called).toEqual([
+      "workflow-next:/proj:4",
+      "draft-patch:/proj:d1",
+      "draft-record-review:/proj:d1",
+      "foreshadowing-list:/proj:overdue",
+      "character-read:/proj:林青",
+      "outline-read:/proj:5",
+      "style-exemplars:/proj:3",
+      "chapter-search:/proj:古玉",
+    ])
+  })
+
+  it("4) 8 个新 op 抛错时捕获为 { ok: false, error } 且不触发 onDraftWritten", async () => {
+    const onDraftWritten = vi.fn()
+    const d = deps({
+      onDraftWritten,
+      draftPatch: async () => {
+        throw new Error("HARD_FUSE_LIMIT_EXCEEDED: max rounds reached")
+      },
+      draftRecordReview: async () => {
+        throw new Error("DRAFT_SHA256_MISMATCH")
+      },
+    })
+
+    const pRes = await handleStateRequest(request({ op: "draft-patch", params: { draftId: "d1" } }), d)
+    expect(pRes.ok).toBe(false)
+    expect(pRes.error).toContain("HARD_FUSE_LIMIT_EXCEEDED")
+
+    const rRes = await handleStateRequest(request({ op: "draft-record-review", params: { draftId: "d1" } }), d)
+    expect(rRes.ok).toBe(false)
+    expect(rRes.error).toContain("DRAFT_SHA256_MISMATCH")
+
+    expect(onDraftWritten).not.toHaveBeenCalled()
+  })
+
+  it("5) context-prepare-start 同步校验 page 与 offset 互斥并透传 prepareId/page", async () => {
+    const seenParams: Array<Record<string, unknown>> = []
+    const d = deps({
+      prepareWriteContext: async (_pp, params) => {
+        seenParams.push(params ?? {})
+        return { prepareId: "prep_test_1", targetChapter: 2 } as unknown as Awaited<
+          ReturnType<NonNullable<StateBridgeDeps["prepareWriteContext"]>>
+        >
+      },
+    })
+
+    const conflict = await handleStateRequest(
+      request({ op: "context-prepare-start", params: { page: 2, offset: 100 } }),
+      d,
+    )
+    expect(conflict.ok).toBe(false)
+    expect(conflict.error).toContain("不能同时传入")
+
+    const started = await handleStateRequest(
+      request({ op: "context-prepare-start", params: { prepareId: "prep_abc", page: 2 } }),
+      d,
+    )
+    expect(started.ok).toBe(true)
+    const jobId = (started.value as { jobId: string }).jobId
+    const polled = await handleStateRequest(
+      request({ op: "context-prepare-poll", params: { jobId } }),
+      d,
+    )
+    expect(polled.ok).toBe(true)
+    expect(seenParams).toHaveLength(1)
+    expect(seenParams[0]).toMatchObject({ prepareId: "prep_abc", page: 2 })
+
+    // 确认模块导出面仍严守零写前缀门禁
+    const mod = await import("./state-bridge")
+    expect(Object.keys(mod).filter((name) => /^(set|write|remove|delete|update)/i.test(name))).toEqual([])
+  })
+})

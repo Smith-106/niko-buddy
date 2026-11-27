@@ -92,6 +92,7 @@ import {
   type DirectorPersistedFile,
   type DirectorSnapshot,
   type ForeshadowingStore,
+  type NovelSessionStatus,
   type OutlineModel,
   type StoryCompass,
   type WorldBlueprint,
@@ -131,6 +132,18 @@ import {
   type MechanicalGateInput,
   type MechanicalGateSummary,
 } from "./mechanical-gate"
+import {
+  runChapterSearch,
+  runCharacterRead,
+  runForeshadowingList,
+  runOutlineRead,
+  runStyleExemplars,
+} from "./atomic-read-tools"
+import {
+  runDraftPatch,
+  runDraftRecordReview,
+  runWorkflowNext,
+} from "./workflow-draft-tools"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
@@ -164,6 +177,14 @@ export type StateOp =
   | "context-prepare-poll"
   | "director-check"
   | "outline-write"
+  | "workflow-next"
+  | "draft-patch"
+  | "draft-record-review"
+  | "foreshadowing-list"
+  | "character-read"
+  | "outline-read"
+  | "style-exemplars"
+  | "chapter-search"
 
 export interface StateRequestPayload {
   id: string
@@ -305,6 +326,15 @@ export interface StateBridgeDeps {
     writeFileAtomic?: (path: string, contents: string) => Promise<void>
     saveOutlineModel?: (projectPath: string, model: OutlineModel) => Promise<{ path: string }>
   }
+  /** Phase 2 确定性工作流路由与草稿精准修订 / 原子只读工具依赖注入点（缺省走默认实现）。 */
+  workflowNext?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  draftPatch?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  draftRecordReview?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  foreshadowingList?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  characterRead?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  outlineRead?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  styleExemplars?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  chapterSearch?: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
 }
 
 const defaultDeps: StateBridgeDeps = {
@@ -488,14 +518,15 @@ function projectRoot(projectPath: string): string {
 function summarizeDraftMetadata(projectPath: string, draft: ChapterDraft) {
   const isPartial = draft.partial === true || draft.adoptionGate?.status === "partial"
   const adoptionGated = draft.adoptionGate !== undefined || isPartial
-  // 诚实元数据（零死锁）：无采纳门回执的非 partial 外部写入草稿（`mcp:chapter.write` 与
-  // `acp:*`）如实汇报 `gateStatus: "unassessed"`，同时保持 `needsGateReview: false` 与
-  // `adoptionGated: false`，避免无 API Key 用户在采纳正式章时被锁死。
+  // 诚实元数据（零死锁）：无采纳门回执的非 partial 外部写入草稿（`mcp:chapter.write`、
+  // `mcp:draft.patch` 与 `acp:*`）如实汇报 `gateStatus: "unassessed"`，同时保持
+  // `needsGateReview: false` 与 `adoptionGated: false`，避免无 API Key 用户在采纳正式章时被锁死。
   const isUngatedExternalWrite =
     !isPartial
     && draft.adoptionGate === undefined
     && (
       draft.sourceConversationId === "mcp:chapter.write"
+      || draft.sourceConversationId === "mcp:draft.patch"
       || (typeof draft.sourceConversationId === "string" && draft.sourceConversationId.startsWith("acp:"))
     )
   const gateStatus = isUngatedExternalWrite ? "unassessed" : getDraftGateStatus(draft)
@@ -512,6 +543,8 @@ function summarizeDraftMetadata(projectPath: string, draft: ChapterDraft) {
     needsGateReview: draftNeedsGateReview(draft),
     sourceConversationId: draft.sourceConversationId ?? null,
     sourceMessageId: draft.sourceMessageId ?? null,
+    parentDraftId: draft.parentDraftId ?? null,
+    revisionRound: draft.revisionRound ?? 0,
     path: `${projectRoot(projectPath)}/${DRAFTS_DIR}/${draft.id}.md`,
   }
 }
@@ -1770,6 +1803,122 @@ export async function handleStateRequest(
       case "outline-write": {
         const projectPath = requireProjectPath(deps)
         const value = await executeOutlineWrite(projectPath, payload.params ?? {}, deps)
+        return { ok: true, value }
+      }
+
+      case "workflow-next": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.workflowNext
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runWorkflowNext(pp, p, {
+              loadStatus: async (path) => (await deps.loadStatus(path)) as NovelSessionStatus | null,
+              listChapters: deps.listChapters,
+              listDrafts: deps.listDrafts ?? defaultDeps.listDrafts!,
+              ...(deps.directorCheckDeps?.hasPersistedDirectorState
+                ? { hasPersistedDirectorState: deps.directorCheckDeps.hasPersistedDirectorState }
+                : {}),
+              ...(deps.directorCheckDeps?.loadDirectorPersisted
+                ? { loadDirectorPersisted: deps.directorCheckDeps.loadDirectorPersisted }
+                : {}),
+              ...(deps.directorCheckDeps?.loadWorldBlueprint
+                ? { loadWorldBlueprint: deps.directorCheckDeps.loadWorldBlueprint }
+                : {}),
+              ...(deps.directorCheckDeps?.collectProjectSnapshot
+                ? { collectProjectSnapshot: deps.directorCheckDeps.collectProjectSnapshot }
+                : {}),
+            }))
+        const value = await runner(projectPath, params)
+        return { ok: true, value }
+      }
+
+      case "draft-patch": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.draftPatch
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runDraftPatch(pp, p, {
+              listDrafts: deps.listDrafts ?? defaultDeps.listDrafts!,
+            }))
+        const value = await runner(projectPath, params)
+        deps.onDraftWritten?.()
+        return { ok: true, value }
+      }
+
+      case "draft-record-review": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.draftRecordReview
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runDraftRecordReview(pp, p, {
+              listDrafts: deps.listDrafts ?? defaultDeps.listDrafts!,
+            }))
+        const value = await runner(projectPath, params)
+        deps.onDraftWritten?.()
+        return { ok: true, value }
+      }
+
+      case "foreshadowing-list": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.foreshadowingList
+          ?? ((pp: string, p: Record<string, unknown>) => runForeshadowingList(pp, p))
+        const value = await runner(projectPath, params)
+        return { ok: true, value }
+      }
+
+      case "character-read": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.characterRead
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runCharacterRead(pp, p, {
+              readFileText: deps.readFileText,
+            }))
+        const value = await runner(projectPath, params)
+        return { ok: true, value }
+      }
+
+      case "outline-read": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.outlineRead
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runOutlineRead(pp, p, {
+              readFileText: deps.readFileText,
+            }))
+        const value = await runner(projectPath, params)
+        return { ok: true, value }
+      }
+
+      case "style-exemplars": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.styleExemplars
+          ?? ((pp: string, p: Record<string, unknown>) => runStyleExemplars(pp, p))
+        const value = await runner(projectPath, params)
+        return { ok: true, value }
+      }
+
+      case "chapter-search": {
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const runner =
+          deps.chapterSearch
+          ?? ((pp: string, p: Record<string, unknown>) =>
+            runChapterSearch(pp, p, {
+              listChapters: deps.listChapters,
+              listDrafts: deps.listDrafts ?? defaultDeps.listDrafts!,
+              readFileText: deps.readFileText,
+            }))
+        const value = await runner(projectPath, params)
         return { ok: true, value }
       }
 

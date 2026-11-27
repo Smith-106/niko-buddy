@@ -1140,3 +1140,111 @@ describe("R2-W01 契约 1：getDraftGateStatus / discardChapterDraft / 字典序
     expect(files.get(gatedPath)).toContain("status: failed")
   })
 })
+
+describe("draft revision chain metadata (P2-B1)", () => {
+  it("writeDraft 写入 parentDraftId 与 revisionRound 时正确持久化并经 listChapterDrafts 无损回读", async () => {
+    fsState.files.clear()
+    fsState.dirs.clear()
+    const created = await writeDraft("C:/book", "第05章", "修补后的正文内容。", {
+      sourceConversationId: "mcp:draft.patch",
+      parentDraftId: "draft_root_01",
+      revisionRound: 2,
+    })
+
+    const draftPath = `C:/book/.qm-drafts/${created.id}.md`
+    const raw = fsState.files.get(draftPath) ?? ""
+    expect(raw).toContain("parent_draft_id: draft_root_01")
+    expect(raw).toContain("revision_round: 2")
+    expect(raw).not.toContain("adoption_gate:")
+
+    const { files, deps } = memoryDeps()
+    files.set(draftPath, raw)
+    const listed = await listChapterDrafts("C:/book", deps)
+    expect(listed).toHaveLength(1)
+    expect(listed[0]?.id).toBe(created.id)
+    expect(listed[0]?.parentDraftId).toBe("draft_root_01")
+    expect(listed[0]?.revisionRound).toBe(2)
+    expect(listed[0]?.adoptionGate).toBeUndefined()
+  })
+
+  it("writeDraft 不传 parentDraftId/revisionRound 时输出零新增 frontmatter 行（与既有调用者零 diff）", async () => {
+    fsState.files.clear()
+    fsState.dirs.clear()
+    const created = await writeDraft("C:/book", "第06章", "普通草稿正文。", {
+      sourceConversationId: "mcp:draft.write",
+    })
+
+    const draftPath = `C:/book/.qm-drafts/${created.id}.md`
+    const raw = fsState.files.get(draftPath) ?? ""
+    expect(raw).not.toContain("parent_draft_id:")
+    expect(raw).not.toContain("revision_round:")
+
+    const { files, deps } = memoryDeps()
+    files.set(draftPath, raw)
+    const [loaded] = await listChapterDrafts("C:/book", deps)
+    expect(loaded?.parentDraftId).toBeUndefined()
+    expect(loaded?.revisionRound).toBeUndefined()
+  })
+
+  it("parseStoredDraft 静默忽略畸形 parent_draft_id 与非法 revision_round（不影响草稿读取与门控解析）", async () => {
+    const { files, deps } = memoryDeps()
+    const cases: Array<{ id: string; parent: string; round: string }> = [
+      { id: "draft_bad_1", parent: "../escape", round: "0" },
+      { id: "draft_bad_2", parent: "bad space", round: "-3" },
+      { id: "draft_bad_3", parent: "draft_ok_3", round: "1.5" },
+      { id: "draft_bad_4", parent: "draft_ok_4", round: "true" },
+      { id: "draft_bad_5", parent: "draft_ok_5", round: "abc" },
+    ]
+    for (const c of cases) {
+      files.set(
+        `C:/book/.qm-drafts/${c.id}.md`,
+        [
+          "---",
+          `draft_id: ${c.id}`,
+          "chapter_name: 第07章",
+          "status: draft",
+          "created_at: 100",
+          `parent_draft_id: ${c.parent}`,
+          `revision_round: ${c.round}`,
+          "adoption_gate: unassessed",
+          "---",
+          "",
+          "正文内容。",
+        ].join("\n"),
+      )
+    }
+
+    const listed = await listChapterDrafts("C:/book", deps)
+    expect(listed).toHaveLength(5)
+
+    const byId = new Map(listed.map((d) => [d.id, d]))
+    expect(byId.get("draft_bad_1")?.parentDraftId).toBeUndefined()
+    expect(byId.get("draft_bad_1")?.revisionRound).toBeUndefined()
+    expect(byId.get("draft_bad_1")?.adoptionGate?.status).toBe("unassessed")
+
+    expect(byId.get("draft_bad_2")?.parentDraftId).toBeUndefined()
+    expect(byId.get("draft_bad_2")?.revisionRound).toBeUndefined()
+
+    expect(byId.get("draft_bad_3")?.parentDraftId).toBe("draft_ok_3")
+    expect(byId.get("draft_bad_3")?.revisionRound).toBeUndefined()
+
+    expect(byId.get("draft_bad_4")?.parentDraftId).toBe("draft_ok_4")
+    expect(byId.get("draft_bad_4")?.revisionRound).toBeUndefined()
+
+    expect(byId.get("draft_bad_5")?.parentDraftId).toBe("draft_ok_5")
+    expect(byId.get("draft_bad_5")?.revisionRound).toBeUndefined()
+  })
+
+  it("writeDraft 传入畸形 parentDraftId 或非法 revisionRound 时不写出非法 frontmatter 字段", async () => {
+    fsState.files.clear()
+    fsState.dirs.clear()
+    const created = await writeDraft("C:/book", "第08章", "正文。", {
+      parentDraftId: "../bad/id",
+      revisionRound: 0,
+    })
+    const draftPath = `C:/book/.qm-drafts/${created.id}.md`
+    const raw = fsState.files.get(draftPath) ?? ""
+    expect(raw).not.toContain("parent_draft_id:")
+    expect(raw).not.toContain("revision_round:")
+  })
+})

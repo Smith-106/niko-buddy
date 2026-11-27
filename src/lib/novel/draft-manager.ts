@@ -12,6 +12,8 @@ import { parseChapterOrdinal } from "./chapter-typography"
 import { finalizeChapterFrontmatterBlock } from "./formal-writeback"
 import { withProjectLock } from "./novel-locks"
 
+const DRAFT_ID = /^[a-zA-Z0-9_-]+$/
+
 function generateDraftId(): string {
   return `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
@@ -36,6 +38,12 @@ function buildDraftContent(draft: ChapterDraft): string {
   ]
   if (draft.sourceConversationId) metaLines.push(`source_conversation_id: ${draft.sourceConversationId}`)
   if (draft.sourceMessageId) metaLines.push(`source_message_id: ${draft.sourceMessageId}`)
+  if (typeof draft.parentDraftId === "string" && DRAFT_ID.test(draft.parentDraftId)) {
+    metaLines.push(`parent_draft_id: ${draft.parentDraftId}`)
+  }
+  if (typeof draft.revisionRound === "number" && Number.isInteger(draft.revisionRound) && draft.revisionRound >= 1) {
+    metaLines.push(`revision_round: ${draft.revisionRound}`)
+  }
   // 截断稿只在持久化层留 trace：采纳决策点必须能看出「这是截断稿，不是完整章」。
   if (draft.partial) metaLines.push("partial: true")
   if (draft.adoptionGate) {
@@ -49,7 +57,14 @@ export async function writeDraft(
   projectPath: string,
   chapterName: string,
   content: string,
-  meta?: { sourceConversationId?: string; sourceMessageId?: string; partial?: boolean; adoptionGate?: DraftGateStatus },
+  meta?: {
+    sourceConversationId?: string
+    sourceMessageId?: string
+    partial?: boolean
+    adoptionGate?: DraftGateStatus
+    parentDraftId?: string
+    revisionRound?: number
+  },
 ): Promise<ChapterDraft> {
   await ensureDraftsDir(projectPath)
   const partial = meta?.partial === true || meta?.adoptionGate === "partial"
@@ -58,6 +73,14 @@ export async function writeDraft(
   const adoptionGate: DraftAdoptionGate | undefined = gateStatus === "passed"
     ? { status: gateStatus, bodySha256: await digestDraftBody(chapterName, content) }
     : gateStatus ? { status: gateStatus } : undefined
+  const parentDraftId =
+    typeof meta?.parentDraftId === "string" && DRAFT_ID.test(meta.parentDraftId)
+      ? meta.parentDraftId
+      : undefined
+  const revisionRound =
+    typeof meta?.revisionRound === "number" && Number.isInteger(meta.revisionRound) && meta.revisionRound >= 1
+      ? meta.revisionRound
+      : undefined
   const draft: ChapterDraft = {
     id: generateDraftId(),
     chapterName,
@@ -66,6 +89,8 @@ export async function writeDraft(
     status: "draft",
     sourceConversationId: meta?.sourceConversationId,
     sourceMessageId: meta?.sourceMessageId,
+    ...(parentDraftId ? { parentDraftId } : {}),
+    ...(revisionRound !== undefined ? { revisionRound } : {}),
     ...(partial ? { partial: true } : {}),
     ...(adoptionGate ? { adoptionGate } : {}),
   }
@@ -97,7 +122,6 @@ const defaultDeps: DraftManagerDeps = {
   writeFilesAtomic,
 }
 
-const DRAFT_ID = /^[a-zA-Z0-9_-]+$/
 const MARKDOWN_PATH = /\/[^/]+\.md$/i
 const DRAFT_STATUSES: readonly DraftStatus[] = ["draft", "confirming", "saving", "saved", "failed"]
 
@@ -158,6 +182,15 @@ function parseStoredDraft(text: string, fallbackId: string): ChapterDraft | null
   const createdAt = Number(raw.created_at)
   const partial = raw.partial === true || raw.partial === "true" || raw.adoption_gate === "partial"
   const adoptionGate = partial ? { status: "partial" as const } : parseDraftAdoptionGate(raw)
+  const rawParentDraftId = typeof raw.parent_draft_id === "string" ? raw.parent_draft_id.trim() : ""
+  const parentDraftId = rawParentDraftId && DRAFT_ID.test(rawParentDraftId) ? rawParentDraftId : undefined
+  const rawRevisionRound =
+    typeof raw.revision_round === "number"
+      ? raw.revision_round
+      : typeof raw.revision_round === "string" && /^\d+$/.test(raw.revision_round.trim())
+        ? Number(raw.revision_round.trim())
+        : NaN
+  const revisionRound = Number.isSafeInteger(rawRevisionRound) && rawRevisionRound >= 1 ? rawRevisionRound : undefined
   return {
     id,
     chapterName,
@@ -166,6 +199,8 @@ function parseStoredDraft(text: string, fallbackId: string): ChapterDraft | null
     status,
     sourceConversationId: raw.source_conversation_id ? String(raw.source_conversation_id) : undefined,
     sourceMessageId: raw.source_message_id ? String(raw.source_message_id) : undefined,
+    ...(parentDraftId ? { parentDraftId } : {}),
+    ...(revisionRound !== undefined ? { revisionRound } : {}),
     ...(partial ? { partial: true } : {}),
     ...(adoptionGate ? { adoptionGate } : {}),
   }

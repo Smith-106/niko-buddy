@@ -23,10 +23,13 @@ import {
   MAX_PROMPT_PAGE_CHARS,
   INSPECTION_CACHE_TTL_MS,
   MAX_INSPECTION_CACHE_ENTRIES,
+  PREPARE_CACHE_TTL_MS,
+  MAX_PREPARE_CACHE_ENTRIES,
   PREPARE_RETRIEVAL_MODES,
   SIX_DIMENSION_KEYS,
   defaultInspectionTask,
   createContextInspectionCache,
+  createPrepareWriteCache,
   inspectContext,
   isSixReviewDimensionKey,
   runPrepareWriteContext,
@@ -1815,5 +1818,266 @@ describe("context.prepare (runPrepareWriteContext) — P1-B1 retrievalMode & wor
       unsubscribeFaulty()
       useWikiStore.setState({ offlineMode: prevOffline })
     }
+  })
+})
+
+describe("context.prepare (runPrepareWriteContext) — P2-B4 prepareId 5 分钟缓存与 page 分页", () => {
+  it("1) 冷调用返回顶层 prepareId 与 prepareCache，且保持 meta/buildPolicy 精确形状不变；后续 page 翻页 0 次重算并完整重组", async () => {
+    let nowMs = 1_700_000_000_000
+    const cache = createPrepareWriteCache()
+    const longBlueprint = `# 世界观骨架\n${"灵气枯竭与宗门兴衰。".repeat(400)}`
+    const h = makePrepareHarness({
+      chapters: [{ name: "第01章.md", path: "/proj/wiki/chapters/第01章.md" }],
+      pack: makePack({ worldBlueprint: longBlueprint }),
+      overrides: { prepareCache: cache, now: () => nowMs },
+    })
+
+    const first = await runPrepareWriteContext("/proj", { limit: 1200 }, h.deps)
+    expect(first.prepareId).toMatch(/^prep_[a-zA-Z0-9_-]+$/)
+    expect(first.prepareCache).toEqual({
+      hit: false,
+      createdAt: nowMs,
+      expiresAt: nowMs + PREPARE_CACHE_TTL_MS,
+      ttlMs: PREPARE_CACHE_TTL_MS,
+    })
+    expect(first.meta).toEqual({ llmCalls: 0, diskWrites: 0 })
+    expect(first.buildPolicy).toEqual({
+      telemetryDiscarded: true,
+      retrievalMode: "local_only",
+      retrievalNetworkAllowed: false,
+      effectiveNetworkEnabled: false,
+      networkRetrievalSkipped: false,
+      zeroIoClaimed: false,
+      llmCalls: 0,
+      diskWrites: 0,
+    })
+    expect(first.prompt.hasMore).toBe(true)
+    expect(h.calls).toHaveLength(1)
+    expect(h.state.planCalls).toHaveLength(1)
+
+    // 使用 prepareId + page 逐页翻读，0 次重算 buildContextPack / buildChapterPlan
+    const pieces: string[] = [first.prompt.text]
+    let page = 2
+    let nextOffset = first.prompt.nextOffset
+    while (nextOffset !== null) {
+      nowMs += 1_000
+      const pageRes = await runPrepareWriteContext(
+        "/proj",
+        { prepareId: first.prepareId, page, limit: 1200 },
+        h.deps,
+      )
+      expect(pageRes.prepareId).toBe(first.prepareId)
+      expect(pageRes.prepareCache.hit).toBe(true)
+      expect(pageRes.prompt.offset).toBe((page - 1) * 1200)
+      pieces.push(pageRes.prompt.text)
+      nextOffset = pageRes.prompt.nextOffset
+      page += 1
+    }
+
+    expect(h.calls).toHaveLength(1)
+    expect(h.state.planCalls).toHaveLength(1)
+    const full = await runPrepareWriteContext(
+      "/proj",
+      { prepareId: first.prepareId, offset: 0, limit: MAX_PROMPT_PAGE_CHARS },
+      h.deps,
+    )
+    expect(pieces.join("")).toBe(full.prompt.text)
+  })
+
+  it("2) page 与 offset 互斥、page <= 0 或畸形 prepareId 均显式拒绝", async () => {
+    const h = makePrepareHarness({ overrides: { prepareCache: createPrepareWriteCache() } })
+    await expect(
+      runPrepareWriteContext("/proj", { page: 2, offset: 100 }, h.deps),
+    ).rejects.toThrow("不能同时传入")
+    await expect(
+      runPrepareWriteContext("/proj", { page: 0 }, h.deps),
+    ).rejects.toThrow(">= 1 的整数")
+    await expect(
+      runPrepareWriteContext("/proj", { prepareId: "../bad" }, h.deps),
+    ).rejects.toThrow("prepareId")
+    expect(h.calls).toHaveLength(0)
+  })
+
+  it("3) 同章跨维度复用（consistency/thrill/pacing）：buildContextPack 仅 1 次，loadGoldMaterials 仅 1 次", async () => {
+    const nowMs = 1_700_000_000_000
+    const cache = createPrepareWriteCache()
+    const draft: ChapterDraft = {
+      id: "draft_ch2_rev1",
+      chapterName: "第02章",
+      content: "# 第02章\n\n草稿正文，测试跨维度评审复用。",
+      status: "draft",
+      createdAt: 10,
+    }
+    const h = makePrepareHarness({
+      chapters: [{ name: "第01章.md", path: "/proj/wiki/chapters/第01章.md" }],
+      drafts: [draft],
+      overrides: { prepareCache: cache, now: () => nowMs },
+    })
+
+    const cold = await runPrepareWriteContext("/proj", { targetChapter: 2 }, h.deps)
+    expect(cold.prepareCache.hit).toBe(false)
+    expect(h.calls).toHaveLength(1)
+    expect(h.state.goldLoads).toBe(0)
+
+    // 同一 prepareId 切换三个不同维度 + 绑定同章 draftId
+    const dims = ["consistency", "thrill", "pacing"] as const
+    for (const dim of dims) {
+      const rev = await runPrepareWriteContext(
+        "/proj",
+        { prepareId: cold.prepareId, draftId: draft.id, dimension: dim },
+        h.deps,
+      )
+      expect(rev.prepareCache.hit).toBe(true)
+      expect(rev.dimension?.key).toBe(dim)
+      expect(rev.draft?.draftId).toBe(draft.id)
+      expect(rev.dimension?.prompt).toContain("草稿正文，测试跨维度评审复用。")
+    }
+
+    // 核心不变量：0 次新增 buildContextPack，且 goldMaterials 跨维度仅加载 1 次
+    expect(h.calls).toHaveLength(1)
+    expect(h.state.goldLoads).toBe(1)
+  })
+
+  it("4) 漂移与过期门禁：TTL 过期、配置变更、项目切换、草稿 SHA 变化、跨章草稿与显式参数冲突均拒绝", async () => {
+    let nowMs = 1_700_000_000_000
+    const cache = createPrepareWriteCache()
+    const draft: ChapterDraft = {
+      id: "draft_ch2_drift",
+      chapterName: "第02章",
+      content: "# 第02章\n\n初版正文。",
+      status: "draft",
+      createdAt: 10,
+    }
+    const wrongChapterDraft: ChapterDraft = {
+      id: "draft_ch9_other",
+      chapterName: "第09章",
+      content: "# 第09章\n\n其他章正文。",
+      status: "draft",
+      createdAt: 11,
+    }
+    const h = makePrepareHarness({
+      chapters: [{ name: "第01章.md", path: "/proj/wiki/chapters/第01章.md" }],
+      drafts: [draft, wrongChapterDraft],
+      overrides: { prepareCache: cache, now: () => nowMs },
+    })
+
+    // 未知 prepareId
+    await expect(
+      runPrepareWriteContext("/proj", { prepareId: "prep_nonexistent" }, h.deps),
+    ).rejects.toThrow("未知或已失效")
+
+    // 绑定草稿的冷调用 -> 显式参数不匹配 & 跨章 draftId & 草稿正文 SHA 漂移
+    const bound = await runPrepareWriteContext(
+      "/proj",
+      { targetChapter: 2, draftId: draft.id },
+      h.deps,
+    )
+    await expect(
+      runPrepareWriteContext("/proj", { prepareId: bound.prepareId, targetChapter: 3 }, h.deps),
+    ).rejects.toThrow("targetChapter")
+
+    // 跨章草稿拒绝（不绑定初始草稿的批次传入第 9 章草稿）
+    const unbound = await runPrepareWriteContext("/proj", { targetChapter: 2 }, h.deps)
+    await expect(
+      runPrepareWriteContext("/proj", { prepareId: unbound.prepareId, draftId: wrongChapterDraft.id }, h.deps),
+    ).rejects.toThrow("跨章草稿")
+
+    // 修改 draft 内容触发 SHA 漂移并驱逐缓存（使用新的 boundForSha 批次，因为上面的 targetChapter 漂移已驱逐 bound）
+    const boundForSha = await runPrepareWriteContext(
+      "/proj",
+      { targetChapter: 2, draftId: draft.id },
+      h.deps,
+    )
+    h.state.drafts = [{ ...draft, content: "# 第02章\n\n已被修改的正文。" }, wrongChapterDraft]
+    await expect(
+      runPrepareWriteContext("/proj", { prepareId: boundForSha.prepareId, page: 1 }, h.deps),
+    ).rejects.toThrow("草稿正文")
+    expect(cache.has(boundForSha.prepareId)).toBe(false)
+
+    // 配置漂移检测
+    const cfgRes = await runPrepareWriteContext("/proj", { targetChapter: 2 }, h.deps)
+    h.state.config = makeConfig({
+      novelConfig: { ...DEFAULT_NOVEL_CONFIG, recentSummaryWindow: 99 },
+    })
+    await expect(
+      runPrepareWriteContext("/proj", { prepareId: cfgRes.prepareId, page: 1 }, h.deps),
+    ).rejects.toThrow("生效配置")
+
+    // 项目路径不匹配检测
+    const projRes = await runPrepareWriteContext("/proj", { targetChapter: 2 }, h.deps)
+    h.state.projectPath = "/other-proj"
+    await expect(
+      runPrepareWriteContext("/other-proj", { prepareId: projRes.prepareId, page: 1 }, h.deps),
+    ).rejects.toThrow("项目")
+    h.state.projectPath = "/proj"
+
+    // TTL 过期检测（满 5 分钟即失效）
+    const ttlRes = await runPrepareWriteContext("/proj", { targetChapter: 2 }, h.deps)
+    nowMs += PREPARE_CACHE_TTL_MS
+    await expect(
+      runPrepareWriteContext("/proj", { prepareId: ttlRes.prepareId, page: 1 }, h.deps),
+    ).rejects.toThrow("已过期")
+  })
+
+  it("5) LRU 淘汰：超过 MAX_PREPARE_CACHE_ENTRIES (8) 时驱逐最久未访问批次", async () => {
+    let nowMs = 1_700_000_000_000
+    const cache = createPrepareWriteCache()
+    const h = makePrepareHarness({
+      chapters: [{ name: "第01章.md", path: "/proj/wiki/chapters/第01章.md" }],
+      overrides: { prepareCache: cache, now: () => nowMs },
+    })
+
+    const ids: string[] = []
+    for (let i = 0; i < MAX_PREPARE_CACHE_ENTRIES; i += 1) {
+      nowMs += 10
+      const res = await runPrepareWriteContext("/proj", { targetChapter: i + 2 }, h.deps)
+      ids.push(res.prepareId)
+    }
+    expect(cache.size).toBe(MAX_PREPARE_CACHE_ENTRIES)
+
+    // 访问第 0 个，使其刷新为最近使用；随后新增第 9 个应淘汰第 1 个
+    nowMs += 10
+    const refreshed = await runPrepareWriteContext("/proj", { prepareId: ids[0], page: 1 }, h.deps)
+    expect(refreshed.prepareCache.hit).toBe(true)
+
+    nowMs += 10
+    const extra = await runPrepareWriteContext("/proj", { targetChapter: 20 }, h.deps)
+    expect(cache.size).toBe(MAX_PREPARE_CACHE_ENTRIES)
+    expect(extra.prepareCache.hit).toBe(false)
+
+    // ids[0] 仍有效，ids[1] 已被 LRU 驱逐
+    const stillValid = await runPrepareWriteContext("/proj", { prepareId: ids[0], page: 1 }, h.deps)
+    expect(stillValid.prepareCache.hit).toBe(true)
+    await expect(
+      runPrepareWriteContext("/proj", { prepareId: ids[1], page: 1 }, h.deps),
+    ).rejects.toThrow("未知或已失效")
+  })
+
+  it("6) local_only 冷批次在 effectiveNetworkEnabled=true 时，后续 { prepareId, page: 2 } 无需重复传 retrievalMode", async () => {
+    const cache = createPrepareWriteCache()
+    const h = makePrepareHarness({
+      config: makeConfig({
+        embeddingConfig: { ...makeConfig().embeddingConfig, enabled: true },
+      }),
+      pack: makePack({ worldBlueprint: `# 世界观\n${"长段设定文本。".repeat(300)}` }),
+      overrides: { prepareCache: cache, runWithLocalOnlyRetrieval: async (fn) => fn() },
+    })
+
+    const first = await runPrepareWriteContext(
+      "/proj",
+      { retrievalMode: "local_only", limit: 1000 },
+      h.deps,
+    )
+    expect(first.buildPolicy.retrievalMode).toBe("local_only")
+    expect(first.prompt.hasMore).toBe(true)
+
+    const page2 = await runPrepareWriteContext(
+      "/proj",
+      { prepareId: first.prepareId, page: 2, limit: 1000 },
+      h.deps,
+    )
+    expect(page2.prepareCache.hit).toBe(true)
+    expect(page2.buildPolicy.retrievalMode).toBe("local_only")
+    expect(h.calls).toHaveLength(1)
   })
 })

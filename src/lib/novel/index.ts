@@ -1692,3 +1692,44 @@ export { resolveReviewChapterMaxChars } from "./chapter-window"
 export type { RoutingROISample, RoutingTelemetrySink } from "./context-telemetry"
 export { assessGoldScaleReadiness, loadGoldScaleMaterials } from "./literary-gold-scale"
 export type { GoldScaleReadiness, LiteraryGoldAnchor } from "./literary-gold-scale"
+
+// ── P2-B1：Phase 2 MCP 原子只读 / 路由闭环 / 黄金混合交互式快照显式导出（零 export *，零深导入）──
+export { HARD_FUSE_LIMIT, ARBITER_CONSULT_LIMIT, GATE_PRIORITY } from "./control-sentinels"
+export { updateNovelSessionStatus } from "./novel-session-status"
+export type { NovelSessionStatusMutator, NovelDraftStatus } from "./novel-session-status"
+export { withProjectLock } from "./novel-locks"
+export { readChapterOutlineDirect } from "./context-engine-outline"
+export { flattenOutlineMarkdownFiles, selectOutlineSources } from "./context-engine-outline-helpers"
+export { listEntityFiles } from "./entity-subdir-resolver"
+export { excludeDeadFromCast } from "./character-state"
+export type { EmotionState } from "./character-state"
+export {
+  loadStyleExemplars,
+  pickTopKExemplars,
+  STYLE_EXEMPLARS_TOP_K,
+  STYLE_EXEMPLAR_TEXT_MAX_CHARS,
+} from "./style-exemplars-loader"
+export type { StyleExemplar, StyleExemplarMarkType } from "./style-exemplars-loader"
+export type { ForeshadowingDebtItem, ForeshadowingDebtOptions } from "./foreshadowing-debt"
+export type { ForeshadowingStatus } from "./foreshadowing-tracker"
+export type { GateRunStatus } from "./rule-stack"
+export type { PreparedChapterIngest, ValidationWarning } from "./chapter-ingest"
+export type { IngestSourceBinding } from "./chapter-ingest-commit"
+export {
+  detectAntigravityMemoryMode,
+  buildInteractiveIngestPrompt,
+  prepareInteractiveChapterSnapshot,
+  commitInteractiveChapterSnapshot,
+} from "./antigravity-hybrid-ingest"
+export type {
+  AntigravityMemoryMode,
+  AntigravityMemoryModeReasonCode,
+  AntigravityMemoryModeInfo,
+  BuildInteractiveIngestPromptOptions,
+  PreparedInteractiveChapterSnapshot,
+  PrepareInteractiveSnapshotErrorCode,
+  PrepareInteractiveSnapshotResult,
+  CommitInteractiveSnapshotOptions,
+  CommitInteractiveSnapshotMemoryStatus,
+  CommitInteractiveSnapshotResult,
+} from "./antigravity-hybrid-ingest"
