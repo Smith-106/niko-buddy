@@ -7,6 +7,32 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.32.0] - 2026-11-27
+
+> 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
+
+### Added
+
+- **8 项零 LLM MCP 工具与 4 档 Profile 矩阵升级**：新增 `workflow.next`、`draft.patch`、`draft.record_review` 以及 5 组原子只读查询工具（`foreshadowing.list`、`character.read`、`outline.read`、`style.exemplars`、`chapter.search`），MCP 总工具数扩展至 38（特权 16，零 `draft.accept`）；4 档 `ToolProfile` 同步演进为 `full-legacy`（38）、`writer-sub`（24）、`reviewer`（19，严格 100% `SessionScope::Read` 零写工具）、`architect`（17）。
+- **`context.prepare_write` `prepareId` 5 分钟 LRU 缓存与 `page` 分页**：支持跨六维审稿复用同一 `prepareId` 快照（0× 重复装配 `ContextPack`），在 Rust 与 TS 双端强制 `page` 与显式 `offset` 互斥及安全整数溢出校验。
+- **黄金混合模式检测与零 API Key 人工确认交互式快照提交**：新增 `antigravity-hybrid-ingest`（`detectAntigravityMemoryMode`、`buildInteractiveIngestPrompt`、`prepareInteractiveChapterSnapshot`、`commitInteractiveChapterSnapshot`）与符合 WCAG Level A 的 `AntigravitySnapshotIngestDialog`，零静默后台 LLM 调用，经人工预览并显式确认后委托 `commitPreparedChapterIngest` 原子落盘正式记忆与正史 Canon。
+- **ACP 黄金混合状态栏、状态感知动态快捷指令与外部控制档位摘要**：`AntigravityAcpView` 新增纯订阅/黄金混合/完整 API `role="status"` 横幅与一键跳转提取模型配置/快照弹窗入口；`AntigravityAcpQuickActions` 新增第 6 项只读 `workflow_next` 按钮与状态感知推荐角标；`ExternalControlSection` 实时呈现各档位工具数（38/24/19/17）与能力边界摘要。
+
+### Changed
+
+- **纯声明式 `niko-buddy-writer` 写作插件升级至 v1.1.0**：维持严格 13 份 `.json`/`.md` 文件与 C-007 零脚本红线（`RULES_AGENTS_MD <= 1800B`、6 技能空闲 frontmatter `< 450` tokens），全面更新规则、技能与编辑部角色剧本以涵盖 Phase 2 全部规范工具及 `nb-story-ops` 交互式 `ChapterSnapshot` JSON 流程，同时清除内嵌文档中的 `draft.accept` 字面量并加入单测禁词扫描。
+- **草稿修订链元数据与双语词条扩展**：`ChapterDraft` 新增可选 `parentDraftId` 与 `revisionRound` 字段（缺省不改原 frontmatter 字节），`zh.json` / `en.json` 保持 4757 键 1:1 完整对齐。
+
+### Fixed
+
+- **跨层参数契约对齐与 `style.exemplars` 原文防截断**：统一 Rust 与 TS 侧 `outline.read` 分模式 `limit`（文件模式 `1..=50_000` 字符、结构化模式 `1..=200` 章节条目）与 `window` 依赖/互斥校验、统一 5 组只读工具整数上界（`100_000` / `10_000_000`）与 `draft.patch.note`/`blockingIssues[i]` 1,000 字符上限；修复 `style.exemplars` 在 `topK` 模式下被 `pickTopKExemplars` 提前硬截断至 2,000 字符导致的 `originalChars`/`truncated` 失真。
+- **草稿并发锁对齐、防跨草稿污染与部分提交防重加固**：`draft.patch` 共享 `draft-manager.ts` 草稿级项目锁并强制 `HARD_FUSE_LIMIT = 5` 与 `GATED_DRAFT_PATCH_FORBIDDEN`（绝不写 `adoption_gate` 防止零 API Key 采纳死锁）；`draft.record_review` 拒绝非 `draft` 态并在 `existing.draft.draft_id !== draft.id` 时短路返回 `null` 零写盘，避免跨草稿覆写 `.novel/status.json` 的 `draft_auto_arm`；快照弹窗补齐 `ledgerSaveFailed`/`pendingProjections`/未对账 Canon 告警及提交后防重点击保护。
+
+### 交付与分支说明
+
+- 本版为 `master` 主干源码版本登记，完成 Phase 2（黄金混合模式、零 API Key `commitPreparedChapterIngest` 交互快照提交、`workflow.next` / `draft.patch` / `draft.record_review`、`prepareId` 缓存及 5 组原子查询工具）。按 P16 规则将手写业务变更与生成产物/锁文件严格分批提交：手写提交为 `d216a871`（Rust 8 项零 LLM MCP 工具、4 档 Profile 矩阵与声明式插件 v1.1.0）、`4c7b534a`（TS 5 组原子只读工具、工作流草稿闭环、`prepareId` 缓存与混合摄取服务）、`67d50a19`（黄金混合状态栏、人工确认快照提交弹窗、动态快捷指令与双语词条），生成产物同步提交为 `89cdaf5b`（Phase 2 模块索引），随后单独登记 2.32.0 版本清单与锁文件同步提交。
+- 本次仅推进 `master` 主干源码版本号与变更日志并推送至 `smith`，尚未创建或推送签名 Release Tag `v2.32.0`，不宣称已产出或真机验收新安装包。
+
 ## [2.31.0] - 2026-11-27
 
 > 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。

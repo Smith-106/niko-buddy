@@ -15,22 +15,26 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.31.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.32.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
 > 版本摘要口径：本文件按版本摘选要点，并非逐版完整记录 —— v2.26.5、v2.27.0 等条目未在此逐版列出；完整逐版历史见 [CHANGELOG.md](CHANGELOG.md) 与 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-## v2.31.0（Antigravity 写作角色隔离、MCP 动态 Profile 与纯声明式写作插件，当前主干版本）
+## v2.32.0（黄金混合模式、零 Key 交互快照提交与 MCP 全书原子工具闭环，当前主干版本）
 
 **当前主干版本（2026-11-27 登记）**：版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源，实际发布产物与下载资产见 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-本版在 v2.30.0 合规接入基础上完成 Phase 1 写作工作流深度适配，面向主笔/审稿/策划多角色场景显著压降上下文冗余并强化物理隔离：
+本版完成 Phase 2 长篇全链闭环与黄金混合记忆体系，在 100% 遵循 Google Antigravity 服务条款与 Draft-first 红线前提下打通百章级创作与审修协作：
 
-- **MCP 动态角色 Profile 与紧凑协议**：支持 `writer-sub`（16 工具）、`reviewer`（13 个严格只读工具）、`architect`（12 工具）与 `full-legacy`（30 工具）4 档按角色过滤，`?profile=` / `X-Niko-Profile` 实行 fail-closed HTTP 400 校验与会话冻结防提权；协议响应切换单行紧凑 JSON 并兼容可选字段显式 `null`。
-- **零 LLM 桥接减负去重与内存离线守卫**：`rules.get(compact=true)` 跳过冗余文风/灵魂重读，`gate.check_mechanical(detailLevel="compact")` 按 `Consistency(P0) > Anti-AI(P1)` 单份去重并截断前 25 条定位命中，`context.prepare_write(retrievalMode="local_only")` 通过引用计数纯内存离线守卫彻底封堵检索期隐式联网且绝不写入 `localStorage`。
-- **纯声明式 `niko-buddy-writer` 写作插件与创审分离工作台**：内嵌 13 份纯 `.json`/`.md` 文件（6 项渐进式技能 + 5 份编辑部角色剧本，零脚本/零 `hooks.json`），支持隔离目录释放、项目一键非破坏同步 `.agents/plugins.json` 与 `AGENTS.md`、可选默认禁用全局安装、上级代码仓污染预警及一键独立只读复核会话。
+- **8 项零 LLM MCP 工具与 `prepareId` 快照复用**：新增 `workflow.next`、`draft.patch`（`expectedSha256` + 5 轮硬熔断 + `parentDraftId`）、`draft.record_review`（`P0>P1>P2` 仅升 `ready` 绝不 accept）及 5 组原子只读查询（`foreshadowing.list`、`character.read`、`outline.read`、`style.exemplars`、`chapter.search`）；`context.prepare_write` 支持 5 分钟 LRU `prepareId` 复用与 `page` 分页，4 档 Profile 演进为 38 / 24 / 19（100% 严格只读）/ 17。
+- **黄金混合模式与零 API Key 交互式快照提交**：ACP 工作台自动识别纯订阅 / 黄金混合 / 完整 API 模式，内置 WCAG Level A 人工确认快照提交弹窗（预填只读提取提示词 → 零写盘校验预览 → 显式确认后走 `commitPreparedChapterIngest` 原子落盘正式记忆与 Canon）。
+- **声明式写作插件 v1.1.0 与状态感知快捷指令**：保持 C-007 13 文件零脚本边界，升级动态快捷指令推荐、外部控制页档位摘要及 4757 键中英双语 1:1 对齐。
+
+**v2.31.0 Antigravity 写作角色隔离与工作流适配 Phase 1 摘要：**
+
+- 落地 4 档动态 MCP `ToolProfile` 与会话冻结防提权、单行紧凑 JSON 协议、可选字段 `null` 兼容、`rules.get(compact)` / `gate.check_mechanical(compact)` 减负去重、`context.prepare_write(local_only)` 引用计数纯内存离线守卫、纯声明式 `niko-buddy-writer` 插件与一键项目同步、上级代码仓污染预警及一键独立只读复核会话。
 
 **v2.30.0 官方 Google Antigravity 订阅合规适配摘要：**
 

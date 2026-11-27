@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.32.0（2026-11-27）：黄金混合模式、零 API Key 交互快照提交、工作流草稿微创闭环与 5 组原子只读工具。
+    version: "2.32.0",
+    date: "2026-11-27",
+    highlights: {
+      en: [
+        "Added eight zero-LLM MCP tools (workflow.next, draft.patch, draft.record_review, foreshadowing.list, character.read, outline.read, style.exemplars, and chapter.search) plus 5-minute LRU prepareId snapshot reuse and page pagination on context.prepare_write, expanding ToolProfiles to 38 full-legacy, 24 writer-sub, 19 strictly read-only reviewer, and 17 architect tools.",
+        "Completed surgical draft revision and review receipt loops: draft.patch enforces expectedSha256 checks, shared draft project locks, HARD_FUSE_LIMIT (5 rounds), parentDraftId lineage, and zero-API-key anti-deadlock metadata; draft.record_review enforces Consistency P0 over Anti-AI P1 over Quality P2, promotes only matching pending drafts to ready, never accepts, and skips disk writes on draft_id mismatch.",
+        "Added Golden Hybrid Mode detection and human-confirmed zero-API-key interactive chapter snapshot commits: detectAntigravityMemoryMode distinguishes pure subscription, golden hybrid, and full API modes, while the WCAG Level A snapshot dialog previews validated ChapterSnapshot JSON read-only and commits via commitPreparedChapterIngest only after explicit confirmation.",
+        "Upgraded the declarative niko-buddy-writer plugin to v1.1.0 (13 JSON/Markdown files, zero executable scripts), added status-aware dynamic ACP quick actions, Golden Hybrid status banners, External Control profile tool summaries, and 1:1 zh/en localization across 4,757 keys.",
+      ],
+      zh: [
+        "新增 8 项零 LLM MCP 工具（workflow.next、draft.patch、draft.record_review、foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search），并为 context.prepare_write 补齐 5 分钟 LRU prepareId 快照复用与 page 分页，4 档 ToolProfile 同步演进为完整兼容 38 / 主笔精简 24 / 责编严格全只读 19 / 策划大纲 17 工具。",
+        "打通草稿微创修订与审校回执闭环：draft.patch 强校 expectedSha256、与草稿管理器共用项目锁、落实 5 轮硬熔断与 parentDraftId 修订链且保持零 API Key 防采纳死锁；draft.record_review 严格执行一致性 P0 优先于去 AI 味 P1 优先于质量 P2，仅将匹配草稿从 pending 升至 ready、绝不自动采纳且在 draft_id 不匹配时零写盘防污染。",
+        "新增黄金混合模式检测与零 API Key 人工确认交互式章节快照提交：在 ACP 工作台展示纯订阅、黄金混合与完整 API 运行态横幅，并提供符合 WCAG Level A 的三步快照提交弹窗，支持预填只读提取提示词、零写盘结构化预览校验、部分提交告警与显式确认后委托 commitPreparedChapterIngest 落盘。",
+        "纯声明式 niko-buddy-writer 写作插件升级至 v1.1.0（保持 13 份 JSON/Markdown 文件与零可执行脚本红线），同步升级状态感知动态快捷指令、外部控制设置页档位工具摘要及中英双语 4757 键 1:1 对齐。",
+      ],
+    },
+  },
+  {
     // 2.31.0（2026-11-27）：Antigravity 写作角色隔离、MCP 动态 Profile、零 LLM 紧凑桥接与纯声明式写作插件。
     version: "2.31.0",
     date: "2026-11-27",
