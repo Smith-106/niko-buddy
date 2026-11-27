@@ -1,17 +1,46 @@
-import { describe, it, expect, vi } from "vitest"
+import { beforeEach, describe, it, expect, vi } from "vitest"
 import { applyFileEdit } from "./agent-tools"
 import type { FileEditAction } from "./agent-parser"
+
+const draftMocks = vi.hoisted(() => ({
+  writeDraft: vi.fn(),
+  discardChapterDraft: vi.fn(),
+}))
 
 // Mock fs commands
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
   return {
     ...actual,
-      readFile: vi.fn(),
-      writeFile: vi.fn(),
-      listDirectory: vi.fn(),
-    
+    readFile: vi.fn(),
+    writeFile: vi.fn(),
+    listDirectory: vi.fn(),
   }
+})
+
+vi.mock("./draft-manager", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./draft-manager")>()
+  return {
+    ...actual,
+    writeDraft: draftMocks.writeDraft,
+    discardChapterDraft: draftMocks.discardChapterDraft,
+  }
+})
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  let seq = 0
+  draftMocks.writeDraft.mockImplementation(async (_pp: string, chapterName: string, content: string) => {
+    seq += 1
+    return {
+      id: `draft_agent_${seq}`,
+      chapterName,
+      content,
+      createdAt: 1,
+      status: "draft",
+    }
+  })
+  draftMocks.discardChapterDraft.mockResolvedValue(undefined)
 })
 
 describe("agent-tools applyFileEdit security", () => {
@@ -68,23 +97,80 @@ describe("agent-tools applyFileEdit security", () => {
     expect(result.error).toContain("路径不安全")
   })
 
-  it("should allow valid wiki/chapters/ paths", async () => {
+  it("should route valid wiki/chapters/ paths through writeDraft with stripped frontmatter and zero writeFile calls", async () => {
     const validEdit: FileEditAction = {
       filePath: "wiki/chapters/chapter1.md",
       search: "old text",
       replace: "new text",
     }
 
-    // Mock readFile to return content with search text
     const { readFile, writeFile } = await import("@/commands/fs")
-    vi.mocked(readFile).mockResolvedValue("This is old text content")
+    vi.mocked(readFile).mockResolvedValue("---\ntype: chapter\nchapter_number: 1\n---\n\nThis is old text content")
     vi.mocked(writeFile).mockResolvedValue(undefined)
 
     const result = await applyFileEdit("/project", validEdit)
 
-    // Should pass security check and succeed
     expect(result.success).toBe(true)
     expect(result.error).toBeUndefined()
+    expect(result.routedToDraft).toBe(true)
+    expect(result.draftId).toBe("draft_agent_1")
+    expect(result.draftPath).toBe("/project/.qm-drafts/draft_agent_1.md")
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(draftMocks.writeDraft).toHaveBeenCalledWith(
+      "/project",
+      "chapter1",
+      "This is new text content",
+      { sourceConversationId: "agent:file-edit" },
+    )
+  })
+
+  it("should route valid QM/chapters/ paths through writeDraft and block traversal under QM/", async () => {
+    const { readFile, writeFile } = await import("@/commands/fs")
+    vi.mocked(readFile).mockResolvedValue("旧段落")
+    vi.mocked(writeFile).mockResolvedValue(undefined)
+
+    const okResult = await applyFileEdit("/project", {
+      filePath: "QM/chapters/chapter-002.md",
+      search: "旧段落",
+      replace: "新段落",
+    })
+    expect(okResult.success).toBe(true)
+    expect(okResult.routedToDraft).toBe(true)
+    expect(okResult.draftId).toBe("draft_agent_1")
+    expect(okResult.draftPath).toBe("/project/.qm-drafts/draft_agent_1.md")
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(draftMocks.writeDraft).toHaveBeenCalledWith(
+      "/project",
+      "chapter-002",
+      "新段落",
+      { sourceConversationId: "agent:file-edit" },
+    )
+
+    const badResult = await applyFileEdit("/project", {
+      filePath: "QM/chapters/../../etc/passwd",
+      search: "a",
+      replace: "b",
+    })
+    expect(badResult.success).toBe(false)
+    expect(badResult.error).toContain("路径不安全")
+  })
+
+  it("should keep wiki/outlines/ on direct writeFile so outline chat continues working", async () => {
+    const { readFile, writeFile } = await import("@/commands/fs")
+    vi.mocked(readFile).mockResolvedValue("# 大纲\n旧节点")
+    vi.mocked(writeFile).mockResolvedValue(undefined)
+
+    const result = await applyFileEdit("/project", {
+      filePath: "wiki/outlines/main.md",
+      search: "旧节点",
+      replace: "新节点",
+    })
+    expect(result.success).toBe(true)
+    expect(result.routedToDraft).toBe(false)
+    expect(result.draftId).toBeUndefined()
+    expect(result.draftPath).toBeUndefined()
+    expect(draftMocks.writeDraft).not.toHaveBeenCalled()
+    expect(writeFile).toHaveBeenCalledWith("/project/wiki/outlines/main.md", "# 大纲\n新节点")
   })
 })
 
@@ -194,12 +280,72 @@ describe("agent-tools applyFileEdits / undoFileEdit", () => {
     expect(results[2].success).toBe(false)
   })
 
-  it("undoFileEdit restores original content on success", async () => {
+  it("undoFileEdit restores original content on non-draft success", async () => {
     const { writeFile } = await import("@/commands/fs")
     vi.mocked(writeFile).mockResolvedValue(undefined)
     const { undoFileEdit } = await import("./agent-tools")
-    expect(await undoFileEdit({ filePath: "/p/x.md", success: true, originalContent: "原始" })).toBe(true)
-    expect(writeFile).toHaveBeenCalledWith("/p/x.md", "原始")
+    expect(await undoFileEdit({ filePath: "/p/wiki/outlines/x.md", success: true, originalContent: "原始", routedToDraft: false })).toBe(true)
+    expect(writeFile).toHaveBeenCalledWith("/p/wiki/outlines/x.md", "原始")
+  })
+
+  it("undoFileEdit discards draft and NEVER overwrites formal chapters when routedToDraft is true", async () => {
+    const { writeFile } = await import("@/commands/fs")
+    vi.mocked(writeFile).mockResolvedValue(undefined)
+    const { undoFileEdit } = await import("./agent-tools")
+
+    // With projectPath + draftId: discards draft, zero writeFile calls
+    const ok = await undoFileEdit(
+      {
+        filePath: "wiki/chapters/chapter-001.md",
+        success: true,
+        originalContent: "正式章原文",
+        routedToDraft: true,
+        draftId: "draft_agent_9",
+        draftPath: "/project/.qm-drafts/draft_agent_9.md",
+      },
+      "/project",
+    )
+    expect(ok).toBe(true)
+    expect(draftMocks.discardChapterDraft).toHaveBeenCalledWith("/project", "draft_agent_9")
+    expect(writeFile).not.toHaveBeenCalled()
+
+    // Without projectPath or draftId: refuses and returns false, zero writeFile calls
+    expect(
+      await undoFileEdit({
+        filePath: "wiki/chapters/chapter-001.md",
+        success: true,
+        originalContent: "正式章原文",
+        routedToDraft: true,
+        draftId: "draft_agent_9",
+      }),
+    ).toBe(false)
+    expect(
+      await undoFileEdit(
+        {
+          filePath: "wiki/chapters/chapter-001.md",
+          success: true,
+          originalContent: "正式章原文",
+          routedToDraft: true,
+        },
+        "/project",
+      ),
+    ).toBe(false)
+    expect(writeFile).not.toHaveBeenCalled()
+
+    // If discard fails: returns false, zero writeFile calls
+    draftMocks.discardChapterDraft.mockRejectedValueOnce(new Error("discard failed"))
+    expect(
+      await undoFileEdit(
+        {
+          filePath: "wiki/chapters/chapter-001.md",
+          success: true,
+          routedToDraft: true,
+          draftId: "draft_agent_9",
+        },
+        "/project",
+      ),
+    ).toBe(false)
+    expect(writeFile).not.toHaveBeenCalled()
   })
 
   it("undoFileEdit returns false when not successful or no original content", async () => {

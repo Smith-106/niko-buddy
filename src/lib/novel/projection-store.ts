@@ -62,6 +62,21 @@ export interface SchemaMigrationStep {
   reversibility: "R0" | "R1" | "R2"
 }
 
+/**
+ * 数组字段上限规则：
+ * - 数字：向后兼容，超限时 `.slice(-cap)` 截尾保留最近 N 条；
+ * - 对象 `{ cap, retain? }`：超限时调用领域留存回调 `retain(items, cap)` 并以 `.slice(0, cap)` 硬上限兜底，
+ *   未提供 `retain` 时退化为 `.slice(-cap)`。
+ */
+export type ArrayFieldCapRule<Item = unknown> =
+  | number
+  | {
+      cap: number
+      retain?(items: readonly Item[], cap: number): Item[]
+    }
+
+export type ArrayFieldCaps = Record<string, ArrayFieldCapRule>
+
 export interface AtomicJsonStoreOptions {
   /** 当前 schema 版本 (缺省 1)。save 时 stamp fileVersion。 */
   currentVersion?: number
@@ -81,49 +96,55 @@ export interface AtomicJsonStoreOptions {
    */
   isMissingError?: (err: unknown) => boolean
   /**
-   * 无界增长护栏（arch-risk W2）：对 store 内数组字段在 save 时截尾保最近 N 条。
-   * { fieldPath: maxEntries }——fieldPath 用顶层字段名（如 "entries"/"events"）。
-   * 用于 metrics/telemetry/audit/promotions 等 append-only 投影，防 .novel/ 无限累积。
+   * 无界增长护栏（arch-risk W2）：对 store 内数组字段在 save 时截尾或按领域留存回调筛选。
+   * `{ fieldPath: maxEntries | { cap, retain } }`——fieldPath 用顶层字段名（如 "entries"/"events"）。
    * 缺省无 cap（向后兼容——只对显式声明的 store 生效）。
    */
-  arrayFieldCaps?: Record<string, number>
+  arrayFieldCaps?: ArrayFieldCaps
 }
 
 /**
- * M2-07：无界增长护栏纯函数——按 caps 对 store 顶层数组字段截尾保最近 N 条。
- * 不原地修改入参；仅在存在字段超限时浅拷贝克隆顶层对象并 `.slice(-cap)`，
+ * M2-07：无界增长护栏纯函数——按 caps 对 store 顶层数组字段截尾保最近 N 条或按领域 retain 留存。
+ * 不原地修改入参；仅在存在字段超限时浅拷贝克隆顶层对象，
  * 供 `createAtomicJsonStore.save` 与 drift 重放路径同源复用。
  */
 export function applyArrayFieldCaps<T>(
   store: T,
-  caps?: Readonly<Record<string, number>>,
+  caps?: Readonly<ArrayFieldCaps>,
 ): T {
   if (!caps || !store || typeof store !== "object" || Array.isArray(store)) {
     return store
   }
   const source = store as Record<string, unknown>
   let clone: Record<string, unknown> | undefined
-  for (const [field, cap] of Object.entries(caps)) {
+  for (const [field, rule] of Object.entries(caps)) {
+    const cap = typeof rule === "number" ? rule : rule.cap
     if (!Number.isFinite(cap) || cap < 0) continue
     const arr = source[field]
     if (Array.isArray(arr) && arr.length > cap) {
       if (!clone) clone = { ...source }
-      clone[field] = cap === 0 ? [] : arr.slice(-cap)
+      if (cap === 0) {
+        clone[field] = []
+      } else if (typeof rule === "object" && typeof rule.retain === "function") {
+        clone[field] = rule.retain(arr, cap).slice(0, cap)
+      } else {
+        clone[field] = arr.slice(-cap)
+      }
     }
   }
   return (clone ?? store) as T
 }
 
-const registeredArrayFieldCaps = new Map<string, Readonly<Record<string, number>>>()
+const registeredArrayFieldCaps = new Map<string, Readonly<ArrayFieldCaps>>()
 
 /** 读取指定投影文件声明的 `arrayFieldCaps`（由 `createAtomicJsonStore` 自动登记）。 */
 export function getStoreArrayFieldCaps(
   relativePath: string,
-): Readonly<Record<string, number>> | undefined {
+): Readonly<ArrayFieldCaps> | undefined {
   return registeredArrayFieldCaps.get(relativePath)
 }
 
-/** 按指定投影文件登记的 `arrayFieldCaps` 截尾 store（未登记则原样返回）。 */
+/** 按指定投影文件登记的 `arrayFieldCaps` 截尾/留存 store（未登记则原样返回）。 */
 export function applyStoreArrayFieldCaps<T>(
   relativePath: string,
   store: T,

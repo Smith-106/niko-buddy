@@ -25,7 +25,7 @@
 
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { acceptDraftAndIngest, type AcceptDraftAndIngestResult } from "./accept-draft-with-ingest"
-import { acceptChapterDraft, formalChapterPathForDraft, resolveChapterDraftAdoptionTarget } from "./draft-manager"
+import { acceptChapterDraft, formalChapterPathForDraft, readDraftChapterNumber, resolveChapterDraftAdoptionTarget } from "./draft-manager"
 import type { DraftAdoptionGate } from "./lifecycle-types"
 
 /**
@@ -109,9 +109,13 @@ export async function adoptMainControlDraft(
     { chapterName: input.chapterName, adoptionGate: input.adoptionGate },
     input.selectedFile ?? null,
   )
+  const chapterNumber = readDraftChapterNumber(input.chapterName)
   return adoptAndIngest({
     projectPath: input.projectPath,
     formalChapterPath,
+    draftId: input.draftId,
+    chapterName: input.chapterName,
+    ...(chapterNumber !== undefined ? { chapterNumber } : {}),
     accept: createMainControlAcceptSeam({
       projectPath: input.projectPath,
       draftId: input.draftId,

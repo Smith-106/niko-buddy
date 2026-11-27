@@ -31,6 +31,7 @@ import {
 } from "./accept-draft-with-ingest"
 import {
   commitPreparedChapterIngest,
+  extractJsonObjectFromModelText,
   type ChapterSnapshot,
   type IngestResult,
   type PreparedChapterIngest,
@@ -41,7 +42,6 @@ import {
   validateCanonConflicts,
   validateEntityReferences,
 } from "./chapter-ingest-entity-validation"
-import { extractJsonObjectFromModelText } from "./chapter-ingest-extraction"
 import { resolveIngestTarget } from "./chapter-ingest-ingest-guards"
 import { parseChapterNumber } from "./chapter-meta"
 import { normalizeChapterSnapshot } from "./chapter-snapshot-normalize"
@@ -269,7 +269,7 @@ export function buildInteractiveIngestPrompt(options: BuildInteractiveIngestProm
   "characterStateChanges": ["人物状态变化描述"],
   "relationshipChanges": ["人物关系变化描述"],
   "knowledgeChanges": ["角色认知变化描述"],
-  "foreshadowingChanges": ["伏笔变化描述（新增/推进/回收）"],
+  "foreshadowingChanges": ["新增伏笔：伏笔名称-伏笔描述", "推进伏笔：伏笔名称-推进进展", "回收伏笔：伏笔名称-回收结果"],
   "newCanonFacts": ["新增正史设定"],
   "beliefFacts": [{ "subject": "认知主体", "predicate": "认为/怀疑/以为", "object": "角色所信内容" }],
   "hypothesisFacts": [{ "subject": "假设主体", "predicate": "假设/猜测/推测", "object": "假设内容" }],
@@ -279,10 +279,25 @@ export function buildInteractiveIngestPrompt(options: BuildInteractiveIngestProm
   "graphNodes": ["图谱节点列表"],
   "graphEdges": ["A->关系->B（关系仅限：出场于|发生于|属于|持有|敌对|合作|怀疑|隐瞒|知道|不知道|推进伏笔|回收伏笔|新增伏笔|导致|揭示|影响|位于）"],
   "povCharacter": "本章 POV 角色（可选）",
-  "characterDetails": {},
+  "characterDetails": {
+    "人物正式名": {
+      "identity": "身份（可选）",
+      "faction": "阵营（可选）",
+      "goals": "本章目标（可选）",
+      "arcChange": "弧光变化（本章中该人物的成长或情绪转折）"
+    }
+  },
   "locationDetails": {},
   "organizationDetails": {},
-  "itemDetails": {},
+  "itemDetails": {
+    "物品名": {
+      "holder": "当前持有者",
+      "previousHolders": "前持有者（如有转手）",
+      "abilities": "能力（可选）",
+      "limitations": "限制（可选）",
+      "origin": "来源（可选）"
+    }
+  },
   "eventDetails": {}
 }`
 
@@ -296,6 +311,8 @@ export function buildInteractiveIngestPrompt(options: BuildInteractiveIngestProm
       `3. Keep \`chapterNumber\` strictly equal to ${chapterNumber} and \`chapterId\` equal to "chapter-${chapterNumber}".`,
       "4. Put character subjective beliefs (e.g., X believes/suspects...) in `beliefFacts` and guesses in `hypothesisFacts`; never pollute `newCanonFacts` with subjective beliefs.",
       "5. Put canonical character names in `characters` and nicknames/former names in `characterAliases`.",
+      "6. Format every entry in `foreshadowingChanges` using exact prefixes: `新增伏笔：伏笔名称-伏笔描述`, `推进伏笔：伏笔名称-推进进展`, or `回收伏笔：伏笔名称-回收结果` (use `[]` when no foreshadowing changed).",
+      "7. When a character has an arc/emotional shift, fill `characterDetails.<name>.arcChange`; when a notable item is held or transferred, fill `itemDetails.<item>.holder` and (if transferred) `itemDetails.<item>.previousHolders`. Omit placeholder entries when the chapter has no explicit details.",
       "",
       "JSON schema template:",
       "```json",
@@ -312,7 +329,9 @@ export function buildInteractiveIngestPrompt(options: BuildInteractiveIngestProm
     "2. 请严格仅输出一个 ```json ... ``` 围栏代码块（符合 `ChapterSnapshot` 结构），不要在代码块前后添加额外说明文字；用户将在 Niko Buddy 内预览并确认后入库。",
     `3. \`chapterNumber\` 必须严格为 ${chapterNumber}，\`chapterId\` 必须为 \`"chapter-${chapterNumber}"\`。`,
     "4. 模态判定规则：仅当原文出现「X认为/怀疑/以为/相信/觉得」等认知动词时提取为 `beliefFacts`；仅当出现「假设/猜测/推测/猜想」时提取为 `hypothesisFacts`；其余客观正史进 `newCanonFacts`，绝不让角色认知污染正史。",
-    "5. 人物归一规则：正式名放进 `characters`，昵称/小名/旧名放进 `characterAliases`，不要把同一人物拆成多个条目；`*Details` 字段仅在正文有明确信息时填写。",
+    "5. 人物归一规则：正式名放进 `characters`，昵称/小名/旧名放进 `characterAliases`，不要把同一人物拆成多个条目；`*Details` 字段仅在正文有明确信息时填写，勿照抄模板占位符。",
+    "6. 伏笔格式规则：`foreshadowingChanges` 每条必须严格使用前缀 `新增伏笔：伏笔名称-伏笔描述`、`推进伏笔：伏笔名称-推进进展` 或 `回收伏笔：伏笔名称-回收结果`（无伏笔变化则填 `[]`），以便确定性写入伏笔库。",
+    "7. 投影明细规则：角色在本章有成长/情绪转折时填写 `characterDetails.<name>.arcChange`；关键物品有归属或转手时填写 `itemDetails.<item>.holder` 与 `itemDetails.<item>.previousHolders`。",
     "",
     "请严格按以下 JSON 结构输出：",
     "```json",

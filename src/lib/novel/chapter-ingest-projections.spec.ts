@@ -172,7 +172,8 @@ describe("chapter-ingest-projections — zero-LLM community_summary guard", () =
     const result = await runIngestProjections(params)
 
     expect(mocks.resolveNovelModel).toHaveBeenCalledWith(params.llmConfig, params.novelConfig, "summary")
-    expect(mocks.hasUsableLlm).toHaveBeenCalledTimes(1)
+    expect(mocks.resolveNovelModel).toHaveBeenCalledWith(params.llmConfig, params.novelConfig, "extract")
+    expect(mocks.hasUsableLlm).toHaveBeenCalledTimes(2)
     expect(mocks.generateCommunitySummaries).not.toHaveBeenCalled()
     expect(onCommunitySummaryError).not.toHaveBeenCalled()
     expect(mocks.setCommunitySummaryError).not.toHaveBeenCalled()
@@ -224,8 +225,60 @@ describe("chapter-ingest-projections — zero-LLM community_summary guard", () =
     const result = await runIngestProjections(params)
 
     expect(mocks.resolveNovelModel).toHaveBeenCalledWith(params.llmConfig, params.novelConfig, "summary")
+    expect(mocks.resolveNovelModel).not.toHaveBeenCalledWith(params.llmConfig, params.novelConfig, "extract")
     expect(mocks.hasUsableLlm).toHaveBeenCalledWith(resolvedSummaryCfg)
     expect(mocks.generateCommunitySummaries).toHaveBeenCalledTimes(1)
+    // 摘要模型本身可用时，保持原 novelConfig 对象引用不变
+    expect(mocks.generateCommunitySummaries.mock.calls[0]?.[2]).toBe(params.novelConfig)
+    expect(result.committedProjections).toContain("community_summary")
+    expect(result.failedProjections).not.toContain("community_summary")
+    expect(savedLedgers[0]?.chapters["5"]?.community_summary?.status).toBe("committed")
+  })
+
+  it("Golden Hybrid 回退：summary 模型不可用但 extract 模型可用时透传 effectiveNovelConfig.summaryModel 执行社区摘要", async () => {
+    const unusableSummaryCfg: LlmConfig = {
+      provider: "openai",
+      apiKey: "",
+      model: "",
+      ollamaUrl: "",
+      customEndpoint: "",
+      maxContextSize: 128_000,
+    }
+    const usableExtractCfg: LlmConfig = {
+      provider: "openai",
+      apiKey: "sk-extract-ok",
+      model: "deepseek-chat",
+      ollamaUrl: "",
+      customEndpoint: "",
+      maxContextSize: 128_000,
+    }
+    mocks.resolveNovelModel.mockImplementation((_llm, _novel, task) =>
+      task === "extract" ? usableExtractCfg : unusableSummaryCfg,
+    )
+    mocks.hasUsableLlm.mockImplementation((cfg) => cfg.apiKey === "sk-extract-ok")
+
+    const { params, savedLedgers } = makeParams({
+      llmConfig: unusableSummaryCfg,
+      novelConfig: {
+        ...DEFAULT_NOVEL_CONFIG,
+        communitySummaryEnabled: true,
+        communitySummaryInterval: 5,
+        communitySummaryAsync: false,
+        summaryModel: "",
+        extractModel: "  deepseek/deepseek-chat  ",
+      },
+    })
+
+    const result = await runIngestProjections(params)
+
+    expect(mocks.resolveNovelModel).toHaveBeenCalledWith(params.llmConfig, params.novelConfig, "summary")
+    expect(mocks.resolveNovelModel).toHaveBeenCalledWith(params.llmConfig, params.novelConfig, "extract")
+    expect(mocks.generateCommunitySummaries).toHaveBeenCalledTimes(1)
+    const passedNovelConfig = mocks.generateCommunitySummaries.mock.calls[0]?.[2] as NovelConfig
+    expect(passedNovelConfig).not.toBe(params.novelConfig)
+    expect(passedNovelConfig.summaryModel).toBe("deepseek/deepseek-chat")
+    // 不原地修改入参 novelConfig
+    expect(params.novelConfig.summaryModel).toBe("")
     expect(result.committedProjections).toContain("community_summary")
     expect(result.failedProjections).not.toContain("community_summary")
     expect(savedLedgers[0]?.chapters["5"]?.community_summary?.status).toBe("committed")

@@ -505,8 +505,12 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
       expect(mocks.getNextChapterNumber).toHaveBeenCalled()
     })
     fireEvent.click(screen.getByText(/开启全自动巡航推进/))
+    fireEvent.click(screen.getByTestId("campaign-cruise-confirm-auto-accept"))
     fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
     await waitFor(() => {
+      expect(mocks.runAutonomousDraftCampaign).toHaveBeenCalledWith(
+        expect.objectContaining({ cruiseMode: true, confirmAutoAccept: true }),
+      )
       expect(mocks.toastSuccess).toHaveBeenCalledWith(
         `全自动巡航完成！自动落盘 1 章，已验证事实库摄取 ${Number(autoIngested)} 章`,
       )
@@ -536,6 +540,7 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
         expect(mocks.getNextChapterNumber).toHaveBeenCalled()
       })
       fireEvent.click(screen.getByText(/开启全自动巡航推进/))
+      fireEvent.click(screen.getByTestId("campaign-cruise-confirm-auto-accept"))
       fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
       await waitFor(() => {
         expect(mocks.toastSuccess).toHaveBeenCalledWith(expect.stringContaining("全自动巡航完成"))
@@ -544,6 +549,47 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
     } finally {
       warnSpy.mockRestore()
     }
+  })
+
+  it("Draft-first 二次确认：cruiseMode 默认 false；勾选后展示二次确认框；未二次确认仅传 confirmAutoAccept: false，取消巡航或关闭弹窗自动复位", async () => {
+    const { rerender } = render(<CampaignDashboardDialog open={true} onOpenChange={vi.fn()} />)
+    await waitFor(() => {
+      expect(mocks.getNextChapterNumber).toHaveBeenCalled()
+    })
+
+    // 1. cruiseMode 默认 false，二次确认框不显示
+    const cruiseCheckbox = screen.getByText(/开启全自动巡航推进/).closest("label")!.querySelector("input") as HTMLInputElement
+    expect(cruiseCheckbox.checked).toBe(false)
+    expect(screen.queryByTestId("campaign-cruise-confirm-auto-accept")).toBeNull()
+
+    // 2. 勾选 cruiseMode 后暴露二次确认框（默认未勾选），直接启动时传 confirmAutoAccept: false
+    fireEvent.click(cruiseCheckbox)
+    const confirmCheckbox = screen.getByTestId("campaign-cruise-confirm-auto-accept") as HTMLInputElement
+    expect(confirmCheckbox.checked).toBe(false)
+    fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
+    await waitFor(() => {
+      expect(mocks.runAutonomousDraftCampaign).toHaveBeenCalledWith(
+        expect.objectContaining({ cruiseMode: true, confirmAutoAccept: false }),
+      )
+    })
+    expect(mocks.toastInfo).toHaveBeenCalledWith(expect.stringContaining("未勾选二次确认"))
+
+    // 3. 勾选二次确认后再取消 cruiseMode -> 二次确认复位为 false
+    fireEvent.click(confirmCheckbox)
+    expect(confirmCheckbox.checked).toBe(true)
+    fireEvent.click(cruiseCheckbox)
+    expect(screen.queryByTestId("campaign-cruise-confirm-auto-accept")).toBeNull()
+    fireEvent.click(cruiseCheckbox)
+    const reappearedConfirm = screen.getByTestId("campaign-cruise-confirm-auto-accept") as HTMLInputElement
+    expect(reappearedConfirm.checked).toBe(false)
+
+    // 4. 勾选二次确认后关闭弹窗再重新打开 -> 二次确认复位为 false
+    fireEvent.click(reappearedConfirm)
+    expect(reappearedConfirm.checked).toBe(true)
+    rerender(<CampaignDashboardDialog open={false} onOpenChange={vi.fn()} />)
+    rerender(<CampaignDashboardDialog open={true} onOpenChange={vi.fn()} />)
+    const afterReopenConfirm = screen.getByTestId("campaign-cruise-confirm-auto-accept") as HTMLInputElement
+    expect(afterReopenConfirm.checked).toBe(false)
   })
 
   it("战役抛错：toast.error 带原因", async () => {

@@ -79,6 +79,67 @@ export function createEmptyCharacterStateStore(): CharacterStateStore {
   return { characters: [], lastUpdated: new Date().toISOString() }
 }
 
+function characterRecency(character: CharacterState): number {
+  const seen = typeof character.lastSeenChapter === "number" && Number.isFinite(character.lastSeenChapter)
+    ? character.lastSeenChapter
+    : 0
+  const updated = typeof character.lastUpdatedChapter === "number" && Number.isFinite(character.lastUpdatedChapter)
+    ? character.lastUpdatedChapter
+    : 0
+  return Math.max(seen, updated)
+}
+
+function characterRichness(character: CharacterState): number {
+  return (
+    (character.equipment?.length ?? 0) +
+    (character.abilities?.length ?? 0) +
+    Object.keys(character.relationships ?? {}).length +
+    (character.currentLocation?.trim() ? 1 : 0) +
+    (character.status?.trim() ? 1 : 0) +
+    (character.emotion ? 1 : 0)
+  )
+}
+
+function isCharacterAlive(character: CharacterState): boolean {
+  return character.isAlive !== false && character.deathChapter == null
+}
+
+/**
+ * 百章级角色留存策略（确定性纯函数）：
+ * - 恒定钉住索引 0（主角位），绝不因超 cap 被尾截驱逐；
+ * - 索引 1..n-1 按近期活跃度（max(lastSeenChapter, lastUpdatedChapter)）、
+ *   信息丰富度（装备/能力/关系/位置/状态/情绪）与存活状态确定性排序留存；
+ * - 最终恢复原相对顺序，不修改入参数组。
+ */
+export function retainCharacterStates(
+  characters: readonly CharacterState[],
+  cap: number,
+): CharacterState[] {
+  if (cap <= 0 || characters.length === 0) return []
+  if (characters.length <= cap) return [...characters]
+  if (cap === 1) return [characters[0]]
+
+  const ranked = characters.slice(1).map((character, offset) => ({
+    index: offset + 1,
+    recency: characterRecency(character),
+    richness: characterRichness(character),
+    alive: isCharacterAlive(character) ? 1 : 0,
+  }))
+  ranked.sort((a, b) => {
+    if (b.recency !== a.recency) return b.recency - a.recency
+    if (b.richness !== a.richness) return b.richness - a.richness
+    if (b.alive !== a.alive) return b.alive - a.alive
+    return b.index - a.index
+  })
+
+  const keptIndices = new Set<number>([0])
+  const remainingSlots = cap - 1
+  for (let i = 0; i < remainingSlots && i < ranked.length; i += 1) {
+    keptIndices.add(ranked[i].index)
+  }
+  return characters.filter((_, index) => keptIndices.has(index))
+}
+
 // E-03 (run-execute-1, 双库架构蓝图): 直写迁移到 createAtomicJsonStore 工厂
 // (三模型共识 2026-09-04)。load 语义保留 ISS-20260712-010: missing/empty →
 // empty store; non-empty corrupt JSON → throw (error vs no-data) — 经
@@ -93,7 +154,7 @@ const store = createAtomicJsonStore<CharacterStateStore>(
       const message = toErrorMessage(err)
       return /not found|ENOENT|does not exist|os error 2|系统找不到/i.test(message)
     },
-    arrayFieldCaps: { characters: 400 },
+    arrayFieldCaps: { characters: { cap: 400, retain: retainCharacterStates } },
   },
 )
 

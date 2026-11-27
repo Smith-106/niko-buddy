@@ -1,27 +1,34 @@
 /**
- * 故事草稿导入到章节库
+ * 故事草稿导入到待审草稿箱（Draft-first 边界）
  *
- * 将 StoryDraft 中的章节写入到项目的 wiki/chapters/ 目录下，
- * 使用标准的 chapter-XXX.md 文件格式（带 YAML frontmatter）。
- * 支持选择性导入和覆盖前自动备份。
+ * 将 StoryDraft 中的推演章节统一通过 writeDraft 写入项目的 .qm-drafts/ 目录，
+ * 严禁直接覆写正式章节（wiki/chapters/）或在采纳前触发正式记忆摄取（ingestChapter）。
+ * 作者在草稿箱审阅并采纳后，才回填正式正文与正式记忆。
  */
 
-import { createDirectory, writeFileAtomic, fileExists, readFile } from "@/commands/fs"
+import { parseFrontmatter } from "@/lib/frontmatter"
 import { normalizePath } from "@/lib/path-utils"
+import { logger, todayStamp } from "@/lib/utils"
 import { getNextChapterNumber } from "@/lib/novel/chapter-utils"
-import { backupChapterFile } from "@/lib/novel/chapter-backup"
+import { writeDraft } from "../draft-manager"
+import { DRAFTS_DIR } from "../lifecycle-types"
 import type { StoryDraft, StoryFramework } from "./types"
 
-interface ImportResult {
+export interface ImportResult {
   importedCount: number
+  /** 待审草稿文件路径列表（位于 .qm-drafts/ 下） */
   chapterPaths: string[]
+  /** 写入的待审草稿 ID 列表 */
+  draftIds: string[]
+  /** Draft-first 标记：始终为 true，表示已路由至草稿箱待人工审阅采纳 */
+  routedToDrafts: true
   startChapter: number
   backedUpPaths: string[]
 }
 
 /**
- * 将草稿导入到项目章节库。
- * @returns 导入的章节数量、起始章节号、文件路径列表和备份路径列表
+ * 将故事推演草稿导入到项目待审草稿箱（.qm-drafts/）。
+ * @returns 导入的章节数量、起始章节号、草稿路径与 ID 列表
  */
 export async function importDraftToChapters(
   projectPath: string,
@@ -30,27 +37,28 @@ export async function importDraftToChapters(
   options?: {
     /** 指定起始章节号，不指定则自动使用下一个可用章节号 */
     startChapter?: number
-    /** 是否覆盖已存在的章节文件（覆盖前自动备份） */
+    /** 保留历史选项签名；Draft-first 模式下所有导入均进入待审草稿箱，不会直接覆写正式章节 */
     overwrite?: boolean
     /** 只导入指定索引的章节（0-based），不指定则全部导入 */
     selectedIndices?: number[]
     /** 导入进度回调 */
     onProgress?: (current: number, total: number, chapterTitle: string) => void
-    /** 导入后是否自动执行章节摄取（回填快照与 Canon 事实），默认 false */
+    /** 保留历史选项签名；Draft-first 下禁止采纳前摄取，开启时仅记录延期告警 */
     autoIngest?: boolean
-    /** 用于章节摄取的 LLM 配置 */
+    /** 保留历史选项签名 */
     llmConfig?: import("@/stores/wiki-store").LlmConfig
   },
 ): Promise<ImportResult> {
   const pp = normalizePath(projectPath)
-  const chapterDir = `${pp}/wiki/chapters`
-  await createDirectory(chapterDir)
+  const root = pp.replace(/\/+$/, "")
 
   const startChapter = options?.startChapter ?? await getNextChapterNumber(pp)
   const chapterPaths: string[] = []
+  const draftIds: string[] = []
   const backedUpPaths: string[] = []
-  const now = new Date()
-  const dateStr = now.toISOString().split("T")[0]
+  const dateStr = todayStamp()
+  const safeFrameworkId = (framework.id || "framework").replace(/[^a-zA-Z0-9_-]/g, "_")
+  const sourceConversationId = `story-simulation-${safeFrameworkId}-${dateStr}`
 
   // 确定要导入的章节索引
   const indices = options?.selectedIndices
@@ -69,91 +77,49 @@ export async function importDraftToChapters(
     const draftIdx = indices[i]
     const chapter = draft.chapters[draftIdx]
     const chapterNum = startChapter + chapterNumOffset
-    const fileName = `chapter-${String(chapterNum).padStart(3, "0")}.md`
-    const filePath = `${chapterDir}/${fileName}`
+    const chapterName = `chapter-${String(chapterNum).padStart(3, "0")}`
 
     // 进度回调
     options?.onProgress?.(i + 1, totalToImport, chapter.title)
-
-    // 检查文件是否已存在
-    const exists = await fileExists(filePath)
-    if (exists) {
-      if (!options?.overwrite) {
-        throw new Error(
-          `章节文件已存在：${fileName}。请先删除已有章节或选择覆盖模式。`,
-        )
-      }
-      // 覆盖前自动备份原文件
-      try {
-        const originalContent = await readFile(filePath)
-        const backupPath = await backupChapterFile({
-          projectPath: pp,
-          chapterPath: filePath,
-          chapterNumber: chapterNum,
-          content: originalContent,
-          now,
-          source: "template",
-        })
-        backedUpPaths.push(backupPath)
-      } catch {
-        // 备份失败不阻塞导入，但记录警告
-        console.warn(`[draft-import] 备份 ${fileName} 失败，继续覆盖`)
-      }
-    }
 
     // 构建章节标题
     const fullTitle = chapter.title.startsWith("第")
       ? chapter.title
       : `第${chapterNum}章 ${chapter.title}`
 
-    // 构建 frontmatter + 正文
-    const content = [
-      "---",
-      `type: chapter`,
-      `chapter_number: ${chapterNum}`,
-      `chapter_status: draft`,
-      `title: "${fullTitle.replace(/"/g, '\\"')}"`,
-      `source: story-simulation`,
-      `framework_id: "${framework.id}"`,
-      `framework_title: "${framework.title.replace(/"/g, '\\"')}"`,
-      `created: ${dateStr}`,
-      `---`,
-      "",
-      `# ${fullTitle}`,
-      "",
-      chapter.content,
-      "",
-    ].join("\n")
+    // 剥离任何误入的 YAML frontmatter，仅将纯净正文写入草稿箱
+    const parsedContent = parseFrontmatter(chapter.content.replace(/^\uFEFF/, ""))
+    const bodyText = parsedContent.rawBlock
+      ? parsedContent.body.replace(/^(?:\r?\n)+/, "")
+      : chapter.content
+    const content = `# ${fullTitle}\n\n${bodyText}\n`
 
-    await writeFileAtomic(filePath, content)
-    chapterPaths.push(filePath)
+    const writtenDraft = await writeDraft(pp, chapterName, content, {
+      sourceConversationId,
+    })
+    draftIds.push(writtenDraft.id)
+    chapterPaths.push(`${root}/${DRAFTS_DIR}/${writtenDraft.id}.md`)
     chapterNumOffset++
   }
 
-  // 若开启了 autoIngest 且配置了可用模型，自动为导入的章节执行事实摄取与双写
-  if (options?.autoIngest && options?.llmConfig) {
-    try {
-      const [{ ingestChapter }, { defaultCanonDualWriteDeps }] = await Promise.all([
-        import("@/lib/novel/chapter-ingest"),
-        import("@/lib/novel/canon-dual-write"),
-      ])
-      for (const chPath of chapterPaths) {
-        try {
-          await ingestChapter(pp, chPath, options.llmConfig?.model ?? "default", undefined, {
-            canonDualWriteDeps: defaultCanonDualWriteDeps(),
-          })
-        } catch (e) {
-          console.warn(`[draft-import] 自动摄取 ${chPath} 失败:`, e)
-        }
-      }
-    } catch (e) {
-      console.warn("[draft-import] 加载章节摄取模块失败:", e)
-    }
+  // Draft-first 硬边界：严禁在草稿采纳前调用 ingestChapter 污染正式记忆层
+  if (options?.autoIngest) {
+    logger.warn(
+      "draft-import",
+      "Story simulation import deferred autoIngest until Draft-first adoption",
+      {
+        projectPath: pp,
+        importedCount: draftIds.length,
+        draftIds,
+      },
+    )
   }
 
   return {
     importedCount: indices.length,
     chapterPaths,
+    draftIds,
+    routedToDrafts: true,
     startChapter,
     backedUpPaths,
   }

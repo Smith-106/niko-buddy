@@ -26,23 +26,35 @@ import {
   buildDraftAutoArmPatch,
   buildDraftAutoArmRecord,
   buildNextStatus,
+  checkFinaleAutoComplete,
   collectProjectSnapshot,
   computeCheckpointDigest,
+  createNovelSessionId,
   emptyDecisionGates,
   evaluateDraftAutoArm,
+  externalDraftTargetKey,
   firstFailedGate,
+  getChapterVolumes,
+  getExternalDraftRevisionCount,
   hasPersistedDirectorState,
+  isActiveChatDeepChapterSession,
   listChapterDrafts,
   listScopeFiles,
   loadDirectorPersisted,
   loadNovelSessionStatus,
+  loadOutlineModel,
+  loadSegmentSummaries,
+  loadStoryCompass,
   loadWorldBlueprint,
   parseChapterOrdinal,
   readDraftChapterNumber,
   routeControlState,
+  segmentIndexForChapter,
+  syncExternalDraftToSessionStatus,
   updateNovelSessionStatus,
   withProjectLock,
   writeDraft,
+  type ArcBoundary,
   type ChapterDraft,
   type DeepChapterDecisionGate,
   type DeepChapterDecisionGates,
@@ -51,21 +63,34 @@ import {
   type DirectorPersistedFile,
   type DirectorSnapshot,
   type DraftAutoArmStatus,
+  type ExternalDraftStatusEntry,
   type GateRunStatus,
   type GateVerdict,
   type KernelAntiAiMode,
   type KernelRouteShellMode,
   type NovelDraftStatus,
+  type NovelReviewResult,
   type NovelSessionStatus,
   type NovelSessionStatusMutator,
+  type OutlineModel,
+  type OutlineModelLoadResult,
   type RouteAction,
   type RouteControlState,
   type RouteGates,
   type RouteInstruction,
+  type SegmentSummaries,
   type SixReviewDimensionKey,
+  type StoryCompass,
+  type VolumeMeta,
   type WorldBlueprint,
 } from "@/lib/novel"
 import { normalizePath } from "@/lib/path-utils"
+import { logger, toErrorMessage } from "@/lib/utils"
+import {
+  runMechanicalGateForMcp,
+  type MechanicalGateCompactReport,
+  type MechanicalGateInput,
+} from "./mechanical-gate"
 
 const DRAFT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/
@@ -152,6 +177,10 @@ export interface WorkflowNextDeps {
     projectPath: string,
     idea: { title: string; genre: string; coreConflict: string },
   ) => Promise<DirectorSnapshot>
+  loadOutlineModel?: (projectPath: string) => Promise<OutlineModelLoadResult>
+  loadSegmentSummaries?: (projectPath: string) => Promise<SegmentSummaries>
+  loadStoryCompass?: (projectPath: string) => Promise<StoryCompass>
+  getChapterVolumes?: (projectPath: string, chapterNumber: number) => Promise<VolumeMeta[]>
 }
 
 export interface WorkflowNextResult {
@@ -292,6 +321,160 @@ function buildWorkflowNextHint(input: {
   }
 }
 
+function resolveArcAndFinaleState(input: {
+  lastCompletedChapter: number
+  outlineModel: OutlineModel | null
+  chapterVolumes: readonly VolumeMeta[]
+  segmentSummaries: SegmentSummaries
+  storyCompass: StoryCompass | null
+  status: NovelSessionStatus | null
+}): {
+  arcBoundary?: ArcBoundary
+  hasArcReview: boolean
+  hasArcSummary: boolean
+  hasVolumeSummary: boolean
+  finaleAutoCompleted: boolean
+} {
+  const { lastCompletedChapter, outlineModel, chapterVolumes, segmentSummaries, storyCompass, status } = input
+  if (lastCompletedChapter <= 0) {
+    return {
+      hasArcReview: false,
+      hasArcSummary: false,
+      hasVolumeSummary: false,
+      finaleAutoCompleted: false,
+    }
+  }
+
+  let isArcEnd = false
+  let isVolumeEnd = false
+  let hasNextVolume = false
+  let needsExpansion = false
+  let nextArc = 0
+  let currentVolumeNumber: number | undefined
+  let arcLabel = ""
+
+  const matchedVolumeMeta =
+    chapterVolumes.find((v) => v.chapterRangeEnd === lastCompletedChapter)
+    ?? chapterVolumes.find(
+      (v) =>
+        v.chapterRangeStart !== undefined
+        && v.chapterRangeEnd !== undefined
+        && lastCompletedChapter >= v.chapterRangeStart
+        && lastCompletedChapter <= v.chapterRangeEnd,
+    )
+
+  if (outlineModel && outlineModel.volumes.length > 0) {
+    const sortedVolumes = [...outlineModel.volumes].sort((a, b) => a.number - b.number)
+    for (const vol of sortedVolumes) {
+      const sortedChapters = [...vol.chapters].sort((a, b) => a.chapter - b.chapter)
+      const chIdx = sortedChapters.findIndex((c) => c.chapter === lastCompletedChapter)
+      if (chIdx === -1) continue
+
+      const matchedCh = sortedChapters[chIdx]!
+      currentVolumeNumber = vol.number
+      isVolumeEnd = chIdx === sortedChapters.length - 1
+      hasNextVolume = sortedVolumes.some((v) => v.number > vol.number)
+
+      const currentArc = matchedCh.arc.trim()
+      const nextChapterInVol = sortedChapters[chIdx + 1]
+      const nextArcName = nextChapterInVol?.arc.trim() ?? ""
+      const isIntraVolumeArcEnd =
+        !isVolumeEnd && currentArc !== "" && nextArcName !== "" && nextArcName !== currentArc
+
+      isArcEnd = isVolumeEnd || isIntraVolumeArcEnd
+      arcLabel = currentArc || vol.arc.trim()
+
+      if (isIntraVolumeArcEnd && nextChapterInVol) {
+        const seenArcs = new Set<string>()
+        for (let i = 0; i <= chIdx; i += 1) {
+          const name = sortedChapters[i]!.arc.trim()
+          if (name) seenArcs.add(name)
+        }
+        nextArc = seenArcs.size + 1
+        needsExpansion =
+          nextChapterInVol.prose.goal.trim() === "" && nextChapterInVol.prose.scenes.length === 0
+      }
+      break
+    }
+  }
+
+  if (!isArcEnd && matchedVolumeMeta && matchedVolumeMeta.chapterRangeEnd === lastCompletedChapter) {
+    currentVolumeNumber = matchedVolumeMeta.volumeNumber
+    isVolumeEnd = true
+    isArcEnd = true
+    hasNextVolume = false
+    arcLabel = matchedVolumeMeta.title
+  }
+
+  let finaleAutoCompleted = false
+  if (isVolumeEnd && currentVolumeNumber !== undefined && storyCompass) {
+    const finale = checkFinaleAutoComplete({
+      volumeComplete: true,
+      finalVolumeDeclared: storyCompass.finalVolumeDeclared,
+      currentVolumeNumber,
+      finalVolumeNumber: storyCompass.finalVolumeNumber,
+    })
+    finaleAutoCompleted = finale.completed
+  }
+
+  if (!isArcEnd) {
+    return {
+      hasArcReview: false,
+      hasArcSummary: false,
+      hasVolumeSummary: false,
+      finaleAutoCompleted,
+    }
+  }
+
+  const candidateKeys = [
+    `chapter:${lastCompletedChapter}`,
+    ...(currentVolumeNumber !== undefined && arcLabel ? [`v${currentVolumeNumber}:${arcLabel}`] : []),
+    ...(currentVolumeNumber !== undefined && isVolumeEnd ? [`v${currentVolumeNumber}`] : []),
+    String(lastCompletedChapter),
+  ]
+  const settlementMap = status?.arc_settlement_completed ?? {}
+  let settledReview = false
+  let settledSummary = false
+  let settledVolumeSummary = false
+  for (const key of candidateKeys) {
+    const rec = settlementMap[key]
+    if (!rec) continue
+    if (rec.arc_review === true) settledReview = true
+    if (rec.arc_summary === true) settledSummary = true
+    if (rec.volume_summary === true) settledVolumeSummary = true
+  }
+
+  const segKey = String(segmentIndexForChapter(lastCompletedChapter))
+  const segHasArcSummary = Boolean(
+    segmentSummaries[segKey]?.trim()
+    || segmentSummaries[`chapter:${lastCompletedChapter}`]?.trim()
+    || (arcLabel && segmentSummaries[`arc:${arcLabel}`]?.trim()),
+  )
+  const segHasVolumeSummary = Boolean(
+    currentVolumeNumber !== undefined && segmentSummaries[`volume:${currentVolumeNumber}`]?.trim(),
+  )
+
+  const hasArcReview = settledReview
+  const hasArcSummary = settledSummary || segHasArcSummary
+  const hasVolumeSummary =
+    settledVolumeSummary || segHasVolumeSummary || Boolean(matchedVolumeMeta?.summary?.trim())
+  const needsNewVolume = isVolumeEnd && !hasNextVolume && !finaleAutoCompleted
+
+  return {
+    arcBoundary: {
+      isArcEnd: true,
+      isVolumeEnd,
+      needsExpansion,
+      needsNewVolume,
+      nextArc,
+    },
+    hasArcReview,
+    hasArcSummary,
+    hasVolumeSummary,
+    finaleAutoCompleted,
+  }
+}
+
 export async function runWorkflowNext(
   projectPath: string,
   params: Record<string, unknown> = {},
@@ -321,33 +504,41 @@ export async function runWorkflowNext(
     explicitDraftId = params.draftId.trim()
   }
 
-  const deps: WorkflowNextDeps = {
-    loadStatus: loadNovelSessionStatus,
-    listChapters: (pp) => listScopeFiles(pp, "chapters"),
-    listDrafts: listChapterDrafts,
-    hasPersistedDirectorState,
-    loadDirectorPersisted,
-    loadWorldBlueprint,
-    collectProjectSnapshot,
-    ...depsOverrides,
+  const deps: Required<WorkflowNextDeps> = {
+    loadStatus: depsOverrides?.loadStatus ?? loadNovelSessionStatus,
+    listChapters: depsOverrides?.listChapters ?? ((pp) => listScopeFiles(pp, "chapters")),
+    listDrafts: depsOverrides?.listDrafts ?? listChapterDrafts,
+    hasPersistedDirectorState: depsOverrides?.hasPersistedDirectorState ?? hasPersistedDirectorState,
+    loadDirectorPersisted: depsOverrides?.loadDirectorPersisted ?? loadDirectorPersisted,
+    loadWorldBlueprint: depsOverrides?.loadWorldBlueprint ?? loadWorldBlueprint,
+    collectProjectSnapshot: depsOverrides?.collectProjectSnapshot ?? collectProjectSnapshot,
+    loadOutlineModel: depsOverrides?.loadOutlineModel ?? loadOutlineModel,
+    loadSegmentSummaries: depsOverrides?.loadSegmentSummaries ?? loadSegmentSummaries,
+    loadStoryCompass: depsOverrides?.loadStoryCompass ?? loadStoryCompass,
+    getChapterVolumes: depsOverrides?.getChapterVolumes ?? getChapterVolumes,
   }
 
-  const [status, chapters, drafts, hasDirector, persistedDirector, worldBlueprint] =
-    await Promise.all([
-      deps.loadStatus(projectPath).catch(() => null),
-      deps.listChapters(projectPath).catch(() => [] as Array<{ name: string; path: string }>),
-      deps.listDrafts(projectPath).catch(() => [] as ChapterDraft[]),
-      deps.hasPersistedDirectorState(projectPath).catch(() => false),
-      deps.loadDirectorPersisted(projectPath).catch(() => null),
-      deps.loadWorldBlueprint(projectPath).catch(() => null),
-    ])
-
-  let directorSnapshot: DirectorSnapshot | null = null
-  if (persistedDirector) {
-    directorSnapshot = await deps
-      .collectProjectSnapshot(projectPath, persistedDirector.ideaInput)
-      .catch(() => null)
-  }
+  const [
+    status,
+    chapters,
+    drafts,
+    hasDirector,
+    persistedDirector,
+    worldBlueprint,
+    outlineModelLoad,
+    segmentSummaries,
+    storyCompass,
+  ] = await Promise.all([
+    deps.loadStatus(projectPath).catch(() => null),
+    deps.listChapters(projectPath).catch(() => [] as Array<{ name: string; path: string }>),
+    deps.listDrafts(projectPath).catch(() => [] as ChapterDraft[]),
+    deps.hasPersistedDirectorState(projectPath).catch(() => false),
+    deps.loadDirectorPersisted(projectPath).catch(() => null),
+    deps.loadWorldBlueprint(projectPath).catch(() => null),
+    deps.loadOutlineModel(projectPath).catch(() => ({ model: null, migratedFrom: null } as OutlineModelLoadResult)),
+    deps.loadSegmentSummaries(projectPath).catch(() => ({} as SegmentSummaries)),
+    deps.loadStoryCompass(projectPath).catch(() => null),
+  ])
 
   let maxFormalChapter = 0
   for (const ch of chapters) {
@@ -355,6 +546,7 @@ export async function runWorkflowNext(
     if (n !== undefined && n > maxFormalChapter) maxFormalChapter = n
   }
   const completedChapters = chapters.length
+  const lastCompletedChapter = maxFormalChapter > 0 ? maxFormalChapter : completedChapters
   const defaultNextChapter = Math.max(maxFormalChapter, completedChapters) + 1
 
   const activeDrafts = drafts
@@ -375,36 +567,114 @@ export async function runWorkflowNext(
     activeDraft = activeDrafts[0]
   }
 
-  const draftChapterNum = activeDraft ? readDraftChapterNumber(activeDraft.chapterName) : undefined
-  const targetChapter = explicitTargetChapter ?? draftChapterNum ?? defaultNextChapter
-  const revisionRound = activeDraft?.revisionRound ?? 0
-  const hardFuseTripped = revisionRound >= HARD_FUSE_LIMIT
-
-  // 规划期缺项探测：仅在 0 章且无在途草稿、且存在持久化导演规划缺项时进入 planning/foundation_fill。
-  const foundationMissing: string[] = []
-  if (completedChapters === 0 && !activeDraft && hasDirector && directorSnapshot) {
-    if (!directorSnapshot.idea.title.trim()) foundationMissing.push("title")
-    if (!directorSnapshot.idea.genre.trim()) foundationMissing.push("genre")
-    if (!directorSnapshot.idea.coreConflict.trim()) foundationMissing.push("coreConflict")
-    if (!directorSnapshot.worldComplete && !worldBlueprint?.layers) foundationMissing.push("world")
-    if (!directorSnapshot.protagonistNamed) foundationMissing.push("protagonist")
-    if (!directorSnapshot.frameworkChosen) foundationMissing.push("outline")
+  let directorSnapshot: DirectorSnapshot | null = null
+  if (completedChapters === 0 && !activeDraft) {
+    const ideaInput = persistedDirector?.ideaInput ?? { title: "", genre: "", coreConflict: "" }
+    directorSnapshot = await deps
+      .collectProjectSnapshot(projectPath, ideaInput)
+      .catch(() => null)
   }
 
-  const phase: RouteControlState["phase"] =
-    foundationMissing.length > 0 ? "planning" : "writing"
+  const chapterVolumes =
+    completedChapters > 0 && !activeDraft && lastCompletedChapter > 0
+      ? await deps.getChapterVolumes(projectPath, lastCompletedChapter).catch(() => [] as VolumeMeta[])
+      : ([] as VolumeMeta[])
 
-  const statusMatchesActiveDraft = Boolean(
-    status
-    && activeDraft
-    && status.draft.draft_id === activeDraft.id,
+  const draftChapterNum = activeDraft ? readDraftChapterNumber(activeDraft.chapterName) : undefined
+  const targetChapter = explicitTargetChapter ?? draftChapterNum ?? defaultNextChapter
+
+  // 合并草稿自身轮次、external_draft_states 轮次与章节级持久熔断计数
+  const activeDraftTargetKey = activeDraft
+    ? externalDraftTargetKey(projectPath, activeDraft.chapterName)
+    : undefined
+  const primaryMatchesActiveDraft = Boolean(
+    status && activeDraft && status.draft.draft_id === activeDraft.id,
+  )
+  const externalDraftState: ExternalDraftStatusEntry | undefined =
+    activeDraft && !primaryMatchesActiveDraft
+      ? status?.external_draft_states?.[activeDraft.id]
+      : undefined
+  const persistedChapterRound = activeDraftTargetKey
+    ? getExternalDraftRevisionCount(status, activeDraftTargetKey)
+    : 0
+  const revisionRound = Math.max(
+    activeDraft?.revisionRound ?? 0,
+    externalDraftState?.revision_round ?? 0,
+    persistedChapterRound,
+  )
+  const hardFuseTripped = revisionRound >= HARD_FUSE_LIMIT
+
+  // 规划期缺项探测：
+  // 1. 已初始化 director-pipeline.json 时校验 6 项完整开书前置；
+  // 2. 空白新项目（0 章无草稿且无 director-pipeline.json）仍按真实产物探针检测 world/protagonist/outline，
+  //    避免空白项目跳过 foundation_fill 直接开写第 1 章。
+  const outlineModel = outlineModelLoad?.model ?? null
+  const foundationMissing: string[] = []
+  if (completedChapters === 0 && !activeDraft) {
+    if (hasDirector && directorSnapshot) {
+      if (!directorSnapshot.idea.title.trim()) foundationMissing.push("title")
+      if (!directorSnapshot.idea.genre.trim()) foundationMissing.push("genre")
+      if (!directorSnapshot.idea.coreConflict.trim()) foundationMissing.push("coreConflict")
+      if (!directorSnapshot.worldComplete && !worldBlueprint?.layers) foundationMissing.push("world")
+      if (!directorSnapshot.protagonistNamed) foundationMissing.push("protagonist")
+      if (!directorSnapshot.frameworkChosen && !(outlineModel && outlineModel.volumes.length > 0)) {
+        foundationMissing.push("outline")
+      }
+    } else if (!hasDirector) {
+      if (!directorSnapshot?.worldComplete && !worldBlueprint?.layers) foundationMissing.push("world")
+      if (!directorSnapshot?.protagonistNamed) foundationMissing.push("protagonist")
+      if (!directorSnapshot?.frameworkChosen && !(outlineModel && outlineModel.volumes.length > 0)) {
+        foundationMissing.push("outline")
+      }
+    }
+  }
+
+  // 弧末边界与终局自动完结判定（仅在无在途未采纳草稿且已有成章时检测）
+  const arcAndFinale =
+    completedChapters > 0 && !activeDraft
+      ? resolveArcAndFinaleState({
+          lastCompletedChapter,
+          outlineModel,
+          chapterVolumes,
+          segmentSummaries,
+          storyCompass,
+          status,
+        })
+      : {
+          arcBoundary: undefined,
+          hasArcReview: false,
+          hasArcSummary: false,
+          hasVolumeSummary: false,
+          finaleAutoCompleted: false,
+        }
+
+  const bookCompleted = Boolean(
+    status?.book_completed === true || (!activeDraft && arcAndFinale.finaleAutoCompleted),
   )
 
-  const gates: RouteGates = statusMatchesActiveDraft && status
+  const phase: RouteControlState["phase"] = bookCompleted
+    ? "complete"
+    : foundationMissing.length > 0
+      ? "planning"
+      : "writing"
+
+  const resolvedDecisionGates: DeepChapterDecisionGates | undefined = primaryMatchesActiveDraft
+    ? status?.decision_gates
+    : externalDraftState?.decision_gates
+  const resolvedDraftStatus: NovelDraftStatus | null = activeDraft
+    ? (primaryMatchesActiveDraft
+        ? (status?.draft.draft_status ?? null)
+        : (externalDraftState?.draft_status ?? null))
+    : (status?.draft.draft_status ?? null)
+  const resolvedAutoArm = primaryMatchesActiveDraft
+    ? status?.draft_auto_arm
+    : externalDraftState?.draft_auto_arm
+
+  const gates: RouteGates = resolvedDecisionGates
     ? {
-        consistency: mapDecisionGateToRouteVerdict(status.decision_gates.consistency),
-        anti_ai: mapDecisionGateToRouteVerdict(status.decision_gates.anti_ai),
-        quality: mapDecisionGateToRouteVerdict(status.decision_gates.quality),
+        consistency: mapDecisionGateToRouteVerdict(resolvedDecisionGates.consistency),
+        anti_ai: mapDecisionGateToRouteVerdict(resolvedDecisionGates.anti_ai),
+        quality: mapDecisionGateToRouteVerdict(resolvedDecisionGates.quality),
       }
     : {
         consistency: "pending",
@@ -412,15 +682,42 @@ export async function runWorkflowNext(
         quality: "pending",
       }
 
+  const antiAiMode = normalizeKernelAntiAiMode(status?.anti_ai_mode)
+  const hasBlockingGateFailure =
+    gates.consistency === "fail"
+    || (gates.anti_ai === "fail" && antiAiMode === "block")
+    || resolvedDecisionGates?.overall === "fail"
+  const activeDraftArmedReady =
+    Boolean(activeDraft)
+    && !hasBlockingGateFailure
+    && (resolvedDraftStatus === "ready" || resolvedAutoArm?.armed === true)
+  const hasPendingMandatoryGate =
+    Boolean(activeDraft)
+    && !hasBlockingGateFailure
+    && !activeDraftArmedReady
+    && (gates.consistency === "pending" || gates.anti_ai === "pending")
+
   const manualReviewRequired = Boolean(
     hardFuseTripped
-    || (statusMatchesActiveDraft && (status?.status === "blocked" || status?.decision_gates.overall === "manual_review"))
+    || (primaryMatchesActiveDraft && (status?.status === "blocked" || status?.decision_gates.overall === "manual_review"))
+    || externalDraftState?.decision_gates.overall === "manual_review"
     || activeDraft?.adoptionGate?.status === "manual_review",
   )
 
   let stage: RouteControlState["stage"]
   if (activeDraft) {
-    stage = activeDraft.status === "saved" ? "done" : "review"
+    if (activeDraft.status === "saved" || activeDraftArmedReady) {
+      stage = "done"
+    } else if (
+      resolvedDecisionGates?.overall === "fail"
+      && gates.quality === "fail"
+      && gates.consistency === "pass"
+      && gates.anti_ai === "pass"
+    ) {
+      stage = "revision"
+    } else {
+      stage = "review"
+    }
   } else if (
     status
     && status.current_task.chapter_number === targetChapter
@@ -432,26 +729,60 @@ export async function runWorkflowNext(
     stage = "context"
   }
 
+  const pendingRewrites: number[] = Array.isArray(status?.pending_rewrites)
+    ? status.pending_rewrites.filter(
+        (n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1,
+      )
+    : []
+  const reviewInterval =
+    typeof status?.review_interval === "number"
+    && Number.isInteger(status.review_interval)
+    && status.review_interval >= 0
+      ? status.review_interval
+      : 0
+  const lastGlobalReviewChapter =
+    typeof status?.last_global_review_chapter === "number"
+    && Number.isInteger(status.last_global_review_chapter)
+    && status.last_global_review_chapter >= 0
+      ? status.last_global_review_chapter
+      : 0
+
   const controlState: RouteControlState = {
     phase,
     stage,
     chapterNumber: targetChapter,
     completedChapters,
-    pendingRewrites: [],
+    pendingRewrites,
     gates,
-    antiAiMode: normalizeKernelAntiAiMode(status?.anti_ai_mode),
+    antiAiMode,
     manualReviewRequired,
     foundationMissing,
     planningTier: foundationMissing.length > 0 ? "long" : "",
-    reviewInterval: 0,
-    lastGlobalReviewChapter: 0,
-    hasArcReview: false,
-    hasArcSummary: false,
-    hasVolumeSummary: false,
+    reviewInterval,
+    lastGlobalReviewChapter,
+    ...(arcAndFinale.arcBoundary ? { arcBoundary: arcAndFinale.arcBoundary } : {}),
+    hasArcReview: arcAndFinale.hasArcReview,
+    hasArcSummary: arcAndFinale.hasArcSummary,
+    hasVolumeSummary: arcAndFinale.hasVolumeSummary,
     shellMode: normalizeKernelShellMode(status?.route_shell_mode),
   }
 
-  const instruction = routeControlState(controlState)
+  // P0 consistency 或 P1 anti_ai 仍 pending 时，控制核仅在三门全 pending 时路由 review；
+  // 向 routeControlState 传入规范化全 pending 门控阻断早跳 judge，同时保留返回体中的真实逐门控摘要。
+  const routingControlState: RouteControlState =
+    stage === "review" && hasPendingMandatoryGate
+      ? {
+          ...controlState,
+          stage: "review",
+          gates: {
+            consistency: "pending",
+            anti_ai: "pending",
+            quality: "pending",
+          },
+        }
+      : controlState
+
+  const instruction = routeControlState(routingControlState)
   const failedGate = firstFailedGate(controlState.gates)
   const recommendedProfile = resolveRecommendedProfile(instruction)
   const recommendedTools = resolveRecommendedTools(instruction.action)
@@ -485,7 +816,7 @@ export async function runWorkflowNext(
       activeDraftCount: activeDrafts.length,
       hasSessionStatus: status !== null,
       sessionStatus: status?.status ?? null,
-      draftStatus: status?.draft.draft_status ?? null,
+      draftStatus: resolvedDraftStatus,
     },
     meta: {
       readOnly: true,
@@ -506,6 +837,8 @@ export type DraftPatchEdit =
 export interface DraftPatchDeps {
   listDrafts: (projectPath: string) => Promise<ChapterDraft[]>
   writeDraft: typeof writeDraft
+  loadStatus?: (projectPath: string) => Promise<NovelSessionStatus | null>
+  syncExternalDraft?: typeof syncExternalDraftToSessionStatus
 }
 
 export interface DraftPatchResult {
@@ -772,10 +1105,11 @@ export async function runDraftPatch(
     note = params.note.trim() || null
   }
 
-  const deps: DraftPatchDeps = {
-    listDrafts: listChapterDrafts,
-    writeDraft,
-    ...depsOverrides,
+  const deps: Required<DraftPatchDeps> = {
+    listDrafts: depsOverrides?.listDrafts ?? listChapterDrafts,
+    writeDraft: depsOverrides?.writeDraft ?? writeDraft,
+    loadStatus: depsOverrides?.loadStatus ?? loadNovelSessionStatus,
+    syncExternalDraft: depsOverrides?.syncExternalDraft ?? syncExternalDraftToSessionStatus,
   }
 
   // 与 draft-manager（acceptChapterDraft / discardChapterDraft / recordDraftAdoptionGate）共用同一草稿锁键，
@@ -803,11 +1137,15 @@ export async function runDraftPatch(
       )
     }
 
-    // 硬熔断保护（HARD_FUSE_LIMIT = 5）
-    const prevRound = parent.revisionRound ?? 0
+    // 章节级持久硬熔断保护（HARD_FUSE_LIMIT = 5）：取草稿自身轮次与 status.json 持久计数最大值，
+    // 防止回退旧 draftId 或重调 chapter.write 绕过硬熔断。
+    const targetKey = externalDraftTargetKey(projectPath, parent.chapterName)
+    const existingStatus = await deps.loadStatus(projectPath).catch(() => null)
+    const persistedRound = getExternalDraftRevisionCount(existingStatus, targetKey)
+    const prevRound = Math.max(parent.revisionRound ?? 0, persistedRound)
     if (prevRound >= HARD_FUSE_LIMIT) {
       throw new Error(
-        `HARD_FUSE_LIMIT_EXCEEDED: 草稿 ${draftId} 已达最大修订轮次（${prevRound}/${HARD_FUSE_LIMIT}），必须暂停自动修订并交由人工仲裁`,
+        `HARD_FUSE_LIMIT_EXCEEDED: 草稿 ${draftId}（${targetKey}）已达最大修订轮次（${prevRound}/${HARD_FUSE_LIMIT}），必须暂停自动修订并交由人工仲裁`,
       )
     }
 
@@ -832,6 +1170,25 @@ export async function runDraftPatch(
       revisionRound: nextRound,
     })
 
+    const draftPath = `${pp}/${DRAFTS_DIR}/${created.id}.md`
+    try {
+      await deps.syncExternalDraft({
+        projectPath,
+        draftId: created.id,
+        draftPath,
+        chapterName: created.chapterName,
+        chapterNumber: readDraftChapterNumber(created.chapterName),
+        targetKey,
+        revisionRound: nextRound,
+        sourceConversationId: nextSourceConversationId,
+      })
+    } catch (syncError) {
+      logger.warn(
+        "workflow-draft-tools",
+        `draft.patch status.json sync failed (non-fatal, draft ${created.id}): ${toErrorMessage(syncError)}`,
+      )
+    }
+
     const bodySha256 = await computeCheckpointDigest(nextContent)
     const remainingRounds = Math.max(0, HARD_FUSE_LIMIT - nextRound)
 
@@ -840,7 +1197,7 @@ export async function runDraftPatch(
       parentDraftId: parent.id,
       chapterName: created.chapterName,
       chapterNumber: readDraftChapterNumber(created.chapterName) ?? null,
-      path: `${pp}/${DRAFTS_DIR}/${created.id}.md`,
+      path: draftPath,
       revisionRound: nextRound,
       hardFuseLimit: HARD_FUSE_LIMIT,
       remainingRounds,
@@ -863,7 +1220,10 @@ export type BinaryReviewGateInput = "pass" | "fail" | "not_evaluated"
 export type QualityReviewGateInput = "pass" | "fail" | "warning" | "not_evaluated"
 export type DraftRecordReviewStatusJsonReason =
   | "status_json_not_initialized"
+  | "initialized_for_draft"
   | "updated_matching_draft"
+  | "rebound_external_draft"
+  | "updated_external_draft_state"
   | "draft_id_mismatch"
 
 export interface DraftRecordReviewDeps {
@@ -872,6 +1232,9 @@ export interface DraftRecordReviewDeps {
     projectPath: string,
     mutator: NovelSessionStatusMutator,
   ) => Promise<NovelSessionStatus | null>
+  runMechanicalGate?: (
+    input: MechanicalGateInput & { detailLevel: "compact" },
+  ) => Promise<MechanicalGateCompactReport>
   nowIso?: () => string
 }
 
@@ -956,6 +1319,7 @@ function buildGateEntryFromInput(
   verdictInput: QualityReviewGateInput,
   recordedAt: string,
   repairSuggestions: string[],
+  mechanicalFindings: NovelReviewResult[] = [],
 ): DeepChapterDecisionGate {
   const base: DeepChapterDecisionGate = existing
     ? {
@@ -970,6 +1334,8 @@ function buildGateEntryFromInput(
       ...base,
       status: "passed",
       verdict: "pass",
+      findings: [],
+      repair_suggestions: [],
       updated_at: recordedAt,
       manual_review_required: undefined,
     }
@@ -979,6 +1345,8 @@ function buildGateEntryFromInput(
       ...base,
       status: "passed",
       verdict: "warning",
+      findings: base.findings.filter((f) => f.severity !== "error"),
+      repair_suggestions: repairSuggestions.length > 0 ? repairSuggestions : [],
       updated_at: recordedAt,
       manual_review_required: undefined,
     }
@@ -988,6 +1356,7 @@ function buildGateEntryFromInput(
       ...base,
       status: "failed",
       verdict: "fail",
+      findings: mechanicalFindings.length > 0 ? mechanicalFindings : base.findings,
       repair_suggestions: repairSuggestions.length > 0 ? repairSuggestions : base.repair_suggestions,
       updated_at: recordedAt,
     }
@@ -1169,6 +1538,7 @@ export async function runDraftRecordReview(
   const deps: DraftRecordReviewDeps = {
     listDrafts: listChapterDrafts,
     updateSessionStatus: updateNovelSessionStatus,
+    runMechanicalGate: (input) => runMechanicalGateForMcp(input),
     nowIso: () => new Date().toISOString(),
     ...depsOverrides,
   }
@@ -1192,23 +1562,154 @@ export async function runDraftRecordReview(
   }
 
   const recordedAt = (deps.nowIso ?? (() => new Date().toISOString()))()
-  const { overallVerdict, blockingGate } = resolveRecordedOverallVerdict(gates)
+  const draftChapterNumber = readDraftChapterNumber(draft.chapterName)
+  const targetKey = externalDraftTargetKey(projectPath, draft.chapterName)
+  const pp = projectRoot(projectPath)
+  const draftPath = `${pp}/${DRAFTS_DIR}/${draft.id}.md`
+
+  // 反自证机械门控核验：当调用方声明 consistency="pass" 或 anti_ai="pass" 时，
+  // 先执行零 LLM 确定性 runMechanicalGateForMcp；若存在 P0/P1 机械 error，强制覆写为 "fail" 并追加阻断项。
+  const effectiveGates = { ...gates }
+  const effectiveBlockingIssues = [...blockingIssues]
+  const mechanicalOverrideNotes: string[] = []
+  let mechanicalP0Findings: NovelReviewResult[] = []
+  let mechanicalP1Findings: NovelReviewResult[] = []
+
+  if (effectiveGates.consistency === "pass" || effectiveGates.anti_ai === "pass") {
+    const mechanicalReport = await (deps.runMechanicalGate ?? runMechanicalGateForMcp)({
+      projectPath,
+      text: draft.content,
+      chapterNumber: draftChapterNumber,
+      detailLevel: "compact",
+    })
+    const p0Errors = mechanicalReport.issues.filter(
+      (issue) => issue.priority === "P0" && issue.severity === "error",
+    )
+    const p1Errors = mechanicalReport.issues.filter(
+      (issue) => issue.priority === "P1" && issue.severity === "error",
+    )
+    const hasP0Blockers = mechanicalReport.summary.p0ErrorCount > 0 || p0Errors.length > 0
+    const hasP1Blockers = mechanicalReport.summary.p1ErrorCount > 0 || p1Errors.length > 0
+
+    if (effectiveGates.consistency === "pass" && hasP0Blockers) {
+      effectiveGates.consistency = "fail"
+      const p0Blockers =
+        p0Errors.length > 0
+          ? p0Errors.map((issue) => `[机械P0阻断] ${issue.message}`)
+          : [`[机械P0阻断] 检测到 ${mechanicalReport.summary.p0ErrorCount} 项 P0 机械连续性/规则错误`]
+      mechanicalP0Findings = p0Errors.map((issue) => ({
+        severity: issue.severity,
+        type: issue.type,
+        message: issue.message,
+        evidence: issue.evidence,
+        relatedMemory: "",
+        suggestion: issue.suggestion,
+        ...(issue.continuityMeta ? { continuityMeta: issue.continuityMeta } : {}),
+      }))
+      for (const msg of p0Blockers) {
+        if (!effectiveBlockingIssues.includes(msg)) effectiveBlockingIssues.push(msg)
+      }
+      mechanicalOverrideNotes.push(
+        `consistency 被机械门控覆写为 fail（${mechanicalReport.summary.p0ErrorCount || p0Errors.length} 项 P0 错误）`,
+      )
+    }
+
+    if (effectiveGates.anti_ai === "pass" && hasP1Blockers) {
+      effectiveGates.anti_ai = "fail"
+      const p1Blockers =
+        p1Errors.length > 0
+          ? p1Errors.map((issue) => `[机械P1阻断] ${issue.message}`)
+          : [`[机械P1阻断] 检测到 ${mechanicalReport.summary.p1ErrorCount} 项 P1 机械去 AI 味阻断错误`]
+      mechanicalP1Findings = p1Errors.map((issue) => ({
+        severity: issue.severity,
+        type: issue.type,
+        message: issue.message,
+        evidence: issue.evidence,
+        relatedMemory: "",
+        suggestion: issue.suggestion,
+      }))
+      for (const msg of p1Blockers) {
+        if (!effectiveBlockingIssues.includes(msg)) effectiveBlockingIssues.push(msg)
+      }
+      mechanicalOverrideNotes.push(
+        `anti_ai 被机械门控覆写为 fail（${mechanicalReport.summary.p1ErrorCount || p1Errors.length} 项 P1 错误）`,
+      )
+    }
+  }
+
+  const { overallVerdict, blockingGate } = resolveRecordedOverallVerdict(effectiveGates)
 
   // 严格通过既有 auto-arm 纯函数链：最多升 ready，绝不 accept。
+  // 保持 director-modes.ts 缺省 requiredGates=["consistency","anti_ai"] 不变；
+  // 当 quality === "fail" 或 overallVerdict === "fail" 时把 quality 纳入 requiredGates，确保绝不升 ready。
+  const requiredGates =
+    effectiveGates.quality === "fail" || overallVerdict === "fail"
+      ? (["consistency", "anti_ai", "quality"] as const)
+      : (["consistency", "anti_ai"] as const)
+
   const autoArmDecision = evaluateDraftAutoArm({
     policy: {
       enabled: autoArmEnabled,
-      requiredGates: ["consistency", "anti_ai"],
+      requiredGates,
     },
     gateStatuses: {
-      consistency: toGateRunStatus(gates.consistency),
-      anti_ai: toGateRunStatus(gates.anti_ai),
-      quality: toQualityAutoArmGateRunStatus(gates.quality),
+      consistency: toGateRunStatus(effectiveGates.consistency),
+      anti_ai: toGateRunStatus(effectiveGates.anti_ai),
+      quality: toQualityAutoArmGateRunStatus(effectiveGates.quality),
     },
   })
   const autoArmRecord = buildDraftAutoArmRecord(autoArmDecision, recordedAt)
   const autoArmPatch = buildDraftAutoArmPatch(autoArmRecord)
   assertAutoArmPatchNeverAccepts(autoArmPatch)
+
+  const buildNextDecisionGates = (
+    prevGates: DeepChapterDecisionGates | undefined,
+  ): DeepChapterDecisionGates => ({
+    consistency: buildGateEntryFromInput(
+      prevGates?.consistency,
+      effectiveGates.consistency,
+      recordedAt,
+      effectiveGates.consistency === "fail" ? effectiveBlockingIssues : [],
+      mechanicalP0Findings,
+    ),
+    anti_ai: buildGateEntryFromInput(
+      prevGates?.anti_ai,
+      effectiveGates.anti_ai,
+      recordedAt,
+      effectiveGates.anti_ai === "fail" && effectiveGates.consistency !== "fail"
+        ? effectiveBlockingIssues
+        : [],
+      mechanicalP1Findings,
+    ),
+    quality: buildGateEntryFromInput(
+      prevGates?.quality,
+      effectiveGates.quality,
+      recordedAt,
+      effectiveGates.quality === "fail" && blockingGate === null ? effectiveBlockingIssues : [],
+    ),
+    overall: overallVerdict,
+  })
+
+  const buildExternalStateEntry = (
+    prevEntry: ExternalDraftStatusEntry | undefined,
+    draftStatus: NovelDraftStatus,
+    nextGates: DeepChapterDecisionGates,
+    nextDims: NovelSessionStatus["dimension_results"],
+  ): ExternalDraftStatusEntry => ({
+    draft_id: draft.id,
+    file_path: draftPath,
+    chapter_name: draft.chapterName,
+    ...(draftChapterNumber !== undefined ? { chapter_number: draftChapterNumber } : {}),
+    target_key: targetKey,
+    draft_status: draftStatus,
+    decision_gates: nextGates,
+    draft_auto_arm: autoArmRecord,
+    ...(nextDims !== undefined ? { dimension_results: nextDims } : {}),
+    ...(draft.revisionRound !== undefined ? { revision_round: draft.revisionRound } : {}),
+    updated_at: recordedAt,
+    ...(prevEntry?.accepted_at ? { accepted_at: prevEntry.accepted_at } : {}),
+    ...(prevEntry?.formal_chapter_path ? { formal_chapter_path: prevEntry.formal_chapter_path } : {}),
+  })
 
   const statusOutcome: {
     updated: boolean
@@ -1225,70 +1726,195 @@ export async function runDraftRecordReview(
   }
 
   await deps.updateSessionStatus(projectPath, (existing) => {
+    const conversationId = draft.sourceConversationId || "mcp:draft.record_review"
+    const taskId = `tsk-${conversationId.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+
+    // 1. status.json 尚未初始化：直接在唯一真源 `.novel/status.json` 内初始化并绑定本草稿（绝不新建第二份文件）。
     if (existing === null) {
-      statusOutcome.updated = false
-      statusOutcome.reason = "status_json_not_initialized"
-      return null
+      const nextDecisionGates = buildNextDecisionGates(undefined)
+      const nextDimensionResults = dimensionScores
+        ? mergeRecordedDimensionResults(undefined, dimensionScores, summary)
+        : undefined
+      const initialBase: NovelSessionStatus = {
+        schema_version: "1",
+        session_id: createNovelSessionId(new Date(recordedAt)),
+        source: "deep_chapter_generation",
+        created_at: recordedAt,
+        updated_at: recordedAt,
+        status: "running",
+        active_step_index: 3,
+        current_task: {
+          task_id: taskId,
+          conversation_id: conversationId,
+          user_request: `外部草稿 ${draft.chapterName}`,
+          chapter_number: draftChapterNumber,
+          checkpoint_stage: "after_review",
+          status: "running",
+        },
+        draft: {
+          draft_id: draft.id,
+          file_path: draftPath,
+          draft_status: "pending",
+          checkpoint_stage: "after_review",
+          updated_at: recordedAt,
+        },
+        decision_gates: nextDecisionGates,
+        evidence_refs: [draftPath],
+        ...(nextDimensionResults !== undefined ? { dimension_results: nextDimensionResults } : {}),
+        external_draft_revisions: { [targetKey]: draft.revisionRound ?? 0 },
+      }
+      assertAutoArmPatchNeverAccepts(autoArmPatch)
+      const patched = applyDraftAutoArmPatch(initialBase, autoArmPatch)
+      patched.external_draft_states = {
+        [draft.id]: buildExternalStateEntry(
+          undefined,
+          patched.draft.draft_status,
+          nextDecisionGates,
+          nextDimensionResults,
+        ),
+      }
+      statusOutcome.matchingDraftInStatus = true
+      statusOutcome.draftStatusBefore = null
+      statusOutcome.draftStatusAfter = patched.draft.draft_status
+      statusOutcome.updated = true
+      statusOutcome.reason = "initialized_for_draft"
+      return patched
     }
 
-    const isMatchingDraft = existing.draft.draft_id === draft.id
-    statusOutcome.matchingDraftInStatus = isMatchingDraft
-    statusOutcome.draftStatusBefore = existing.draft.draft_status
+    const isMatchingPrimary = existing.draft.draft_id === draft.id
 
-    if (!isMatchingDraft) {
-      // B-4：非匹配草稿严禁写回 .novel/status.json，避免跨草稿污染 draft_auto_arm 或 draft_status。
-      statusOutcome.draftStatusAfter = existing.draft.draft_status
-      statusOutcome.updated = false
-      statusOutcome.reason = "draft_id_mismatch"
-      return null
+    // 2. 主槽已绑定本草稿：原位更新门控、维度分与 auto-arm（严禁覆盖 ready/accepted/rejected/superseded）。
+    if (isMatchingPrimary) {
+      statusOutcome.matchingDraftInStatus = true
+      statusOutcome.draftStatusBefore = existing.draft.draft_status
+      const nextDecisionGates = buildNextDecisionGates(existing.decision_gates)
+      const nextDimensionResults = dimensionScores
+        ? mergeRecordedDimensionResults(existing.dimension_results, dimensionScores, summary)
+        : existing.dimension_results
+
+      const nextBuilt = buildNextStatus(existing, {
+        updated_at: recordedAt,
+        status: existing.status,
+        decision_gates: nextDecisionGates,
+        ...(nextDimensionResults !== undefined ? { dimension_results: nextDimensionResults } : {}),
+      })
+      const nextBase: NovelSessionStatus = {
+        ...existing,
+        ...nextBuilt,
+      }
+
+      assertAutoArmPatchNeverAccepts(autoArmPatch)
+      const patched = applyDraftAutoArmPatch(nextBase, autoArmPatch)
+      patched.external_draft_states = {
+        ...(existing.external_draft_states ?? {}),
+        [draft.id]: buildExternalStateEntry(
+          existing.external_draft_states?.[draft.id],
+          patched.draft.draft_status,
+          nextDecisionGates,
+          nextDimensionResults,
+        ),
+      }
+      statusOutcome.draftStatusAfter = patched.draft.draft_status
+      statusOutcome.updated = true
+      statusOutcome.reason = "updated_matching_draft"
+      return patched
     }
 
-    const nextDecisionGates: DeepChapterDecisionGates = {
-      consistency: buildGateEntryFromInput(
-        existing.decision_gates?.consistency,
-        gates.consistency,
-        recordedAt,
-        gates.consistency === "fail" ? blockingIssues : [],
-      ),
-      anti_ai: buildGateEntryFromInput(
-        existing.decision_gates?.anti_ai,
-        gates.anti_ai,
-        recordedAt,
-        gates.anti_ai === "fail" && gates.consistency !== "fail" ? blockingIssues : [],
-      ),
-      quality: buildGateEntryFromInput(
-        existing.decision_gates?.quality,
-        gates.quality,
-        recordedAt,
-        gates.quality === "fail" && blockingGate === null ? blockingIssues : [],
-      ),
-      overall: overallVerdict,
+    // 3. 主槽正被运行中 Chat `.novel/drafts/` 会话占用：严禁覆盖主槽，落入 external_draft_states[draft.id]。
+    if (isActiveChatDeepChapterSession(existing)) {
+      const prevEntry = existing.external_draft_states?.[draft.id]
+      const prevEntryStatus: NovelDraftStatus = prevEntry?.draft_status ?? "pending"
+      const nextDecisionGates = buildNextDecisionGates(prevEntry?.decision_gates)
+      const nextEntryDimensions = dimensionScores
+        ? mergeRecordedDimensionResults(prevEntry?.dimension_results, dimensionScores, summary)
+        : prevEntry?.dimension_results
+
+      assertAutoArmPatchNeverAccepts(autoArmPatch)
+      const patchedSlot = applyDraftAutoArmPatch(
+        { draft: { draft_status: prevEntryStatus } },
+        autoArmPatch,
+      )
+      const nextEntryStatus = patchedSlot.draft.draft_status as NovelDraftStatus
+      const nextExternalStates: Record<string, ExternalDraftStatusEntry> = {
+        ...(existing.external_draft_states ?? {}),
+        [draft.id]: buildExternalStateEntry(
+          prevEntry,
+          nextEntryStatus,
+          nextDecisionGates,
+          nextEntryDimensions,
+        ),
+      }
+      const nextBuilt = buildNextStatus(existing, {
+        updated_at: recordedAt,
+        status: existing.status,
+        external_draft_states: nextExternalStates,
+      })
+      statusOutcome.matchingDraftInStatus = false
+      statusOutcome.draftStatusBefore = prevEntryStatus
+      statusOutcome.draftStatusAfter = nextEntryStatus
+      statusOutcome.updated = true
+      statusOutcome.reason = "updated_external_draft_state"
+      return {
+        ...existing,
+        ...nextBuilt,
+      }
     }
 
+    // 4. 主槽指向旧 `.qm-drafts/` 草稿或已采纳/已完成空闲会话：重绑主槽至本草稿并应用 auto-arm。
+    const prevEntry = existing.external_draft_states?.[draft.id]
+    const prevDraftStatus: NovelDraftStatus = prevEntry?.draft_status ?? "pending"
+    const nextDecisionGates = buildNextDecisionGates(prevEntry?.decision_gates)
     const nextDimensionResults = dimensionScores
-      ? mergeRecordedDimensionResults(existing.dimension_results, dimensionScores, summary)
-      : existing.dimension_results
+      ? mergeRecordedDimensionResults(prevEntry?.dimension_results, dimensionScores, summary)
+      : prevEntry?.dimension_results
 
-    // 先构造基础状态，再把 existing 上未进入 buildNextStatus 白名单的 additive 字段（如 avoid_ai_summary）保留下来；
-    // 绝不把 applyDraftAutoArmPatch 的输出回传给 buildNextStatus！
     const nextBuilt = buildNextStatus(existing, {
       updated_at: recordedAt,
-      status: existing.status,
+      status: "running",
+      active_step_index: 3,
+      current_task: {
+        task_id: taskId,
+        conversation_id: conversationId,
+        user_request: `外部草稿 ${draft.chapterName}`,
+        chapter_number: draftChapterNumber,
+        checkpoint_stage: "after_review",
+        status: "running",
+        last_error: undefined,
+      },
+      draft: {
+        draft_id: draft.id,
+        file_path: draftPath,
+        draft_status: prevDraftStatus,
+        checkpoint_stage: "after_review",
+        updated_at: recordedAt,
+        accepted_at: prevEntry?.accepted_at,
+        rejected_at: undefined,
+        formal_chapter_path: prevEntry?.formal_chapter_path,
+      },
       decision_gates: nextDecisionGates,
+      resume_checkpoint: undefined,
       ...(nextDimensionResults !== undefined ? { dimension_results: nextDimensionResults } : {}),
     })
     const nextBase: NovelSessionStatus = {
       ...existing,
       ...nextBuilt,
     }
-
     assertAutoArmPatchNeverAccepts(autoArmPatch)
-
-    // 必须最后应用 applyDraftAutoArmPatch：仅当匹配草稿现态为 "pending" 且 armed=true 时升为 "ready"，永不写 "accepted"。
     const patched = applyDraftAutoArmPatch(nextBase, autoArmPatch)
+    patched.external_draft_states = {
+      ...(existing.external_draft_states ?? {}),
+      [draft.id]: buildExternalStateEntry(
+        prevEntry,
+        patched.draft.draft_status,
+        nextDecisionGates,
+        nextDimensionResults,
+      ),
+    }
+    statusOutcome.matchingDraftInStatus = true
+    statusOutcome.draftStatusBefore = prevDraftStatus
     statusOutcome.draftStatusAfter = patched.draft.draft_status
     statusOutcome.updated = true
-    statusOutcome.reason = "updated_matching_draft"
+    statusOutcome.reason = "rebound_external_draft"
     return patched
   })
 
@@ -1296,27 +1922,34 @@ export async function runDraftRecordReview(
     ? `草稿 ${draft.id} 已记录门控通过（P0+P1 PASS，auto-arm 已就绪为 ready）。请通知用户在 Niko Buddy 应用内人工审阅并采纳；任何自动化路径均不会自动 accept。`
     : blockingGate
       ? `草稿 ${draft.id} 的 ${blockingGate} 门未通过（P0 > P1 > P2，P2 不可覆盖）。请调用 draft.patch 进行精准修订后重新复检。`
-      : `草稿 ${draft.id} 审阅结论已记录（未触发 auto-arm：${autoArmRecord.reason}）。请补齐未评估门控或继续修订。`
-  const workflowHint =
-    statusOutcome.reason === "draft_id_mismatch"
-      ? `${baseWorkflowHint}（注意：.novel/status.json 当前指向另一份草稿，为避免跨草稿污染已跳过写回 status.json。）`
-      : baseWorkflowHint
+      : effectiveGates.quality === "fail"
+        ? `草稿 ${draft.id} 的 quality 门显式未通过（overallVerdict=fail），未触发 auto-arm ready。请根据审阅建议调用 draft.patch 修订后重新复检。`
+        : `草稿 ${draft.id} 审阅结论已记录（未触发 auto-arm：${autoArmRecord.reason}）。请补齐未评估门控或继续修订。`
+  const overrideSuffix =
+    mechanicalOverrideNotes.length > 0
+      ? `（确定性机械门控已覆写：${mechanicalOverrideNotes.join("；")}）`
+      : ""
+  const statusSuffix =
+    statusOutcome.reason === "updated_external_draft_state"
+      ? "（注：应用内 Chat 深章会话正在运行，本次审阅结论已隔离落盘于 status.json 的 external_draft_states，不覆盖主槽。）"
+      : ""
+  const workflowHint = `${baseWorkflowHint}${overrideSuffix}${statusSuffix}`
 
   return {
     projectPath,
     draftId: draft.id,
     chapterName: draft.chapterName,
-    chapterNumber: readDraftChapterNumber(draft.chapterName) ?? null,
+    chapterNumber: draftChapterNumber ?? null,
     bodySha256: actualSha256,
     recordedAt,
     reviewerRole,
-    gates,
+    gates: effectiveGates,
     overallVerdict,
     blockingGate,
     overallScore,
     dimensionScores,
     summary,
-    blockingIssues,
+    blockingIssues: effectiveBlockingIssues,
     autoArm: {
       enabled: autoArmEnabled,
       armed: autoArmDecision.armed,

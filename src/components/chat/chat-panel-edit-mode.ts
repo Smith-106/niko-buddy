@@ -1,20 +1,20 @@
 // Copyright (c) 2024 Niko-hub contributors. MIT License.
 import {
-  appendChapterWorkspaceSnapshot,
-  backupChapterFile,
   findChapterFileByNumber,
-  invalidateChapterCache,
   normalizeChapterEditFile,
   readSelectedChapterNumberForFile,
   resolveChatEditTarget,
   validateStructuredChapterEditResult,
+  writeDraft,
 } from "@/lib/novel"
-import { readFile, writeFileAtomic } from "@/commands/fs"
+import { readFile } from "@/commands/fs"
 import {
   ChapterAdoptionUnavailableError,
   getChapterWriteCoordinator,
   type ChapterWriteIntent,
 } from "@/components/layout/preview-panel-helpers"
+import { parseFrontmatter } from "@/lib/frontmatter"
+import { getFileStem } from "@/lib/path-utils"
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { streamChat } from "@/lib/llm-client"
@@ -48,11 +48,11 @@ export interface ChatEditModeContext {
 /**
  * 章节修改模式（chat-panel 拆分 T4；R2-U01 中止与写协调器加固）。
  *
- * 行为逐字保留自 handleSend 内的 shouldUseEditMode 分支：
+ * 行为保留自 handleSend 内的 shouldUseEditMode 分支并收敛到 Draft-first 边界：
  * 目标解析失败 / 章节缺失 / 流式错误 / 结构化校验失败 / 单章缺少结果 /
  * 归一化失败各自经 streamSessionGuardRef.finish finalizeStream 后提前返回；
  * 已中止或失效会话绝不写盘；成功路径经 ChapterWriteCoordinator("chat-edit") 串行化
- * backup → appendChapterWorkspaceSnapshot → writeFileAtomic。
+ * 剥离 YAML frontmatter 后通过 writeDraft 写入 .qm-drafts/ 待审草稿箱，等待作者采纳。
  */
 export async function runChatEditMode(ctx: ChatEditModeContext): Promise<void> {
   const {
@@ -220,39 +220,37 @@ export async function runChatEditMode(ctx: ChatEditModeContext): Promise<void> {
         finishWithMessage(normalizedResult.message)
         return
       }
+      const parsedNormalized = parseFrontmatter(normalizedResult.content.replace(/^\uFEFF/, ""))
+      const draftBody = parsedNormalized.rawBlock
+        ? parsedNormalized.body.replace(/^(?:\r?\n)+/, "")
+        : normalizedResult.content
+      if (!draftBody.trim()) {
+        finishWithMessage(`第${chapter.chapterNumber}章修改结果正文为空，已停止生成草稿。`)
+        return
+      }
+      const chapterName = getFileStem(chapterPath).trim() || `第${chapter.chapterNumber}章`
       if (!isStillActive()) return
       const admission = coordinator.admitMutation(chapter.writeIntent, [chapterPath], async () => {
         if (!isStillActive()) return
-        await backupChapterFile({
-          projectPath: pp,
-          chapterPath,
-          chapterNumber: chapter.chapterNumber,
-          content: chapter.content,
-          source: "manual",
+        await writeDraft(pp, chapterName, draftBody, {
+          sourceConversationId: capturedConvId,
         })
-        if (!isStillActive()) return
-        // 64 号实施接线（chapter-workspace 消费）：保存后追加快照（静默失败）
-        await appendChapterWorkspaceSnapshot(pp, chapter.chapterNumber, normalizedResult.content)
-        if (!isStillActive()) return
-        await writeFileAtomic(chapterPath, normalizedResult.content)
-        useWikiStore.getState().clearFinalChapterSaveForPath?.(chapterPath)
       })
       if (admission.kind === "fenced") {
-        finishWithMessage(`第${chapter.chapterNumber}章正在被保存或采纳，已停止写回，请稍后重试。`)
+        finishWithMessage(`第${chapter.chapterNumber}章正在被保存或采纳，已停止生成修改草稿，请稍后重试。`)
         return
       }
       try {
         await admission.result
       } catch (err) {
         if (err instanceof ChapterAdoptionUnavailableError && err.reason === "relocated") {
-          finishWithMessage(`第${chapter.chapterNumber}章路径已发生变更，已停止写回，请刷新后重试。`)
+          finishWithMessage(`第${chapter.chapterNumber}章路径已发生变更，已停止生成修改草稿，请刷新后重试。`)
           return
         }
         throw err
       }
       if (!isStillActive()) return
     }
-    invalidateChapterCache(pp)
 
     await refreshProjectState(pp)
     if (!isStillActive()) return
@@ -262,8 +260,8 @@ export async function runChatEditMode(ctx: ChatEditModeContext): Promise<void> {
     }
     finishWithMessage(
       resolvedTarget.target.mode === "single"
-        ? `已完成第${resolvedTarget.target.chapterNumbers[0]}章修改，并已自动备份原内容。`
-        : `已完成 ${resolvedTarget.target.chapterNumbers.length} 个章节的批量修改，并已分别备份原内容。`,
+        ? `已完成第${resolvedTarget.target.chapterNumbers[0]}章修改并存入待审草稿箱，请在草稿箱审阅并采纳后再写入正式章节。`
+        : `已完成 ${resolvedTarget.target.chapterNumbers.length} 个章节的批量修改并存入待审草稿箱，请在草稿箱审阅并采纳后再写入正式章节。`,
     )
   } catch (err) {
     if (isStillActive()) {

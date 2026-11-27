@@ -13,10 +13,32 @@ import { useWikiStore } from "@/stores/wiki-store"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 
 const ingestChapter = vi.fn()
-const { verifyRebuildOutcome } = vi.hoisted(() => ({ verifyRebuildOutcome: vi.fn() }))
+const {
+  verifyRebuildOutcome,
+  readFileMock,
+  markExternalDraftAcceptedInStatus,
+  finalizeAcceptedChapter,
+} = vi.hoisted(() => ({
+  verifyRebuildOutcome: vi.fn(),
+  readFileMock: vi.fn(async () => "---\ntype: chapter\nchapter_number: 3\nchapter_status: final\n---\n正文内容。"),
+  markExternalDraftAcceptedInStatus: vi.fn(async () => null),
+  finalizeAcceptedChapter: vi.fn(async () => undefined),
+}))
 
+vi.mock("@/commands/fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/commands/fs")>()),
+  readFile: readFileMock,
+}))
 vi.mock("./chapter-ingest", () => ({
   ingestChapter: (...args: unknown[]) => ingestChapter(...args),
+}))
+vi.mock("./novel-session-status", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./novel-session-status")>()),
+  markExternalDraftAcceptedInStatus,
+}))
+vi.mock("./formal-writeback", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./formal-writeback")>()),
+  finalizeAcceptedChapter,
 }))
 vi.mock("./rebuild", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./rebuild")>()),
@@ -52,6 +74,9 @@ function novelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
 beforeEach(() => {
   ingestChapter.mockReset()
   verifyRebuildOutcome.mockReset().mockResolvedValue(undefined)
+  readFileMock.mockReset().mockResolvedValue("---\ntype: chapter\nchapter_number: 3\nchapter_status: final\n---\n正文内容。")
+  markExternalDraftAcceptedInStatus.mockReset().mockResolvedValue(null)
+  finalizeAcceptedChapter.mockReset().mockResolvedValue(undefined)
   // resolveNovelModel 的 store 兜底置空 → 回落到传入 llmConfig
   useWikiStore.setState({ providerConfigs: {}, defaultLlmModel: "", aiChatModel: "" })
 })
@@ -351,6 +376,108 @@ describe("acceptDraftAndIngest", () => {
       }),
     ).rejects.toThrow("写盘失败")
     expect(ingestChapter).not.toHaveBeenCalled()
+    expect(markExternalDraftAcceptedInStatus).not.toHaveBeenCalled()
+    expect(finalizeAcceptedChapter).not.toHaveBeenCalled()
+  })
+
+  it("外部草稿（带 draftId）严格按 accept → markExternalDraftAcceptedInStatus → ingestChapter → finalizeAcceptedChapter 顺序执行", async () => {
+    const order: string[] = []
+    const accept = vi.fn(async () => {
+      order.push("accept")
+    })
+    markExternalDraftAcceptedInStatus.mockImplementationOnce(async () => {
+      order.push("markStatus")
+      return null
+    })
+    ingestChapter.mockImplementationOnce(async () => {
+      order.push("ingest")
+      return { ...completedMemory, snapshot: { id: "s1", chapterNumber: 3 } }
+    })
+    finalizeAcceptedChapter.mockImplementationOnce(async () => {
+      order.push("finalize")
+    })
+
+    const out = await acceptDraftAndIngest({
+      projectPath: "/proj",
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      draftId: "draft_ext_3",
+      chapterNumber: 3,
+      chapterName: "第3章",
+      accept,
+      novelConfig: novelConfig({ autoIngestOnSave: true }),
+      llmConfig,
+    })
+
+    expect(out.ingest).toBe("ok")
+    expect(order).toEqual(["accept", "markStatus", "ingest", "finalize"])
+    expect(markExternalDraftAcceptedInStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectPath: "/proj",
+        draftId: "draft_ext_3",
+        chapterNumber: 3,
+        targetKey: "chapter:3",
+      }),
+    )
+    expect(finalizeAcceptedChapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectPath: "/proj",
+        chapterNumber: 3,
+        formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      }),
+    )
+  })
+
+  it("外部草稿在 skipped-config / skipped-no-model / ingest 抛错分支下均仍执行状态同步与 finalizeAcceptedChapter", async () => {
+    // 1. skipped-config
+    const r1 = await acceptDraftAndIngest({
+      projectPath: "/proj",
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      draftId: "draft_skip_cfg",
+      chapterNumber: 3,
+      accept: vi.fn(async () => {}),
+      novelConfig: novelConfig({ autoIngestOnSave: false }),
+      llmConfig,
+    })
+    expect(r1.ingest).toBe("skipped-config")
+    expect(markExternalDraftAcceptedInStatus).toHaveBeenCalledTimes(1)
+    expect(finalizeAcceptedChapter).toHaveBeenCalledTimes(1)
+
+    // 2. skipped-no-model
+    markExternalDraftAcceptedInStatus.mockClear()
+    finalizeAcceptedChapter.mockClear()
+    const r2 = await acceptDraftAndIngest({
+      projectPath: "/proj",
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      draftId: "draft_skip_llm",
+      chapterNumber: 3,
+      accept: vi.fn(async () => {}),
+      novelConfig: novelConfig({ autoIngestOnSave: true }),
+      llmConfig: { ...llmConfig, apiKey: "" } as LlmConfig,
+    })
+    expect(r2.ingest).toBe("skipped-no-model")
+    expect(markExternalDraftAcceptedInStatus).toHaveBeenCalledTimes(1)
+    expect(finalizeAcceptedChapter).toHaveBeenCalledTimes(1)
+
+    // 3. ingest throws
+    markExternalDraftAcceptedInStatus.mockClear()
+    finalizeAcceptedChapter.mockClear()
+    ingestChapter.mockRejectedValueOnce(new Error("boom"))
+    const r3 = await acceptDraftAndIngest({
+      projectPath: "/proj",
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      draftId: "draft_ingest_err",
+      chapterNumber: 3,
+      accept: vi.fn(async () => {}),
+      novelConfig: novelConfig({ autoIngestOnSave: true }),
+      llmConfig,
+    })
+    expect(r3).toEqual({
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      ingest: "failed",
+      failReason: "ingest_error",
+    })
+    expect(markExternalDraftAcceptedInStatus).toHaveBeenCalledTimes(1)
+    expect(finalizeAcceptedChapter).toHaveBeenCalledTimes(1)
   })
 })
 

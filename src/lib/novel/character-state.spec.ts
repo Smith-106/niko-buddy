@@ -22,10 +22,12 @@ import {
   createEmptyCharacterStateStore,
   excludeDeadFromCast,
   loadCharacterStates,
+  retainCharacterStates,
   saveCharacterStates,
   type CharacterState,
   type CharacterStateStore,
 } from "./character-state"
+import { applyStoreArrayFieldCaps } from "./projection-store"
 
 function makeState(overrides: Partial<CharacterState> = {}): CharacterState {
   return {
@@ -167,5 +169,101 @@ describe("excludeDeadFromCast", () => {
   it("passes through a fully-alive cast untouched", () => {
     const store: CharacterStateStore = { characters: [makeState()], lastUpdated: "t" }
     expect(excludeDeadFromCast(["林动"], store)).toEqual({ alive: ["林动"], excluded: [] })
+  })
+})
+
+describe("retainCharacterStates（百章级主角钉住与领域留存）", () => {
+  it("恒定钉住索引 0 主角，按活跃度/丰富度/存活度排序并恢复原相对顺序", () => {
+    const protagonist = makeState({
+      characterName: "主角林动",
+      lastUpdatedChapter: 1,
+      lastSeenChapter: 1,
+      equipment: [],
+      abilities: [],
+    })
+    const oldMinor = makeState({
+      characterName: "第一章路人",
+      lastUpdatedChapter: 2,
+      lastSeenChapter: 2,
+      equipment: [],
+      abilities: [],
+      currentLocation: "",
+      status: "",
+    })
+    const deadMid = makeState({
+      characterName: "已死配角",
+      lastUpdatedChapter: 50,
+      lastSeenChapter: 50,
+      equipment: [],
+      abilities: [],
+      isAlive: false,
+      deathChapter: 50,
+    })
+    const aliveMid = makeState({
+      characterName: "存活配角",
+      lastUpdatedChapter: 50,
+      lastSeenChapter: 50,
+      equipment: [],
+      abilities: [],
+      isAlive: true,
+    })
+    const richMid = makeState({
+      characterName: "核心配角",
+      lastUpdatedChapter: 50,
+      lastSeenChapter: 50,
+      equipment: ["玄铁枪", "护心镜"],
+      abilities: ["裂空掌"],
+      relationships: { 主角林动: "挚友" },
+    })
+    const recentNpc = makeState({
+      characterName: "百章新角",
+      lastUpdatedChapter: 80,
+      lastSeenChapter: 100,
+    })
+
+    const list = [protagonist, oldMinor, deadMid, aliveMid, richMid, recentNpc]
+    const retained = retainCharacterStates(list, 4)
+
+    // 保留主角(idx0) + recentNpc(recency 100) + richMid(recency 50, richness高) + aliveMid(recency 50, alive)
+    // 严格恢复原相对顺序，且不修改原数组
+    expect(retained.map((c) => c.characterName)).toEqual([
+      "主角林动",
+      "存活配角",
+      "核心配角",
+      "百章新角",
+    ])
+    expect(list).toHaveLength(6)
+    expect(retainCharacterStates(list, 0)).toEqual([])
+    expect(retainCharacterStates(list, 1).map((c) => c.characterName)).toEqual(["主角林动"])
+    expect(retainCharacterStates(list, 10)).toHaveLength(6)
+  })
+
+  it("saveCharacterStates 超过 400 条上限时保留索引 0 主角并与 applyStoreArrayFieldCaps 同源", async () => {
+    fsMocks.createDirectory.mockReset().mockResolvedValue(undefined)
+    fsMocks.writeFileAtomic.mockReset().mockResolvedValue(undefined)
+
+    const characters: CharacterState[] = [
+      makeState({ characterName: "永不驱逐的主角", lastUpdatedChapter: 1, lastSeenChapter: 1 }),
+      ...Array.from({ length: 420 }, (_, i) =>
+        makeState({
+          characterName: `配角-${i + 1}`,
+          lastUpdatedChapter: i + 2,
+          lastSeenChapter: i + 2,
+        }),
+      ),
+    ]
+    const input: CharacterStateStore = { characters, lastUpdated: "2026-11-27T00:00:00.000Z" }
+
+    await saveCharacterStates("/Novel", input)
+    const saved = JSON.parse(fsMocks.writeFileAtomic.mock.calls[0][1] as string) as CharacterStateStore
+    expect(saved.characters).toHaveLength(400)
+    expect(saved.characters[0].characterName).toBe("永不驱逐的主角")
+    expect(saved.characters.some((c) => c.characterName === "配角-1")).toBe(false)
+    expect(saved.characters.some((c) => c.characterName === "配角-420")).toBe(true)
+
+    const replayed = applyStoreArrayFieldCaps("character-states.json", input)
+    expect(replayed.characters.map((c) => c.characterName)).toEqual(
+      saved.characters.map((c) => c.characterName),
+    )
   })
 })

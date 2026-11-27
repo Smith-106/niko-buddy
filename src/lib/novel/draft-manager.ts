@@ -266,6 +266,29 @@ export function formalChapterPathForDraft(
   return `${root}/wiki/chapters/${safeName}.md`
 }
 
+/**
+ * 归一化外部草稿的目标键（章节级持久熔断键）：
+ * 优先按解析出的章号归一（`chapter:<N>`），确保改标题/换写法无法重置同一章的修订轮次；
+ * 无章号草稿（如序章/番外）按项目相对正式路径小写归一（`path:<relative>`）。
+ */
+export function externalDraftTargetKey(projectPath: string, chapterName: string): string {
+  const chapterNumber = readDraftChapterNumber(chapterName)
+  if (chapterNumber !== undefined) {
+    return `chapter:${chapterNumber}`
+  }
+  const safeName = chapterName.replace(/[\\/]/g, "").trim()
+  if (!safeName) throw new Error("草稿没有章节名")
+  const root = projectRoot(projectPath)
+  if (!root) {
+    return `path:${safeName.toLowerCase()}`
+  }
+  const formalPath = normalizePath(formalChapterPathForDraft(root, safeName, null))
+  const relative = formalPath.startsWith(`${root}/`)
+    ? formalPath.slice(root.length + 1)
+    : formalPath
+  return `path:${relative.toLowerCase()}`
+}
+
 export async function listChapterDrafts(
   projectPath: string,
   deps: DraftManagerDeps = defaultDeps,

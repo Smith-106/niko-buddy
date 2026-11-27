@@ -27,13 +27,76 @@ export function createEmptyForeshadowingStore(): ForeshadowingStore {
   return { items: [], lastUpdated: new Date().toISOString() }
 }
 
+function foreshadowingLastActivityChapter(item: Foreshadowing): number {
+  let latest = Number.isFinite(item.plantedChapter) ? item.plantedChapter : 0
+  if (typeof item.resolvedChapter === "number" && Number.isFinite(item.resolvedChapter)) {
+    latest = Math.max(latest, item.resolvedChapter)
+  }
+  for (const ch of item.advancedChapters ?? []) {
+    if (Number.isFinite(ch)) latest = Math.max(latest, ch)
+  }
+  return latest
+}
+
+/**
+ * 百章级伏笔留存策略（确定性纯函数）：
+ * - 当活跃伏笔（planted/advanced）数量 <= cap 时，绝不驱逐任何活跃伏笔；
+ * - 优先驱逐最早的已回收/已废弃（resolved/abandoned）伏笔；
+ * - 最终恢复原相对顺序，不修改入参数组。
+ */
+export function retainForeshadowingItems(
+  items: readonly Foreshadowing[],
+  cap: number,
+): Foreshadowing[] {
+  if (cap <= 0 || items.length === 0) return []
+  if (items.length <= cap) return [...items]
+
+  const active: Array<{ index: number; latestChapter: number }> = []
+  const inactive: Array<{ index: number; latestChapter: number }> = []
+
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i]
+    const entry = { index: i, latestChapter: foreshadowingLastActivityChapter(item) }
+    if (item.status === "planted" || item.status === "advanced") {
+      active.push(entry)
+    } else {
+      inactive.push(entry)
+    }
+  }
+
+  const keptIndices = new Set<number>()
+  if (active.length <= cap) {
+    for (const entry of active) keptIndices.add(entry.index)
+    const remainingSlots = cap - active.length
+    if (remainingSlots > 0 && inactive.length > 0) {
+      inactive.sort((a, b) => {
+        if (b.latestChapter !== a.latestChapter) return b.latestChapter - a.latestChapter
+        return b.index - a.index
+      })
+      for (let i = 0; i < remainingSlots && i < inactive.length; i += 1) {
+        keptIndices.add(inactive[i].index)
+      }
+    }
+  } else {
+    active.sort((a, b) => {
+      if (b.latestChapter !== a.latestChapter) return b.latestChapter - a.latestChapter
+      return b.index - a.index
+    })
+    for (let i = 0; i < cap && i < active.length; i += 1) {
+      keptIndices.add(active[i].index)
+    }
+  }
+
+  return items.filter((_, index) => keptIndices.has(index))
+}
+
 // E-03 (run-execute-1, 双库架构蓝图): 直写迁移到 createAtomicJsonStore 工厂
 // (三模型共识 2026-09-04)。load 语义保留 lenient (missing/corrupt → emptyCtor),
 // 与工厂默认一致, 零行为变化。
 const store = createAtomicJsonStore<ForeshadowingStore>(
   "foreshadowing-tracker.json",
   createEmptyForeshadowingStore,
-  { arrayFieldCaps: { items: 500 } }
+  { arrayFieldCaps: { items: { cap: 500, retain: retainForeshadowingItems } } },
 )
 
 export async function saveForeshadowingTracker(

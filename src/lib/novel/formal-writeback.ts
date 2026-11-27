@@ -4,9 +4,107 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { getFileName, normalizePath } from "@/lib/path-utils"
 import { parseChapterNumber } from "./chapter-meta"
 import { chapterMarkdownHasBody, readManagedChapterHeader } from "./chapter-save-strategy"
-import { acceptDeepChapterDraft } from "./novel-session-status"
+import { acceptDeepChapterDraft, markExternalDraftAcceptedInStatus } from "./novel-session-status"
 import { updateEmotionLedgerFromChapter } from "./emotion-ledger"
 import { promote, resolveNextPromotionRevision, sha256Prefix } from "./promotion-bridge"
+
+export interface FinalizeAcceptedChapterInput {
+  projectPath: string
+  chapterNumber: number
+  formalChapterPath?: string
+  finalChapterContent: string
+  /** 可选：需要同步外部草稿（`.qm-drafts/`）状态到 `.novel/status.json` 时传入。 */
+  syncExternalStatus?: {
+    draftId?: string
+    chapterName?: string
+    targetKey?: string
+  }
+  /** 是否手动最终采纳（透传给 promote gateContext.manualFinal，默认 false）。 */
+  manualFinal?: boolean
+}
+
+/**
+ * 采纳后共享写回总闸（Chat 深章与外部 `.qm-drafts/` 采纳路径共用）：
+ * 1. 可选同步外部草稿状态到 `.novel/status.json`（含 chase_debt 记账/计息）；
+ * 2. 提取正文情绪基调并写回 emotion-ledger；
+ * 3. 触发 formal-writeback 通道晋升凭证（PromotionRecord 落盘）。
+ *
+ * 所有步骤均为 non-fatal try/catch（使用 `toErrorMessage` 记 warn）：
+ * 正式正文落盘是唯一不可逆门（Draft-first 铁律），派生层失败绝不回滚正文、不向上抛错。
+ */
+export async function finalizeAcceptedChapter(
+  input: FinalizeAcceptedChapterInput,
+): Promise<void> {
+  if (input.syncExternalStatus && input.formalChapterPath) {
+    try {
+      await markExternalDraftAcceptedInStatus({
+        projectPath: input.projectPath,
+        draftId: input.syncExternalStatus.draftId,
+        formalChapterPath: input.formalChapterPath,
+        chapterNumber: input.chapterNumber,
+        chapterName: input.syncExternalStatus.chapterName,
+        targetKey: input.syncExternalStatus.targetKey,
+        finalChapterContent: input.finalChapterContent,
+      })
+    } catch (statusError) {
+      logger.warn(
+        "Novel Session",
+        `external draft status sync failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(statusError)}`,
+      )
+    }
+  }
+  // A19 emotion-ledger 写入端 (B 方案, PLN-20260716-emotion-ledger-writehook):
+  // accept 成功后扫正文提取情绪基调 + 共现匹配出场角色 + 写情绪账本。
+  // Draft-first 守恒: 仅在 accept 成功后写账本 (正式层), draft 生成点不写。
+  try {
+    await updateEmotionLedgerFromChapter(
+      input.projectPath,
+      input.chapterNumber,
+      input.finalChapterContent,
+    )
+  } catch (emotionError) {
+    logger.warn(
+      "emotion-ledger",
+      `write failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(emotionError)}`,
+    )
+  }
+  // E-05 (run-execute-1, 双库架构蓝图) C-7/C-13: formal-writeback 通道接线。
+  // accept 成功后触发晋升（PromotionRecord 落盘 + 事件日志），失败仅 warn 不回滚正文。
+  try {
+    const digestPrefix = await sha256Prefix(input.finalChapterContent)
+    const chapterId = `chapter-${input.chapterNumber}`
+    const promotionsFilePath = `${normalizePath(input.projectPath)}/.novel/promotions.json`
+    const revision = (await fileExists(promotionsFilePath))
+      ? await resolveNextPromotionRevision(
+          input.projectPath,
+          "formal-writeback",
+          chapterId,
+          chapterId,
+          digestPrefix,
+        )
+      : 1
+    await promote({
+      channel: "formal-writeback",
+      projectPath: input.projectPath,
+      chapterId,
+      chapterNumber: input.chapterNumber,
+      revision,
+      entity: chapterId,
+      acceptTimestamp: new Date().toISOString(),
+      gateContext: {
+        draftStatus: "accepted",
+        decisionGatesPass: true,
+        manualFinal: input.manualFinal ?? false,
+      },
+      contentDigestPrefix: digestPrefix,
+    })
+  } catch (promotionError) {
+    logger.warn(
+      "promotion-bridge",
+      `formal-writeback promote failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(promotionError)}`,
+    )
+  }
+}
 
 export interface CommitAcceptedDeepChapterDraftInput {
   projectPath: string
@@ -186,56 +284,10 @@ export async function commitAcceptedDeepChapterDraft(
     finalChapterContent,
     writeVerifiedChapter: () => writeVerifiedChapter(writeInput),
   })
-  // A19 emotion-ledger 写入端 (B 方案, PLN-20260716-emotion-ledger-writehook):
-  // accept 成功后扫正文提取情绪基调 + 共现匹配出场角色 + 写情绪账本。
-  // Draft-first 守恒: 仅在 accept 成功后写账本 (正式层), draft 生成点不写。
-  // DD-3 failure 降级: 账本写失败只 logger.warn, 不回滚正文, 不抛错 —
-  // 正文是正式层已落盘, emotion-ledger 是派生观测层 (fold_rebuildable),
-  // 回滚正文会违反 Draft-first accept 不可逆, 与 Circuit Breaker catch 降级一致。
-  try {
-    await updateEmotionLedgerFromChapter(
-      input.projectPath,
-      input.chapterNumber,
-      finalChapterContent,
-    )
-  } catch (emotionError) {
-    logger.warn(
-      "emotion-ledger",
-      `write failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(emotionError)}`,
-    )
-  }
-  // E-05 (run-execute-1, 双库架构蓝图) C-7/C-13: formal-writeback 通道接线。
-  // accept 成功后触发晋升（PromotionRecord 落盘 + 事件日志）。
-  // 失败/歧义 → 入 promotion-retry 队列 + warn，**不回滚 accept/正文**
-  // （accept 唯一不可逆门，铁律②；「已 accept 未晋升」是可补偿态，重放收敛）。
-  try {
-    const digestPrefix = await sha256Prefix(finalChapterContent)
-    const chapterId = `chapter-${input.chapterNumber}`
-    const promotionsFilePath = `${normalizePath(input.projectPath)}/.novel/promotions.json`
-    const revision = (await fileExists(promotionsFilePath))
-      ? await resolveNextPromotionRevision(
-          input.projectPath,
-          "formal-writeback",
-          chapterId,
-          chapterId,
-          digestPrefix,
-        )
-      : 1
-    await promote({
-      channel: "formal-writeback",
-      projectPath: input.projectPath,
-      chapterId,
-      chapterNumber: input.chapterNumber,
-      revision,
-      entity: chapterId,
-      acceptTimestamp: new Date().toISOString(),
-      gateContext: { draftStatus: "accepted", decisionGatesPass: true, manualFinal: false },
-      contentDigestPrefix: digestPrefix,
-    })
-  } catch (promotionError) {
-    logger.warn(
-      "promotion-bridge",
-      `formal-writeback promote failed (non-fatal, chapter ${input.chapterNumber}): ${toErrorMessage(promotionError)}`,
-    )
-  }
+  await finalizeAcceptedChapter({
+    projectPath: input.projectPath,
+    chapterNumber: input.chapterNumber,
+    formalChapterPath: input.chapterPath,
+    finalChapterContent,
+  })
 }

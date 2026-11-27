@@ -950,6 +950,111 @@ describe("fallbackCharacterStatesDataSource", () => {
     const result = await fallbackCharacterStatesDataSource.load(legacyContext)
     expect(result).toContain("A 页")
   })
+
+  it("结构化角色超 3000 字时按 主角 > 任务提及 > 近期活跃 优先级截选，并经 buildSession 记 truncated gap", async () => {
+    const { createContextBuildSession } = await import("./context-engine-gaps")
+    const session = createContextBuildSession(null)
+    const pad = "历".repeat(120)
+    const characters = [
+      {
+        characterName: "主角林动",
+        currentLocation: "青山镇",
+        status: `主角状态-${pad}`,
+        equipment: [],
+        abilities: [],
+        relationships: {},
+        lastUpdatedChapter: 1,
+        lastSeenChapter: 1,
+        lastUpdatedAt: "t",
+      },
+      ...Array.from({ length: 30 }, (_, i) => ({
+        characterName: `旧路人${i + 1}`,
+        currentLocation: "旧镇",
+        status: `陈旧状态-${pad}`,
+        equipment: [],
+        abilities: [],
+        relationships: {},
+        lastUpdatedChapter: 2,
+        lastSeenChapter: 2,
+        lastUpdatedAt: "t",
+      })),
+      {
+        characterName: "沈孤鸿",
+        currentLocation: "雾港",
+        status: `任务点名配角-${pad}`,
+        equipment: [],
+        abilities: [],
+        relationships: {},
+        lastUpdatedChapter: 5,
+        lastSeenChapter: 5,
+        lastUpdatedAt: "t",
+      },
+      {
+        characterName: "苏照影",
+        currentLocation: "玄铁城",
+        status: `近期活跃配角-${pad}`,
+        equipment: [],
+        abilities: [],
+        relationships: {},
+        lastUpdatedChapter: 99,
+        lastSeenChapter: 99,
+        lastUpdatedAt: "t",
+      },
+    ]
+
+    mocks.loadCharacterStates.mockResolvedValue({ characters, lastUpdated: "t" })
+    mocks.characterStatesToContextText.mockImplementation((st: { characters?: typeof characters }) =>
+      (st.characters ?? [])
+        .map((c) => `- ${c.characterName}：位于${c.currentLocation}，状态：${c.status}，装备：无，能力：无`)
+        .join("\n"),
+    )
+
+    const result = await fallbackCharacterStatesDataSource.load({
+      ...legacyContext,
+      task: "写第100章：林动在雾港会见沈孤鸿",
+      buildSession: session,
+    })
+
+    expect(result.length).toBeLessThanOrEqual(3000)
+    expect(result).toContain("主角林动")
+    expect(result).toContain("沈孤鸿")
+    expect(result).toContain("苏照影")
+    expect(result.indexOf("主角林动")).toBeLessThan(result.indexOf("沈孤鸿"))
+    expect(result.indexOf("沈孤鸿")).toBeLessThan(result.indexOf("苏照影"))
+
+    const gaps = session.collectGaps()
+    expect(gaps).toContainEqual(
+      expect.objectContaining({
+        type: "truncated",
+        ref: "fallbackCharacterStates",
+        reason: "budget_exceeded",
+        retainedLength: result.length,
+      }),
+    )
+    expect(gaps.find((g) => g.ref === "fallbackCharacterStates")!.originalLength).toBeGreaterThan(3000)
+  })
+
+  it("wiki 角色页回退超 3000 字时经 tieredSlice 截断并记录 truncated gap", async () => {
+    const { createContextBuildSession } = await import("./context-engine-gaps")
+    const session = createContextBuildSession(null)
+    mocks.loadCharacterStates.mockRejectedValue(new Error("missing"))
+    mocks.searchWiki.mockResolvedValue([{ path: "a.md" }])
+    mocks.readFile.mockResolvedValue("角".repeat(3500))
+
+    const result = await fallbackCharacterStatesDataSource.load({
+      ...legacyContext,
+      buildSession: session,
+    })
+
+    expect(result).toHaveLength(3000)
+    expect(session.collectGaps()).toContainEqual({
+      type: "truncated",
+      ref: "fallbackCharacterStates",
+      reason: "tier_compressible",
+      originalLength: 3500,
+      retainedLength: 3000,
+    })
+  })
 })
 
 describe("fallbackForeshadowingStatesDataSource", () => {

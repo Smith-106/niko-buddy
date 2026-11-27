@@ -37,10 +37,21 @@ export type {
 }
 
 // 权重对齐 TASK-002: valence 主导 (0.4), arousal/dominance 各 0.3。
-// netValue 含 history delta sum — 长期情绪债务累积反映在净值。
+// netValue 含滑动窗口 + 衰减 history delta sum，并夹紧到 [-5, 5]，防止百章级无界漂移。
 const WEIGHT_VALENCE = 0.4
 const WEIGHT_AROUSAL = 0.3
 const WEIGHT_DOMINANCE = 0.3
+
+/** 情绪历史最大滑动窗口条数（百章级有界留存）。 */
+export const EMOTION_HISTORY_WINDOW = 20
+/** 最近 N 条历史保持精确权重 1.0（保短周期情绪计算向后兼容）。 */
+export const EMOTION_EXACT_RECENT_WINDOW = 5
+/** 超出精确近窗的历史条目每老 1 步的衰减因子：weight = 0.85^(age - 4)。 */
+export const EMOTION_HISTORY_DECAY = 0.85
+/** 情绪净值下限（防止百章单调负累积永久锁死熔断器）。 */
+export const EMOTION_NET_VALUE_MIN = -5
+/** 情绪净值上限（防止百章单调正累积掩盖新近承压）。 */
+export const EMOTION_NET_VALUE_MAX = 5
 
 function clampUnit(value: number): number {
   // 情绪轴规范 -1.0 ~ 1.0, 越界 clamp (LLM/外部输入可能给脏值)。
@@ -49,24 +60,42 @@ function clampUnit(value: number): number {
   return value
 }
 
+function clampNetValue(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  if (value < EMOTION_NET_VALUE_MIN) return EMOTION_NET_VALUE_MIN
+  if (value > EMOTION_NET_VALUE_MAX) return EMOTION_NET_VALUE_MAX
+  return value
+}
+
 /**
  * 计算情绪净值 (机械层确定性算术, 零 LLM)。
- * netValue = (valence*0.4 + arousal*0.3 + dominance*0.3) + history delta 累积和。
- * delta 为负代表情绪债务累积 (角色持续承压), 正代表情绪回升。
+ * netValue = clamp((valence*0.4 + arousal*0.3 + dominance*0.3) + 加权窗口 history delta sum, [-5, 5])。
+ * 最近 EMOTION_EXACT_RECENT_WINDOW(5) 条权重恒为 1.0，更早条目按 0.85^(age - 4) 衰减，
+ * 最多计入最近 EMOTION_HISTORY_WINDOW(20) 条。
  */
 export function calculateEmotionNetValue(entry: EmotionLedgerEntry): number {
   const base =
     clampUnit(entry.valence) * WEIGHT_VALENCE +
     clampUnit(entry.arousal) * WEIGHT_AROUSAL +
     clampUnit(entry.dominance) * WEIGHT_DOMINANCE
-  const historySum = entry.history.reduce((sum, h) => sum + h.delta, 0)
-  return base + historySum
+  const window = entry.history.slice(-EMOTION_HISTORY_WINDOW)
+  let historySum = 0
+  for (let i = 0; i < window.length; i += 1) {
+    const age = window.length - 1 - i
+    const weight =
+      age < EMOTION_EXACT_RECENT_WINDOW
+        ? 1
+        : Math.pow(EMOTION_HISTORY_DECAY, age - (EMOTION_EXACT_RECENT_WINDOW - 1))
+    historySum += window[i].delta * weight
+  }
+  return clampNetValue(base + historySum)
 }
 
 /**
  * 应用情绪 delta 并追加 history 记录 (纯函数, 不修改入参)。
- * 返回新 entry: 更新三轴快照 + netValue 重算 + history 追加本次 delta。
- */export function applyEmotionDelta(
+ * 返回新 entry: 更新三轴快照 + 裁剪 history 至最近 20 条 + netValue 重算。
+ */
+export function applyEmotionDelta(
   entry: EmotionLedgerEntry,
   delta: { valence?: number; arousal?: number; dominance?: number; reason: string },
   chapter: number,
@@ -91,7 +120,7 @@ export function calculateEmotionNetValue(entry: EmotionLedgerEntry): number {
     dominance: next.dominance,
     netValue: 0, // 占位, 下面重算
     lastUpdatedChapter: chapter,
-    history: [...entry.history, historyEntry],
+    history: [...entry.history, historyEntry].slice(-EMOTION_HISTORY_WINDOW),
   }
   draft.netValue = calculateEmotionNetValue(draft)
   return draft
@@ -126,13 +155,48 @@ export function createEmptyEmotionLedgerStore(): EmotionLedgerStore {
   return { entries: [], lastUpdated: new Date().toISOString() }
 }
 
+/**
+ * 百章级情绪账本留存策略（确定性纯函数）：
+ * - 恒定钉住索引 0（首位核心角色）；
+ * - 索引 1..n-1 按近期更新章号、情绪载荷绝对值（保留高情绪债务角色供熔断器判定）
+ *   与历史轨迹长度排序留存，最终恢复原相对顺序，不修改入参。
+ */
+export function retainEmotionLedgerEntries(
+  entries: readonly EmotionLedgerEntry[],
+  cap: number,
+): EmotionLedgerEntry[] {
+  if (cap <= 0 || entries.length === 0) return []
+  if (entries.length <= cap) return [...entries]
+  if (cap === 1) return [entries[0]]
+
+  const ranked = entries.slice(1).map((entry, offset) => ({
+    index: offset + 1,
+    chapter: Number.isFinite(entry.lastUpdatedChapter) ? entry.lastUpdatedChapter : 0,
+    magnitude: Number.isFinite(entry.netValue) ? Math.abs(entry.netValue) : 0,
+    historyLen: entry.history?.length ?? 0,
+  }))
+  ranked.sort((a, b) => {
+    if (b.chapter !== a.chapter) return b.chapter - a.chapter
+    if (b.magnitude !== a.magnitude) return b.magnitude - a.magnitude
+    if (b.historyLen !== a.historyLen) return b.historyLen - a.historyLen
+    return b.index - a.index
+  })
+
+  const keptIndices = new Set<number>([0])
+  const remainingSlots = cap - 1
+  for (let i = 0; i < remainingSlots && i < ranked.length; i += 1) {
+    keptIndices.add(ranked[i].index)
+  }
+  return entries.filter((_, index) => keptIndices.has(index))
+}
+
 // MAINT-002 同域模式: 复用 createAtomicJsonStore (与 emotional-arcs/resource-ledger/
 // subplot-board 共享 save/load boilerplate, F-002 atomic 写, fold_rebuildable)。
 const emotionLedgerStore = createAtomicJsonStore<EmotionLedgerStore>(
   "emotion-ledger.json",
   createEmptyEmotionLedgerStore,
-  // arch-risk W2: 无界增长护栏——entries 截尾保最近 500 条
-  { arrayFieldCaps: { entries: 500 } },
+  // arch-risk W2: 无界增长护栏——按领域留存保留 500 条核心/高债务/近期角色
+  { arrayFieldCaps: { entries: { cap: 500, retain: retainEmotionLedgerEntries } } },
 )
 
 export async function saveEmotionLedger(
