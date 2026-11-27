@@ -1,9 +1,9 @@
 # Tauri 命令参考（自动生成）
 
-> 生成时间：2026-11-26（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**143**（`generate_handler!` 块）；未注册声明（死命令）：**0**
+> 生成时间：2026-11-27（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
+> 注册数：**146**（`generate_handler!` 块）；未注册声明（死命令）：**0**
 
-## 注册命令（143）
+## 注册命令（146）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
@@ -121,7 +121,10 @@
 | `secret_get` | secret_store | ✓ |
 | `secret_put` | secret_store | ✓ |
 | `skill_bundle_export` | skill_bundle | ✓ |
+| `skill_bundle_export_declarative_skill_md` | skill_bundle | ✓ |
 | `skill_bundle_import` | skill_bundle | ✓ |
+| `skill_bundle_list_installed` | skill_bundle | ✓ |
+| `skill_bundle_mark_reviewed` | skill_bundle | ✓ |
 | `skill_bundle_verify` | skill_bundle | ✓ |
 | `snapshot_list_chain` | snapshot_timemachine | ✓ |
 | `snapshot_preview_point` | snapshot_timemachine | ✓ |
