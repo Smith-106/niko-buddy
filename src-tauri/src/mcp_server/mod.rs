@@ -862,8 +862,9 @@ pub async fn start(
 /// * 名字像写但 `required_scope() == Read` → 危险（名字在撒谎，权限没拦住）
 /// * 需要写 scope 但名字不像写 → 可疑（客户端难以从名字判断副作用）
 pub fn contains_write_like_tool(registry: &ToolRegistry) -> Vec<&'static str> {
-    const WRITE_HINTS: [&str; 10] = [
-        "set", "write", "update", "delete", "remove", "create", "save", "accept", "patch", "record",
+    const WRITE_HINTS: [&str; 12] = [
+        "set", "write", "update", "delete", "remove", "create", "save", "accept", "patch",
+        "record", "upsert", "commit",
     ];
     registry
         .names()
@@ -1447,6 +1448,20 @@ mod tests {
             write_like.contains(&"draft.record_review"),
             "实际: {write_like:?}"
         );
+        for new_write in [
+            "character.upsert",
+            "director.upsert_world",
+            "director.commit_phase",
+            "rules.upsert_book_rules",
+            "compass.update",
+            "foreshadowing.upsert",
+            "subplot.upsert",
+        ] {
+            assert!(
+                write_like.contains(&new_write),
+                "WRITE_HINTS 必须命中 {new_write}，实际: {write_like:?}"
+            );
+        }
         let privileged = reg.privileged_tools();
         for name in &write_like {
             assert!(privileged.contains(name), "{name} 名字像写却没声明权限");
@@ -2682,7 +2697,16 @@ mod tests {
                 "{phase2_read} 必须为 Read scope"
             );
         }
-        for phase2_project in ["draft.patch", "draft.record_review"] {
+        for phase2_project in [
+            "draft.patch",
+            "draft.record_review",
+            "director.upsert_world",
+            "director.commit_phase",
+            "rules.upsert_book_rules",
+            "compass.update",
+            "foreshadowing.upsert",
+            "subplot.upsert",
+        ] {
             assert!(all_names.contains(&phase2_project));
             assert_eq!(
                 reg.required_scope(phase2_project),
@@ -3020,13 +3044,23 @@ mod tests {
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert_eq!(list_names.len(), 26);
+        assert_eq!(list_names.len(), 32);
         assert!(list_names.contains(&"chapter.write"));
         assert!(list_names.contains(&"workflow.next"));
         assert!(list_names.contains(&"draft.patch"));
         assert!(list_names.contains(&"draft.record_review"));
         assert!(list_names.contains(&"draft.diff"));
         assert!(list_names.contains(&"audit.longform_health"));
+        for planning_tool in [
+            "director.upsert_world",
+            "director.commit_phase",
+            "rules.upsert_book_rules",
+            "compass.update",
+            "foreshadowing.upsert",
+            "subplot.upsert",
+        ] {
+            assert!(list_names.contains(&planning_tool));
+        }
         assert!(!list_names.contains(&"pipeline.run_chapter"));
         assert!(!list_names.contains(&"settings.get"));
 
@@ -3170,7 +3204,18 @@ mod tests {
         assert!(!rev_names.contains(&"draft.patch"));
         assert!(!rev_names.contains(&"draft.record_review"));
 
-        for hidden_in_reviewer in ["chapter.write", "draft.patch", "draft.record_review"] {
+        for hidden_in_reviewer in [
+            "chapter.write",
+            "draft.patch",
+            "draft.record_review",
+            "director.upsert_world",
+            "director.commit_phase",
+            "rules.upsert_book_rules",
+            "compass.update",
+            "foreshadowing.upsert",
+            "subplot.upsert",
+        ] {
+            assert!(!rev_names.contains(&hidden_in_reviewer));
             let rev_hidden =
                 http_call_tool(&client, &base_url, &rev_sid, hidden_in_reviewer, json!({})).await;
             let rev_hidden_json: Value = serde_json::from_str(
@@ -3216,11 +3261,21 @@ mod tests {
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert_eq!(arch_names.len(), 18);
+        assert_eq!(arch_names.len(), 24);
         assert!(arch_names.contains(&"workflow.next"));
         assert!(arch_names.contains(&"outline.read"));
         assert!(arch_names.contains(&"character.read"));
         assert!(arch_names.contains(&"audit.longform_health"));
+        for planning_tool in [
+            "director.upsert_world",
+            "director.commit_phase",
+            "rules.upsert_book_rules",
+            "compass.update",
+            "foreshadowing.upsert",
+            "subplot.upsert",
+        ] {
+            assert!(arch_names.contains(&planning_tool));
+        }
         assert!(!arch_names.contains(&"draft.patch"));
         assert!(!arch_names.contains(&"draft.record_review"));
         assert!(!arch_names.contains(&"style.exemplars"));
@@ -3261,6 +3316,47 @@ mod tests {
                 );
             }
         }
+
+        // 8) 核对 FullLegacy + Full scope 服务端下全量 tools/list 为 46 个工具。
+        let full_state = ServerState {
+            token: "secret-token".into(),
+            port: 0,
+            registry: Arc::new(tools::build_registry()),
+            ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Full,
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            rate_limiter: Mutex::new(RateLimiter::default_policy()),
+        };
+        let full_server = serve(full_state, 0).await.expect("start full server");
+        let full_url = format!("http://127.0.0.1:{}/mcp", full_server.port);
+        let full_init = client
+            .post(&full_url)
+            .bearer_auth("secret-token")
+            .body(r#"{"jsonrpc":"2.0","id":10,"method":"initialize","params":{}}"#)
+            .send()
+            .await
+            .expect("init full");
+        assert_eq!(full_init.status(), 200);
+        let full_sid = full_init
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("full sid")
+            .to_string();
+        let full_list: Value = client
+            .post(&full_url)
+            .bearer_auth("secret-token")
+            .header("mcp-session-id", &full_sid)
+            .body(r#"{"jsonrpc":"2.0","id":11,"method":"tools/list"}"#)
+            .send()
+            .await
+            .expect("full list")
+            .json()
+            .await
+            .expect("json");
+        assert_eq!(full_list["result"]["tools"].as_array().unwrap().len(), 46);
+        full_server.stop();
 
         server.stop();
     }

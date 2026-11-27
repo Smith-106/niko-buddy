@@ -34,7 +34,7 @@ import {
   type DirectorStageOutputMap,
   type StageValidationFinding,
 } from "./director-stage-generation"
-import { validateWorldBlueprint } from "./world-blueprint"
+import { validateWorldBlueprint, type WorldBlueprintSeed } from "./world-blueprint"
 import type { StageJournalRuntime } from "./stage-output-journal"
 import { recordModuleHit } from "./module-heat"
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
@@ -206,7 +206,11 @@ export interface DirectorAutoAdvanceDeps {
   /** 首章草稿写入（默认 draft-manager.writeDraft；测试可注入）。 */
   writeFirstChapterDraft?: (projectPath: string, chapterName: string, content: string) => Promise<{ id: string; chars: number }>
   /** world 阶段派生（默认 deriveAndSaveWorldBlueprint；测试可注入）。 */
-  deriveWorld?: (projectPath: string, worldType: string) => Promise<void>
+  deriveWorld?: (
+    projectPath: string,
+    worldType: string,
+    seed?: WorldBlueprintSeed,
+  ) => Promise<void>
 }
 
 export interface DirectorDraftReceipt {
@@ -296,9 +300,13 @@ async function defaultWriteDraft(
   return { id: draft.id, chars: draft.content.length }
 }
 
-async function defaultDeriveWorld(projectPath: string, worldType: string): Promise<void> {
+async function defaultDeriveWorld(
+  projectPath: string,
+  worldType: string,
+  seed?: WorldBlueprintSeed,
+): Promise<void> {
   const { deriveAndSaveWorldBlueprint } = await import("./world-blueprint")
-  await deriveAndSaveWorldBlueprint(projectPath, worldType)
+  await deriveAndSaveWorldBlueprint(projectPath, worldType, seed)
 }
 
 /**
@@ -332,7 +340,18 @@ export async function advanceDirectorAutomatically(
       const blueprint = await collectSnapshot(projectPath, effectiveIdea)
       if (!blueprint.worldComplete) {
         generated = true
-        await (deps.deriveWorld ?? defaultDeriveWorld)(projectPath, deps.worldType ?? "fantasy")
+        const storedIdea = artifacts.idea as
+          | { title?: string; genre?: string; coreConflict?: string }
+          | undefined
+        const seedIdea = {
+          title: effectiveIdea.title.trim() || storedIdea?.title?.trim() || "",
+          genre: effectiveIdea.genre.trim() || storedIdea?.genre?.trim() || "",
+          coreConflict: effectiveIdea.coreConflict.trim() || storedIdea?.coreConflict?.trim() || "",
+        }
+        await (deps.deriveWorld ?? defaultDeriveWorld)(projectPath, deps.worldType ?? "fantasy", {
+          idea: seedIdea,
+          fillMissingRequired: true,
+        })
       }
     } else {
       stage = phase

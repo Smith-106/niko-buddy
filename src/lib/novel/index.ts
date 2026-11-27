@@ -20,7 +20,7 @@ export { applyFileEdits, listScopeFiles, readScopeFileContents } from "./agent-t
 export type { FileEditResult } from "./agent-tools"
 export { shutdownAntiAiTelemetrySink } from "./anti-ai-telemetry-sink"
 export { applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, saveAntiAiTelemetryConsent } from "./anti-ai-telemetry-wiring"
-export { EMPTY_BOOK_RULES, bookRulesToPromptFragment, validateAgainstBookRules, validateFanficChapter } from "./book-rules"
+export { EMPTY_BOOK_RULES, bookRulesToPromptFragment, loadBookRules, normalizeBookRules, saveBookRules, validateAgainstBookRules, validateFanficChapter } from "./book-rules"
 export type { BookRules, BookRulesValidation, EraConstraints, FanficMode, FanficPolicy, GenreLock, ProtagonistRule, RuleFinding } from "./book-rules"
 export { runAutonomousDraftCampaign, batchAcceptCampaignDrafts, filterAcceptableChapters } from "./campaign-runner"
 export type { CampaignChapterResult, CampaignRunOptions, CampaignReport, BatchAcceptResult } from "./campaign-runner"
@@ -125,6 +125,7 @@ export type { DirectorAdvanceOutcome, DirectorSnapshot } from "./director-orches
 export {
   advanceDirectorAutomatically,
   advanceDirectorToStall,
+  assertIrreversible,
   characterEntityPath,
   failDirectorPhase,
   isPipelineCompleted,
@@ -163,17 +164,17 @@ export type {
 } from "./director-stage-generation"
 export { DIRECTOR_PHASES, advanceDirectorPhase, createDirectorPipeline } from "./director-pipeline"
 export type { DirectorPhase, DirectorPipelineState, PhaseGateInput } from "./director-pipeline"
-export { hasPersistedDirectorState, loadDirectorPersisted, saveDirectorIdeaInput, saveDirectorPersisted } from "./director-pipeline-store"
+export { EMPTY_IDEA_INPUT, hasPersistedDirectorState, loadDirectorPersisted, saveDirectorIdeaInput, saveDirectorPersisted } from "./director-pipeline-store"
 export type { DirectorIdeaInput, DirectorPersistedFile } from "./director-pipeline-store"
-export { WORLD_LAYERS, deriveWorldBlueprint, deriveAndSaveWorldBlueprint, loadWorldBlueprint, saveWorldBlueprint, validateWorldBlueprint, worldBlueprintToPromptFragment, createEmptyWorldBlueprint } from "./world-blueprint"
-export type { WorldBlueprint, WorldLayer, WorldValidation, WorldFinding } from "./world-blueprint"
+export { REQUIRED_WORLD_LAYERS, WORLD_LAYERS, deriveWorldBlueprint, deriveAndSaveWorldBlueprint, loadWorldBlueprint, mergeWorldBlueprintPatch, saveWorldBlueprint, validateWorldBlueprint, worldBlueprintToPromptFragment, createEmptyWorldBlueprint } from "./world-blueprint"
+export type { WorldBlueprint, WorldBlueprintPatch, WorldBlueprintSeed, WorldLayer, WorldValidation, WorldFinding } from "./world-blueprint"
 export { PROJECTIONS_REGISTRY, mainChainProjections, orphanProjections } from "./projections-registry"
 export type { ProjectionEntry, ProjectionConsumer } from "./projections-registry"
 export { buildDismantlingAnalysisPrompt, buildDismantlingWebResearchPrompt, extractStructureMemoryFromAnalysis, loadDismantlingLibrary, saveDismantlingLibrary, selectNextDismantlingBatch } from "./dismantling"
 export type { DismantlingAnalysis, DismantlingChapter, DismantlingLibrary, DismantlingProject } from "./dismantling"
 export { formatDoctorReport, runProjectDoctor } from "./doctor"
 export type { DoctorFinding, DoctorReport, DoctorSeverity } from "./doctor"
-export { acceptChapterDraft, discardChapterDraft, draftNeedsGateReview, formalChapterPathForDraft, getDraftGateStatus, listChapterDrafts, readDraftChapterNumber, resolveChapterDraftAdoptionTarget, writeDraft } from "./draft-manager"
+export { acceptChapterDraft, discardChapterDraft, draftNeedsGateReview, externalDraftTargetKey, formalChapterPathForDraft, getDraftGateStatus, listChapterDrafts, readDraftChapterNumber, resolveChapterDraftAdoptionTarget, writeDraft } from "./draft-manager"
 export type { DraftManagerDeps } from "./draft-manager"
 export type { ChapterDraft, DraftAdoptionGate, DraftGateStatus, DraftStatus } from "./lifecycle-types"
 export { DRAFTS_DIR } from "./lifecycle-types"
@@ -221,10 +222,10 @@ export { loadFanficMergeProposal, proposeCanonMerge, saveFanficMergeProposal } f
 export type { CanonMergeProposal } from "./fanfic-canon-import"
 export { analyzeForeshadowingDebt } from "./foreshadowing-debt"
 export type { ForeshadowingDebtReport } from "./foreshadowing-debt"
-export { getActiveForeshadowings, getForeshadowingWatermark, loadForeshadowingTracker } from "./foreshadowing-tracker"
+export { ABANDONABLE_STATUSES, createEmptyForeshadowingStore, getActiveForeshadowings, getForeshadowingWatermark, loadForeshadowingTracker, markAbandoned, saveForeshadowingTracker } from "./foreshadowing-tracker"
 export type { Foreshadowing, ForeshadowingStore } from "./foreshadowing-tracker"
-export { commitAcceptedDeepChapterDraft, buildManagedChapterDocument, readManagedChapterForWrite } from "./formal-writeback"
-export type { CommitAcceptedDeepChapterDraftInput } from "./formal-writeback"
+export { commitAcceptedDeepChapterDraft, buildManagedChapterDocument, finalizeAcceptedChapter, readManagedChapterForWrite } from "./formal-writeback"
+export type { CommitAcceptedDeepChapterDraftInput, FinalizeAcceptedChapterInput } from "./formal-writeback"
 export { deleteGenerationHistoryEntry, listGenerationHistory, saveGenerationHistoryEntry } from "./generation-history"
 export type { GenerationHistoryEntry } from "./generation-history"
 export { OUTLINE_GENRE_CODES } from "./genre-codes"
@@ -303,8 +304,8 @@ export type {
 export { configureMonaco } from "./monaco-loader"
 export { testNovelModel } from "./novel-model-test"
 export type { TestableNovelModelTask } from "./novel-model-test"
-export { acceptFindingRewriteDraft, blockDeepChapterSession, buildLifecycleStatus, buildNextStatus, completeDeepChapterSession, computeChaseDebtState, createNovelSessionId, getManagedDraftAdoptionGate, loadNovelSessionStatus, markSessionInterrupted, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, rejectFindingRewriteDraft, requireManagedDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, resolveStatusResumeCheckpoint, saveNovelSessionStatus, startDeepChapterSession, subscribeStatusJson, updateChaseDebtStatus, writeFindingRewriteDraft, appendStageMetric } from "./novel-session-status"
-export type { ChaseDebt, ChaseDebtEvent, ChaseDebtStatus, ChaseDebtType, NovelSessionStatus, StageMetricEntry, RouteShellMode, AntiAiMode, CanonMigrationMode } from "./novel-session-status"
+export { acceptFindingRewriteDraft, blockDeepChapterSession, buildLifecycleStatus, buildNextStatus, completeDeepChapterSession, computeChaseDebtState, createNovelSessionId, getExternalDraftRevisionCount, getManagedDraftAdoptionGate, isActiveChatDeepChapterSession, loadNovelSessionStatus, markExternalDraftAcceptedInStatus, markSessionInterrupted, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, rejectFindingRewriteDraft, requireManagedDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, resolveStatusResumeCheckpoint, saveNovelSessionStatus, startDeepChapterSession, subscribeStatusJson, syncExternalDraftToSessionStatus, updateChaseDebtStatus, writeFindingRewriteDraft, appendStageMetric } from "./novel-session-status"
+export type { ArcSettlementRecord, ChaseDebt, ChaseDebtEvent, ChaseDebtStatus, ChaseDebtType, ExternalDraftStatusEntry, MarkExternalDraftAcceptedInput, NovelSessionStatus, StageMetricEntry, SyncExternalDraftStatusInput, RouteShellMode, AntiAiMode, CanonMigrationMode } from "./novel-session-status"
 export { OUTLINE_FIND_CHAPTER_INTENTS, buildOutlineFindProtocol, shouldIncludeOutlineFindProtocol, stripOutlineFindProtocol } from "./outline-find-protocol"
 export { OUTLINE_SECTION_GENERATION_CONFIGS, addOutlineTaskToSourceList, buildOutlineGenerationPrompt, createOutlineIngestTask, hasOutlineForRefinement, openGeneratedOutline, runBulkOutlineIngest, runOutlineGenerationTask, runOutlineIngestTask, runOutlineRefinementTask, startOutlineIngestTask } from "./outline-generation"
 export type { OutlineRefinementWriteMode, OutlineSectionGenerationKey } from "./outline-generation"
@@ -408,8 +409,10 @@ export type {
   StoryCompass,
 } from "./story-compass"
 // §GAP-89-01 收官卷自动完结判定（volume.ts 配套 story-compass）
-export { checkFinaleAutoComplete, parseVolumeMeta } from "./volume"
+export { checkFinaleAutoComplete, getChapterVolumes, parseVolumeMeta } from "./volume"
 export type { FinaleAutoCompleteInput, VolumeMeta } from "./volume"
+export { loadSegmentSummaries, segmentIndexForChapter } from "./segment-summary"
+export type { SegmentSummaries } from "./segment-summary"
 // §GAP-89-02 四级上下文压缩 + 恢复包 + 熔断器（ainovel ctxpack 模式吸收）
 export {
   allowHalfOpenProbe,
@@ -1768,7 +1771,7 @@ export type {
 export { computeMyersDiff } from "./diff"
 export type { DiffChange, DiffChangeType } from "./diff"
 export { EMOTION_CB_THRESHOLD } from "./deep-chapter-runtime-support"
-export { loadSubplotBoard } from "./subplot-board"
+export { createEmptySubplotBoardStore, loadSubplotBoard, saveSubplotBoard, subplotBoardToContextText } from "./subplot-board"
 export type { Subplot, SubplotBoardStore, SubplotStatus } from "./subplot-board"
 export { CONSENSUS_CANON_DIGEST_MAX_CHARS, buildConsensusCanonDigest } from "./consensus-aggregate"
 export type { ConsensusCanonDigestInput } from "./consensus-aggregate"

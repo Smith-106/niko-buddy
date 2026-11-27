@@ -4,6 +4,7 @@ import {
   deriveAndSaveWorldBlueprint,
   deriveWorldBlueprint,
   loadWorldBlueprint,
+  mergeWorldBlueprintPatch,
   REQUIRED_WORLD_LAYERS,
   saveWorldBlueprint,
   validateWorldBlueprint,
@@ -201,5 +202,75 @@ describe("world-blueprint · 持久化与推导（MIG-001/MIG-002 增补）", ()
     expect(bp.layers.geography).toEqual(["长安城"])
     const loaded = await loadWorldBlueprint("proj")
     expect(loaded).toEqual(bp)
+  })
+
+  it("TASK-002: SUBDIR_TO_LAYER 覆盖 axioms/background/history/magic/politics/races/religions/economy", () => {
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.rules).toBe("axioms")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.axioms).toBe("axioms")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.lore).toBe("background")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.background).toBe("background")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.world).toBe("background")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.history).toBe("history")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.magic).toBe("magicSystem")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.politics).toBe("politics")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.races).toBe("races")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.religions).toBe("religions")
+    expect(SUBDIR_TO_LAYER_TEST_EXPORT.economy).toBe("economy")
+    for (const layer of Object.values(SUBDIR_TO_LAYER_TEST_EXPORT)) {
+      expect(WORLD_LAYERS).toContain(layer)
+    }
+  })
+
+  it("TASK-002: deriveWorldBlueprint 带 fillMissingRequired 确定性补齐 5 个必填层至 complete", async () => {
+    mockListEntityFiles.mockResolvedValue([
+      { name: "天道守恒", path: "wiki/entities/rules/天道守恒.md" },
+      { name: "长安城", path: "wiki/entities/locations/长安城.md" },
+    ])
+    const bp = await deriveWorldBlueprint("proj", "东方玄幻", {
+      idea: { title: "青云录", genre: "东方玄幻", coreConflict: "正魔决战" },
+      fillMissingRequired: true,
+    })
+    expect(bp.layers.axioms).toEqual(["天道守恒"])
+    expect(bp.layers.geography).toEqual(["长安城"])
+    expect(bp.layers.background?.length).toBeGreaterThan(0)
+    expect(bp.layers.cultures?.length).toBeGreaterThan(0)
+    expect(bp.layers.conflicts?.[0]).toContain("正魔决战")
+    expect(validateWorldBlueprint(bp).verdict).toBe("complete")
+  })
+
+  it("TASK-002: deriveAndSaveWorldBlueprint 带 seed 时保留磁盘既有层并补齐缺层", async () => {
+    await saveWorldBlueprint("proj", {
+      version: "1.0",
+      worldType: "都市异能",
+      layers: { axioms: ["身体租赁不可逆"], background: ["近未来租赁都市"] },
+      crossRefs: [{ from: "axioms", to: "background", term: "近未来租赁都市" }],
+    })
+    const bp = await deriveAndSaveWorldBlueprint("proj", "都市异能", {
+      idea: { title: "身体都是租的", genre: "都市异能", coreConflict: "赎身" },
+      fillMissingRequired: true,
+    })
+    expect(bp.layers.axioms).toEqual(["身体租赁不可逆"])
+    expect(bp.layers.background).toEqual(["近未来租赁都市"])
+    expect(bp.crossRefs).toEqual([{ from: "axioms", to: "background", term: "近未来租赁都市" }])
+    expect(validateWorldBlueprint(bp).verdict).toBe("complete")
+  })
+
+  it("TASK-002: mergeWorldBlueprintPatch 支持 merge/replace 且纯函数不修改入参", () => {
+    const original = completeBlueprint()
+    const merged = mergeWorldBlueprintPatch(original, {
+      layers: { axioms: ["灵气即资源", "因果等价"], magicSystem: ["元婴"] },
+      crossRefs: [{ from: "magicSystem", to: "races", term: "妖族" }],
+    })
+    expect(merged.layers.axioms).toEqual(["灵气即资源", "境界决定话语权", "因果等价"])
+    expect(merged.layers.magicSystem).toEqual(["炼气→筑基→金丹", "元婴"])
+    expect(merged.crossRefs).toHaveLength(2)
+    expect(original.layers.axioms).toEqual(["灵气即资源", "境界决定话语权"])
+
+    const replaced = mergeWorldBlueprintPatch(original, {
+      mode: "replace",
+      layers: { axioms: ["新公理"] },
+    })
+    expect(replaced.layers.axioms).toEqual(["新公理"])
+    expect(replaced.layers.geography).toEqual(["九州大陆", "北境冰原"])
   })
 })

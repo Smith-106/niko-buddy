@@ -2619,4 +2619,96 @@ describe("handleStateRequest — P2-B4 (8 个新操作 / mcp:draft.patch 元数�
     expect(errRes.error).toContain("找不到草稿")
     expect(onDraftWritten).not.toHaveBeenCalled()
   })
+
+  it("7) TASK-002 6 个零 LLM 规划/治理写 op：未打开项目报错、正常转发 DI、成功触发 onDraftWritten 且严守零写前缀导出门禁", async () => {
+    const ops = [
+      "director-upsert-world",
+      "director-commit-phase",
+      "rules-upsert-book-rules",
+      "compass-update",
+      "foreshadowing-upsert",
+      "subplot-upsert",
+    ] as const
+
+    const noProj = deps({ readProjectPath: () => "" })
+    for (const op of ops) {
+      const res = await handleStateRequest(request({ op, params: {} }), noProj)
+      expect(res.ok).toBe(false)
+      expect(res.error).toContain("未打开项目")
+    }
+
+    const onDraftWritten = vi.fn()
+    const called: string[] = []
+    const d = deps({
+      onDraftWritten,
+      directorUpsertWorld: async (pp, params) => {
+        called.push(`director-upsert-world:${pp}:${String(params.worldType ?? "")}`)
+        return { validation: { verdict: "complete" } }
+      },
+      directorCommitPhase: async (pp, params) => {
+        called.push(`director-commit-phase:${pp}:${String(params.expectedPhase ?? "")}`)
+        return { advanced: true, currentPhase: "character" }
+      },
+      rulesUpsertBookRules: async (pp, params) => {
+        called.push(`rules-upsert-book-rules:${pp}:${String(params.mode ?? "")}`)
+        return { rules: { prohibitions: [] } }
+      },
+      compassUpdate: async (pp, params) => {
+        called.push(`compass-update:${pp}:${String(params.estimatedScale ?? "")}`)
+        return { openThreadCount: 1 }
+      },
+      foreshadowingUpsert: async (pp, params) => {
+        called.push(`foreshadowing-upsert:${pp}:${String(params.name ?? "")}`)
+        return { action: "created" }
+      },
+      subplotUpsert: async (pp, params) => {
+        called.push(`subplot-upsert:${pp}:${String(params.title ?? "")}`)
+        return { action: "created" }
+      },
+    })
+
+    const payloads: Array<{ op: (typeof ops)[number]; params: Record<string, unknown> }> = [
+      { op: "director-upsert-world", params: { worldType: "东方玄幻" } },
+      { op: "director-commit-phase", params: { expectedPhase: "world" } },
+      { op: "rules-upsert-book-rules", params: { mode: "merge" } },
+      { op: "compass-update", params: { estimatedScale: "4-6卷" } },
+      { op: "foreshadowing-upsert", params: { name: "古镜" } },
+      { op: "subplot-upsert", params: { title: "失踪案" } },
+    ]
+    for (const item of payloads) {
+      const res = await handleStateRequest(request({ op: item.op, params: item.params }), d)
+      expect(res.ok).toBe(true)
+    }
+
+    expect(called).toEqual([
+      "director-upsert-world:/proj:东方玄幻",
+      "director-commit-phase:/proj:world",
+      "rules-upsert-book-rules:/proj:merge",
+      "compass-update:/proj:4-6卷",
+      "foreshadowing-upsert:/proj:古镜",
+      "subplot-upsert:/proj:失踪案",
+    ])
+    expect(onDraftWritten).toHaveBeenCalledTimes(6)
+
+    // 抛错捕获且不触发 onDraftWritten
+    const onFailRefresh = vi.fn()
+    const failRes = await handleStateRequest(
+      request({ op: "compass-update", params: {} }),
+      deps({
+        onDraftWritten: onFailRefresh,
+        compassUpdate: async () => {
+          throw new Error("compass.update: 至少需提供一个字段")
+        },
+      }),
+    )
+    expect(failRes.ok).toBe(false)
+    expect(failRes.error).toContain("至少需提供一个字段")
+    expect(onFailRefresh).not.toHaveBeenCalled()
+
+    // 确认模块导出面仍严守零写前缀门禁
+    const mod = await import("./state-bridge")
+    expect(
+      Object.keys(mod).filter((name) => /^(set|write|remove|delete|update)/i.test(name)),
+    ).toEqual([])
+  })
 })

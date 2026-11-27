@@ -153,22 +153,174 @@ export const SUBDIR_TO_LAYER: Record<string, WorldLayer> = {
   items: "technology",
   events: "conflicts",
   characters: "cultures",
+  rules: "axioms",
+  axioms: "axioms",
+  lore: "background",
+  background: "background",
+  world: "background",
+  history: "history",
+  magic: "magicSystem",
+  politics: "politics",
+  races: "races",
+  religions: "religions",
+  economy: "economy",
 }
 
 /** spec 辅助：暴露映射表供断言（避免内部实现漂移）。 */
 export const SUBDIR_TO_LAYER_TEST_EXPORT = SUBDIR_TO_LAYER
 
+const WORLD_LAYER_SET: ReadonlySet<string> = new Set(WORLD_LAYERS)
+
+export interface WorldBlueprintSeed {
+  idea?: { title?: string; genre?: string; coreConflict?: string }
+  existing?: WorldBlueprint | null
+  fillMissingRequired?: boolean
+}
+
+export interface WorldBlueprintPatch {
+  worldType?: string
+  version?: string
+  /** 合并策略：merge（默认，去重追加各层）或 replace（覆盖传入的层，保留未传入的层）。 */
+  mode?: "merge" | "replace"
+  layers?: Partial<Record<WorldLayer, string[]>>
+  crossRefs?: Array<{ from: WorldLayer; to: WorldLayer; term: string }>
+  fillMissingRequired?: boolean
+  idea?: { title?: string; genre?: string; coreConflict?: string }
+}
+
+function dedupeTrimmedEntries(entries: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const item of entries) {
+    if (typeof item !== "string") continue
+    const trimmed = item.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+  }
+  return out
+}
+
+function dedupeCrossRefs(
+  refs: readonly { from: WorldLayer; to: WorldLayer; term: string }[],
+): Array<{ from: WorldLayer; to: WorldLayer; term: string }> {
+  const seen = new Set<string>()
+  const out: Array<{ from: WorldLayer; to: WorldLayer; term: string }> = []
+  for (const ref of refs) {
+    if (!WORLD_LAYER_SET.has(ref.from) || !WORLD_LAYER_SET.has(ref.to)) continue
+    const term = ref.term.trim()
+    if (!term) continue
+    const key = `${ref.from}\0${ref.to}\0${term}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ from: ref.from, to: ref.to, term })
+  }
+  return out
+}
+
+function deterministicRequiredLayerSeed(
+  layer: WorldLayer,
+  worldType: string,
+  idea?: { title?: string; genre?: string; coreConflict?: string },
+): string {
+  const title = idea?.title?.trim() || "未命名作品"
+  const genre = idea?.genre?.trim() || worldType.trim() || "fantasy"
+  const conflict = idea?.coreConflict?.trim() || "核心矛盾待进一步细化"
+  switch (layer) {
+    case "axioms":
+      return `${genre}世界基本法则（待按《${title}》细化）`
+    case "background":
+      return `《${title}》（${genre}）时代背景与世界格局基线`
+    case "geography":
+      return `《${title}》核心舞台与地理格局（待细化）`
+    case "cultures":
+      return `《${title}》主要社会文化与人物群体（待细化）`
+    case "conflicts":
+      return `核心冲突：${conflict}`
+    default:
+      return `《${title}》${layer}基线设定`
+  }
+}
+
+/**
+ * 确定性合并/覆盖世界观骨架补丁（纯函数，不修改入参）。
+ *
+ * - `mode: "merge"`（默认）：在已有层后去重追加新条目；
+ * - `mode: "replace"`：对本次显式传入的层直接替换，未传入的层保持原样；
+ * - `fillMissingRequired: true`：对仍为空的 5 个必填层补齐确定性种子条目，
+ *   消除开书 Phase 2 (world) 的 axioms/background 数学死锁。
+ */
+export function mergeWorldBlueprintPatch(
+  existing: WorldBlueprint | null,
+  patch: WorldBlueprintPatch,
+): WorldBlueprint {
+  const mode = patch.mode ?? "merge"
+  const worldType = patch.worldType?.trim() || existing?.worldType?.trim() || "fantasy"
+  const version = patch.version?.trim() || existing?.version?.trim() || "1.0"
+
+  const nextLayers: Partial<Record<WorldLayer, string[]>> = {}
+  if (existing?.layers) {
+    for (const layer of WORLD_LAYERS) {
+      const prev = existing.layers[layer]
+      if (Array.isArray(prev)) {
+        nextLayers[layer] = dedupeTrimmedEntries(prev)
+      }
+    }
+  }
+
+  if (patch.layers) {
+    for (const [rawLayer, rawEntries] of Object.entries(patch.layers)) {
+      if (!WORLD_LAYER_SET.has(rawLayer) || !Array.isArray(rawEntries)) continue
+      const layer = rawLayer as WorldLayer
+      const incoming = dedupeTrimmedEntries(rawEntries)
+      if (mode === "replace") {
+        nextLayers[layer] = incoming
+      } else {
+        nextLayers[layer] = dedupeTrimmedEntries([...(nextLayers[layer] ?? []), ...incoming])
+      }
+    }
+  }
+
+  if (patch.fillMissingRequired) {
+    for (const layer of REQUIRED_WORLD_LAYERS) {
+      const current = nextLayers[layer] ?? []
+      if (current.length === 0) {
+        nextLayers[layer] = [deterministicRequiredLayerSeed(layer, worldType, patch.idea)]
+      }
+    }
+  }
+
+  const existingRefs = Array.isArray(existing?.crossRefs) ? existing.crossRefs : []
+  const nextCrossRefs =
+    patch.crossRefs !== undefined
+      ? mode === "replace"
+        ? dedupeCrossRefs(patch.crossRefs)
+        : dedupeCrossRefs([...existingRefs, ...patch.crossRefs])
+      : dedupeCrossRefs(existingRefs)
+
+  return {
+    version,
+    worldType,
+    layers: nextLayers,
+    crossRefs: nextCrossRefs,
+  }
+}
+
 /**
  * 从项目实体推导世界骨架草稿：读 entities/ 各子目录实体名，映射到
  * WORLD_LAYERS 对应层。只做确定性聚合（不 LLM 生成语义），产物是骨架
- * 治理草稿供后续编辑/draft-first 完善。空项目返回全空骨架（优雅降级）。
+ * 治理草稿供后续编辑/draft-first 完善。
+ *
+ * - 省略 `seed` 时 100% 保持既有行为（空项目返回必填层为空数组的 incomplete 骨架）；
+ * - 提供 `seed.fillMissingRequired: true` 时按 `seed.idea` 确定性补齐缺失的 5 个必填层
+ *   （含 `axioms` 与 `background`），确保 `validateWorldBlueprint` 返回 `complete`。
  */
 export async function deriveWorldBlueprint(
   projectPath: string,
   worldType = "fantasy",
+  seed?: WorldBlueprintSeed,
 ): Promise<WorldBlueprint> {
   const pp = normalizePath(projectPath).replace(/\/+$/, "")
-  const bp = createEmptyWorldBlueprint(worldType)
   const entities = await listEntityFiles(pp).catch(() => [])
 
   // 按子目录聚类实体名 → 映射到骨架层
@@ -182,25 +334,53 @@ export async function deriveWorldBlueprint(
     if (!byLayer.has(layer)) byLayer.set(layer, [])
     byLayer.get(layer)!.push(e.name)
   }
+
+  const derivedLayers: Partial<Record<WorldLayer, string[]>> = {}
   for (const [layer, names] of byLayer) {
-    bp.layers[layer] = names.sort()
+    derivedLayers[layer] = [...names].sort()
   }
-  // 保底必填层：entities 为空的必填层给一个占位骨架条目，避免永远 missing
-  // （骨架是草稿——占位提示后续完善，非伪造语义内容）
-  if (entities.length === 0) {
+
+  if (!seed) {
+    const bp = createEmptyWorldBlueprint(worldType)
+    for (const [layer, names] of Object.entries(derivedLayers)) {
+      bp.layers[layer as WorldLayer] = names
+    }
+    // 保底必填层：entities 为空的必填层给空数组，保持向后兼容
+    if (entities.length === 0) {
+      for (const layer of REQUIRED_WORLD_LAYERS) {
+        bp.layers[layer] = bp.layers[layer] ?? []
+      }
+    }
+    return bp
+  }
+
+  const merged = mergeWorldBlueprintPatch(seed.existing ?? null, {
+    worldType,
+    mode: "merge",
+    layers: derivedLayers,
+    fillMissingRequired: seed.fillMissingRequired,
+    idea: seed.idea,
+  })
+  if (!seed.fillMissingRequired && entities.length === 0 && !seed.existing) {
     for (const layer of REQUIRED_WORLD_LAYERS) {
-      bp.layers[layer] = bp.layers[layer] ?? []
+      merged.layers[layer] = merged.layers[layer] ?? []
     }
   }
-  return bp
+  return merged
 }
 
 /** 推导并持久化世界骨架（derive + save 一步到位）。 */
 export async function deriveAndSaveWorldBlueprint(
   projectPath: string,
   worldType = "fantasy",
+  seed?: WorldBlueprintSeed,
 ): Promise<WorldBlueprint> {
-  const bp = await deriveWorldBlueprint(projectPath, worldType)
+  let effectiveSeed = seed
+  if (seed !== undefined && seed.existing === undefined) {
+    const existing = await loadWorldBlueprint(projectPath)
+    effectiveSeed = { ...seed, existing }
+  }
+  const bp = await deriveWorldBlueprint(projectPath, worldType, effectiveSeed)
   await saveWorldBlueprint(projectPath, bp)
   return bp
 }

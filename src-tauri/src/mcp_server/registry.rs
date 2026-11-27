@@ -19,10 +19,10 @@ impl ToolProfile {
     /// 判断某个工具名是否在当前 Profile 下可见、可调。
     ///
     /// 与 `SessionScope` 取交集：
-    /// - `FullLegacy`：全部 40 个已注册工具；
-    /// - `WriterSub`（26 个）：零 LLM 读写原语 + Draft-first 写工具，隐藏全部内部 API LLM 管线与全量直写工具；
+    /// - `FullLegacy`：全部 46 个已注册工具；
+    /// - `WriterSub`（32 个）：零 LLM 读写原语 + Draft-first 写工具 + 6 个零 LLM 规划/治理写工具，隐藏全部内部 API LLM 管线与全量直写工具；
     /// - `Reviewer`（21 个）：严格全只读工具，零写工具；
-    /// - `Architect`（18 个）：聚焦开书/世界观/大纲/角色规划与长篇健康诊断，不含正文写入、草稿修审、行级草稿比对与风格范例工具。
+    /// - `Architect`（24 个）：聚焦开书/世界观/大纲/角色/书规/指南针/伏笔/支线规划与长篇健康诊断，不含正文写入、草稿修审、行级草稿比对与风格范例工具。
     pub fn allows(self, tool_name: &str) -> bool {
         match self {
             Self::FullLegacy => true,
@@ -54,6 +54,12 @@ impl ToolProfile {
                     | "draft.record_review"
                     | "outline.write"
                     | "character.upsert"
+                    | "director.upsert_world"
+                    | "director.commit_phase"
+                    | "rules.upsert_book_rules"
+                    | "compass.update"
+                    | "foreshadowing.upsert"
+                    | "subplot.upsert"
             ),
             Self::Reviewer => matches!(
                 tool_name,
@@ -99,6 +105,12 @@ impl ToolProfile {
                     | "audit.longform_health"
                     | "outline.write"
                     | "character.upsert"
+                    | "director.upsert_world"
+                    | "director.commit_phase"
+                    | "rules.upsert_book_rules"
+                    | "compass.update"
+                    | "foreshadowing.upsert"
+                    | "subplot.upsert"
             ),
         }
     }
@@ -288,6 +300,23 @@ impl ToolProfile {
             "outline.write" | "character.upsert" => (
                 &["director.check", "project.state", "canon.query"],
                 "Planning write tools are hidden in the read-only reviewer profile. Inspect project state via director.check, project.state, and canon.query, or switch session to architect/writer-sub.",
+            ),
+            "director.upsert_world" | "director.commit_phase" => (
+                &["director.check", "workflow.next", "project.state"],
+                "Director planning mutations are hidden in the read-only reviewer profile. Inspect gate readiness via director.check, workflow.next, and project.state, or switch session to architect/writer-sub.",
+            ),
+            "rules.upsert_book_rules" => (
+                &["rules.get", "gate.check_mechanical", "project.state"],
+                "Book rules mutations are hidden in the read-only reviewer profile. Inspect active rules via rules.get and audit compliance via gate.check_mechanical, or switch session to architect/writer-sub.",
+            ),
+            "compass.update" | "foreshadowing.upsert" | "subplot.upsert" => (
+                &[
+                    "foreshadowing.list",
+                    "audit.longform_health",
+                    "rules.get",
+                    "project.state",
+                ],
+                "Planning ledger mutations are hidden in the read-only reviewer profile. Inspect foreshadowing, compass, and subplot health via foreshadowing.list, audit.longform_health, rules.get, and project.state, or switch session to architect/writer-sub.",
             ),
             "context.inspect" | "draft.read" | "gate.check_mechanical" => (
                 &[
@@ -587,7 +616,7 @@ mod tests {
     #[test]
     fn profile_visibility_matrix_is_monotonic_and_matches_exact_counts() {
         let reg = crate::mcp_server::tools::build_registry();
-        assert_eq!(reg.len(), 40, "全量注册表应保持 40 个工具");
+        assert_eq!(reg.len(), 46, "全量注册表应保持 46 个工具");
 
         let full_read = reg.names_visible_to_profile(SessionScope::Read, ToolProfile::FullLegacy);
         let full_settings =
@@ -598,16 +627,16 @@ mod tests {
         let full_all = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::FullLegacy);
         assert_eq!(full_read.len(), 24);
         assert_eq!(full_settings.len(), 25);
-        assert_eq!(full_project.len(), 36);
-        assert_eq!(full_auto.len(), 37);
-        assert_eq!(full_all.len(), 40);
+        assert_eq!(full_project.len(), 42);
+        assert_eq!(full_auto.len(), 43);
+        assert_eq!(full_all.len(), 46);
 
         let writer_read = reg.names_visible_to_profile(SessionScope::Read, ToolProfile::WriterSub);
         let writer_full = reg.names_visible_to_profile(SessionScope::Full, ToolProfile::WriterSub);
         let writer_proj =
             reg.names_visible_to_profile(SessionScope::Project, ToolProfile::WriterSub);
         assert_eq!(writer_read.len(), 21);
-        assert_eq!(writer_full.len(), 26);
+        assert_eq!(writer_full.len(), 32);
         assert_eq!(
             writer_full, writer_proj,
             "WriterSub 即使在 Full scope 下也不得暴露任何 Full 专属工具或 Settings 工具"
@@ -635,7 +664,7 @@ mod tests {
         let architect_proj =
             reg.names_visible_to_profile(SessionScope::Project, ToolProfile::Architect);
         assert_eq!(architect_read.len(), 16);
-        assert_eq!(architect_full.len(), 18);
+        assert_eq!(architect_full.len(), 24);
         assert_eq!(architect_full, architect_proj);
 
         // 单调子集不变量：任意 (scope, profile) 必为 names_visible_to(scope) 子集，且 list_for 与 names_visible_to_profile 1:1 对齐。
@@ -797,5 +826,26 @@ mod tests {
                 "context.prepare_write",
             ]
         );
+
+        // 核对 TASK-002 新增 6 个零 LLM 规划/治理写工具在 WriterSub / Architect 放行，在 Reviewer 严格隐藏并仅推荐只读工具。
+        for planning_write in [
+            "director.upsert_world",
+            "director.commit_phase",
+            "rules.upsert_book_rules",
+            "compass.update",
+            "foreshadowing.upsert",
+            "subplot.upsert",
+        ] {
+            assert!(ToolProfile::WriterSub.allows(planning_write));
+            assert!(ToolProfile::Architect.allows(planning_write));
+            assert!(!ToolProfile::Reviewer.allows(planning_write));
+            let (repl, msg) = ToolProfile::Reviewer.blocked_guidance(planning_write);
+            assert!(!repl.is_empty());
+            assert!(msg.contains("read-only"));
+            for alt in repl {
+                assert!(ToolProfile::Reviewer.allows(alt));
+                assert_eq!(reg.required_scope(alt), Some(SessionScope::Read));
+            }
+        }
     }
 }

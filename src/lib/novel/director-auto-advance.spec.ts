@@ -577,7 +577,7 @@ describe("开书导演自动推进 · 默认链路（省略可选注入）", () 
     expect(outcome.state.statuses.chapters).toBe("failed")
   })
 
-  it("world 阶段省略全部可选注入 → 真实派生/采集/落盘，空项目门未过", async () => {
+  it("world 阶段省略全部可选注入 → 真实派生补齐 5 个必填层并顺利推进到 character（消除死锁）", async () => {
     const counter = { calls: 0 }
     const state = { ...createDirectorPipeline(), currentPhase: "world" as const }
     const outcome = await advanceDirectorAutomatically(
@@ -589,12 +589,42 @@ describe("开书导演自动推进 · 默认链路（省略可选注入）", () 
     expect(counter.calls).toBe(0)
     expect(outcome.generated).toBe(true)
     expect(outcome.stage).toBeUndefined()
-    expect(outcome.advanced).toBe(false)
-    expect(outcome.blockedReason).toContain("世界骨架未完备")
-    expect(outcome.recovery).toMatchObject({ phase: "world", retryCount: 1 })
+    expect(outcome.advanced).toBe(true)
+    expect(outcome.state.statuses.world).toBe("done")
+    expect(outcome.state.currentPhase).toBe("character")
+    expect(outcome.blockedReason).toBeUndefined()
     const raw = files.get(`${PROJECT}/.novel/world-blueprint.json`)
     expect(raw).toContain('"worldType": "fantasy"')
     expect(raw).toContain('"axioms"')
+    expect(raw).toContain('"background"')
+    expect(raw).toContain("赎身")
+  })
+
+  it("world 阶段若自定义 deriveWorld 产出残缺骨架 → 阶段门仍严格阻断不放水", async () => {
+    const state = { ...createDirectorPipeline(), currentPhase: "world" as const }
+    let receivedSeed: unknown
+    const outcome = await advanceDirectorAutomatically(
+      PROJECT,
+      state,
+      { title: "身体都是租的", genre: "都市异能", coreConflict: "赎身" },
+      {
+        llmConfig: LLM,
+        deriveWorld: async (_pp, _wt, seed) => {
+          receivedSeed = seed
+          files.set(
+            `${PROJECT}/.novel/world-blueprint.json`,
+            JSON.stringify({ version: "1.0", worldType: "fantasy", layers: { geography: ["某城"] } }),
+          )
+        },
+      },
+    )
+    expect(receivedSeed).toEqual({
+      idea: { title: "身体都是租的", genre: "都市异能", coreConflict: "赎身" },
+      fillMissingRequired: true,
+    })
+    expect(outcome.advanced).toBe(false)
+    expect(outcome.blockedReason).toContain("世界骨架未完备")
+    expect(outcome.recovery).toMatchObject({ phase: "world", retryCount: 1 })
   })
 })
 

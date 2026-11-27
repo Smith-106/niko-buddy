@@ -33,7 +33,7 @@ use crate::agent_gate_policy::{
 };
 
 pub const WRITER_PLUGIN_NAME: &str = "niko-buddy-writer";
-pub const WRITER_PLUGIN_VERSION: &str = "1.2.0";
+pub const WRITER_PLUGIN_VERSION: &str = "1.3.0";
 const WRITER_PLUGIN_AUTHOR: &str = "Niko Buddy";
 const WRITER_PLUGIN_DESCRIPTION: &str = "Pure-declarative long-form novel writing workspace plugin for Antigravity + Niko Buddy MCP (Draft-first, zero-LLM mechanical gates, 6 skills, 5 editorial role playbooks).";
 
@@ -51,23 +51,22 @@ const RULES_AGENTS_MD: &str = r#"# Niko Buddy Writing Workspace Rules
 Long-form fiction workspace managed by **Niko Buddy** (not a code repo). Stay strictly inside narrative planning, drafting, editing, and review.
 
 ## Safety Boundaries
-- **Draft-first**: Create drafts via `chapter.write`, patch via `draft.patch` (`expectedSha256` from `draft.read`, `HARD_FUSE_LIMIT=5`), and record gates via `draft.record_review` (at most `pending -> ready`, NEVER accepts; formal acceptance happens exclusively via human click inside Niko Buddy UI). Never overwrite formal chapters/memory.
+- **Draft-first**: Create drafts via `chapter.write`, patch via `draft.patch` (`expectedSha256` from `draft.read`, `HARD_FUSE_LIMIT=5`), record gates via `draft.record_review` (at most `pending -> ready`, NEVER accepts; human accepts in UI). Never overwrite formal chapters/memory.
 - **Gate Priority**: `Consistency(P0) > Anti-AI(P1) > Quality(P2)`. Quality never overrides P0 failure.
-- **Zero-LLM Loop**: `workflow.next` -> `context.prepare_write` (`prepareId` + `page`) + `rules.get(compact:true)` + ledgers (`foreshadowing.list`, `character.read`, `outline.read`, `style.exemplars`, `chapter.search`, `audit.longform_health`) -> host model -> `chapter.write`/`draft.patch` -> `draft.diff` + `gate.check_mechanical` -> `draft.record_review`.
+- **Zero-LLM Loop**: `workflow.next` -> `context.prepare_write` (`prepareId`+`page`) + `rules.get(compact:true)` + `foreshadowing.list`/`character.read`/`outline.read`/`style.exemplars`/`chapter.search`/`audit.longform_health` -> host model -> `chapter.write`/`draft.patch` -> `draft.diff` + `gate.check_mechanical` -> `draft.record_review`.
+- **Planning Writes** (`architect`/`writer-sub`): `director.upsert_world`, `director.commit_phase`, `rules.upsert_book_rules`, `compass.update`, `foreshadowing.upsert`, `subplot.upsert`, `outline.write`, `character.upsert`.
 
 ## Skills (`skills/*/SKILL.md`)
-- `nb-book-architect` — Premise, outlines, characters
-- `nb-chapter-draft` — Drafting, patching, review gates
-- `nb-consistency-audit` — Read-only P0 canon audit
-- `nb-de-ai-polish` — Surgical anti-AI prose polish
-- `nb-six-dim-review` — Read-only six-dim review
-- `nb-story-ops` — Routing, ledgers, `ChapterSnapshot` prep
+- `nb-book-architect` — World, rules, outlines, characters
+- `nb-chapter-draft` — Drafting, patching, gates
+- `nb-consistency-audit` — RO P0 canon audit
+- `nb-de-ai-polish` — Anti-AI prose polish
+- `nb-six-dim-review` — RO six-dim review
+- `nb-story-ops` — Routing, ledgers, `ChapterSnapshot`
 
 ## Playbooks (`agents/*.md`)
-- `novel-architect` (`architect`/`writer-sub`), `novel-writer` (`writer-sub`), `de-ai-stylist` (`writer-sub`)
-- `canon-auditor` `[RO]`, `literary-critic` `[RO]`
-
-`[RO]` is enforced by MCP `reviewer` profile + `SessionScope::Read` (playbooks alone cannot enforce write limits).
+- `novel-architect` (`architect`/`writer-sub`), `novel-writer` / `de-ai-stylist` (`writer-sub`)
+- `canon-auditor` `[RO]`, `literary-critic` `[RO]` (enforced by MCP `reviewer` + `SessionScope::Read`)
 "#;
 
 const SKILL_BOOK_ARCHITECT: &str = r#"---
@@ -86,8 +85,8 @@ Use this skill when designing or updating book setup, volume outlines, or charac
 1. Call `workflow.next`, `director.check`, `project.state`, and `rules.get(compact:true)` to inspect current phase gates and book rules.
 2. Read existing planning state with `outline.read` (by volume/chapter window or safe `.md` filename), `character.read`, `foreshadowing.list`, `audit.longform_health`, `canon.query`, `chapter.list`, `draft.list`, and `chapter.search`.
 3. Assemble planning context via `context.prepare_write(includePlanningView:true)` when expanding an ongoing book; reuse `prepareId` + `page` for paged context without rebuilding.
-4. Author structured outlines or character cards directly using the host subscription model — do not invoke legacy internal LLM generators.
-5. Persist planning artifacts safely with `outline.write` (safe `.md` filename under `wiki/outlines/`) and `character.upsert`.
+4. Author world layers, book rules, outlines, character cards, compass goals, foreshadowing, and subplots directly using the host subscription model — do not invoke legacy internal LLM generators.
+5. Persist planning/governance artifacts safely with `director.upsert_world`, `rules.upsert_book_rules`, `outline.write` (safe `.md` filename under `wiki/outlines/`), `character.upsert`, `compass.update`, `foreshadowing.upsert`, `subplot.upsert`, and commit verified setup gates via `director.commit_phase`.
 6. Never write formal chapters or formal memory directly. Keep all narrative plans aligned with `Consistency(P0) > Anti-AI(P1) > Quality(P2)`.
 "#;
 
@@ -207,7 +206,7 @@ Declarative editorial-room persona for book structure, worldbuilding, outlines, 
 - Route and audit setup readiness with `workflow.next`, `director.check`, `project.state`, and `rules.get(compact:true)`.
 - Inspect existing outlines, characters, foreshadowing, book-wide health, and prior chapters via `outline.read`, `character.read`, `foreshadowing.list`, `audit.longform_health`, `canon.query`, and `chapter.search`.
 - Prepare planning context with `context.prepare_write(includePlanningView:true)` (reusing `prepareId` + `page` when paging).
-- Author outlines and character docs directly with the host model and save via `outline.write` and `character.upsert`.
+- Author world layers, book rules, outlines, character docs, compass, foreshadowing, and subplot plans directly with the host model and save via `director.upsert_world`, `rules.upsert_book_rules`, `outline.write`, `character.upsert`, `compass.update`, `foreshadowing.upsert`, `subplot.upsert`, and `director.commit_phase`.
 
 ## Boundaries
 - Never bypass Draft-first or touch formal chapters/memory.
@@ -243,7 +242,7 @@ Strictly **read-only** editorial-room persona for P0 continuity, canon ledger, a
 - Check routing via `workflow.next` and read drafts/chapters via `draft.list`, `draft.read` (recording `bodySha256`), `chapter.list`, `chapter.read`.
 - Cross-verify character states, foreshadowing threads, outlines, and past text via `character.read`, `foreshadowing.list`, `outline.read`, `chapter.search`, `canon.query`, and `context.inspect`.
 - Run `gate.check_mechanical(draftId|chapter, detailLevel:"full")` (include `chapterNumber` for raw `text`).
-- Deliver precise P0 continuity findings with line citations and structured repair/gate payloads for `writer-sub` to apply via `draft.patch` and record via `draft.record_review`.
+- Deliver precise P0 continuity findings with line citations and structured repair/gate payloads back to `writer-sub` (do not invoke any write tool from this read-only session).
 "#;
 
 const AGENT_DE_AI_STYLIST: &str = r#"# Role Playbook: De-AI Stylist
@@ -275,12 +274,12 @@ Strictly **read-only** editorial-room persona for six-dimension literary critiqu
 - Verify Track A hard gate status first via `gate.check_mechanical(draftId|chapter, detailLevel:"compact")`.
 - Read chapter/draft text and dimension prompts via `chapter.read`, `draft.read` (`bodySha256`), `context.prepare_write` (reuse `prepareId` + `page` across dimensions), and `context.inspect`.
 - Ground critique in author benchmarks, draft diffs, and story ledgers via `style.exemplars`, `draft.diff`, `foreshadowing.list`, `character.read`, `outline.read`, and `chapter.search`.
-- Score all six dimensions with line-level evidence and hand structured `gates` / `overallScore` / `dimensionScores` / `blockingIssues` back to `writer-sub` for `draft.record_review`.
+- Score all six dimensions with line-level evidence and hand structured `gates` / `overallScore` / `dimensionScores` / `blockingIssues` back to `writer-sub` (do not invoke any write tool from this read-only session).
 - Respect gate priority: literary quality scores never override a P0 consistency failure.
 "#;
 
 const PROJECT_AGENTS_MD_BLOCK: &str = r#"<!-- niko-buddy-writer:start -->
-<!-- niko-buddy-writer:version=1.2.0 -->
+<!-- niko-buddy-writer:version=1.3.0 -->
 # Niko Buddy Novel Workspace
 This directory is a long-form fiction project managed by Niko Buddy (not a code repository).
 - Use `niko-buddy-writer` (`.agents/plugins.json`) and Niko Buddy MCP (`writer-sub` / `reviewer` / `architect`), starting with `workflow.next`.
@@ -289,7 +288,7 @@ This directory is a long-form fiction project managed by Niko Buddy (not a code 
 <!-- niko-buddy-writer:end -->"#;
 
 const PROJECT_CLAUDE_MD_BLOCK: &str = r#"<!-- niko-buddy-writer:start -->
-<!-- niko-buddy-writer:version=1.2.0 -->
+<!-- niko-buddy-writer:version=1.3.0 -->
 @AGENTS.md
 <!-- niko-buddy-writer:end -->"#;
 
@@ -1215,8 +1214,8 @@ mod tests {
         assert!(RULES_AGENTS_MD.contains("SessionScope::Read"));
         assert!(RULES_AGENTS_MD.contains("Consistency(P0) > Anti-AI(P1) > Quality(P2)"));
 
-        // Phase 2/3 v1.2.0 canonical tools and interactive ChapterSnapshot ingest prep must be taught.
-        assert_eq!(WRITER_PLUGIN_VERSION, "1.2.0");
+        // Phase 2/3/v1.3.0 canonical tools and interactive ChapterSnapshot ingest prep must be taught.
+        assert_eq!(WRITER_PLUGIN_VERSION, "1.3.0");
         for needle in [
             "workflow.next",
             "prepareId",
@@ -1232,11 +1231,59 @@ mod tests {
             "chapter.search",
             "draft.diff",
             "audit.longform_health",
+            "director.upsert_world",
+            "director.commit_phase",
+            "rules.upsert_book_rules",
+            "compass.update",
+            "foreshadowing.upsert",
+            "subplot.upsert",
         ] {
             assert!(
                 RULES_AGENTS_MD.contains(needle),
-                "rules/AGENTS.md missing Phase 2/3 canonical token `{needle}`"
+                "rules/AGENTS.md missing canonical token `{needle}`"
             );
+        }
+        for planning_write in [
+            "director.upsert_world",
+            "director.commit_phase",
+            "rules.upsert_book_rules",
+            "compass.update",
+            "foreshadowing.upsert",
+            "subplot.upsert",
+        ] {
+            assert!(
+                SKILL_BOOK_ARCHITECT.contains(planning_write),
+                "nb-book-architect missing `{planning_write}`"
+            );
+            assert!(
+                AGENT_NOVEL_ARCHITECT.contains(planning_write),
+                "novel-architect missing `{planning_write}`"
+            );
+        }
+        // [RO] agent playbooks must NEVER mention any write tool.
+        for ro_agent in [
+            ("canon-auditor", AGENT_CANON_AUDITOR),
+            ("literary-critic", AGENT_LITERARY_CRITIC),
+        ] {
+            for write_tool in [
+                "chapter.write",
+                "draft.patch",
+                "draft.record_review",
+                "outline.write",
+                "character.upsert",
+                "director.upsert_world",
+                "director.commit_phase",
+                "rules.upsert_book_rules",
+                "compass.update",
+                "foreshadowing.upsert",
+                "subplot.upsert",
+            ] {
+                assert!(
+                    !ro_agent.1.contains(write_tool),
+                    "[RO] agent `{}` must NEVER mention write tool `{write_tool}`",
+                    ro_agent.0
+                );
+            }
         }
         assert!(SKILL_DE_AI_POLISH.contains("draft.diff"));
         assert!(SKILL_SIX_DIM_REVIEW.contains("draft.diff"));
@@ -1252,8 +1299,8 @@ mod tests {
         assert!(AGENT_NOVEL_ARCHITECT.contains("audit.longform_health"));
         assert!(SKILL_STORY_OPS.contains("ChapterSnapshot"));
         assert!(SKILL_STORY_OPS.contains("commitPreparedChapterIngest"));
-        assert!(PROJECT_AGENTS_MD_BLOCK.contains("version=1.2.0"));
-        assert!(PROJECT_CLAUDE_MD_BLOCK.contains("version=1.2.0"));
+        assert!(PROJECT_AGENTS_MD_BLOCK.contains("version=1.3.0"));
+        assert!(PROJECT_CLAUDE_MD_BLOCK.contains("version=1.3.0"));
     }
 
     #[test]
