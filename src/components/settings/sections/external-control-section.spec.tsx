@@ -1059,7 +1059,7 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     }
   })
 
-  it("Phase 2: Antigravity profile 选择器准确展示 38/24/19/17 工具数与规范能力说明，且零 role=alert 污染与 1:1 zh/en 键对齐", async () => {
+  it("Phase 3: Antigravity profile 选择器准确展示 40/26/21/18 工具数与规范能力说明，且 architect 不含 draft.diff、全量零 draft.accept / role=alert 污染与 1:1 zh/en 键对齐", async () => {
     invokeMock.mockResolvedValueOnce(RUNNING_STATUS)
     render(<ExternalControlSection />)
 
@@ -1074,10 +1074,11 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
       profile: "full-legacy" | "writer-sub" | "reviewer" | "architect"
       count: number
       mustContain: string[]
+      mustNotContain?: string[]
     }> = [
       {
         profile: "full-legacy",
-        count: 38,
+        count: 40,
         mustContain: [
           "workflow.next",
           "foreshadowing.list",
@@ -1085,13 +1086,15 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
           "outline.read",
           "style.exemplars",
           "chapter.search",
+          "draft.diff",
+          "audit.longform_health",
           "draft.patch",
           "draft.record_review",
         ],
       },
       {
         profile: "writer-sub",
-        count: 24,
+        count: 26,
         mustContain: [
           "workflow.next",
           "foreshadowing.list",
@@ -1099,13 +1102,15 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
           "outline.read",
           "style.exemplars",
           "chapter.search",
+          "draft.diff",
+          "audit.longform_health",
           "draft.patch",
           "draft.record_review",
         ],
       },
       {
         profile: "reviewer",
-        count: 19,
+        count: 21,
         mustContain: [
           "workflow.next",
           "foreshadowing.list",
@@ -1113,18 +1118,22 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
           "outline.read",
           "style.exemplars",
           "chapter.search",
+          "draft.diff",
+          "audit.longform_health",
         ],
       },
       {
         profile: "architect",
-        count: 17,
+        count: 18,
         mustContain: [
           "workflow.next",
           "foreshadowing.list",
           "character.read",
           "outline.read",
           "chapter.search",
+          "audit.longform_health",
         ],
+        mustNotContain: ["draft.diff"],
       },
     ]
 
@@ -1136,6 +1145,9 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
       const desc = screen.getByTestId("external-control-antigravity-profile-desc").textContent ?? ""
       for (const toolName of item.mustContain) {
         expect(desc).toContain(toolName)
+      }
+      for (const forbidden of item.mustNotContain ?? []) {
+        expect(desc).not.toContain(forbidden)
       }
       expect(desc).not.toContain("draft.accept")
       expect(screen.queryByRole("alert")).toBeNull()

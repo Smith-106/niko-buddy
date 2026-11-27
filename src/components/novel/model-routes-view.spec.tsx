@@ -31,6 +31,9 @@ function resetModelStore() {
       reviewModel: "",
       summaryModel: "",
       extractModel: "",
+      plannerModel: "",
+      polishModel: "",
+      canonAuditModel: "",
       consensusEnabled: false,
       consensusWritingModels: [],
       consensusReviewModels: {},
@@ -151,18 +154,93 @@ describe("ModelRoutesView", () => {
     })
     expect(snapshot).not.toBeNull()
     expect(snapshot?.routes).toHaveLength(4)
+    expect(snapshot?.routes.find((r) => r.task === "writing")?.lockedTemperature).toBe(0.8)
+    expect(snapshot?.routes.find((r) => r.task === "review")?.lockedTemperature).toBe(0.15)
     expect(snapshot?.routes.find((r) => r.task === "review")?.isOverride).toBe(true)
     expect(snapshot?.routes.find((r) => r.task === "writing")?.isOverride).toBe(false)
+    expect(snapshot?.roleRoutes).toHaveLength(3)
+    expect(snapshot?.roleRoutes.find((r) => r.task === "planner")).toMatchObject({
+      isOverride: false,
+      lockedTemperature: 0.5,
+      fallbackTarget: "primary",
+    })
+    expect(snapshot?.roleRoutes.find((r) => r.task === "polish")).toMatchObject({
+      isOverride: false,
+      lockedTemperature: 0.6,
+      fallbackTarget: "primary",
+    })
+    expect(snapshot?.roleRoutes.find((r) => r.task === "canon_audit")).toMatchObject({
+      isOverride: false,
+      lockedTemperature: 0.15,
+      fallbackTarget: "review",
+      resolvedModel: "anthropic/claude-x",
+    })
     expect(snapshot?.sources).toEqual([{ id: "openai", label: "OpenAI", savedModelCount: 1 }])
 
     expect(
       loadModelRoutesSnapshot({
         llmConfig: { ...state.llmConfig, model: "" },
-        novelConfig: { ...state.novelConfig, reviewModel: "", summaryModel: "", extractModel: "" },
+        novelConfig: {
+          ...state.novelConfig,
+          reviewModel: "",
+          summaryModel: "",
+          extractModel: "",
+          plannerModel: "",
+          polishModel: "",
+          canonAuditModel: "",
+        },
         defaultLlmModel: "  ",
         aiChatModel: "",
         providerConfigs: {},
       }),
     ).toBeNull()
+  })
+
+  it("Phase 3: 展示分角色温度锁定条与三条可选角色路由（canon_audit 跟随审稿模型并支持独立覆盖）", () => {
+    useWikiStore.setState({
+      defaultLlmModel: "openai/gpt-4o",
+      aiChatModel: "openai/gpt-4o-mini",
+      novelConfig: {
+        ...useWikiStore.getState().novelConfig,
+        reviewModel: "anthropic/claude-sonnet",
+        plannerModel: "google/gemini-2.5-pro",
+        polishModel: "",
+        canonAuditModel: "",
+      },
+    })
+    render(<ModelRoutesView projectPath="C:/proj" />)
+
+    const tempLocks = screen.getByTestId("model-routes-temp-locks")
+    expect(tempLocks.textContent).toContain("0.5")
+    expect(tempLocks.textContent).toContain("0.8")
+    expect(tempLocks.textContent).toContain("0.6")
+    expect(tempLocks.textContent).toContain("0.15")
+
+    expect(screen.getByTestId("model-route-temp-writing").textContent).toContain("0.8")
+    expect(screen.getByTestId("model-route-temp-review").textContent).toContain("0.15")
+
+    const optionalSection = screen.getByTestId("model-routes-optional-roles")
+    expect(optionalSection).toBeTruthy()
+    expect(screen.getByTestId("model-route-planner").textContent).toContain("google/gemini-2.5-pro")
+    expect(screen.getByTestId("model-route-planner").textContent).toContain("专用覆盖")
+    expect(screen.getByTestId("model-route-temp-planner").textContent).toContain("0.5")
+
+    expect(screen.getByTestId("model-route-polish").textContent).toContain("跟随主模型")
+    expect(screen.getByTestId("model-route-temp-polish").textContent).toContain("0.6")
+
+    expect(screen.getByTestId("model-route-canon_audit").textContent).toContain("anthropic/claude-sonnet")
+    expect(screen.getByTestId("model-route-canon_audit").textContent).toContain("跟随审稿模型")
+    expect(screen.getByTestId("model-route-temp-canon_audit").textContent).toContain("0.15")
+
+    act(() => {
+      useWikiStore.setState({
+        novelConfig: {
+          ...useWikiStore.getState().novelConfig,
+          canonAuditModel: "deepseek/deepseek-reasoner",
+        },
+      })
+    })
+    expect(screen.getByTestId("model-route-canon_audit").textContent).toContain("deepseek/deepseek-reasoner")
+    expect(screen.getByTestId("model-route-canon_audit").textContent).toContain("专用覆盖")
   })
 })

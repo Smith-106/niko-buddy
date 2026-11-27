@@ -34,6 +34,8 @@ export function WritingSkillLibraryView() {
   // 与 sidebar-panel 的章节导入一致）；弹窗只拿路径与落点根，落点根由宿主给出。
   const [bundlePath, setBundlePath] = useState<string | null>(null)
   const [bundleDialogOpen, setBundleDialogOpen] = useState(false)
+  const [bundleRefreshToken, setBundleRefreshToken] = useState(0)
+  const bundleDestRoot = project?.path ? `${project.path.replace(/[\\/]+$/, "")}/user-assets` : null
 
   const handleOpenBundleImport = async () => {
     /* v8 ignore next -- 台账 writing-skill-library-view.tsx L39：唯一入口 skill-bundle-import-open 位于 `{config && project ? (`（L561）之内，无项目不渲染 */
@@ -594,6 +596,9 @@ export function WritingSkillLibraryView() {
                 skills={config.skills}
                 categoryId={draftCategoryId || config.categories[0]?.id || ""}
                 onImported={(result) => void handlePackImported(result)}
+                bundleDestRoot={bundleDestRoot}
+                projectPath={project.path}
+                bundleRefreshToken={bundleRefreshToken}
               />
             </div>
           </div>
@@ -603,8 +608,9 @@ export function WritingSkillLibraryView() {
       <SkillBundleImportDialog
         open={bundleDialogOpen}
         bundlePath={bundlePath}
-        destRoot={project?.path ?? null}
+        destRoot={bundleDestRoot}
         onClose={() => setBundleDialogOpen(false)}
+        onImported={() => setBundleRefreshToken((n) => n + 1)}
       />
     </div>
   )

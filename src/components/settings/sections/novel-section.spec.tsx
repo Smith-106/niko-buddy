@@ -31,10 +31,11 @@ const mocks = vi.hoisted(() => {
   return {
     wikiState,
     t: vi.fn(
-      (key: string, opts?: { defaultValue?: string; message?: string; model?: string }) => {
+      (key: string, opts?: { defaultValue?: string; message?: string; model?: string; temp?: number }) => {
         if (opts?.defaultValue !== undefined) return opts.defaultValue
         if (opts?.message !== undefined) return `${key}:${opts.message}`
         if (opts?.model !== undefined) return `${key}:${opts.model}`
+        if (opts?.temp !== undefined) return `${key}:${opts.temp}`
         return key
       },
     ),
@@ -1094,6 +1095,103 @@ describe("NovelSection 未覆盖分支（覆盖战役补齐）", () => {
     fireEvent.change(screen.getByLabelText("引号规范"), { target: { value: "双引号" } })
     await waitFor(() => {
       expect(lastSavedNovelConfig().quoteConvention).toBe("双引号")
+    })
+  })
+
+  describe("Phase 3: 分角色温度锁定条与可选角色模型槽位", () => {
+    it("渲染只读分角色温度锁定条（0.5 / 0.8 / 0.6 / 0.15）与 3 个可选角色槽位且零孤立 label", () => {
+      renderSection()
+
+      const tempStrip = screen.getByTestId("novel-role-temp-locks")
+      expect(tempStrip).toHaveAttribute("role", "region")
+      expect(screen.getByTestId("novel-role-temp-planner")).toHaveTextContent("novel.settings.roleTempBadgePlanner:0.5")
+      expect(screen.getByTestId("novel-role-temp-writing")).toHaveTextContent("novel.settings.roleTempBadgeWriting:0.8")
+      expect(screen.getByTestId("novel-role-temp-polish")).toHaveTextContent("novel.settings.roleTempBadgePolish:0.6")
+      expect(screen.getByTestId("novel-role-temp-review")).toHaveTextContent("novel.settings.roleTempBadgeReviewAudit:0.15")
+
+      const plannerRow = modelRow("novel.settings.plannerModel")
+      expect(plannerRow).toHaveTextContent("novel.settings.roleTempTag:0.5")
+      expect(plannerRow).toHaveTextContent("novel.settings.followChatModel")
+
+      const polishRow = modelRow("novel.settings.polishModel")
+      expect(polishRow).toHaveTextContent("novel.settings.roleTempTag:0.6")
+      expect(polishRow).toHaveTextContent("novel.settings.followChatModel")
+
+      const canonRow = modelRow("novel.settings.canonAuditModel")
+      expect(canonRow).toHaveTextContent("novel.settings.roleTempTag:0.15")
+      expect(canonRow).toHaveTextContent("novel.settings.followReviewModel")
+
+      // 零孤立 <label>
+      const orphans = Array.from(document.querySelectorAll("label")).filter(
+        (l) => !(l as HTMLLabelElement).control,
+      )
+      expect(orphans.map((l) => l.textContent)).toEqual([])
+    })
+
+    it("plannerModel / polishModel / canonAuditModel 取消跟随、选择模型与重新跟随均可持久化", async () => {
+      currentDraft.novelConfig.reviewModel = "review-custom-model"
+      const { rerender } = renderSection()
+
+      // planner: 取消跟随 → 回填 aiChatModel → 选择 model-a → 重新勾选清空
+      const plannerRow = modelRow("novel.settings.plannerModel")
+      fireEvent.click(within(plannerRow).getByRole("checkbox"))
+      await waitFor(() => expect(currentDraft.novelConfig.plannerModel).toBe("chat-model"))
+      rerender()
+      fireEvent.change(within(plannerRow).getByTestId("model-select-chat-model"), { target: { value: "model-a" } })
+      await waitFor(() => expect(currentDraft.novelConfig.plannerModel).toBe("model-a"))
+      rerender()
+      fireEvent.click(within(plannerRow).getByRole("checkbox"))
+      await waitFor(() => expect(currentDraft.novelConfig.plannerModel).toBe(""))
+
+      // polish: 取消跟随 → 回填 aiChatModel
+      const polishRow = modelRow("novel.settings.polishModel")
+      fireEvent.click(within(polishRow).getByRole("checkbox"))
+      await waitFor(() => expect(currentDraft.novelConfig.polishModel).toBe("chat-model"))
+
+      // canon_audit: 取消跟随 → 优先回填 reviewModel
+      const canonRow = modelRow("novel.settings.canonAuditModel")
+      fireEvent.click(within(canonRow).getByRole("checkbox"))
+      await waitFor(() => expect(currentDraft.novelConfig.canonAuditModel).toBe("review-custom-model"))
+    })
+
+    it("canon_audit 模型测试：回退且 reviewModel 非空时展示 testUsingReviewModel，reviewModel 为空时展示 testUsingDefaultMainModel", async () => {
+      currentDraft.novelConfig.reviewModel = "anthropic/claude-sonnet"
+      currentDraft.novelConfig.canonAuditModel = ""
+      mocks.testNovelModel.mockResolvedValueOnce({
+        model: "claude-sonnet",
+        content: "ok",
+        usedFallbackModel: true,
+      })
+
+      const { rerender } = renderSection()
+      const canonRow = modelRow("novel.settings.canonAuditModel")
+      fireEvent.click(within(canonRow).getByRole("button", { name: "novel.settings.testModel" }))
+
+      await waitFor(() => {
+        expect(
+          within(canonRow).getByText("novel.settings.testSuccess novel.settings.testUsingReviewModel:claude-sonnet"),
+        ).toBeInTheDocument()
+      })
+      expect(mocks.testNovelModel).toHaveBeenCalledWith(
+        mocks.wikiState.llmConfig,
+        currentDraft.novelConfig,
+        "canon_audit",
+      )
+
+      // reviewModel 清空后再测 → 退回主模型文案
+      currentDraft.novelConfig.reviewModel = ""
+      mocks.testNovelModel.mockResolvedValueOnce({
+        model: "gpt-4o",
+        content: "ok",
+        usedFallbackModel: true,
+      })
+      rerender()
+      fireEvent.click(within(canonRow).getByRole("button", { name: "novel.settings.testModel" }))
+      await waitFor(() => {
+        expect(
+          within(canonRow).getByText("novel.settings.testSuccess novel.settings.testUsingDefaultMainModel:gpt-4o"),
+        ).toBeInTheDocument()
+      })
     })
   })
 })

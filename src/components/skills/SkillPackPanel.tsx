@@ -1,19 +1,27 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
   NBSKILL_PACK_EXTENSION,
+  SKILL_BUNDLE_TRUST_REVIEWED,
   TRUST_LEVELS,
   buildPack,
+  canExportDeclarativeSkillMd,
+  exportDeclarativeSkillMd,
   importNbskillPack,
+  listInstalledSkillBundles,
   mayEnterCanonTruth,
   serializePack,
+  setSkillBundleReviewStatus,
   type ImportResult,
   type PackExportWarning,
   type PackValidationCode,
+  type SkillBundleInstalledEntry,
   type TrustLevel,
   type UserSkill,
 } from "@/lib/novel";
+import { isTauri, pickDirectory } from "@/lib/platform";
+import { toErrorMessage } from "@/lib/utils";
 
 /**
  * 展示层文案键。
@@ -52,18 +60,166 @@ export interface SkillPackPanelProps {
   categoryId: string;
   /** 导入成功后落盘（由宿主走既有 store；面板自己不写盘）。 */
   onImported?: (result: ImportResult) => void;
+  /** 已安装 nbskill/1 技能包的宿主落点根（如 `<projectPath>/user-assets`）。 */
+  bundleDestRoot?: string | null;
+  /** 可选项目根目录，用于推导默认导出目标目录（`<projectPath>/.agents/skills`）。 */
+  projectPath?: string | null;
+  /** 外部刷新已安装 nbskill/1 技能包列表的递增令牌。 */
+  bundleRefreshToken?: number;
+  /** 受控已安装技能包列表（测试或宿主直传时跳过挂载期 IPC 拉取）。 */
+  installedBundles?: readonly SkillBundleInstalledEntry[];
+  /** 可选导出目录选择器覆盖（测试或宿主注入）。 */
+  onPickExportDir?: () => Promise<string | null>;
+  /** 非 Tauri 环境的默认导出目录覆盖。 */
+  defaultExportDir?: string;
 }
 
 /**
- * 技能包面板（F-006）：导出 / 导入 / 逐条信任徽标 / 非法分类错误列表。
+ * 技能包面板（F-006 + Phase 3 人工复核与声明式 SKILL.md 单向导出）：
+ * 导出 / 导入 / 逐条信任徽标 / 非法分类错误列表 / nbskill/1 人工复核门与单向声明式导出。
  *
- * 无托管市场、无账号绑定、无任何网络请求：导入靠本地文件选择，导出靠本地 Blob 下载。
- * 默认没有任何写入动作——落盘由宿主经既有 `user-skill-store` 完成。
+ * 无托管市场、无账号绑定、无任何网络请求：导入靠本地文件选择，导出靠本地 Blob 下载或本地目录导出。
+ * 默认没有任何写入动作——落盘由宿主经既有 `user-skill-store` 或显式人工确认的本地 IPC 完成。
  */
-export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPanelProps) {
+export function SkillPackPanel({
+  skills,
+  categoryId,
+  onImported,
+  bundleDestRoot,
+  projectPath,
+  bundleRefreshToken,
+  installedBundles,
+  onPickExportDir,
+  defaultExportDir,
+}: SkillPackPanelProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
+
+  const showDeclarativeSection = installedBundles !== undefined || Boolean(bundleDestRoot);
+  const [bundles, setBundles] = useState<SkillBundleInstalledEntry[]>(() =>
+    installedBundles ? [...installedBundles] : [],
+  );
+  const [loadingBundles, setLoadingBundles] = useState(false);
+  const [attestations, setAttestations] = useState<Record<string, boolean>>({});
+  const [reviewBusyDir, setReviewBusyDir] = useState<string | null>(null);
+  const [exportBusyDir, setExportBusyDir] = useState<string | null>(null);
+  const [exportStatus, setExportStatus] = useState<
+    | { kind: "success"; path: string; declarativeOnly: boolean }
+    | { kind: "cancelled" }
+    | null
+  >(null);
+  const [declarativeError, setDeclarativeError] = useState<{
+    message: string;
+    detail: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (installedBundles !== undefined) {
+      setBundles([...installedBundles]);
+      setLoadingBundles(false);
+      return;
+    }
+    if (!bundleDestRoot || !isTauri()) {
+      setBundles([]);
+      setLoadingBundles(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingBundles(true);
+    listInstalledSkillBundles(bundleDestRoot)
+      .then((entries) => {
+        if (!cancelled) setBundles(entries);
+      })
+      .catch(() => {
+        if (!cancelled) setBundles([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingBundles(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [installedBundles, bundleDestRoot, bundleRefreshToken]);
+
+  const handleUpdateReview = async (bundle: SkillBundleInstalledEntry, reviewed: boolean) => {
+    if (reviewed && !attestations[bundle.installed_dir]) return;
+    setReviewBusyDir(bundle.installed_dir);
+    setDeclarativeError(null);
+    try {
+      const res = await setSkillBundleReviewStatus(bundle.installed_dir, reviewed, true);
+      setBundles((prev) =>
+        prev.map((item) =>
+          item.installed_dir === bundle.installed_dir
+            ? { ...item, trust_level: res.trust_level, reviewed_at: res.reviewed_at }
+            : item,
+        ),
+      );
+      if (!reviewed) {
+        setAttestations((prev) => ({ ...prev, [bundle.installed_dir]: false }));
+      }
+    } catch (cause: unknown) {
+      setDeclarativeError({
+        message: t("skillbundle.declarative.reviewFailed"),
+        detail: toErrorMessage(cause),
+      });
+    } finally {
+      setReviewBusyDir(null);
+    }
+  };
+
+  const handleExportDeclarative = async (bundle: SkillBundleInstalledEntry) => {
+    const gate = canExportDeclarativeSkillMd({
+      trustLevel: bundle.trust_level,
+      integrityOk: bundle.integrity_ok,
+    });
+    if (bundle.trust_level !== SKILL_BUNDLE_TRUST_REVIEWED || !gate.canExport) return;
+    setDeclarativeError(null);
+    setExportStatus(null);
+
+    let destDir: string | null = null;
+    try {
+      if (onPickExportDir) {
+        destDir = await onPickExportDir();
+      } else if (isTauri()) {
+        destDir = await pickDirectory();
+      } else {
+        destDir =
+          defaultExportDir ??
+          (projectPath ? `${projectPath.replace(/[\\/]+$/, "")}/.agents/skills` : null);
+      }
+    } catch (cause: unknown) {
+      setDeclarativeError({
+        message: t("skillbundle.declarative.exportFailed"),
+        detail: toErrorMessage(cause),
+      });
+      return;
+    }
+
+    if (!destDir) {
+      setExportStatus({ kind: "cancelled" });
+      return;
+    }
+
+    setExportBusyDir(bundle.installed_dir);
+    try {
+      const res = await exportDeclarativeSkillMd(bundle.installed_dir, destDir, {
+        trustLevel: bundle.trust_level,
+      });
+      setExportStatus({
+        kind: "success",
+        path: res.skill_md_path,
+        declarativeOnly: res.declarative_only,
+      });
+    } catch (cause: unknown) {
+      setDeclarativeError({
+        message: t("skillbundle.declarative.exportFailed"),
+        detail: toErrorMessage(cause),
+      });
+    } finally {
+      setExportBusyDir(null);
+    }
+  };
 
   const exportPreview = useMemo(
     () =>
@@ -241,6 +397,186 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
             </p>
           ) : null}
         </>
+      ) : null}
+
+      {showDeclarativeSection ? (
+        <section
+          data-testid="skillbundle-declarative-section"
+          className="space-y-2 border-t pt-3"
+        >
+          <div className="space-y-0.5">
+            <h3 className="text-sm font-semibold">{t("skillbundle.declarative.sectionTitle")}</h3>
+            <p className="text-xs text-muted-foreground">
+              {t("skillbundle.declarative.sectionHint")}
+            </p>
+          </div>
+
+          {exportStatus ? (
+            <div
+              role="status"
+              aria-live="polite"
+              data-testid="skillbundle-export-status"
+              className="space-y-1 rounded border border-success/40 bg-success/10 p-2 text-xs"
+            >
+              {exportStatus.kind === "cancelled" ? (
+                <p>{t("skillbundle.declarative.exportCancelled")}</p>
+              ) : (
+                <>
+                  <p className="break-all">
+                    {t("skillbundle.declarative.exportSuccess", { path: exportStatus.path })}
+                  </p>
+                  {exportStatus.declarativeOnly ? (
+                    <span
+                      data-testid="skillbundle-zero-script-badge"
+                      className="inline-block rounded border border-success/40 bg-background px-1.5 py-0.5 text-[11px] font-medium"
+                    >
+                      {t("skillbundle.declarative.zeroScriptBadge")}
+                    </span>
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {declarativeError ? (
+            <div
+              role="alert"
+              data-testid="skillbundle-declarative-error"
+              className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive"
+            >
+              <div>{declarativeError.message}</div>
+              <details className="mt-1 opacity-80">
+                <summary className="cursor-pointer">{t("skillbundle.import.diagnostics")}</summary>
+                <span className="font-mono text-[11px] break-all">{declarativeError.detail}</span>
+              </details>
+            </div>
+          ) : null}
+
+          {loadingBundles ? (
+            <p className="text-xs text-muted-foreground">
+              {t("skillbundle.declarative.loading")}
+            </p>
+          ) : bundles.length === 0 ? (
+            <p
+              data-testid="skillbundle-declarative-empty"
+              className="text-xs text-muted-foreground"
+            >
+              {t("skillbundle.declarative.empty")}
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {bundles.map((bundle) => {
+                const isReviewed = bundle.trust_level === SKILL_BUNDLE_TRUST_REVIEWED;
+                const gate = canExportDeclarativeSkillMd({
+                  trustLevel: bundle.trust_level,
+                  integrityOk: bundle.integrity_ok,
+                });
+                const exportAllowed = isReviewed && gate.canExport;
+                const safeVersionSlug = bundle.version.replace(/[^a-zA-Z0-9_-]/g, "_");
+                const disabledHintId = `skillbundle-export-disabled-hint-${bundle.id}-${safeVersionSlug}`;
+                const attested = Boolean(attestations[bundle.installed_dir]);
+                const isReviewBusy = reviewBusyDir === bundle.installed_dir;
+                const isExportBusy = exportBusyDir === bundle.installed_dir;
+
+                return (
+                  <li
+                    key={bundle.installed_dir}
+                    data-testid={`skillbundle-item-${bundle.id}`}
+                    className="space-y-2 rounded border p-2.5 text-xs"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{bundle.name}</span>
+                        <span className="font-mono text-muted-foreground">v{bundle.version}</span>
+                        <span className="text-muted-foreground">
+                          {t("skillbundle.declarative.fileCount", { count: bundle.file_count })}
+                        </span>
+                      </div>
+                      <span
+                        data-testid={`skillbundle-trust-badge-${bundle.id}`}
+                        className={
+                          isReviewed
+                            ? "rounded border border-success/40 bg-success/10 px-1.5 py-0.5 text-success-foreground"
+                            : "rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-warning-foreground"
+                        }
+                      >
+                        {isReviewed
+                          ? t("skillbundle.declarative.trustReviewed")
+                          : t("skillbundle.declarative.trustUntrusted")}
+                      </span>
+                    </div>
+
+                    {!isReviewed ? (
+                      <div className="space-y-1.5">
+                        <label className="flex cursor-pointer items-start gap-2">
+                          <input
+                            type="checkbox"
+                            data-testid={`skillbundle-review-checkbox-${bundle.id}`}
+                            checked={attested}
+                            disabled={isReviewBusy}
+                            onChange={(e) =>
+                              setAttestations((prev) => ({
+                                ...prev,
+                                [bundle.installed_dir]: e.target.checked,
+                              }))
+                            }
+                          />
+                          <span>{t("skillbundle.declarative.reviewAttestation")}</span>
+                        </label>
+                        <button
+                          type="button"
+                          data-testid={`skillbundle-mark-reviewed-${bundle.id}`}
+                          disabled={!attested || isReviewBusy}
+                          onClick={() => void handleUpdateReview(bundle, true)}
+                          className="rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {t("skillbundle.declarative.markReviewedBtn")}
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <button
+                          type="button"
+                          data-testid={`skillbundle-revoke-review-${bundle.id}`}
+                          disabled={isReviewBusy}
+                          onClick={() => void handleUpdateReview(bundle, false)}
+                          className="rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {t("skillbundle.declarative.revokeReviewBtn")}
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        data-testid={`skillbundle-export-skillmd-${bundle.id}`}
+                        disabled={!exportAllowed || isExportBusy}
+                        aria-disabled={!exportAllowed || isExportBusy}
+                        aria-describedby={!exportAllowed ? disabledHintId : undefined}
+                        onClick={() => void handleExportDeclarative(bundle)}
+                        className="rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isExportBusy
+                          ? t("skillbundle.declarative.exporting")
+                          : t("skillbundle.declarative.exportBtn")}
+                      </button>
+                      {!exportAllowed ? (
+                        <p
+                          id={disabledHintId}
+                          data-testid={`skillbundle-export-disabled-hint-${bundle.id}`}
+                          className="text-muted-foreground"
+                        >
+                          {t("skillbundle.declarative.exportDisabledHint")}
+                        </p>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       ) : null}
     </section>
   );

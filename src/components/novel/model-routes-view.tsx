@@ -19,7 +19,7 @@ import { useTranslation } from "react-i18next"
 import { Cpu, Settings2, Users } from "lucide-react"
 import { ReportCallout, ReportPage, ReportSection } from "./report-page"
 import { Button } from "@/components/ui/button"
-import { resolveNovelModel, type NovelTaskType } from "@/lib/novel"
+import { NOVEL_ROLE_TEMPERATURES, resolveNovelModel, type NovelTaskType } from "@/lib/novel"
 import {
   useWikiStore,
   type LlmConfig,
@@ -30,15 +30,59 @@ import {
 /** 四条核心写作任务路由（与 model-resolver.ts 的真实解析对齐）。 */
 export type CoreNovelRouteTask = Extract<NovelTaskType, "writing" | "review" | "summary" | "extract">
 
+/** 三条可选分角色路由（留空沿用主模型/审稿模型，零行为变更）。 */
+export type OptionalRoleRouteTask = Extract<NovelTaskType, "planner" | "polish" | "canon_audit">
+
 const CORE_ROUTE_TASKS: readonly {
   readonly task: CoreNovelRouteTask
   readonly labelKey: string
   readonly defaultLabel: string
+  readonly lockedTemperature?: number
 }[] = [
-  { task: "writing", labelKey: "novel.modelRoutes.taskWriting", defaultLabel: "正文写作" },
-  { task: "review", labelKey: "novel.modelRoutes.taskReview", defaultLabel: "章节审稿" },
+  {
+    task: "writing",
+    labelKey: "novel.modelRoutes.taskWriting",
+    defaultLabel: "正文写作",
+    lockedTemperature: NOVEL_ROLE_TEMPERATURES.writing,
+  },
+  {
+    task: "review",
+    labelKey: "novel.modelRoutes.taskReview",
+    defaultLabel: "章节审稿",
+    lockedTemperature: NOVEL_ROLE_TEMPERATURES.review,
+  },
   { task: "summary", labelKey: "novel.modelRoutes.taskSummary", defaultLabel: "剧情摘要" },
   { task: "extract", labelKey: "novel.modelRoutes.taskExtract", defaultLabel: "记忆提取" },
+]
+
+const OPTIONAL_ROLE_TASKS: readonly {
+  readonly task: OptionalRoleRouteTask
+  readonly labelKey: string
+  readonly defaultLabel: string
+  readonly lockedTemperature: number
+  readonly fallbackTarget: "primary" | "review"
+}[] = [
+  {
+    task: "planner",
+    labelKey: "novel.modelRoutes.taskPlanner",
+    defaultLabel: "规划/分镜",
+    lockedTemperature: NOVEL_ROLE_TEMPERATURES.planner,
+    fallbackTarget: "primary",
+  },
+  {
+    task: "polish",
+    labelKey: "novel.modelRoutes.taskPolish",
+    defaultLabel: "润色/返修",
+    lockedTemperature: NOVEL_ROLE_TEMPERATURES.polish,
+    fallbackTarget: "primary",
+  },
+  {
+    task: "canon_audit",
+    labelKey: "novel.modelRoutes.taskCanonAudit",
+    defaultLabel: "正典审计",
+    lockedTemperature: NOVEL_ROLE_TEMPERATURES.canon_audit,
+    fallbackTarget: "review",
+  },
 ]
 
 export interface CoreModelRouteRow {
@@ -48,6 +92,18 @@ export interface CoreModelRouteRow {
   readonly configuredModel: string
   readonly resolvedModel: string
   readonly isOverride: boolean
+  readonly lockedTemperature?: number
+}
+
+export interface OptionalRoleRouteRow {
+  readonly task: OptionalRoleRouteTask
+  readonly labelKey: string
+  readonly defaultLabel: string
+  readonly configuredModel: string
+  readonly resolvedModel: string
+  readonly isOverride: boolean
+  readonly lockedTemperature: number
+  readonly fallbackTarget: "primary" | "review"
 }
 
 export interface ModelSourceRow {
@@ -68,6 +124,7 @@ export interface ModelRoutesSnapshot {
   readonly defaultLlmModel: string
   readonly aiChatModel: string
   readonly routes: readonly CoreModelRouteRow[]
+  readonly roleRoutes: readonly OptionalRoleRouteRow[]
   readonly consensus: ConsensusSeatSummary
   readonly sources: readonly ModelSourceRow[]
 }
@@ -98,9 +155,16 @@ export function loadModelRoutesSnapshot(slice: ModelRoutesStoreSlice): ModelRout
     extract: slice.novelConfig.extractModel.trim(),
   }
 
+  const optionalOverrides: Record<OptionalRoleRouteTask, string> = {
+    planner: slice.novelConfig.plannerModel?.trim() ?? "",
+    polish: slice.novelConfig.polishModel?.trim() ?? "",
+    canon_audit: slice.novelConfig.canonAuditModel?.trim() ?? "",
+  }
+
   const hasAnyModel =
     primaryModelId !== "" ||
-    Object.values(taskOverrides).some((m) => m !== "")
+    Object.values(taskOverrides).some((m) => m !== "") ||
+    Object.values(optionalOverrides).some((m) => m !== "")
   if (!hasAnyModel) return null
 
   const storeSnapshot = {
@@ -120,6 +184,26 @@ export function loadModelRoutesSnapshot(slice: ModelRoutesStoreSlice): ModelRout
       configuredModel: override,
       resolvedModel: resolvedLabel,
       isOverride: override !== "",
+      ...(entry.lockedTemperature !== undefined ? { lockedTemperature: entry.lockedTemperature } : {}),
+    }
+  })
+
+  const reviewOverride = taskOverrides.review
+  const roleRoutes: readonly OptionalRoleRouteRow[] = OPTIONAL_ROLE_TASKS.map((entry) => {
+    const override = optionalOverrides[entry.task]
+    const resolved = resolveNovelModel(slice.llmConfig, slice.novelConfig, entry.task, storeSnapshot)
+    const followsReview = entry.task === "canon_audit" && !override && reviewOverride !== ""
+    const resolvedLabel =
+      override || (followsReview ? reviewOverride : "") || resolved.model?.trim() || primaryModelId
+    return {
+      task: entry.task,
+      labelKey: entry.labelKey,
+      defaultLabel: entry.defaultLabel,
+      configuredModel: override,
+      resolvedModel: resolvedLabel,
+      isOverride: override !== "",
+      lockedTemperature: entry.lockedTemperature,
+      fallbackTarget: entry.fallbackTarget,
     }
   })
 
@@ -146,6 +230,7 @@ export function loadModelRoutesSnapshot(slice: ModelRoutesStoreSlice): ModelRout
     defaultLlmModel: slice.defaultLlmModel,
     aiChatModel: slice.aiChatModel,
     routes,
+    roleRoutes,
     consensus: {
       enabled: Boolean(slice.novelConfig.consensusEnabled),
       draftModels,
@@ -192,7 +277,10 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
     setActiveView("settings")
   }
 
-  const hasOverride = snapshot?.routes.some((row) => row.isOverride) ?? false
+  const hasOverride =
+    (snapshot?.routes.some((row) => row.isOverride) ||
+      snapshot?.roleRoutes.some((row) => row.isOverride)) ??
+    false
 
   return (
     <ReportPage
@@ -247,6 +335,31 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
             </p>
           </ReportSection>
 
+          <div
+            data-testid="model-routes-temp-locks"
+            role="region"
+            aria-label={t("novel.modelRoutes.tempLockTitle", { defaultValue: "分角色温度锁定（原生 API）" })}
+            className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+          >
+            <p className="font-medium text-foreground">
+              {t("novel.modelRoutes.tempLockTitle", { defaultValue: "分角色温度锁定（原生 API）" })}
+            </p>
+            <p className="mt-1 font-mono text-foreground">
+              {t("novel.modelRoutes.tempLockSummary", {
+                planner: NOVEL_ROLE_TEMPERATURES.planner,
+                writing: NOVEL_ROLE_TEMPERATURES.writing,
+                polish: NOVEL_ROLE_TEMPERATURES.polish,
+                review: NOVEL_ROLE_TEMPERATURES.review,
+                defaultValue: `规划 ${NOVEL_ROLE_TEMPERATURES.planner} · 正文 ${NOVEL_ROLE_TEMPERATURES.writing} · 润色 ${NOVEL_ROLE_TEMPERATURES.polish} · 审稿/正典审计 ${NOVEL_ROLE_TEMPERATURES.review}`,
+              })}
+            </p>
+            <p className="mt-0.5">
+              {t("novel.modelRoutes.tempLockHint", {
+                defaultValue: "各写作阶段温度由引擎按角色自动锁定，只读展示以确保创意与正典一致性平衡。",
+              })}
+            </p>
+          </div>
+
           <div data-testid="model-routes-base" className="rounded-md border border-border bg-background px-3 py-2">
             <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
               <Cpu className="h-3.5 w-3.5" aria-hidden="true" />
@@ -291,6 +404,17 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
                   <span className="font-mono text-foreground">
                     {row.resolvedModel || t("novel.modelRoutes.notConfigured", { defaultValue: "未配置" })}
                   </span>
+                  {row.lockedTemperature !== undefined ? (
+                    <span
+                      data-testid={`model-route-temp-${row.task}`}
+                      className="rounded border border-border/70 bg-muted/40 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                    >
+                      {t("novel.modelRoutes.tempBadge", {
+                        temp: row.lockedTemperature,
+                        defaultValue: `温度 ${row.lockedTemperature}`,
+                      })}
+                    </span>
+                  ) : null}
                   <span
                     className={
                       row.isOverride
@@ -301,6 +425,53 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
                     {row.isOverride
                       ? t("novel.modelRoutes.badgeOverride", { defaultValue: "专用覆盖" })
                       : t("novel.modelRoutes.badgeFollowPrimary", { defaultValue: "跟随主模型" })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div
+            data-testid="model-routes-optional-roles"
+            className="rounded-md border border-border bg-background px-3 py-2"
+          >
+            <p className="text-sm font-medium text-foreground">
+              {t("novel.modelRoutes.optionalRolesTitle", { defaultValue: "可选分角色模型分工" })}
+            </p>
+            <ul className="mt-1.5 flex flex-col gap-1.5">
+              {snapshot.roleRoutes.map((row) => (
+                <li
+                  key={row.task}
+                  data-testid={`model-route-${row.task}`}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+                >
+                  <span className="font-medium text-foreground">
+                    {t(row.labelKey, { defaultValue: row.defaultLabel })}
+                  </span>
+                  <span className="font-mono text-foreground">
+                    {row.resolvedModel || t("novel.modelRoutes.notConfigured", { defaultValue: "未配置" })}
+                  </span>
+                  <span
+                    data-testid={`model-route-temp-${row.task}`}
+                    className="rounded border border-border/70 bg-muted/40 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                  >
+                    {t("novel.modelRoutes.tempBadge", {
+                      temp: row.lockedTemperature,
+                      defaultValue: `温度 ${row.lockedTemperature}`,
+                    })}
+                  </span>
+                  <span
+                    className={
+                      row.isOverride
+                        ? "rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                        : "rounded bg-muted px-1.5 py-0.5 text-muted-foreground"
+                    }
+                  >
+                    {row.isOverride
+                      ? t("novel.modelRoutes.badgeOverride", { defaultValue: "专用覆盖" })
+                      : row.fallbackTarget === "review"
+                        ? t("novel.modelRoutes.badgeFollowReview", { defaultValue: "跟随审稿模型" })
+                        : t("novel.modelRoutes.badgeFollowPrimary", { defaultValue: "跟随主模型" })}
                   </span>
                 </li>
               ))}

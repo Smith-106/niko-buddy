@@ -321,10 +321,17 @@ describe("技能包（.zip）离线导入接线（A-F-002 / B-F-006）", () => {
     const last = bundleDialogProps[bundleDialogProps.length - 1]
     expect(last?.open).toBe(true)
     expect(last?.bundlePath).toBe("D:/tmp/skillpack-a.zip")
-    // 落点根由宿主给出（用户不可在弹窗内改写）
-    expect(typeof last?.destRoot).toBe("string")
-    expect((last?.destRoot as string).length).toBeGreaterThan(0)
+    // 落点根由宿主给出（含 user-assets 段，用户不可在弹窗内改写）
+    expect(last?.destRoot).toBe("C:/project/user-assets")
+    expect(typeof last?.onImported).toBe("function")
     expect(container.querySelector('[data-testid="bundle-dialog-open"]')).not.toBeNull()
+
+    // 触发 onImported 回调刷新已安装技能包令牌，不应抛错
+    await act(async () => {
+      ;(last?.onImported as ((res: { ok: boolean }) => void) | undefined)?.({ ok: false })
+    })
+    await flushEffects()
+    expect(container.querySelector('[data-testid="skillbundle-declarative-section"]')).not.toBeNull()
 
     dialogOpenMock.mockReset()
     cleanup(root, container)

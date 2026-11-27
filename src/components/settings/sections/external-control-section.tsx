@@ -84,28 +84,28 @@ const ANTIGRAVITY_PROFILE_META: Record<
   { toolCount: number; descKey: string; descFallback: string }
 > = {
   "full-legacy": {
-    toolCount: 38,
+    toolCount: 40,
     descKey: "settings.sections.externalControl.antigravityProfileDescFullLegacy",
     descFallback:
-      "Full legacy profile: exposes all 38 registered tools (including internal API pipelines, Phase 2 atomic read tools workflow.next, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, plus draft.patch / draft.record_review).",
+      "Full legacy profile: exposes all 40 registered tools (including internal API pipelines, zero-LLM atomic read & health tools workflow.next, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, draft.diff, audit.longform_health, plus draft.patch / draft.record_review).",
   },
   "writer-sub": {
-    toolCount: 24,
+    toolCount: 26,
     descKey: "settings.sections.externalControl.antigravityProfileDescWriterSub",
     descFallback:
-      "Writer compact profile (Recommended): zero internal API pipelines, strict Draft-first, 24 tools — includes workflow.next, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, plus draft-safe writes chapter.write, draft.patch, draft.record_review, outline.write, and character.upsert.",
+      "Writer compact profile (Recommended): zero internal API pipelines, strict Draft-first, 26 tools — includes workflow.next, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, draft.diff, audit.longform_health, plus draft-safe writes chapter.write, draft.patch, draft.record_review, outline.write, and character.upsert.",
   },
   reviewer: {
-    toolCount: 19,
+    toolCount: 21,
     descKey: "settings.sections.externalControl.antigravityProfileDescReviewer",
     descFallback:
-      "Reviewer read-only profile: strictly zero write tools (19 read-only tools) for isolated review — includes workflow.next, draft.list, draft.read, gate.check_mechanical, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, and chapter.search; outputs structured verdicts for writer-sub to record.",
+      "Reviewer read-only profile: strictly zero write tools (21 read-only tools) for isolated review — includes workflow.next, draft.list, draft.read, draft.diff, audit.longform_health, gate.check_mechanical, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, and chapter.search; outputs structured verdicts for writer-sub to record.",
   },
   architect: {
-    toolCount: 17,
+    toolCount: 18,
     descKey: "settings.sections.externalControl.antigravityProfileDescArchitect",
     descFallback:
-      "Architect / outline profile: focused on book setup and arc planning (17 tools) — includes workflow.next, director.check, context.prepare_write, foreshadowing.list, character.read, outline.read, chapter.search, plus planning writes outline.write and character.upsert (excludes chapter drafting and draft patching/review).",
+      "Architect / outline profile: focused on book setup and arc planning (18 tools) — includes workflow.next, director.check, audit.longform_health, context.prepare_write, foreshadowing.list, character.read, outline.read, chapter.search, plus planning writes outline.write and character.upsert (excludes chapter drafting and draft comparison/patching/review).",
   },
 }
 
@@ -814,22 +814,22 @@ export function ExternalControlSection() {
           >
             <option value="full-legacy">
               {t("settings.sections.externalControl.antigravityProfileFullLegacy", {
-                defaultValue: "Full legacy (38 tools · bare URL, no ?profile)",
+                defaultValue: "Full legacy (40 tools · bare URL, no ?profile)",
               })}
             </option>
             <option value="writer-sub">
               {t("settings.sections.externalControl.antigravityProfileWriterSub", {
-                defaultValue: "Recommended: Writer compact (24 tools · ?profile=writer-sub)",
+                defaultValue: "Recommended: Writer compact (26 tools · ?profile=writer-sub)",
               })}
             </option>
             <option value="reviewer">
               {t("settings.sections.externalControl.antigravityProfileReviewer", {
-                defaultValue: "Reviewer read-only (19 tools · ?profile=reviewer)",
+                defaultValue: "Reviewer read-only (21 tools · ?profile=reviewer)",
               })}
             </option>
             <option value="architect">
               {t("settings.sections.externalControl.antigravityProfileArchitect", {
-                defaultValue: "Architect / outline (17 tools · ?profile=architect)",
+                defaultValue: "Architect / outline (18 tools · ?profile=architect)",
               })}
             </option>
           </select>

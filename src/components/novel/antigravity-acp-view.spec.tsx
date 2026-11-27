@@ -1317,6 +1317,13 @@ describe("AntigravityAcpView", () => {
     // Changing profile mid-session surfaces pending hint and passes explicit mcpProfile on New Session
     const profileSelect = screen.getByTestId("acp-mcp-profile-select") as HTMLSelectElement
     expect(profileSelect.value).toBe("writer-sub")
+    const optionMap = Object.fromEntries(
+      Array.from(profileSelect.options).map((opt) => [opt.value, opt.textContent ?? ""]),
+    )
+    expect(optionMap["writer-sub"]).toContain("26")
+    expect(optionMap.reviewer).toContain("21")
+    expect(optionMap.architect).toContain("18")
+    expect(optionMap["full-legacy"]).toContain("40")
     fireEvent.change(profileSelect, { target: { value: "architect" } })
     expect(screen.getByTestId("acp-profile-pending-hint")).toBeInTheDocument()
 

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
 
-import { testNovelModel, applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, saveAntiAiTelemetryConsent, goldenCoverageOf, goldenKbShadowCases, runKbShadowArmsIfConsented, persistNovelConfigPatch, NovelConfigPersistError } from "@/lib/novel"
+import { NOVEL_ROLE_TEMPERATURES, testNovelModel, applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, saveAntiAiTelemetryConsent, goldenCoverageOf, goldenKbShadowCases, runKbShadowArmsIfConsented, persistNovelConfigPatch, NovelConfigPersistError } from "@/lib/novel"
 import type { TestableNovelModelTask } from "@/lib/novel"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { WritingPreferenceSection } from "./writing-preference-section"
@@ -43,6 +43,9 @@ export function NovelSection({ draft, setDraft }: Props) {
     review: undefined,
     summary: undefined,
     extract: undefined,
+    planner: undefined,
+    polish: undefined,
+    canon_audit: undefined,
   })
 
   const ids = useId()
@@ -159,6 +162,27 @@ export function NovelSection({ draft, setDraft }: Props) {
     },
   ] as const), [])
 
+  const optionalRoleModelItems = useMemo(() => ([
+    {
+      task: "planner",
+      field: "plannerModel",
+      temperature: NOVEL_ROLE_TEMPERATURES.planner,
+      followLabelKey: "novel.settings.followChatModel",
+    },
+    {
+      task: "polish",
+      field: "polishModel",
+      temperature: NOVEL_ROLE_TEMPERATURES.polish,
+      followLabelKey: "novel.settings.followChatModel",
+    },
+    {
+      task: "canon_audit",
+      field: "canonAuditModel",
+      temperature: NOVEL_ROLE_TEMPERATURES.canon_audit,
+      followLabelKey: "novel.settings.followReviewModel",
+    },
+  ] as const), [])
+
   const settingTooltip = (key: string) => <NovelSettingTooltip tipKey={key} />
 
   const runModelTest = async (task: TestableNovelModelTask) => {
@@ -174,7 +198,9 @@ export function NovelSection({ draft, setDraft }: Props) {
     try {
       const result = await testNovelModel(llmConfig, draft.novelConfig, task)
       const suffix = result.usedFallbackModel
-        ? t("novel.settings.testUsingDefaultMainModel", { model: result.model })
+        ? task === "canon_audit" && Boolean(draft.novelConfig.reviewModel?.trim())
+          ? t("novel.settings.testUsingReviewModel", { model: result.model })
+          : t("novel.settings.testUsingDefaultMainModel", { model: result.model })
         : t("novel.settings.testUsingCurrentModel", { model: result.model })
       setTestStates((prev) => ({
         ...prev,
@@ -292,6 +318,132 @@ export function NovelSection({ draft, setDraft }: Props) {
               </div>
             )
           })}
+
+          <div
+            data-testid="novel-role-temp-locks"
+            role="region"
+            aria-labelledby={`${ids}-role-temp-locks`}
+            className="space-y-1.5 rounded-md border bg-muted/30 p-3"
+          >
+            <h4 id={`${ids}-role-temp-locks`} className="text-sm font-medium">
+              {t("novel.settings.roleTempLockTitle")}
+            </h4>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t("novel.settings.roleTempLockHint")}
+            </p>
+            <div className="flex flex-wrap gap-1.5 font-mono text-xs">
+              <span
+                data-testid="novel-role-temp-planner"
+                className="rounded border bg-background px-2 py-0.5 text-foreground"
+              >
+                {t("novel.settings.roleTempBadgePlanner", { temp: NOVEL_ROLE_TEMPERATURES.planner })}
+              </span>
+              <span
+                data-testid="novel-role-temp-writing"
+                className="rounded border bg-background px-2 py-0.5 text-foreground"
+              >
+                {t("novel.settings.roleTempBadgeWriting", { temp: NOVEL_ROLE_TEMPERATURES.writing })}
+              </span>
+              <span
+                data-testid="novel-role-temp-polish"
+                className="rounded border bg-background px-2 py-0.5 text-foreground"
+              >
+                {t("novel.settings.roleTempBadgePolish", { temp: NOVEL_ROLE_TEMPERATURES.polish })}
+              </span>
+              <span
+                data-testid="novel-role-temp-review"
+                className="rounded border bg-background px-2 py-0.5 text-foreground"
+              >
+                {t("novel.settings.roleTempBadgeReviewAudit", { temp: NOVEL_ROLE_TEMPERATURES.review })}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t pt-3">
+            <div className="space-y-1">
+              <h4 className="text-sm font-medium">{t("novel.settings.optionalRoleModelsTitle")}</h4>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {t("novel.settings.optionalRoleModelsHint")}
+              </p>
+            </div>
+            {optionalRoleModelItems.map((item) => {
+              const state = testStates[item.task]
+              const modelValue = draft.novelConfig[item.field] || ""
+              const isFollowing = !modelValue
+              const displayValue = isFollowing ? "" : modelValue
+              const modelLabelId = `${ids}-${item.field}`
+              const fallbackInit =
+                item.task === "canon_audit"
+                  ? draft.novelConfig.reviewModel?.trim() || aiChatModel || " "
+                  : aiChatModel || " "
+
+              return (
+                <div
+                  key={item.task}
+                  data-testid={`novel-optional-role-${item.task}`}
+                  role="group"
+                  aria-labelledby={modelLabelId}
+                  className="space-y-2"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span id={modelLabelId} className="text-sm leading-none font-medium">
+                      {t(`novel.settings.${item.field}`)}
+                    </span>
+                    <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                      {t("novel.settings.roleTempTag", { temp: item.temperature })}
+                    </span>
+                    {settingTooltip(`${item.field}Hint`)}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      <label className="flex min-h-6 cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isFollowing}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              updateNovelConfig({
+                                [item.field]: "",
+                              } as Partial<NovelConfig>)
+                            } else {
+                              updateNovelConfig({
+                                [item.field]: fallbackInit,
+                              } as Partial<NovelConfig>)
+                            }
+                          }}
+                          className="h-4 w-4"
+                        />
+                        <span className="text-sm">
+                          {t(item.followLabelKey)}
+                        </span>
+                      </label>
+                      <ChatModelSelector
+                        value={displayValue}
+                        onChange={(model) => updateNovelConfig({
+                          [item.field]: model,
+                        } as Partial<NovelConfig>)}
+                        disabled={isFollowing}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={state?.loading}
+                      onClick={() => runModelTest(item.task)}
+                    >
+                      {state?.loading ? t("novel.settings.testingModel") : t("novel.settings.testModel")}
+                    </Button>
+                  </div>
+                  {state?.message ? (
+                    <p className={`text-xs ${state.success ? "text-success-foreground" : "text-destructive"}`}>
+                      {state.message}
+                    </p>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
 
