@@ -7,6 +7,7 @@
     "node": ">=22.18"
   },
   "_typecheckIncrementalNote": "typecheck=全量(tsc --build --force)，CI/验收唯一口径；typecheck:incremental=旧增量(tsc --build)，复用.tsbuildinfo存在假绿风险（增量未捕获改动时可能0错通过），仅本地快速检查用；typecheck:force=全量别名，与typecheck等价（向后兼容保留）。",
+  "_verifyFastNote": "verify:fast 仅用于编码内环快速检查（<45s：typecheck+lint+consistency）；阶段结束、交付验收与 PR/CI 必须运行完整 npm run typecheck:force 与 npm run test:mocks。",
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --build --force --pretty",
@@ -14,6 +15,7 @@
     "typecheck:force": "tsc --build --force --pretty",
     "lint": "eslint . && node scripts/check-boundaries.mjs",
     "consistency": "node scripts/check-consistency.mjs",
+    "verify:fast": "npm run typecheck && npm run lint && npm run consistency",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test": "npm run test:mocks && npm run test:llm && npm run test:cargo",

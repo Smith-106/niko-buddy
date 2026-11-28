@@ -62,6 +62,8 @@ src/test-helpers/*
 !/docs/p2/
 !/docs/p5/
 !/docs/generated/
+!/docs/anchors/
+!/docs/history/
 !/docs/.gitkeep
 # 判官/语料证据耐久化：书稿文本本体不入 git，sha256 指纹清单 tracked（C2 登记簿条款替代路径：hash-manifest 不含书稿文本，只含指纹）
 /AGENTS.md
