@@ -133,13 +133,13 @@ impl SessionScope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ToolProfile {
-    /// 订阅写作主模式（16 工具）：隐藏所有内部 API LLM 管线与全量直写工具，保留零 LLM 上下文/门控与 Draft-first 写工具。
+    /// 订阅写作主模式（36 工具）：隐藏所有内部 API LLM 管线与全量直写工具，保留零 LLM 上下文/门控、Draft-first 写工具与规划治理写工具。
     WriterSub,
-    /// 只读审查模式（13 工具）：全部为 `Read` 工具，严格零写工具（用于 `canon-auditor` / `literary-critic`）。
+    /// 只读审查模式（25 工具）：全部为 `Read` 工具，严格零写工具（用于 `canon-auditor` / `literary-critic`）。
     Reviewer,
-    /// 架构规划模式（12 工具）：聚焦开书/世界观/大纲/角色规划，不含章节正文写入与章节深审工具。
+    /// 架构规划模式（28 工具）：聚焦开书/世界观/大纲/角色/书规/指南针/伏笔/支线规划与长篇健康诊断，不含章节正文写入与草稿修审工具。
     Architect,
-    /// 全量兼容模式（全部 30 工具）：保持既有外部客户端（Claude Code / 旧配置）100% 行为兼容。
+    /// 全量兼容模式（全部 50 工具）：保持既有外部客户端（Claude Code / 旧配置）100% 行为兼容。
     #[default]
     FullLegacy,
 }
