@@ -227,16 +227,29 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $version = node -p "require('./package.json').version"
-          node scripts/build-portable.mjs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $portableExe = "release-portable/niko-buddy.exe"
-          if (-not (Test-Path $portableExe)) {
-            throw "便携版 EXE 未生成：$portableExe"
-          }
-          $assetName = "niko-buddy_${version}_windows_X64_portable.exe"
+          $assetName = "niko-buddy_${version}_windows_X64_portable.zip"
           $assetPath = "release-assets/$assetName"
           New-Item -ItemType Directory -Force -Path "release-assets" | Out-Null
-          Copy-Item $portableExe $assetPath -Force
+          node scripts/build-portable.mjs --zip --zip-out $assetPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path $assetPath)) {
+            throw "便携版整目录 ZIP 未生成：$assetPath"
+          }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $assetPath))
+          try {
+            $entries = @($zip.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
+            foreach ($req in @("niko-buddy.exe", "pdfium/pdfium.dll", "version-info.json")) {
+              if (-not ($entries -contains $req)) {
+                throw "便携版 ZIP 缺少必需文件：$req"
+              }
+            }
+            if (-not ($entries | Where-Object { $_ -like "skills/*" })) {
+              throw "便携版 ZIP 缺少 skills/ 目录内容"
+            }
+          } finally {
+            $zip.Dispose()
+          }
 
       - name: Verify Windows release files
         if: matrix.label == 'windows-x64'
@@ -347,7 +360,7 @@ jobs:
           node -e 'const pages=require(process.argv[1]); if (!Array.isArray(pages) || pages.some(p=>!Array.isArray(p))) throw new Error("Invalid release list"); if (pages.flat().some(r=>r.tag_name===process.env.GITHUB_REF_NAME)) throw new Error("Release already exists; refusing to change it")' "$releases_json"
           check_remote_tag
           gh release create "$GITHUB_REF_NAME" "$installer" "$installer.sig" \
-            "release-assets/niko-buddy_${version}_windows_X64_portable.exe" release-assets/latest.json \
+            "release-assets/niko-buddy_${version}_windows_X64_portable.zip" release-assets/latest.json \
             --repo "$GITHUB_REPOSITORY" --title "Niko Buddy $GITHUB_REF_NAME" \
             --notes-file release-assets/release-notes.txt --verify-tag --target "$head_sha" --draft --latest=false
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_json"

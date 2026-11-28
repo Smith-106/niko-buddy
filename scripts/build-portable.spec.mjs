@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { resolve } from "node:path"
-import { buildPortable, resolvePortableSources } from "./build-portable.mjs"
+import { buildPortable, hasZipMagicBytes, packPortableZip, resolvePortableSources } from "./build-portable.mjs"
 
 describe("build-portable.mjs (R2-E02 release-default + fail-closed)", () => {
   const root = resolve("/workspace/QMAI")
@@ -172,5 +172,66 @@ describe("build-portable.mjs (R2-E02 release-default + fail-closed)", () => {
       expect(code).toBe(1)
       expect(errors.join("\n")).toContain(errMsg)
     }
+  })
+
+  it("packPortableZip fails closed when required files or PDFium dll are missing and accepts valid directory zip", () => {
+    const outDir = resolve(root, "release-portable")
+    const exe = resolve(outDir, "niko-buddy.exe")
+    const manifest = resolve(outDir, "version-info.json")
+    const skills = resolve(outDir, "skills")
+    const pdfium = resolve(outDir, "pdfium/pdfium.dll")
+    const zipOut = resolve(root, "release-github/niko-buddy_2.37.0_windows_X64_portable.zip")
+
+    expect(hasZipMagicBytes(Buffer.from([0x50, 0x4b, 0x03, 0x04]))).toBe(true)
+    expect(hasZipMagicBytes(Buffer.from([0x4d, 0x5a, 0x90, 0x00]))).toBe(false)
+
+    // Missing skills/ -> fail closed
+    const missingSkills = packPortableZip({
+      root,
+      outDir,
+      zipPath: zipOut,
+      exists: (p) => [exe, manifest, pdfium].includes(p),
+      error: () => {},
+    })
+    expect(missingSkills.ok).toBe(false)
+    expect(missingSkills.error).toContain("skills/")
+
+    // Missing pdfium -> fail closed even if manifest.includesPdfium is false
+    const missingPdfium = packPortableZip({
+      root,
+      outDir,
+      zipPath: zipOut,
+      exists: (p) => [exe, manifest, skills].includes(p),
+      readText: () => JSON.stringify({ version: "2.37.0", includesPdfium: false }),
+      error: () => {},
+    })
+    expect(missingPdfium.ok).toBe(false)
+    expect(missingPdfium.error).toContain("pdfium/pdfium.dll")
+
+    // Valid full directory zip with PK magic bytes -> succeeds
+    const valid = packPortableZip({
+      root,
+      outDir,
+      zipPath: zipOut,
+      platform: "win32",
+      exists: (p) => [exe, manifest, skills, pdfium, zipOut].includes(p),
+      readText: () => JSON.stringify({ version: "2.37.0", includesPdfium: true }),
+      mkdir: vi.fn(),
+      rm: vi.fn(),
+      runExec: vi.fn(() => ({ status: 0 })),
+      stat: vi.fn(() => ({ size: 123456 })),
+      open: vi.fn(() => 7),
+      readBytes: vi.fn((_fd, buf) => {
+        buf[0] = 0x50
+        buf[1] = 0x4b
+        buf[2] = 0x03
+        buf[3] = 0x04
+        return 4
+      }),
+      close: vi.fn(),
+      log: () => {},
+      error: () => {},
+    })
+    expect(valid).toEqual({ ok: true, zipPath: zipOut, bytes: 123456 })
   })
 })

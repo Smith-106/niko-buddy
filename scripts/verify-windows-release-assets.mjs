@@ -10,13 +10,24 @@
  */
 import assert from "node:assert/strict"
 import { createHash, createPublicKey, verify } from "node:crypto"
-import { createReadStream, readFileSync } from "node:fs"
+import { closeSync, createReadStream, openSync, readFileSync, readSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 export function windowsAssetNames(version) {
   const stem = `niko-buddy_${version}_windows_X64`
-  return [`${stem}.exe`, `${stem}.exe.sig`, `${stem}_portable.exe`, "latest.json"]
+  return [`${stem}.exe`, `${stem}.exe.sig`, `${stem}_portable.zip`, "latest.json"]
+}
+
+export function isZipMagicHeader(bytes) {
+  return Boolean(
+    bytes &&
+      bytes.length >= 4 &&
+      bytes[0] === 0x50 &&
+      bytes[1] === 0x4b &&
+      bytes[2] === 0x03 &&
+      bytes[3] === 0x04,
+  )
 }
 
 export function checkUpdaterManifest(manifest, signature, repo, tag, version) {
@@ -116,6 +127,16 @@ async function main() {
       size += chunk.length
     }
     assert.ok(size > 0, `Empty or missing release file: ${name}`)
+    if (name.endsWith("_portable.zip")) {
+      const header = Buffer.alloc(4)
+      const fd = openSync(join(dir, name), "r")
+      try {
+        readSync(fd, header, 0, 4, 0)
+      } finally {
+        closeSync(fd)
+      }
+      assert.ok(isZipMagicHeader(header), `Portable zip has invalid ZIP header: ${name}`)
+    }
     files.push({ name, size, sha256: hash.digest("hex") })
   }
   installerDigest = await hashFile(join(dir, names[0]), "blake2b512")

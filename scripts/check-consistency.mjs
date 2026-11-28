@@ -1287,11 +1287,23 @@ export function main(argv = process.argv.slice(2)) {
     const cargo = readFileSync(join(ROOT, "src-tauri/Cargo.toml"), "utf8").match(/^\s*version\s*=\s*"([^"]+)"/m)?.[1]
     const changelogTs = readFileSync(join(SRC, "lib/changelog.ts"), "utf8").match(/version:\s*"([^"]+)"/)?.[1]
     const changelogMd = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8").match(/^##\s*\[([^\]]+)\]/m)?.[1]
-    const sources = { "package.json": pkg, "tauri.conf.json": tauri, "Cargo.toml": cargo, "changelog.ts": changelogTs, "CHANGELOG.md": changelogMd }
+    const readmeBadge = readFileSync(join(ROOT, "README.md"), "utf8").match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)-blue/)?.[1]
+    const downloadDocText = readFileSync(join(ROOT, "docs-site/src/content/docs/download.md"), "utf8")
+    const downloadSyncBlock = downloadDocText.match(/<!--\s*release-sync:latest:start\s*-->([\s\S]*?)<!--\s*release-sync:latest:end\s*-->/)?.[1] ?? downloadDocText
+    const downloadDoc = downloadSyncBlock.match(/\*\*v([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)\*\*/)?.[1]
+    const sources = {
+      "package.json": pkg,
+      "tauri.conf.json": tauri,
+      "Cargo.toml": cargo,
+      "changelog.ts": changelogTs,
+      "CHANGELOG.md": changelogMd,
+      "README.md": readmeBadge,
+      "download.md": downloadDoc,
+    }
     const distinct = [...new Set(Object.values(sources).filter(Boolean))]
     const details = Object.entries(sources).map(([file, version]) => `${file}=${version ?? "缺失"}`)
     const ok = distinct.length === 1 && Object.values(sources).every(Boolean)
-    record("version/single-source", ok, ok ? [`全部版本源一致: ${pkg}`] : [`版本源不一致: ${details.join(" / ")}`])
+    record("version/single-source", ok, ok ? [`全部 ${Object.keys(sources).length} 处版本源一致: ${pkg}`] : [`版本源不一致: ${details.join(" / ")}`])
   }
 
   function checkCapabilities() {

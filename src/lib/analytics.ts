@@ -11,8 +11,14 @@
 import { getStore } from "@/lib/web-store"
 import { isTauri } from "@/lib/platform"
 
-// ⚠️ 部署 Worker 后，将此 URL 替换为你的实际 Worker 地址
-const ANALYTICS_URL = "https://niko-buddy-analytics.niko-buddy.workers.dev"
+const DEFAULT_ANALYTICS_URL = "https://niko-buddy-analytics.niko-buddy.workers.dev"
+
+export function resolveAnalyticsBaseUrl(envUrl = import.meta.env?.VITE_ANALYTICS_URL): string {
+  const trimmed = typeof envUrl === "string" ? envUrl.trim().replace(/\/+$/, "") : ""
+  return trimmed || DEFAULT_ANALYTICS_URL
+}
+
+const ANALYTICS_URL = resolveAnalyticsBaseUrl()
 
 const DEVICE_UUID_KEY = "analytics_device_uuid"
 const HEARTBEAT_INTERVAL_MS = 60_000

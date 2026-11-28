@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs"
 import { resolve, dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { syncReleaseDocs } from "./sync-release-docs.mjs"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const target = process.argv[2]
@@ -110,6 +111,12 @@ if (FILES[2].cur !== target) {
 if (FILES[3].cur !== target) {
   const hit = lockMatches[0][0]
   writeFileSync(lockPath, lock.replace(hit, hit.replace(/version = "[^"]+"/, 'version = "' + target + '"')), "utf8")
+}
+
+// ---- Sync README.md & docs-site download page ----
+const docSync = await syncReleaseDocs({ root, targetVersion: target, write: true })
+if (docSync.changed.length > 0) {
+  console.log("synced release docs: " + docSync.changed.join(", "))
 }
 
 // ---- Hint: old version strings still present under src/ (non-fatal) ----

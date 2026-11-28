@@ -5,6 +5,7 @@ import {
   evaluateDraftPromotion,
   evaluateLatestAssets,
   evaluateTarget,
+  expectedPortableAssetName,
   isoWeekKey,
   localDay,
   main,
@@ -147,6 +148,30 @@ describe("release cadence gate", () => {
     // Latest 被误标 prerelease 时，即使用 --tag 显式指定也不放行
     const misMarked = [rel("v2.23.0", "2026-10-30T00:00:00Z", { isPrerelease: true, isLatest: true })]
     expect(allowsPrerelease(misMarked, "v2.23.0")).toBe(false)
+  })
+
+  it("enforces _portable.zip starting at v2.37.0 while preserving historical _portable.exe compatibility", () => {
+    expect(expectedPortableAssetName("2.36.0")).toBe("niko-buddy_2.36.0_windows_X64_portable.exe")
+    expect(expectedPortableAssetName("2.37.0")).toBe("niko-buddy_2.37.0_windows_X64_portable.zip")
+    expect(expectedPortableAssetName("3.0.0")).toBe("niko-buddy_3.0.0_windows_X64_portable.zip")
+
+    const v237 = rel("v2.37.0", "2026-12-01T00:00:00Z", { isLatest: true })
+    expect(
+      evaluateLatestAssets(v237, [
+        "latest.json",
+        "niko-buddy_2.37.0_windows_X64.exe",
+        "niko-buddy_2.37.0_windows_X64.exe.sig",
+        "niko-buddy_2.37.0_windows_X64_portable.zip",
+      ]),
+    ).toEqual([])
+    expect(
+      evaluateLatestAssets(v237, [
+        "latest.json",
+        "niko-buddy_2.37.0_windows_X64.exe",
+        "niko-buddy_2.37.0_windows_X64.exe.sig",
+        "niko-buddy_2.37.0_windows_X64_portable.exe",
+      ]),
+    ).toContain("缺便携版资产 niko-buddy_2.37.0_windows_X64_portable.zip")
   })
 })
 

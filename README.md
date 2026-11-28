@@ -15,22 +15,23 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.32.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.36.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
 > 版本摘要口径：本文件按版本摘选要点，并非逐版完整记录 —— v2.26.5、v2.27.0 等条目未在此逐版列出；完整逐版历史见 [CHANGELOG.md](CHANGELOG.md) 与 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-## v2.32.0（黄金混合模式、零 Key 交互快照提交与 MCP 全书原子工具闭环，当前主干版本）
+<!-- release-sync:current:start -->
+## v2.36.0（2026-11-28 发布，当前主干版本）
 
-**当前主干版本（2026-11-27 登记）**：版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源，实际发布产物与下载资产见 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
+**当前主干版本（2026-11-28 同步）**：版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 为唯一真源，实际发布产物见 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)（Windows 安装包 `niko-buddy_2.36.0_windows_X64.exe`、便携版 `niko-buddy_2.36.0_windows_X64_portable.exe`）。
 
-本版完成 Phase 2 长篇全链闭环与黄金混合记忆体系，在 100% 遵循 Google Antigravity 服务条款与 Draft-first 红线前提下打通百章级创作与审修协作：
-
-- **8 项零 LLM MCP 工具与 `prepareId` 快照复用**：新增 `workflow.next`、`draft.patch`（`expectedSha256` + 5 轮硬熔断 + `parentDraftId`）、`draft.record_review`（`P0>P1>P2` 仅升 `ready` 绝不 accept）及 5 组原子只读查询（`foreshadowing.list`、`character.read`、`outline.read`、`style.exemplars`、`chapter.search`）；`context.prepare_write` 支持 5 分钟 LRU `prepareId` 复用与 `page` 分页，4 档 Profile 演进为 38 / 24 / 19（100% 严格只读）/ 17。
-- **黄金混合模式与零 API Key 交互式快照提交**：ACP 工作台自动识别纯订阅 / 黄金混合 / 完整 API 模式，内置 WCAG Level A 人工确认快照提交弹窗（预填只读提取提示词 → 零写盘校验预览 → 显式确认后走 `commitPreparedChapterIngest` 原子落盘正式记忆与 Canon）。
-- **声明式写作插件 v1.1.0 与状态感知快捷指令**：保持 C-007 13 文件零脚本边界，升级动态快捷指令推荐、外部控制页档位摘要及 4757 键中英双语 1:1 对齐。
+- 优化跨通道 Prompt Cache 协议与命中可观测性：为 Anthropic 末尾工具定义挂载 ephemeral 断点并实现跨 system/tools/messages 严格 4 断点优先级限流；将 stripWireAgnosticOverrides 升级为出站白名单并为 OpenAI Chat Completions 与 Responses API 安全映射 prompt_cache_key；支持 DeepSeek prompt_cache_hit_tokens 兜底解析；在不重开 antigravity-cli 红线的前提下补充隐式前缀描述器；导出只读 getLlmRequestTraceSnapshot() 并在 LlmProviderSection 内接入 LlmCacheStatsCard 命中诊断卡。
+- 收敛工具面并稳定主控意图掩码：从出站 Schema 与可调用列表过滤 virtual 虚拟工具，移除 apply_skill 描述中易变的动态技能名清单以保证逐字节一致；新增按 ASCII 字典序冻结的三档主控工具掩码（read_plan、write_edit、full），由 runMainControlAgent 通过 intentToolMask 内部派生并持续严格排除 write_memory。
+- 修复新手引导断点与零 API Key Antigravity ACP 体验：打通 WelcomeScreen 第 2 步模型配置按钮及有/无项目双分支跳转，支持新建项目弹窗往返设置保留输入草稿、校准 4 步进度与 formatOperationError 统一报错；新增零 Key 创建并直达交互式 Antigravity (ACP) 入口、开书导演受阻分流 CTA、全自动孵化 assessLlmHealth 前置健康守卫以及无项目全局模型配置说明横幅。
+- 精准校准外部控制 4 档 MCP Profile 工具数（full-legacy 50 / writer-sub 36 / architect 28 / reviewer 25）并将 UI 默认推荐档位切换为 writer-sub；同步完成 CLAUDE.md 治理瘦身（20 KB 内）与 verify:fast 快速内环脚本建设。
+<!-- release-sync:current:end -->
 
 **v2.31.0 Antigravity 写作角色隔离与工作流适配 Phase 1 摘要：**
 

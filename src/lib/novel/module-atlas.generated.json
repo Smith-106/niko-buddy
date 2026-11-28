@@ -90,8 +90,8 @@
   "orphan": 180,
   "specOnly": 177,
   "barrelOnly": 0,
-  "edges": 4928,
-  "loc": 330475
+  "edges": 4929,
+  "loc": 330483
  },
  "modules": [
   {
@@ -7532,7 +7532,7 @@
   {
    "p": "src/lib/analytics.ts",
    "s": 18,
-   "l": 113,
+   "l": 119,
    "r": true,
    "o": false,
    "x": false,
@@ -8354,12 +8354,13 @@
   {
    "p": "src/lib/feedback.ts",
    "s": 18,
-   "l": 64,
+   "l": 66,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
+    387,
     1048,
     1180
    ],

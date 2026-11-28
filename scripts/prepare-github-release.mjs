@@ -4,13 +4,15 @@ import { dirname, extname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { buildCurrentReleaseNotes } from "./release-notes.mjs"
 import { assertSigningKeyExists } from "./signing-key.mjs"
+import { packPortableZip } from "./build-portable.mjs"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"))
 const releaseNotes = await buildCurrentReleaseNotes(root)
 const bundleDir = resolve(root, "src-tauri/target/release/bundle/nsis")
 const outDir = resolve(root, "release-github")
-const portableExe = resolve(root, "release-portable/niko-buddy.exe")
+const portableDir = resolve(root, "release-portable")
+const portableExe = resolve(portableDir, "niko-buddy.exe")
 
 if (!existsSync(bundleDir)) {
   throw new Error(`未找到安装包目录：${bundleDir}`)
@@ -53,7 +55,16 @@ if (result.status !== 0) {
 }
 
 if (existsSync(portableExe)) {
-  cpSync(portableExe, resolve(outDir, `niko-buddy_${pkg.version}_windows_X64_portable.exe`))
+  const portableZipOut = resolve(outDir, `niko-buddy_${pkg.version}_windows_X64_portable.zip`)
+  const packed = packPortableZip({
+    root,
+    outDir: portableDir,
+    zipPath: portableZipOut,
+    pkgVersion: pkg.version,
+  })
+  if (!packed.ok) {
+    throw new Error(packed.error ?? "生成便携版整目录 ZIP 失败")
+  }
 }
 
 const signature = readFileSync(releaseSignaturePath, "utf8").trim()
