@@ -2072,7 +2072,7 @@ describe("PreviewPanel 一键排版与去AI味", () => {
     chapterSetup()
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByText("批量去AI味"))
-    await waitFor(() => expect(screen.getByTestId("de-ai-batch-close")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId("de-ai-batch-dialog").dataset.open).toBe("true"))
     fireEvent.click(screen.getByTestId("de-ai-batch-close"))
     await waitFor(() => expect(screen.getByTestId("de-ai-batch-dialog").dataset.open).toBe("false"))
     cleanup()
