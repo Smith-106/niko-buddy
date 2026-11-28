@@ -7,6 +7,7 @@ import { resolveConfig } from "@/lib/llm-config/preset-resolver"
 import { CliProbeStrip } from "./cli-probe-strip"
 import { PresetRow } from "./llm-provider-widgets"
 import { CustomProviderCards } from "./custom-provider-cards"
+import { LlmCacheStatsCard } from "../llm-cache-stats-card"
 import { toErrorMessage } from "@/lib/utils"
 
 export function LlmProviderSection() {
@@ -303,6 +304,9 @@ export function LlmProviderSection() {
           )
         })}
       </div>
+
+      {/* 会话内 Prompt 缓存命中诊断 */}
+      <LlmCacheStatsCard />
     </div>
   )
 }
