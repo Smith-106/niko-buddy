@@ -1,9 +1,12 @@
 /**
- * 青幕AI写作 - 用户统计 Cloudflare Worker
+ * Niko Buddy - 用户统计与反馈 Cloudflare Worker
  *
  * 功能：
+ * - GET  /health : 健康检查探针（无需鉴权）
  * - POST /open   : 用户启动软件时调用（注册 + 标记在线）
+ * - POST /heartbeat : 在线心跳
  * - POST /close  : 用户关闭软件时调用（标记离线）
+ * - POST /feedback : 提交应用内用户反馈
  * - GET  /stats  : 查看统计数据（需要密钥）
  * - Cron trigger : 每小时清理超时会话
  */
@@ -460,6 +463,13 @@ export default {
     const path = url.pathname
 
     try {
+      if (request.method === "GET" && path === "/health") {
+        return jsonResponse({
+          ok: true,
+          service: "niko-buddy-analytics",
+          endpoints: ["/health", "/open", "/heartbeat", "/close", "/feedback", "/stats"],
+        })
+      }
       if (request.method === "POST" && path === "/open") {
         return await handleOpen(request, env)
       }

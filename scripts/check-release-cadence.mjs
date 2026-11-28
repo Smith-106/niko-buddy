@@ -128,6 +128,23 @@ export function auditHistory(releases) {
  * 审 Latest 时 prerelease 标记本身是问题（Latest 槽位不应指向内测版）；
  * 用 --tag 显式审某个 prerelease 时传 allowPrerelease，只查资产与 draft。
  */
+/**
+ * Portable asset format migration policy:
+ * - v2.37.0+ must ship a full-directory zip (`niko-buddy_<ver>_windows_X64_portable.zip`).
+ * - Historical releases <= v2.36.x shipped `niko-buddy_<ver>_windows_X64_portable.exe`.
+ */
+export function expectedPortableAssetName(version) {
+  const match = String(version ?? "").match(/^(\d+)\.(\d+)\.(\d+)/)
+  if (match) {
+    const major = Number(match[1])
+    const minor = Number(match[2])
+    if (major > 2 || (major === 2 && minor >= 37)) {
+      return `niko-buddy_${version}_windows_X64_portable.zip`
+    }
+  }
+  return `niko-buddy_${version}_windows_X64_portable.exe`
+}
+
 export function evaluateLatestAssets(latest, assetNames, { allowPrerelease = false } = {}) {
   const problems = []
   if (!latest) return ["找不到被审 release"]
@@ -149,7 +166,7 @@ export function evaluateLatestAssets(latest, assetNames, { allowPrerelease = fal
         problems.push(`缺版本匹配安装包 ${expectedInstaller}`)
       }
       if (!latest.isPrerelease && !allowPrerelease) {
-        const expectedPortable = `niko-buddy_${version}_windows_X64_portable.exe`
+        const expectedPortable = expectedPortableAssetName(version)
         if (!names.includes(expectedPortable)) {
           problems.push(`缺便携版资产 ${expectedPortable}`)
         }
@@ -242,8 +259,9 @@ export function evaluateDraftPromotion(releases, targetTag, assetNames, publishe
   if (!/^v\d+\.\d+\.\d+$/.test(targetTag) || !Number.isFinite(Date.parse(publishedAt))) {
     return { gate: { tag: targetTag, rules: [], missing: true }, assetProblems: ["Invalid stable tag or promotion time"] }
   }
-  const exe = `niko-buddy_${targetTag.slice(1)}_windows_X64.exe`
-  const expected = ["latest.json", exe, `${exe}.sig`, exe.replace(/\.exe$/, "_portable.exe")]
+  const version = targetTag.slice(1)
+  const exe = `niko-buddy_${version}_windows_X64.exe`
+  const expected = ["latest.json", exe, `${exe}.sig`, expectedPortableAssetName(version)]
   const names = assetNames ?? []
   const assetProblems = expected.filter((name) => !names.includes(name)).map((name) => `Missing ${name}`)
   if (names.length !== expected.length && assetProblems.length === 0) assetProblems.push("Unexpected draft asset set")

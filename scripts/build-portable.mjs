@@ -1,4 +1,5 @@
-import { cpSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync, renameSync } from "node:fs"
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync, renameSync } from "node:fs"
+import { spawnSync } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -180,7 +181,160 @@ export async function buildPortable({
 
   log(`便携版已生成（${profile}）：${outExe}`)
   log(`版本信息：${manifest}`)
+
+  const zipFlagIdx = argv.indexOf("--zip-out")
+  const wantsZip = argv.includes("--zip") || zipFlagIdx >= 0 || env.PORTABLE_ZIP === "1"
+  if (wantsZip) {
+    const customZipPath = zipFlagIdx >= 0 && argv[zipFlagIdx + 1] ? resolve(root, argv[zipFlagIdx + 1]) : undefined
+    const zipResult = packPortableZip({
+      root,
+      outDir,
+      zipPath: customZipPath,
+      pkgVersion: pkg.version,
+      log,
+      error,
+    })
+    if (!zipResult.ok) return 1
+  }
   return 0
+}
+
+/**
+ * 校验前 4 字节为标准 ZIP 本地文件头魔数 (`PK\x03\x04`)。
+ */
+export function hasZipMagicBytes(buffer) {
+  return Boolean(
+    buffer &&
+      buffer.length >= 4 &&
+      buffer[0] === 0x50 &&
+      buffer[1] === 0x4b &&
+      buffer[2] === 0x03 &&
+      buffer[3] === 0x04,
+  )
+}
+
+/**
+ * 将完整的 `release-portable/` 目录打包为整目录 `.zip`（含 `niko-buddy.exe`、`pdfium/pdfium.dll`、`skills/`、`version-info.json`）。
+ * fail-closed：核心文件缺失或压缩失败时返回 `{ ok: false, error }`。
+ */
+export function packPortableZip({
+  root = DEFAULT_ROOT,
+  outDir = resolve(root, "release-portable"),
+  zipPath,
+  pkgVersion,
+  requirePdfium = true,
+  platform = process.platform,
+  runExec = spawnSync,
+  exists = existsSync,
+  stat = statSync,
+  mkdir = mkdirSync,
+  rm = rmSync,
+  readText = readFileSync,
+  open = openSync,
+  readBytes = readSync,
+  close = closeSync,
+  log = console.log,
+  error = console.error,
+} = {}) {
+  const exePath = resolve(outDir, "niko-buddy.exe")
+  const manifestPath = resolve(outDir, "version-info.json")
+  const skillsDir = resolve(outDir, "skills")
+  const pdfiumPath = resolve(outDir, "pdfium/pdfium.dll")
+
+  const requiredEntries = [
+    [exePath, "niko-buddy.exe"],
+    [manifestPath, "version-info.json"],
+    [skillsDir, "skills/"],
+  ]
+  if (requirePdfium) {
+    requiredEntries.push([pdfiumPath, "pdfium/pdfium.dll"])
+  }
+
+  for (const [requiredPath, label] of requiredEntries) {
+    if (!exists(requiredPath)) {
+      const msg = `[build-portable] 打包 ZIP 失败：缺少必需文件/目录 ${label}（${requiredPath}）`
+      error(msg)
+      return { ok: false, error: msg }
+    }
+  }
+
+  let manifest
+  try {
+    manifest = JSON.parse(readText(manifestPath, "utf8"))
+  } catch (err) {
+    const msg = `[build-portable] 读取 version-info.json 失败：${formatErr(err)}`
+    error(msg)
+    return { ok: false, error: msg }
+  }
+
+  const version = pkgVersion || manifest?.version || "0.0.0"
+  const targetZip = resolve(zipPath ?? resolve(outDir, `niko-buddy_${version}_windows_X64_portable.zip`))
+
+  try {
+    mkdir(dirname(targetZip), { recursive: true })
+    if (exists(targetZip)) rm(targetZip, { force: true })
+  } catch (err) {
+    const msg = `[build-portable] 准备 ZIP 输出路径失败：${formatErr(err)}`
+    error(msg)
+    return { ok: false, error: msg }
+  }
+
+  const result =
+    platform === "win32"
+      ? runExec(
+          "powershell",
+          [
+            "-NoProfile",
+            "-Command",
+            "$ErrorActionPreference='Stop'; Compress-Archive -Path (Join-Path $env:NB_PORTABLE_DIR '*') -DestinationPath $env:NB_PORTABLE_ZIP -Force",
+          ],
+          {
+            env: { ...process.env, NB_PORTABLE_DIR: outDir, NB_PORTABLE_ZIP: targetZip },
+            encoding: "utf8",
+            shell: false,
+          },
+        )
+      : runExec("zip", ["-r", "-q", targetZip, "."], {
+          cwd: outDir,
+          encoding: "utf8",
+          shell: false,
+        })
+
+  if (result.error || result.status !== 0) {
+    const detail = result.error ? formatErr(result.error) : (result.stderr || result.stdout || `exit ${result.status}`).trim()
+    const msg = `[build-portable] 压缩便携版 ZIP 失败：${detail}`
+    error(msg)
+    return { ok: false, error: msg }
+  }
+
+  if (!exists(targetZip)) {
+    const msg = `[build-portable] ZIP 未生成：${targetZip}`
+    error(msg)
+    return { ok: false, error: msg }
+  }
+
+  const zipStat = stat(targetZip)
+  if (!zipStat || zipStat.size <= 0) {
+    const msg = `[build-portable] 生成的 ZIP 为空：${targetZip}`
+    error(msg)
+    return { ok: false, error: msg }
+  }
+
+  const header = Buffer.alloc(4)
+  const fd = open(targetZip, "r")
+  try {
+    readBytes(fd, header, 0, 4, 0)
+  } finally {
+    close(fd)
+  }
+  if (!hasZipMagicBytes(header)) {
+    const msg = `[build-portable] 生成的 ZIP 文件头无效（非 PK\\x03\\x04）：${targetZip}`
+    error(msg)
+    return { ok: false, error: msg }
+  }
+
+  log(`便携版整目录 ZIP 已生成：${targetZip}（${zipStat.size} bytes）`)
+  return { ok: true, zipPath: targetZip, bytes: zipStat.size }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

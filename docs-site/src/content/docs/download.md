@@ -7,10 +7,21 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.27.2**（2026-11-12 JST 发布：装配 P1 角色行为路由归一 + 两项既有文档/质量声明修复 — **stable，GitHub Latest**）
+<!-- release-sync:latest:start -->
+**v2.36.0**（2026-11-28 发布 —— **当前版本，GitHub Releases**）
 
-v2.27.2 的发行资产由 tag 触发的 CI 构建（run 43036064065，attempt 1 success），四资产齐全（`latest.json` + NSIS 安装包 + `.sig` + 便携版）；该 release 为 **stable 最新版（Latest）**（`prerelease=false`），公开 updater alias 真网络回读的 `latest.json` 的 `version` 为 2.27.2（URL tag-pinned，signature 与真实 `.sig` 匹配）。本版安装路径是**真实 NSIS 覆盖升级 2.27.1 → 2.27.2**（版本读回 / payload 哈希 / 重启后可用），不是应用内 updater 自动升到 2.27.2 的实测。**MCP 包级回读仍未进行**：真实安装/升级后的 `app.status`（`scope` / `readOnly`）与 `tools/list` 的 `chapter.write` 描述需要一个已安全配置的认证 MCP 连接才能读取，目前仍未完成，本页不据此宣称 MCP 契约已验。
-> **v2.27.2 更新要点**：本版把三项既有交付装进真包 —— P1 角色行为路由归一（生产者侧 `character_behavior` 在查 `GATE_MAPPING` 前归一成规范键 `behavioral_repetition`，raw finding / 优先级 / 阈值未改）、README 交付口径、公开质量门与平台声明。详见下方「v2.27.2 更新要点」。
+- 前往 [GitHub Releases v2.36.0](https://github.com/Smith-106/niko-buddy/releases/tag/v2.36.0) 获取 Windows x64 构建资产：
+  - 安装包：`niko-buddy_2.36.0_windows_X64.exe`（配签名 `niko-buddy_2.36.0_windows_X64.exe.sig`）
+  - 便携版：`niko-buddy_2.36.0_windows_X64_portable.exe`
+  - 自动更新清单：`latest.json`
+
+### v2.36.0 更新要点
+
+- 优化跨通道 Prompt Cache 协议与命中可观测性：为 Anthropic 末尾工具定义挂载 ephemeral 断点并实现跨 system/tools/messages 严格 4 断点优先级限流；将 stripWireAgnosticOverrides 升级为出站白名单并为 OpenAI Chat Completions 与 Responses API 安全映射 prompt_cache_key；支持 DeepSeek prompt_cache_hit_tokens 兜底解析；在不重开 antigravity-cli 红线的前提下补充隐式前缀描述器；导出只读 getLlmRequestTraceSnapshot() 并在 LlmProviderSection 内接入 LlmCacheStatsCard 命中诊断卡。
+- 收敛工具面并稳定主控意图掩码：从出站 Schema 与可调用列表过滤 virtual 虚拟工具，移除 apply_skill 描述中易变的动态技能名清单以保证逐字节一致；新增按 ASCII 字典序冻结的三档主控工具掩码（read_plan、write_edit、full），由 runMainControlAgent 通过 intentToolMask 内部派生并持续严格排除 write_memory。
+- 修复新手引导断点与零 API Key Antigravity ACP 体验：打通 WelcomeScreen 第 2 步模型配置按钮及有/无项目双分支跳转，支持新建项目弹窗往返设置保留输入草稿、校准 4 步进度与 formatOperationError 统一报错；新增零 Key 创建并直达交互式 Antigravity (ACP) 入口、开书导演受阻分流 CTA、全自动孵化 assessLlmHealth 前置健康守卫以及无项目全局模型配置说明横幅。
+- 精准校准外部控制 4 档 MCP Profile 工具数（full-legacy 50 / writer-sub 36 / architect 28 / reviewer 25）并将 UI 默认推荐档位切换为 writer-sub；同步完成 CLAUDE.md 治理瘦身（20 KB 内）与 verify:fast 快速内环脚本建设。
+<!-- release-sync:latest:end -->
 
 > **上一稳定版 v2.27.1（2026-11-11）**：MCP 自述权限如实回报（`app.status` 不再恒报 `readOnly: true`，改报本次请求的有效 scope）+ `chapter.write` 草稿目录描述纠正（`.novel/drafts` → `.qm-drafts`）；该版的 CI / 验签 / 真实升级证据见下方「v2.27.1 更新要点」。仍可从 Releases 页取该版安装包。
 >
@@ -470,15 +481,17 @@ v2.27.2 的发行资产由 tag 触发的 CI 构建（run 43036064065，attempt 1
 | v2.4.4 | 角色光环、MIT 合规、性能基准 |
 | v2.4.0 | 确定性连续性引擎 |
 
+<!-- release-sync:assets:start -->
 ## Windows 安装包
 
-当前 stable 是 **v2.27.2**（2026-11-12 JST 发布，占 GitHub Latest）。
+当前版本为 **v2.36.0**（2026-11-28 发布）。
 
-下载 [`niko-buddy_2.27.2_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.27.2/niko-buddy_2.27.2_windows_X64.exe)，双击运行 NSIS 安装程序即可。
+下载 [`niko-buddy_2.36.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.36.0/niko-buddy_2.36.0_windows_X64.exe)，双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`niko-buddy_2.27.2_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.27.2/niko-buddy_2.27.2_windows_X64_portable.exe)（单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`niko-buddy_2.36.0_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.36.0/niko-buddy_2.36.0_windows_X64_portable.exe)（便携免安装运行包，直接运行即可，适合 U 盘随身携带或免安装场景。）
+<!-- release-sync:assets:end -->
 
 ## 系统要求
 

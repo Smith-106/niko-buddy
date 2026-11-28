@@ -32,7 +32,7 @@
 ```
 niko-buddy_<version>_windows_X64.exe
 niko-buddy_<version>_windows_X64.exe.sig
-niko-buddy_<version>_windows_X64_portable.exe
+niko-buddy_<version>_windows_X64_portable.zip
 niko-buddy_<version>_macOS_AppleSilicon.dmg / .app.tar.gz
 niko-buddy_<version>_macOS_Intel.dmg / .app.tar.gz
 niko-buddy_<version>_linux_X64.AppImage / .deb   # Linux 补发后

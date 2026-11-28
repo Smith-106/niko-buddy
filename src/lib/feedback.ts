@@ -1,7 +1,9 @@
 import { isTauri } from "@/lib/platform"
 import { toErrorMessage } from "@/lib/utils"
 
-const FEEDBACK_URL = "https://niko-buddy-analytics.niko-buddy.workers.dev/feedback"
+import { resolveAnalyticsBaseUrl } from "@/lib/analytics"
+
+const FEEDBACK_URL = `${resolveAnalyticsBaseUrl()}/feedback`
 const MAX_MESSAGE_LENGTH = 3000
 const MAX_CONTACT_LENGTH = 200
 

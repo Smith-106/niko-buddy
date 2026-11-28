@@ -293,7 +293,7 @@ describe("windowsAssetNames / checkUpdaterManifest / checkUploadedAssets", () =>
     expect(files).toEqual([
       "niko-buddy_2.28.1_windows_X64.exe",
       "niko-buddy_2.28.1_windows_X64.exe.sig",
-      "niko-buddy_2.28.1_windows_X64_portable.exe",
+      "niko-buddy_2.28.1_windows_X64_portable.zip",
       "latest.json",
     ])
   })

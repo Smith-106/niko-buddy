@@ -37,14 +37,14 @@ npm run build:github-release
 
 | 命令 | 产物 | 用途 |
 |------|------|------|
-| `npm run build:portable` | `release-portable/niko-buddy.exe` | 便携版（单文件），免安装 |
+| `npm run build:portable` | `release-portable/`（可选 `--zip` 打出整目录 `.zip`） | 便携版（含 `pdfium.dll` 与 `skills/`），免安装 |
 | `npm run build:github-release` | `release-github/` 下全套资产 | GitHub Release 上传 |
 
 GitHub Release 产物包含：
 
 - `niko-buddy_<version>_windows_X64.exe` — NSIS 安装包
 - `niko-buddy_<version>_windows_X64.exe.sig` — 更新签名
-- `niko-buddy_<version>_windows_X64_portable.exe` — 便携版（单文件）
+- `niko-buddy_<version>_windows_X64_portable.zip` — 便携版整目录压缩包（含 `niko-buddy.exe`、`pdfium/pdfium.dll`、`skills/`）
 - `latest.json` — Tauri Updater 更新清单
 
 （资产命名以 `RELEASING.md` 的「资产命名（唯一规范）」为准，禁止 `QMaiWrite_*` / `Niko.Buddy_*` 前缀。）
