@@ -722,7 +722,9 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
         }
       }
     }
-    expect(parsed.mcpServers?.["niko-buddy"]?.serverUrl).toBe("http://127.0.0.1:45871/mcp")
+    expect(parsed.mcpServers?.["niko-buddy"]?.serverUrl).toBe(
+      "http://127.0.0.1:45871/mcp?profile=writer-sub",
+    )
     expect(parsed.mcpServers?.["niko-buddy"]?.headers?.Authorization).toBe("Bearer <YOUR_BEARER_TOKEN>")
     expect(parsed.mcpServers?.["niko-buddy"]?.timeoutSeconds).toBe(600)
 
@@ -737,7 +739,9 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
 
     fireEvent.click(screen.getByTestId("external-control-copy-antigravity-mcp"))
     await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith(expect.stringContaining('"serverUrl": "http://127.0.0.1:45871/mcp"'))
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining('"serverUrl": "http://127.0.0.1:45871/mcp?profile=writer-sub"'),
+      )
       expect(writeText).toHaveBeenCalledWith(expect.stringContaining("Bearer tok-antigravity-1234"))
     })
     expect(screen.queryByTestId("external-control-antigravity-copy-warning")).toBeNull()
@@ -828,7 +832,7 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     }
   })
 
-  it("Antigravity profile 选择器默认保持裸 URL，切换后仅追加 ?profile= 且不影响上方裸端点", async () => {
+  it("Antigravity profile 选择器默认选中 writer-sub，切换 full-legacy 恢复裸 URL，切换其余档位仅追加 ?profile= 且不影响上方裸端点", async () => {
     const writeText = stubClipboard()
     invokeMock.mockResolvedValue(RUNNING_STATUS)
     render(<ExternalControlSection />)
@@ -836,15 +840,20 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     const select = (await screen.findByTestId(
       "external-control-antigravity-profile",
     )) as HTMLSelectElement
-    expect(select.value).toBe("full-legacy")
+    expect(select.value).toBe("writer-sub")
     expect(screen.getByTestId("external-control-antigravity-snippet")).toHaveTextContent(
-      '"serverUrl": "http://127.0.0.1:45871/mcp"',
+      '"serverUrl": "http://127.0.0.1:45871/mcp?profile=writer-sub"',
     )
+    expect(screen.getByTestId("external-control-antigravity-profile-count")).toHaveTextContent("36")
 
-    for (const profile of ["writer-sub", "reviewer", "architect"] as const) {
+    for (const profile of ["full-legacy", "reviewer", "architect"] as const) {
       fireEvent.change(select, { target: { value: profile } })
+      const expectedUrl =
+        profile === "full-legacy"
+          ? '"serverUrl": "http://127.0.0.1:45871/mcp"'
+          : `"serverUrl": "http://127.0.0.1:45871/mcp?profile=${profile}"`
       expect(screen.getByTestId("external-control-antigravity-snippet")).toHaveTextContent(
-        `"serverUrl": "http://127.0.0.1:45871/mcp?profile=${profile}"`,
+        expectedUrl,
       )
       // 上方裸端点绝不被污染
       expect(screen.getByTestId("external-control-endpoint")).toHaveTextContent(
@@ -1059,7 +1068,7 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     }
   })
 
-  it("Phase 3: Antigravity profile 选择器准确展示 40/26/21/18 工具数与规范能力说明，且 architect 不含 draft.diff、全量零 draft.accept / role=alert 污染与 1:1 zh/en 键对齐", async () => {
+  it("Phase 3: Antigravity profile 选择器准确展示 50/36/25/28 工具数与规范能力说明，且 architect 不含 draft.diff、全量零 draft.accept / role=alert 污染与 1:1 zh/en 键对齐", async () => {
     invokeMock.mockResolvedValueOnce(RUNNING_STATUS)
     render(<ExternalControlSection />)
 
@@ -1068,7 +1077,7 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     })
 
     const select = screen.getByTestId("external-control-antigravity-profile") as HTMLSelectElement
-    expect(select.value).toBe("full-legacy")
+    expect(select.value).toBe("writer-sub")
 
     const expectedProfiles: Array<{
       profile: "full-legacy" | "writer-sub" | "reviewer" | "architect"
@@ -1078,7 +1087,7 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     }> = [
       {
         profile: "full-legacy",
-        count: 40,
+        count: 50,
         mustContain: [
           "workflow.next",
           "foreshadowing.list",
@@ -1094,7 +1103,7 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
       },
       {
         profile: "writer-sub",
-        count: 26,
+        count: 36,
         mustContain: [
           "workflow.next",
           "foreshadowing.list",
@@ -1110,7 +1119,7 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
       },
       {
         profile: "reviewer",
-        count: 21,
+        count: 25,
         mustContain: [
           "workflow.next",
           "foreshadowing.list",
@@ -1124,7 +1133,7 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
       },
       {
         profile: "architect",
-        count: 18,
+        count: 28,
         mustContain: [
           "workflow.next",
           "foreshadowing.list",

@@ -84,28 +84,28 @@ const ANTIGRAVITY_PROFILE_META: Record<
   { toolCount: number; descKey: string; descFallback: string }
 > = {
   "full-legacy": {
-    toolCount: 40,
+    toolCount: 50,
     descKey: "settings.sections.externalControl.antigravityProfileDescFullLegacy",
     descFallback:
-      "Full legacy profile: exposes all 40 registered tools (including internal API pipelines, zero-LLM atomic read & health tools workflow.next, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, draft.diff, audit.longform_health, plus draft.patch / draft.record_review).",
+      "Full legacy profile: exposes all 50 registered tools (including internal API pipelines, zero-LLM atomic read & health tools workflow.next, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, draft.diff, audit.longform_health, skills.list, skills.get, canon.facts_known_by, canon.episodes, plus draft.patch / draft.record_review and planning writes).",
   },
   "writer-sub": {
-    toolCount: 26,
+    toolCount: 36,
     descKey: "settings.sections.externalControl.antigravityProfileDescWriterSub",
     descFallback:
-      "Writer compact profile (Recommended): zero internal API pipelines, strict Draft-first, 26 tools — includes workflow.next, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, draft.diff, audit.longform_health, plus draft-safe writes chapter.write, draft.patch, draft.record_review, outline.write, and character.upsert.",
+      "Writer compact profile (Recommended): zero internal API pipelines, strict Draft-first, 36 tools — includes workflow.next, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, draft.diff, audit.longform_health, skills.list, skills.get, canon.facts_known_by, canon.episodes, plus draft-safe writes chapter.write, draft.patch, draft.record_review, outline.write, character.upsert, and zero-LLM planning writes.",
   },
   reviewer: {
-    toolCount: 21,
+    toolCount: 25,
     descKey: "settings.sections.externalControl.antigravityProfileDescReviewer",
     descFallback:
-      "Reviewer read-only profile: strictly zero write tools (21 read-only tools) for isolated review — includes workflow.next, draft.list, draft.read, draft.diff, audit.longform_health, gate.check_mechanical, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, and chapter.search; outputs structured verdicts for writer-sub to record.",
+      "Reviewer read-only profile: strictly zero write tools (25 read-only tools) for isolated review — includes workflow.next, draft.list, draft.read, draft.diff, audit.longform_health, gate.check_mechanical, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, skills.list, skills.get, canon.facts_known_by, and canon.episodes; outputs structured verdicts for writer-sub to record.",
   },
   architect: {
-    toolCount: 18,
+    toolCount: 28,
     descKey: "settings.sections.externalControl.antigravityProfileDescArchitect",
     descFallback:
-      "Architect / outline profile: focused on book setup and arc planning (18 tools) — includes workflow.next, director.check, audit.longform_health, context.prepare_write, foreshadowing.list, character.read, outline.read, chapter.search, plus planning writes outline.write and character.upsert (excludes chapter drafting and draft comparison/patching/review).",
+      "Architect / outline profile: focused on book setup and arc planning (28 tools) — includes workflow.next, director.check, audit.longform_health, context.prepare_write, foreshadowing.list, character.read, outline.read, chapter.search, skills.list, skills.get, canon.facts_known_by, canon.episodes, plus planning writes outline.write, character.upsert, director.upsert_world, director.commit_phase, rules.upsert_book_rules, compass.update, foreshadowing.upsert, and subplot.upsert (excludes chapter drafting and draft comparison/patching/review).",
   },
 }
 
@@ -140,7 +140,7 @@ export function ExternalControlSection() {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [copiedAntigravity, setCopiedAntigravity] = useState(false)
-  const [antigravityProfile, setAntigravityProfile] = useState<McpToolProfile>("full-legacy")
+  const [antigravityProfile, setAntigravityProfile] = useState<McpToolProfile>("writer-sub")
   const [antigravityCopyWarning, setAntigravityCopyWarning] = useState<
     "stopped_and_masked" | "stopped" | "masked" | null
   >(null)
@@ -818,22 +818,22 @@ export function ExternalControlSection() {
           >
             <option value="full-legacy">
               {t("settings.sections.externalControl.antigravityProfileFullLegacy", {
-                defaultValue: "Full legacy (40 tools · bare URL, no ?profile)",
+                defaultValue: "Full legacy (50 tools · bare URL, no ?profile)",
               })}
             </option>
             <option value="writer-sub">
               {t("settings.sections.externalControl.antigravityProfileWriterSub", {
-                defaultValue: "Recommended: Writer compact (26 tools · ?profile=writer-sub)",
+                defaultValue: "Recommended: Writer compact (36 tools · ?profile=writer-sub)",
               })}
             </option>
             <option value="reviewer">
               {t("settings.sections.externalControl.antigravityProfileReviewer", {
-                defaultValue: "Reviewer read-only (21 tools · ?profile=reviewer)",
+                defaultValue: "Reviewer read-only (25 tools · ?profile=reviewer)",
               })}
             </option>
             <option value="architect">
               {t("settings.sections.externalControl.antigravityProfileArchitect", {
-                defaultValue: "Architect / outline (18 tools · ?profile=architect)",
+                defaultValue: "Architect / outline (28 tools · ?profile=architect)",
               })}
             </option>
           </select>
