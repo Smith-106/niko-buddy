@@ -9,9 +9,9 @@
  *   2. 桥接本地 Docker 容器 `WeKnora-mcp`（`weknora-mcp-server`），**硬编码只读工具白名单**：
  *      仅开放检索/浏览工具，彻底屏蔽上游 `delete_*` / `create_*` / `chat` 等写入与会话接口。
  *   3. 默认白名单严格锁定 3 个小说创作专属知识库（屏蔽游戏开发 / 引擎文档等非小说库）：
- *      - `craft`（`b4f22fe9-8581-4a33-9d7e-000000000001`）：写作技法库（79 本技法论著 / 7,943 条 Wiki）
- *      - `lore` （`b4f22fe9-8581-4a33-9d7e-e1461eed5a4b`）：小说素材与人文库（1,385 册史料博物 / 70,351 条 Wiki，默认库）
- *      - `tech` （`b4f22fe9-8581-4a33-9d7e-000000000002`）：理工与计算机库（389 册理工医科文献 / 18,835 条 Wiki）
+ *      - `craft`（`b4f22fe9-8581-4a33-9d7e-000000000001`）：写作技法库（73 本技法论著 / 7,899 条 Wiki）
+ *      - `lore` （`b4f22fe9-8581-4a33-9d7e-e1461eed5a4b`）：小说素材与人文库（1,264 册史料博物 / 69,927 条 Wiki，默认库）
+ *      - `tech` （`b4f22fe9-8581-4a33-9d7e-000000000002`）：理工与计算机库（361 册理工医科文献 / 18,797 条 Wiki）
  *   4. 所有日志只写 `stderr`，`stdout` 严格只输出合法 JSON-RPC 2.0 单行帧。
  *
  * 环境变量（均可选）：
@@ -36,24 +36,24 @@ const NOVEL_KB_PROFILES = Object.freeze([
     key: "craft",
     id: "b4f22fe9-8581-4a33-9d7e-000000000001",
     name: "写作技法库",
-    docs: 79,
-    wikiPages: 7943,
+    docs: 73,
+    wikiPages: 7899,
     scope: "叙事结构、开篇钩子、冲突与悬念、人物塑造、对白潜台词、视角调度、推理诡计与创意写作理论",
   },
   {
     key: "lore",
     id: "b4f22fe9-8581-4a33-9d7e-e1461eed5a4b",
     name: "小说素材与人文库",
-    docs: 1385,
-    wikiPages: 70351,
+    docs: 1264,
+    wikiPages: 69927,
     scope: "历史制度、官制礼俗、饮食器物、地理博物、法律宗教、文学名作案例与时代社会细节（默认库）",
   },
   {
     key: "tech",
     id: "b4f22fe9-8581-4a33-9d7e-000000000002",
     name: "理工与计算机库",
-    docs: 389,
-    wikiPages: 18835,
+    docs: 361,
+    wikiPages: 18797,
     scope: "物理化学、医学法医、生物基因、计算机与AI、机械工程与硬科幻/职业考据细节",
   },
 ])
@@ -107,7 +107,7 @@ const SERVER_INFO = {
 }
 
 const KB_PARAM_DESCRIPTION =
-  "目标小说知识库：craft（写作技法库：叙事/悬念/人物/对白/视角，79本/7943词条）、lore（小说素材与人文库：历史/制度/民俗/器物，1385本/70351词条，默认）、tech（理工与计算机库：理化/医学法医/CS/工程，389本/18835词条）"
+  "目标小说知识库：craft（写作技法库：叙事/悬念/人物/对白/视角，73本/7899词条）、lore（小说素材与人文库：历史/制度/民俗/器物，1264本/69927词条，默认）、tech（理工与计算机库：理化/医学法医/CS/工程，361本/18797词条）"
 
 /** 严格只读工具白名单（与 niko-buddy McpToolDescriptor.operation="read" 对齐）。 */
 const EXPOSED_TOOLS = [
@@ -130,7 +130,7 @@ const EXPOSED_TOOLS = [
     upstreamName: "wiki_search",
     operation: "read",
     description:
-      "在 WeKnora 小说知识三库（合计 97,129 条结构化 Wiki 词条）中按关键词全文检索。支持通过 kb 指定 craft（技法）/ lore（人文素材，默认）/ tech（理工硬核）/ all（三库并发检索）。",
+      "在 WeKnora 小说知识三库（合计 96,623 条结构化 Wiki 词条）中按关键词全文检索。支持通过 kb 指定 craft（技法）/ lore（人文素材，默认）/ tech（理工硬核）/ all（三库并发检索）。",
     inputSchema: {
       type: "object",
       properties: {
