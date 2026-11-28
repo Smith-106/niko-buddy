@@ -47,6 +47,7 @@ import { dirtySettingsDomains, mergeResyncedDraft } from "./settings-view-helper
 // 新增孤立 section 会被该 spec 拦红；历史隐藏区（source watch / scheduled import 等）
 // 与其余未挂载 section 的登记见 docs/decision-log/2026-10-16-b7-unmounted-capabilities-ledger.md。
 import { LlmProviderSection } from "./sections/llm-provider-section"
+import { LlmCacheStatsCard } from "./llm-cache-stats-card"
 import { EmbeddingSection } from "./sections/embedding-section"
 import { RerankSection } from "./sections/rerank-section"
 import { InterfaceSection } from "./sections/interface-section"
@@ -608,7 +609,12 @@ export function SettingsView() {
   const body = useMemo(() => {
     switch (active) {
       case "llm":
-        return <LlmProviderSection />
+        return (
+          <div className="space-y-6">
+            <LlmProviderSection />
+            <LlmCacheStatsCard />
+          </div>
+        )
       case "rerank":
         return <RerankSection draft={draft} setDraft={setDraft} />
       case "embedding":

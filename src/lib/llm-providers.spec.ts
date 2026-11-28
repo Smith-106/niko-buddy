@@ -1423,3 +1423,191 @@ describe("未知 provider 的缓存策略", () => {
     ).toBe("none")
   })
 })
+
+describe("TASK-002: Anthropic tool breakpoint、<=4 裁剪与 OpenAI prompt_cache_key", () => {
+  function countCacheControlMarkers(node: unknown): number {
+    if (Array.isArray(node)) {
+      return node.reduce((sum, item) => sum + countCacheControlMarkers(item), 0)
+    }
+    if (!node || typeof node !== "object") return 0
+    const record = node as Record<string, unknown>
+    let count = "cache_control" in record && record.cache_control !== undefined ? 1 : 0
+    for (const value of Object.values(record)) {
+      count += countCacheControlMarkers(value)
+    }
+    return count
+  }
+
+  const openAiTool = (name: string) => ({
+    type: "function",
+    function: {
+      name,
+      description: `${name} desc`,
+      parameters: { type: "object", properties: { q: { type: "string" } } },
+    },
+  })
+
+  it("toAnthropicTools 在末尾工具挂载 cache_control: ephemeral", () => {
+    const body = getProviderConfig({
+      ...customConfig(),
+      provider: "anthropic",
+      apiKey: "sk",
+    }).buildBody(
+      [{ role: "user", content: "hi" }],
+      { tools: [openAiTool("first_tool"), openAiTool("last_tool")] },
+    ) as { tools: Array<Record<string, unknown>> }
+
+    expect(body.tools).toHaveLength(2)
+    expect(body.tools[0]).not.toHaveProperty("cache_control")
+    expect(body.tools[1]).toMatchObject({
+      name: "last_tool",
+      cache_control: { type: "ephemeral" },
+    })
+  })
+
+  it("buildAnthropicBody 按 system → last tool → 最早 message 优先级裁剪到 <= 4 个断点", () => {
+    const body = getProviderConfig({
+      ...customConfig(),
+      provider: "anthropic",
+      apiKey: "sk",
+    }).buildBody(
+      [
+        {
+          role: "system",
+          content: [
+            { type: "text", text: "SYS_1", cacheControl: true },
+            { type: "text", text: "SYS_MID" },
+            { type: "text", text: "SYS_2", cacheControl: true },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "MSG_1_KEEP", cacheControl: true },
+            { type: "text", text: "MSG_2_DROP", cacheControl: true },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "MSG_3_DROP", cacheControl: true }],
+        },
+      ],
+      { tools: [openAiTool("t1"), openAiTool("t2")] },
+    ) as {
+      system: Array<Record<string, unknown>>
+      tools: Array<Record<string, unknown>>
+      messages: Array<{ role: string; content: Array<Record<string, unknown>> }>
+    }
+
+    expect(countCacheControlMarkers(body)).toBe(4)
+    // 2 个 system 断点全保留
+    expect(body.system[0].cache_control).toEqual({ type: "ephemeral" })
+    expect(body.system[2].cache_control).toEqual({ type: "ephemeral" })
+    // 末尾 tool 断点保留
+    expect(body.tools[1].cache_control).toEqual({ type: "ephemeral" })
+    // messages 仅最早 1 个保留，后续超出预算的被裁掉
+    expect(body.messages[0].content[0].cache_control).toEqual({ type: "ephemeral" })
+    expect(body.messages[0].content[1]).not.toHaveProperty("cache_control")
+    expect(body.messages[1].content[0]).not.toHaveProperty("cache_control")
+  })
+
+  it("system 自身超过 4 个断点时也严格裁剪至 <= 4 并剥离工具与消息断点", () => {
+    const body = getProviderConfig({
+      ...customConfig(),
+      provider: "anthropic",
+      apiKey: "sk",
+    }).buildBody(
+      [
+        { role: "system", content: [{ type: "text", text: "S1", cacheControl: true }] },
+        { role: "user", content: "gap1" },
+        { role: "system", content: [{ type: "text", text: "S2", cacheControl: true }] },
+        { role: "system", content: [{ type: "text", text: "S3_PLAIN" }] },
+        { role: "system", content: [{ type: "text", text: "S4", cacheControl: true }] },
+        { role: "system", content: [{ type: "text", text: "S5_PLAIN" }] },
+        { role: "system", content: [{ type: "text", text: "S6", cacheControl: true }] },
+        { role: "system", content: [{ type: "text", text: "S7_PLAIN" }] },
+        { role: "system", content: [{ type: "text", text: "S8_OVER", cacheControl: true }] },
+        {
+          role: "user",
+          content: [{ type: "text", text: "U1", cacheControl: true }],
+        },
+      ],
+      { tools: [openAiTool("t1")] },
+    ) as Record<string, unknown>
+
+    expect(countCacheControlMarkers(body)).toBe(4)
+  })
+
+  it("OpenAI 与兼容 Chat/Responses 通道映射 promptCacheKey → prompt_cache_key 并阻断内部元数据泄漏", () => {
+    const dirtyOverrides = {
+      temperature: 0.2,
+      max_tokens: 500,
+      promptCacheKey: "  novel-ch1-prefix  ",
+      toolChoice: "auto",
+      reasoning: { mode: "high" as const },
+      jsonSchema: { type: "object" },
+      internalTraceTag: "should-not-leak",
+    } as import("./llm-providers").RequestOverrides
+
+    const openAiBody = getProviderConfig({
+      ...customConfig(),
+      provider: "openai",
+      model: "gpt-4o",
+    }).buildBody([{ role: "user", content: "hi" }], dirtyOverrides) as Record<string, unknown>
+
+    expect(openAiBody.prompt_cache_key).toBe("novel-ch1-prefix")
+    expect(openAiBody.tool_choice).toBe("auto")
+    expect(openAiBody.temperature).toBe(0.2)
+    expect(openAiBody).not.toHaveProperty("promptCacheKey")
+    expect(openAiBody).not.toHaveProperty("toolChoice")
+    expect(openAiBody).not.toHaveProperty("reasoning")
+    expect(openAiBody).not.toHaveProperty("jsonSchema")
+    expect(openAiBody).not.toHaveProperty("internalTraceTag")
+
+    const responsesBody = getProviderConfig(
+      customConfig({ apiMode: "responses", model: "gpt-5.4" }),
+    ).buildBody([{ role: "user", content: "hi" }], dirtyOverrides) as Record<string, unknown>
+
+    expect(responsesBody.prompt_cache_key).toBe("novel-ch1-prefix")
+    expect(responsesBody).not.toHaveProperty("promptCacheKey")
+    expect(responsesBody).not.toHaveProperty("internalTraceTag")
+
+    const customChatBody = getProviderConfig(
+      customConfig({ apiMode: "chat_completions", model: "gpt-4o" }),
+    ).buildBody([{ role: "user", content: "hi" }], { promptCacheKey: "k-custom" }) as Record<string, unknown>
+    expect(customChatBody.prompt_cache_key).toBe("k-custom")
+  })
+
+  it("空白 promptCacheKey 或非 OpenAI 通道（ollama/azure/deepseek/anthropic）不发 prompt_cache_key", () => {
+    const emptyKey = getProviderConfig({
+      ...customConfig(),
+      provider: "openai",
+      model: "gpt-4o",
+    }).buildBody([{ role: "user", content: "hi" }], { promptCacheKey: "   " }) as Record<string, unknown>
+    expect(emptyKey).not.toHaveProperty("prompt_cache_key")
+
+    const ollamaBody = getProviderConfig({
+      ...customConfig(),
+      provider: "ollama",
+    }).buildBody([{ role: "user", content: "hi" }], { promptCacheKey: "k1" }) as Record<string, unknown>
+    expect(ollamaBody).not.toHaveProperty("prompt_cache_key")
+
+    const azureBody = getProviderConfig({
+      ...customConfig(),
+      provider: "azure",
+      customEndpoint: "https://r.openai.azure.com",
+    }).buildBody([{ role: "user", content: "hi" }], { promptCacheKey: "k1" }) as Record<string, unknown>
+    expect(azureBody).not.toHaveProperty("prompt_cache_key")
+
+    const deepseekBody = getProviderConfig(
+      customConfig({ model: "deepseek-chat", customEndpoint: "https://api.deepseek.com/v1" }),
+    ).buildBody([{ role: "user", content: "hi" }], { promptCacheKey: "k1" }) as Record<string, unknown>
+    expect(deepseekBody).not.toHaveProperty("prompt_cache_key")
+
+    const anthropicBody = getProviderConfig({
+      ...customConfig(),
+      provider: "anthropic",
+    }).buildBody([{ role: "user", content: "hi" }], { promptCacheKey: "k1" }) as Record<string, unknown>
+    expect(anthropicBody).not.toHaveProperty("prompt_cache_key")
+  })
+})

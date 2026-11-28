@@ -345,3 +345,71 @@ describe("G4b cache-hit harness（可重复实测）", () => {
     expect(measurePrefixReuse("abcdef", "abcdef").currentChars).toBe(6)
   })
 })
+
+describe("TASK-002: 隐式前缀描述器与 antigravity-cli 退场约束", () => {
+  const mkConfig = (provider: LlmConfig["provider"], apiMode?: LlmConfig["apiMode"]): LlmConfig => ({
+    provider,
+    apiKey: "k",
+    model: "m",
+    ollamaUrl: "http://127.0.0.1:11434",
+    customEndpoint: "https://example.test/v1",
+    maxContextSize: 128_000,
+    ...(apiMode ? { apiMode } : {}),
+  })
+
+  it("OpenAI / Google / Minimax / Custom 无显式 cacheControl 时对 system 前缀稳定生成指纹", async () => {
+    for (const cfg of [
+      mkConfig("openai"),
+      mkConfig("google"),
+      mkConfig("minimax"),
+      mkConfig("custom", "chat_completions"),
+    ]) {
+      const turn1 = await buildLlmRequestPrefixDescriptor(cfg, [
+        { role: "system", content: "固定系统指令" },
+        { role: "user", content: "第一轮问题" },
+      ])
+      const turn2 = await buildLlmRequestPrefixDescriptor(cfg, [
+        { role: "system", content: "固定系统指令" },
+        { role: "user", content: "第二轮问题" },
+      ])
+      expect(turn1.prefixFingerprint).toMatch(/^[a-f0-9]{64}$/)
+      expect(turn1.prefixEstimatedTokens).toBeGreaterThan(0)
+      expect(turn2.prefixFingerprint).toBe(turn1.prefixFingerprint)
+    }
+  })
+
+  it("无 system 但有多轮消息时取首条稳定前置消息；单条 user 或 none 策略返回空对象", async () => {
+    const multiTurn = await buildLlmRequestPrefixDescriptor(mkConfig("openai"), [
+      { role: "user", content: "长背景设定" },
+      { role: "assistant", content: "已记住" },
+      { role: "user", content: "继续写" },
+    ])
+    expect(multiTurn.prefixFingerprint).toMatch(/^[a-f0-9]{64}$/)
+    expect(multiTurn.prefixEstimatedTokens).toBeGreaterThan(0)
+
+    const singleUser = await buildLlmRequestPrefixDescriptor(mkConfig("openai"), [
+      { role: "user", content: "hi" },
+    ])
+    expect(singleUser).toEqual({})
+
+    const ollamaDesc = await buildLlmRequestPrefixDescriptor(mkConfig("ollama"), [
+      { role: "system", content: "系统" },
+      { role: "user", content: "hi" },
+    ])
+    expect(ollamaDesc).toEqual({})
+  })
+
+  it("禁止将已退场的 antigravity-cli 加入 LLM_REQUEST_TRACE_PROVIDERS", () => {
+    expect(
+      isLlmRequestCacheTrace({
+        provider: "antigravity-cli",
+        model: "gemini-2.5-pro",
+        apiMode: "antigravity_cli",
+        startedAt: 1,
+        finishedAt: 2,
+        durationMs: 1,
+        status: "success",
+      }),
+    ).toBe(false)
+  })
+})
