@@ -185,7 +185,7 @@ const EXPOSED_TOOLS = [
     upstreamName: "hybrid_search",
     operation: "read",
     description:
-      "在指定 WeKnora 小说知识库（1,853 册原文 + 3584 维向量 + BM25 + Qwen3-Reranker-8B）中执行深度混合检索。仅在 search_writing_wiki 未命中或需长段原文引据时调用；超时会自动降级回 Wiki 检索。",
+      "在指定 WeKnora 小说知识库（1,698 册原文 + 3584 维向量 + BM25 + Qwen3-Reranker-8B）中执行深度混合检索。仅在 search_writing_wiki 未命中或需长段原文引据时调用；超时会自动降级回 Wiki 检索。",
     inputSchema: {
       type: "object",
       properties: {
