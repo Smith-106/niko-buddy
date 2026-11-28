@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  BOOK_RULES_FILE,
+  bookRulesPath,
   bookRulesToPromptFragment,
   bookRulesWithAuDeviations,
   EMPTY_BOOK_RULES,
+  fanficPolicyFromRules,
   loadBookRules,
   normalizeBookRules,
   saveBookRules,
@@ -322,5 +325,43 @@ describe("TASK-002: book-rules 规范化与 .novel/book-rules.json 原子持久�
     await expect(loadBookRules("missing-proj")).resolves.toBeNull()
     mem.files.set("proj/.novel/book-rules.json", "{broken")
     await expect(loadBookRules("proj")).resolves.toBeNull()
+  })
+
+  it("支持 v1.1 同人字段（canonLockNames / auDeviations / oocMarkers / pairing）规范化、path 解析与 cp 校验", async () => {
+    expect(BOOK_RULES_FILE).toBe(".novel/book-rules.json")
+    expect(bookRulesPath("C:\\proj\\")).toBe("C:/proj/.novel/book-rules.json")
+
+    const v11 = normalizeBookRules({
+      version: "1.1",
+      prohibitions: ["禁止项"],
+      allowedDeviations: [],
+      fanficMode: "cp",
+      canonLockNames: [" 萧炎 ", "萧炎", ""],
+      auDeviations: ["现代都市背景"],
+      oocMarkers: ["【剧场外OOC】"],
+      pairing: [" 林澈 ", " 苏遥 "],
+    })
+    expect(v11).toEqual({
+      version: "1.1",
+      prohibitions: ["禁止项"],
+      allowedDeviations: [],
+      fanficMode: "cp",
+      canonLockNames: ["萧炎"],
+      auDeviations: ["现代都市背景"],
+      oocMarkers: ["【剧场外OOC】"],
+      pairing: ["林澈", "苏遥"],
+    })
+    const policy = fanficPolicyFromRules(v11 ?? EMPTY_BOOK_RULES)
+    expect(policy.pairing).toEqual(["林澈", "苏遥"])
+    expect(policy.oocMarkers).toEqual(["【剧场外OOC】"])
+
+    const missingPair = validateFanficChapter(v11 ?? EMPTY_BOOK_RULES, "林澈独自走在雨夜。", ["林澈"])
+    expect(missingPair.findings.some((f) => f.code === "fanfic_cp_missing_pair")).toBe(true)
+
+    const frag = bookRulesToPromptFragment(v11 ?? EMPTY_BOOK_RULES)
+    expect(frag).toContain("CP 配对：林澈 × 苏遥")
+
+    await saveBookRules("proj-v11", v11 ?? EMPTY_BOOK_RULES)
+    await expect(loadBookRules("proj-v11")).resolves.toEqual(v11)
   })
 })
