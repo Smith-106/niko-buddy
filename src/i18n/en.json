@@ -148,6 +148,7 @@
     "llmConfigure": "Configure now",
     "llmSkipHint": "You can skip API key setup for now — built-in direct API writing will be paused, while you can still write with your official Antigravity subscription in the Antigravity Panel (ACP) after creating the project, or configure an API key later in Settings → LLM provider.",
     "llmAntigravityHint": "Zero-API-key option: Already have a Google Antigravity subscription? After creating the project, open Antigravity Panel (ACP) in the sidebar to write directly via local agy acp without an API key.",
+    "createAndOpenAcp": "Create & Open Antigravity (ACP) without API Key",
     "stepName": "Name",
     "stepPath": "Folder",
     "stepLlm": "Model service",
@@ -1567,6 +1568,8 @@
         "saveFailed": "Failed to save model config: {{message}}",
         "defaultLlmModel": "Default Model",
         "defaultLlmModelHint": "The default model used by background tasks such as memory extraction and character extraction. If empty, the current AI chat model will be used.",
+        "noProjectGlobalTitle": "No project open: configuring global LLM settings",
+        "noProjectGlobalDesc": "API keys and default models saved here apply globally across any project you create or open. Open or create a project first to use Antigravity (ACP) or local MCP.",
         "loadingModels": "Fetching...",
         "savedBadge": "Saved",
         "configuredBadge": "Configured",
@@ -2186,15 +2189,15 @@
         "antigravityCopyWarnStopped": "Copied snippet, but the External Control server is currently stopped. Enable Allow external control above before connecting from Antigravity.",
         "antigravityCopyWarnStoppedAndMasked": "Copied snippet while the server is stopped and the Bearer token is hidden (<YOUR_BEARER_TOKEN>). Start the server and reveal the token above before connecting.",
         "antigravityProfileLabel": "MCP tool profile (serverUrl profile)",
-        "antigravityProfileFullLegacy": "Full legacy (40 tools · bare URL, no ?profile)",
-        "antigravityProfileWriterSub": "Recommended: Writer compact (26 tools · ?profile=writer-sub)",
-        "antigravityProfileReviewer": "Reviewer read-only (21 tools · ?profile=reviewer)",
-        "antigravityProfileArchitect": "Architect / outline (18 tools · ?profile=architect)",
+        "antigravityProfileFullLegacy": "Full legacy (50 tools · bare URL, no ?profile)",
+        "antigravityProfileWriterSub": "Recommended: Writer compact (36 tools · ?profile=writer-sub)",
+        "antigravityProfileReviewer": "Reviewer read-only (25 tools · ?profile=reviewer)",
+        "antigravityProfileArchitect": "Architect / outline (28 tools · ?profile=architect)",
         "antigravityProfileToolCount": "{{count}} tools",
-        "antigravityProfileDescFullLegacy": "Full legacy profile: exposes all 40 registered tools (including internal API pipelines, zero-LLM atomic read & health tools workflow.next, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, draft.diff, audit.longform_health, plus draft.patch / draft.record_review).",
-        "antigravityProfileDescWriterSub": "Writer compact profile (Recommended): zero internal API pipelines, strict Draft-first, 26 tools — includes workflow.next, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, draft.diff, audit.longform_health, plus draft-safe writes chapter.write, draft.patch, draft.record_review, outline.write, and character.upsert.",
-        "antigravityProfileDescReviewer": "Reviewer read-only profile: strictly zero write tools (21 read-only tools) for isolated review — includes workflow.next, draft.list, draft.read, draft.diff, audit.longform_health, gate.check_mechanical, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, and chapter.search; outputs structured verdicts for writer-sub to record.",
-        "antigravityProfileDescArchitect": "Architect / outline profile: focused on book setup and arc planning (18 tools) — includes workflow.next, director.check, audit.longform_health, context.prepare_write, foreshadowing.list, character.read, outline.read, chapter.search, plus planning writes outline.write and character.upsert (excludes chapter drafting and draft comparison/patching/review).",
+        "antigravityProfileDescFullLegacy": "Full legacy profile: exposes all 50 registered tools (including internal API pipelines, zero-LLM atomic read & health tools workflow.next, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, draft.diff, audit.longform_health, skills.list, skills.get, canon.facts_known_by, canon.episodes, plus draft.patch / draft.record_review and planning writes).",
+        "antigravityProfileDescWriterSub": "Writer compact profile (Recommended): zero internal API pipelines, strict Draft-first, 36 tools — includes workflow.next, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, draft.diff, audit.longform_health, skills.list, skills.get, canon.facts_known_by, canon.episodes, plus draft-safe writes chapter.write, draft.patch, draft.record_review, outline.write, character.upsert, and zero-LLM planning writes.",
+        "antigravityProfileDescReviewer": "Reviewer read-only profile: strictly zero write tools (25 read-only tools) for isolated review — includes workflow.next, draft.list, draft.read, draft.diff, audit.longform_health, gate.check_mechanical, context.prepare_write, foreshadowing.list, character.read, outline.read, style.exemplars, chapter.search, skills.list, skills.get, canon.facts_known_by, and canon.episodes; outputs structured verdicts for writer-sub to record.",
+        "antigravityProfileDescArchitect": "Architect / outline profile: focused on book setup and arc planning (28 tools) — includes workflow.next, director.check, audit.longform_health, context.prepare_write, foreshadowing.list, character.read, outline.read, chapter.search, skills.list, skills.get, canon.facts_known_by, canon.episodes, plus planning writes outline.write, character.upsert, director.upsert_world, director.commit_phase, rules.upsert_book_rules, compass.update, foreshadowing.upsert, and subplot.upsert (excludes chapter drafting and draft comparison/patching/review).",
         "writerPluginTitle": "Declarative Writer Agent Plugin (Project Sync / Disabled Global)",
         "writerPluginStateSynced": "Project synced",
         "writerPluginStateNeedsUpdate": "Update available",
@@ -2247,6 +2250,20 @@
       "emptyUrl": "Proxy is on but the address is empty, so it was not applied. Enter a proxy address or turn the proxy off.",
       "notApplied": "Proxy not applied: {{summary}}",
       "applyFailed": "Could not apply proxy settings now (they take effect after restart): {{error}}"
+    },
+    "llmCacheStats": {
+      "title": "Prompt Cache Diagnostics",
+      "description": "Tracks prompt cache hits and saved input tokens across LLM requests in this session.",
+      "refresh": "Refresh",
+      "empty": "No prompt cache samples recorded in this session yet.",
+      "hitRate": "Hit Rate",
+      "hitsRatio": "{{hits}} / {{requests}} hits",
+      "savedTokens": "Saved Tokens",
+      "savedPct": "{{pct}}% of input",
+      "totalInput": "Total Input",
+      "byProvider": "By Provider",
+      "providerSummary": "{{hits}}/{{requests}} hits · {{hitRate}}% · saved {{saved}} tokens",
+      "omitted": "Ring buffer limit is 32; {{count}} older traces omitted."
     }
   },
   "preview": {
@@ -2356,6 +2373,11 @@
     "renameFailed": "Rename failed: {{message}}"
   },
   "novel": {
+    "incubator": {
+      "failedPrefix": "Autonomous incubation failed",
+      "configureLlm": "Configure Model Service",
+      "useAntigravityAcp": "Use Antigravity (ACP)"
+    },
     "nav": {
       "wiki": "Chapters",
       "sources": "Outline",
@@ -4232,6 +4254,7 @@
     "llmBlockedBanner": "AI outlining & generation limited; local writing still works",
     "localWrite": "Continue writing locally",
     "configureLlm": "Configure model now",
+    "useAntigravityAcp": "Use Antigravity (ACP)",
     "blueprintEmpty": "No project entities found — blueprint is empty for now. Write or create characters/places/orgs first, then regenerate.",
     "blueprintDone": "World blueprint draft generated from entities.",
     "statusIdle": "Idle",
@@ -5323,10 +5346,10 @@
       "label": "Writer Role / MCP Profile",
       "activeBadge": "Active session profile: {{profile}}",
       "pendingHint": "Switched to {{selected}} (active session still uses {{active}}). Start or rebuild a session to apply.",
-      "writer-sub": "Writer Compact (writer-sub · 26 tools · Recommended)",
-      "reviewer": "Reviewer Read-Only (reviewer · 21 tools)",
-      "architect": "Architect / Outline (architect · 18 tools)",
-      "full-legacy": "Full Legacy (full-legacy · 40 tools)"
+      "writer-sub": "Writer Compact (writer-sub · 36 tools · Recommended)",
+      "reviewer": "Reviewer Read-Only (reviewer · 25 tools)",
+      "architect": "Architect / Outline (architect · 28 tools)",
+      "full-legacy": "Full Legacy (full-legacy · 50 tools)"
     },
     "memoryMode": {
       "title": "Long-Term Memory Ingest Mode",
