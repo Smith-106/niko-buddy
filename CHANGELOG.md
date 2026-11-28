@@ -7,6 +7,30 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.36.0] - 2026-11-28
+
+> 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
+
+### Added
+
+- **Prompt Cache 跨通道协议优化与命中诊断面板**：`toAnthropicTools` 为末尾工具定义添加 `ephemeral` 断点，`clampAnthropicCacheBreakpoints` 跨 `system` / `tools` / `messages` 按优先级严格限流 `<= 4` 断点；`stripWireAgnosticOverrides` 升级为出站白名单并为 OpenAI Chat Completions 与 Responses API 安全映射 `prompt_cache_key`；`extractOpenAiUsage` / `extractResponsesUsage` 支持 DeepSeek `prompt_cache_hit_tokens` 兜底解析；在不重开 `antigravity-cli` 红线的前提下为 `buildLlmRequestPrefixDescriptor` 增加隐式前缀描述器；`llm-client.ts` 导出只读 `getLlmRequestTraceSnapshot()`，并在 `LlmProviderSection` 内挂载 `<LlmCacheStatsCard />` 展示实时命中率与节省 Token 数。
+- **Agent 工具面收敛与三档主控固定意图掩码**：`toOpenAITools` 与 `AgentRunner` 出站及可调用工具过滤 `category !== "virtual"`；`task-router.ts` 与 `main-control.ts` 新增按 ASCII 字典序冻结的三档主控工具掩码（`read_plan` / `write_edit` / `full`，严格排除 `write_memory` 等禁用工具），通过 `RunMainControlOptions.intentToolMask` 经 `@/lib/novel` barrel 派生。
+- **零 API Key「创建并打开 Antigravity (ACP)」与引导修复**：`CreateProjectDialog` 新增零 Key 一键建项直达交互式 `antigravityAcp` 视图（经 `composition-root.ts` `landingView` 路由，绝不静默发送），在 `DirectorView` `llmBlocked` 新增 ACP 跳转 CTA，在 `AutonomousIncubatorDialog` 接入 `assessLlmHealth` 前置守卫，并在 `LlmProviderSection` 无项目时展示全局作用域提示横幅。
+- **工程治理文档瘦身与内环脚本**：`CLAUDE.md` 精简至 `20 KB` 内并将历史锚点表/演进日志归档至 `docs/anchors/historical-anchors.md` 与 `docs/history/execution-view-log.md`；`package.json` 新增 `verify:fast` 编码内环脚本。
+
+### Changed
+
+- **外部控制 4 档 MCP Profile 校准与默认 `writer-sub`**：对照 `registry.rs` 同步 `full-legacy`（50）/ `writer-sub`（36）/ `architect`（28）/ `reviewer`（25）工具数并切换 UI 默认推荐档位为 `writer-sub`（`36` 工具），同步修正 `session.rs` 注释、单测与中英 i18n（4,873 键 1:1 对齐）。
+- **工具 Schema 逐字节稳定化**：移除 `apply-skill.ts` 动态技能名清单拼接，保证增删技能时序列化工具 Schema 逐字节不变。
+
+### Fixed
+
+- **新手上路第 2 步断链与草稿丢失修复**：接通 `WelcomeScreen` 第 2 步模型配置入口与 `App.tsx` 双分支跳转；保留 `CreateProjectDialog` 往返配置模型时的表单草稿与自定义目录，修正 4 步进度指示并统一 `formatOperationError` 错误提示。
+
+### 交付与分支说明
+
+- 本版合并自 PR #32（纯净重建分支 `feat/v236-wave1-pure`，CI `46130890627` **7/7 全绿**，`--rebase` 线性合入 `smith/master` `fa175d83`），对应 A-34 决策日志见 `docs/decision-log/20261128-v236-wave1-cache-onboarding.md`。
+
 ## [2.35.0] - 2026-11-28
 
 > 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。

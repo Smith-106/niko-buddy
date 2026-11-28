@@ -244,6 +244,17 @@
         "weekly-stable",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.36.0",
+      "reason": "用户于 2026-11-28 明确回复「全部同意并完成」批准合并 PR #32 并推进 v2.36.0 正式发布（PR #32 纯净重建后 GitHub Actions CI 46130890627 7/7 全绿，linear rebase 入 smith/master fa175d83）：合入 Wave 1 跨通道 Prompt Cache 优化与命中诊断、Agent 工具 Schema 稳定化与三档主控掩码、新手引导与零 Key Antigravity ACP 直达、以及外部控制 4 档工具数校准与默认 writer-sub。因与当日早先发布的 v2.35.0 处于同一 UTC/ISO 周与 30 天窗口（不同 Git Tag，未重打任何已发布 Tag），依据 RELEASING.md 与用户明确批准登记豁免；本次仍完整执行全部工程门禁、签名构建、四资产校验、cadence 检查与更新源实测。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-28",
+      "scope": [
+        "weekly-stable",
+        "same-day-duplicate",
+        "thirty-day-stable"
+      ]
     }
   ]
 }

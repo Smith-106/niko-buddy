@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.36.0（2026-11-28）：Wave 1 缓存命中优化、工具收敛、新手上路与外部控制默认 writer-sub。
+    version: "2.36.0",
+    date: "2026-11-28",
+    highlights: {
+      en: [
+        "Optimized cross-provider prompt caching and telemetry: added an explicit ephemeral breakpoint on the final Anthropic tool definition with priority clamping (max 4 breakpoints across system, tools, and messages), added an outbound parameter whitelist in stripWireAgnosticOverrides with safe prompt_cache_key mapping for OpenAI Chat Completions and Responses APIs, supported DeepSeek prompt_cache_hit_tokens usage fallback, added implicit prefix descriptors without re-enabling antigravity-cli, exposed read-only getLlmRequestTraceSnapshot(), and mounted LlmCacheStatsCard inside LlmProviderSection.",
+        "Converged the Agent tool surface for byte-stable prompts: excluded virtual category tools from outbound LLM schemas and callable tool lists, removed volatile dynamic skill lists from apply_skill parameter descriptions, and added three alphabetically sorted fixed MainControl intent tool masks (read_plan, write_edit, full) resolved inside runMainControlAgent via intentToolMask while strictly excluding write_memory.",
+        "Fixed first-run onboarding and zero-API-key Antigravity ACP UX: wired the WelcomeScreen step-2 LLM configuration action across both empty and active project states, preserved CreateProjectDialog form drafts across settings round-trips with accurate 4-step progress and formatOperationError messaging, added one-click Create and Open Antigravity (ACP) landing flow, added an interactive ACP CTA on blocked Director states, guarded AutonomousIncubatorDialog with assessLlmHealth preflight checks, and clarified global scope when no project is open.",
+        "Calibrated External Control 4-profile tool counts against registry.rs (50 full-legacy, 36 writer-sub, 28 architect, 25 reviewer) with writer-sub set as the default UI profile, and slimmed CLAUDE.md under 20 KB alongside a new verify:fast inner-loop check script.",
+      ],
+      zh: [
+        "优化跨通道 Prompt Cache 协议与命中可观测性：为 Anthropic 末尾工具定义挂载 ephemeral 断点并实现跨 system/tools/messages 严格 4 断点优先级限流；将 stripWireAgnosticOverrides 升级为出站白名单并为 OpenAI Chat Completions 与 Responses API 安全映射 prompt_cache_key；支持 DeepSeek prompt_cache_hit_tokens 兜底解析；在不重开 antigravity-cli 红线的前提下补充隐式前缀描述器；导出只读 getLlmRequestTraceSnapshot() 并在 LlmProviderSection 内接入 LlmCacheStatsCard 命中诊断卡。",
+        "收敛工具面并稳定主控意图掩码：从出站 Schema 与可调用列表过滤 virtual 虚拟工具，移除 apply_skill 描述中易变的动态技能名清单以保证逐字节一致；新增按 ASCII 字典序冻结的三档主控工具掩码（read_plan、write_edit、full），由 runMainControlAgent 通过 intentToolMask 内部派生并持续严格排除 write_memory。",
+        "修复新手引导断点与零 API Key Antigravity ACP 体验：打通 WelcomeScreen 第 2 步模型配置按钮及有/无项目双分支跳转，支持新建项目弹窗往返设置保留输入草稿、校准 4 步进度与 formatOperationError 统一报错；新增零 Key 创建并直达交互式 Antigravity (ACP) 入口、开书导演受阻分流 CTA、全自动孵化 assessLlmHealth 前置健康守卫以及无项目全局模型配置说明横幅。",
+        "精准校准外部控制 4 档 MCP Profile 工具数（full-legacy 50 / writer-sub 36 / architect 28 / reviewer 25）并将 UI 默认推荐档位切换为 writer-sub；同步完成 CLAUDE.md 治理瘦身（20 KB 内）与 verify:fast 快速内环脚本建设。",
+      ],
+    },
+  },
+  {
     // 2.35.0（2026-11-28）：主控自主化闭环 Wave 2 深化（零 LLM 技能/正典只读 MCP 桥与插件 v1.4.0、嵌入式 ACP 三角色槽池与非破坏性审校交接、canon.db 写侧 world_fact/known_by 物化与受控 dual 迁移读链激活）。
     version: "2.35.0",
     date: "2026-11-28",

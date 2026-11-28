@@ -84,6 +84,14 @@ Wave-0（T00-T05）、Wave-1（T06-T18a）、v2.6 Tier1（F-001/F-002/F-006/F-00
 | ACP 只读审校交接纯辅助 | `src/components/novel/antigravity-acp-handoff-helpers.ts`（F1–F15 纯辅助模块：`buildReviewerHandoffContextFromDrafts` / `buildReviewerHandoffPrompt` / `extractLatestPrepareId` / `summarizeDraftGateStatus` / `resolveSessionSlotArg` / `resolveEffectiveSlotProfileArg` / `pruneSavedDraftMapForTranscript`，严格仅预填零 IPC 自动发送） |
 | ACP 多角色槽位切换条 | `src/components/novel/antigravity-acp-slot-bar.tsx`（F1–F15 无障碍纯展示子组件 `AntigravityAcpSlotBar`，承载 `writer` / `reviewer [RO]` / `architect` 键盘导航 `tablist` 与非破坏性审校交接触发按钮） |
 
+## v2.36.0 Wave 1 缓存优化 / 工具收敛 / 新手引导新增锚点（2026-11-28 同步）
+
+| 能力 | 锚点 |
+|------|------|
+| Prompt Cache 诊断卡片与追踪快照 | `src/components/settings/llm-cache-stats-card.tsx`（`LlmCacheStatsCard`，挂载于 `llm-provider-section.tsx` 并读取 `llm-client.ts#getLlmRequestTraceSnapshot()`；`llm-providers.ts` 含 `clampAnthropicCacheBreakpoints` <= 4 与 `prompt_cache_key` 出站白名单；`llm-stream-parsers.ts` 含 DeepSeek `prompt_cache_hit_tokens` 回退） |
+| 主控三档固定工具掩码 | `src/lib/novel/main-control.ts`（`MAIN_CONTROL_TOOL_MASKS` 与 `RunMainControlOptions.intentToolMask`，`main-control-view.tsx` 仅经 `@/lib/novel` barrel 调用；`tools-schema.ts`/`runner.ts` 过滤 `virtual`、`apply-skill.ts` Schema 静态化） |
+| 零 Key ACP 直达与新手引导闭环 | `src/components/project/create-project-dialog.tsx`（草稿保留 + 零 Key `landingView: "antigravityAcp"` 跳转）与 `src/App.tsx` / `welcome-screen.tsx` / `director-view.tsx` / `autonomous-incubator-dialog.tsx` |
+
 ## 修改优先顺序
 
 1. `task-router` / `context-engine` / `deep-chapter-generation`
@@ -115,8 +123,8 @@ Wave-0（T00-T05）、Wave-1（T06-T18a）、v2.6 Tier1（F-001/F-002/F-006/F-00
 
 ## 当前执行视图
 
-- **当前主干版本**：`v2.35.0`（`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 与 `src/lib/changelog.ts`、`CHANGELOG.md` 保持单源一致，由 `npm run consistency` 机械校验）。
-- 近期版本演进（`v2.29.0`–`v2.35.0`）与早期 Stage 1–5 历史脉络已归档至 `docs/history/execution-view-log.md`；路线与交付归档见 `@../.workflow/project.md` 与 `@../docs/niko-buddy-codex-delivery/09-implementation-plan.md`。
+- **当前主干版本**：`v2.36.0`（`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 与 `src/lib/changelog.ts`、`CHANGELOG.md` 保持单源一致，由 `npm run consistency` 机械校验）。
+- 近期版本演进（`v2.29.0`–`v2.36.0`）与早期 Stage 1–5 历史脉络已归档至 `docs/history/execution-view-log.md`；路线与交付归档见 `@../.workflow/project.md` 与 `@../docs/niko-buddy-codex-delivery/09-implementation-plan.md`。
 
 ## 验收与证据
 
