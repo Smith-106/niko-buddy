@@ -20,7 +20,28 @@ import { toErrorMessage } from "@/lib/utils"
  * @param t 组件内的翻译函数
  * @param err 捕获到的异常
  */
+function extractErrorDetail(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === "object" && err !== null) {
+    const rec = err as Record<string, unknown>
+    if (typeof rec.message === "string" && rec.message.trim().length > 0) {
+      return rec.message
+    }
+    if (typeof rec.error === "string" && rec.error.trim().length > 0) {
+      return rec.error
+    }
+    try {
+      const json = JSON.stringify(err)
+      if (json && json !== "{}") return json
+    } catch {
+      // 不可序列化对象回退默认提示，避免输出 [object Object]
+    }
+    return "未知错误"
+  }
+  return toErrorMessage(err)
+}
+
 export function formatOperationError(t: TFunction, err: unknown): string {
-  const detail = toErrorMessage(err)
+  const detail = extractErrorDetail(err)
   return `${t("common.operationFailed", "操作失败")}：${detail}`
 }

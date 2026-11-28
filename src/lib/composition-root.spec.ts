@@ -716,6 +716,22 @@ describe("hydrateProjectOnOpen", () => {
     expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("wiki")
   })
 
+  it("lands created projects directly on antigravityAcp when landingView is explicitly requested", async () => {
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+    mocks.wikiState.novelMode = true
+
+    await hydrateProjectOnOpen(proj, { fromCreate: true, landingView: "antigravityAcp" })
+
+    expect(mocks.wikiState.setActiveView).toHaveBeenCalledTimes(1)
+    expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("antigravityAcp")
+  })
+
   it("keeps absolute and Windows drive scheduled-import paths unchanged", async () => {
     mocks.resetProjectState.mockResolvedValue(undefined)
     mocks.loadNovelConfig.mockResolvedValue(null)

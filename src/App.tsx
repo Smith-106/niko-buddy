@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import i18n from "@/i18n"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type WikiState } from "@/stores/wiki-store"
 import { isTauri, pickDirectory } from "@/lib/platform"
 import { openProject } from "@/commands/fs"
 import { saveScheduledImportConfig } from "@/lib/project-store"
@@ -22,7 +22,7 @@ import { LlmProviderSection } from "@/components/settings/sections/llm-provider-
 import { formatAppTitle } from "@/lib/app-title"
 import { resetProjectState } from "@/lib/reset-project-state"
 import { toast } from "@/lib/toast"
-import { toErrorMessage } from "@/lib/utils"
+import { formatOperationError } from "@/lib/format-operation-error"
 import type { WikiProject } from "@/types/wiki"
 import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
 
@@ -36,6 +36,8 @@ function App() {
   const setCommunitySummaryError = useWikiStore((s) => s.setCommunitySummaryError)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showLlmConfigDialog, setShowLlmConfigDialog] = useState(false)
+  // 记录是否从新建项目弹窗跳转去配置模型，关闭模型配置后自动回到建项弹窗并保留草稿。
+  const returnToCreateAfterLlmRef = useRef(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -103,7 +105,7 @@ function App() {
     } catch (err) {
       // UX-G3-D4-01: 此前直抛原始串（`打开项目失败：${err}`），用户看不到下一步。
       // 脱敏 + 行动句：检查路径是否存在/换个目录重试，详情见日志。
-      toast.error(`打开项目失败：${toErrorMessage(err)}。请检查目录是否存在且可读，或换个目录重试。`)
+      toast.error(`打开项目失败：${formatOperationError(i18n.t, err)}。请检查目录是否存在且可读，或换个目录重试。`)
     }
   }
 
@@ -124,16 +126,23 @@ function App() {
       }
       await hydrateProjectOnOpen(proj)
     } catch (err) {
-      toast.error(`打开项目失败：${toErrorMessage(err)}。请检查目录是否存在且可读，或换个目录重试。`)
+      toast.error(`打开项目失败：${formatOperationError(i18n.t, err)}。请检查目录是否存在且可读，或换个目录重试。`)
     }
   }
 
-  async function handleProjectCreated(proj: WikiProject) {
+  async function handleProjectCreated(
+    proj: WikiProject,
+    options?: { landingView?: WikiState["activeView"] },
+  ) {
     try {
-      // 新建项目：创建后 novel 项目落 director 写作生产台（J01-T02 F-005）。
-      await hydrateProjectOnOpen(proj, { fromCreate: true })
+      // 新建项目：默认 novel 项目落 director 写作生产台（J01-T02 F-005）；
+      // 若通过零 Key Antigravity 路径创建，则按显式 landingView 落 antigravityAcp。
+      await hydrateProjectOnOpen(proj, {
+        fromCreate: true,
+        ...(options?.landingView ? { landingView: options.landingView } : {}),
+      })
     } catch (err) {
-      toast.error(`项目创建后初始化失败：${toErrorMessage(err)}。请重新打开该项目，或查看日志后重试。`)
+      toast.error(`项目创建后初始化失败：${formatOperationError(i18n.t, err)}。请重新打开该项目，或查看日志后重试。`)
     }
   }
 
@@ -170,48 +179,56 @@ function App() {
     )
   }
 
-  if (!project) {
-    return (
-      <>
-        <WelcomeScreen
-          onCreateProject={() => setShowCreateDialog(true)}
-          onOpenProject={handleOpenProject}
-          onSelectProject={handleSelectRecent}
-        />
-        <CreateProjectDialog
-          open={showCreateDialog}
-          onOpenChange={setShowCreateDialog}
-          onCreated={handleProjectCreated}
-          onConfigureLlm={() => setShowLlmConfigDialog(true)}
-        />
-        {/* P0-02：无项目欢迎屏下没有 Settings 视图，建项弹窗点「立即配置」弹出独立模型配置框 */}
-        <Dialog open={showLlmConfigDialog} onOpenChange={setShowLlmConfigDialog}>
-          <DialogContent
-            className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"
-            closeLabel={i18n.t("common.close")}
-          >
-            <DialogHeader>
-              <DialogTitle>{i18n.t("settings.sections.llm.title")}</DialogTitle>
-              <DialogDescription>{i18n.t("settings.sections.llm.description")}</DialogDescription>
-            </DialogHeader>
-            <LlmProviderSection />
-          </DialogContent>
-        </Dialog>
-        {/* 门与锁最后挂载：欢迎屏与主布局都是 fixed inset-0，先挂会被遮住指针事件。 */}
-        <AppLockOverlay />
-        <GateHost />
-      </>
-    )
+  function handleConfigureLlmFromWelcome() {
+    returnToCreateAfterLlmRef.current = false
+    setShowLlmConfigDialog(true)
+  }
+
+  function handleConfigureLlmFromCreate() {
+    returnToCreateAfterLlmRef.current = true
+    setShowLlmConfigDialog(true)
+  }
+
+  function handleLlmConfigOpenChange(open: boolean) {
+    setShowLlmConfigDialog(open)
+    if (!open && returnToCreateAfterLlmRef.current) {
+      returnToCreateAfterLlmRef.current = false
+      setShowCreateDialog(true)
+    }
   }
 
   return (
     <>
-      <AppLayout onSwitchProject={handleSwitchProject} />
+      {!project ? (
+        <WelcomeScreen
+          onCreateProject={() => setShowCreateDialog(true)}
+          onOpenProject={handleOpenProject}
+          onSelectProject={handleSelectRecent}
+          onConfigureLlm={handleConfigureLlmFromWelcome}
+        />
+      ) : (
+        <AppLayout onSwitchProject={handleSwitchProject} />
+      )}
       <CreateProjectDialog
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
         onCreated={handleProjectCreated}
+        onConfigureLlm={handleConfigureLlmFromCreate}
       />
+      {/* P0-02：独立模型配置框在无项目欢迎屏与已开项目建项弹窗中统一可用，关闭后按来源回到建项弹窗 */}
+      <Dialog open={showLlmConfigDialog} onOpenChange={handleLlmConfigOpenChange}>
+        <DialogContent
+          className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"
+          closeLabel={i18n.t("common.close")}
+        >
+          <DialogHeader>
+            <DialogTitle>{i18n.t("settings.sections.llm.title")}</DialogTitle>
+            <DialogDescription>{i18n.t("settings.sections.llm.description")}</DialogDescription>
+          </DialogHeader>
+          <LlmProviderSection />
+        </DialogContent>
+      </Dialog>
+      {/* 门与锁最后挂载：欢迎屏与主布局都是 fixed inset-0，先挂会被遮住指针事件。 */}
       <AppLockOverlay />
       <GateHost />
     </>

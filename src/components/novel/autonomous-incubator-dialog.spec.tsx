@@ -6,6 +6,8 @@ import { AutonomousIncubatorDialog } from "./autonomous-incubator-dialog"
 const mocks = vi.hoisted(() => ({
   projectPath: "/mock/project",
   projectOverride: undefined as { path: string } | null | undefined,
+  llmConfigOverride: undefined as { provider: string; apiKey: string; model: string } | undefined,
+  setActiveView: vi.fn(),
   listDirectory: vi.fn(async () => []),
   runEndToEndAutonomousNovelProduction: vi.fn(),
   toastSuccess: vi.fn(),
@@ -22,12 +24,14 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
       llmConfig: unknown
       novelConfig: unknown
       setFileTree: (tree: unknown) => void
+      setActiveView: (view: string) => void
     }) => unknown) =>
       selector({
         project: mocks.projectOverride !== undefined ? mocks.projectOverride : { path: mocks.projectPath },
-        llmConfig: { provider: "mock", apiKey: "key", model: "m" },
+        llmConfig: mocks.llmConfigOverride ?? { provider: "mock", apiKey: "key", model: "m" },
         novelConfig: {},
         setFileTree: vi.fn(),
+        setActiveView: mocks.setActiveView,
       }),
   }
 })
@@ -93,6 +97,7 @@ describe("AutonomousIncubatorDialog (全自动小说冷启动孵化器组件)", 
   afterEach(() => {
     cleanup()
     mocks.projectOverride = undefined
+    mocks.llmConfigOverride = undefined
   })
 
   it("正确渲染对话框标题、输入框与提交按钮", () => {
@@ -322,5 +327,31 @@ describe("AutonomousIncubatorDialog (全自动小说冷启动孵化器组件)", 
     } finally {
       warnSpy.mockRestore()
     }
+  })
+
+  it("LLM 未配置或退化时触发 assessLlmHealth 前置守卫，阻断运行并展示可操作错误与设置/ACP 跳转", () => {
+    mocks.llmConfigOverride = { provider: "openai", apiKey: "", model: "" }
+    const onOpenChange = vi.fn()
+    render(<AutonomousIncubatorDialog open={true} onOpenChange={onOpenChange} />)
+
+    const guardAlert = screen.getByTestId("incubator-llm-guard-alert")
+    expect(guardAlert).toBeTruthy()
+    expect(guardAlert.textContent).toContain("尚未配置模型服务")
+
+    fireEvent.change(screen.getByPlaceholderText(/赛博朋克都市中一名被遗忘的机械记忆修复师/), {
+      target: { value: "未配模型尝试孵化" },
+    })
+    fireEvent.click(screen.getByText("一键启动全自动孵化"))
+
+    expect(mocks.runEndToEndAutonomousNovelProduction).not.toHaveBeenCalled()
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("操作失败"))
+    expect(screen.getByTestId("incubator-llm-guard-alert").textContent).toContain("尚未配置模型服务")
+
+    fireEvent.click(screen.getByTestId("incubator-configure-llm"))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(mocks.setActiveView).toHaveBeenCalledWith("settings")
+
+    fireEvent.click(screen.getByTestId("incubator-use-acp"))
+    expect(mocks.setActiveView).toHaveBeenCalledWith("antigravityAcp")
   })
 })

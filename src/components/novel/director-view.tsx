@@ -295,7 +295,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
             <p className="text-center text-xs text-muted-foreground">
               {t("directorPanel.llmBlockedHint", { defaultValue: "AI 开书管线需要模型服务。你仍然可以跳过 AI、直接创建第一章手工写作。" })}
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-center gap-2">
               <Button
                 size="sm"
                 variant="default"
@@ -305,6 +305,14 @@ export function DirectorView({ projectId }: DirectorViewProps) {
               >
                 <PenLine className="mr-1 h-4 w-4" />
                 {t("directorPanel.localWrite", { defaultValue: "继续本地写作" })}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="director-use-antigravity-acp"
+                onClick={() => setActiveView("antigravityAcp")}
+              >
+                {t("directorPanel.useAntigravityAcp", { defaultValue: "使用 Antigravity (ACP)" })}
               </Button>
               <Button
                 size="sm"
@@ -342,7 +350,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
               {t("directorPanel.llmBlockedBanner", { defaultValue: "AI 开书与章节生成受限，本地写作仍可用" })}
             </span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
               variant="default"
@@ -352,6 +360,14 @@ export function DirectorView({ projectId }: DirectorViewProps) {
             >
               <PenLine className="mr-1 h-3.5 w-3.5" />
               {t("directorPanel.localWrite", { defaultValue: "继续本地写作" })}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="director-use-antigravity-acp-banner"
+              onClick={() => setActiveView("antigravityAcp")}
+            >
+              {t("directorPanel.useAntigravityAcp", { defaultValue: "使用 Antigravity (ACP)" })}
             </Button>
             <Button
               size="sm"

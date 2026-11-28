@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import { useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import {
   Wand2,
   Sparkles,
@@ -13,6 +14,7 @@ import {
   Compass,
   Layers,
   Flame,
+  Settings as SettingsIcon,
 } from "lucide-react"
 import {
   Dialog,
@@ -35,7 +37,8 @@ import {
   type NovelIncubatorResult,
   type CampaignReport,
 } from "@/lib/novel"
-import { toErrorMessage } from "@/lib/utils"
+import { assessLlmHealth } from "@/lib/llm-health"
+import { formatOperationError } from "@/lib/format-operation-error"
 
 interface AutonomousIncubatorDialogProps {
   open: boolean
@@ -57,10 +60,14 @@ export function AutonomousIncubatorDialog({
   onOpenChange,
   onSuccess,
 }: AutonomousIncubatorDialogProps) {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const novelConfig = useWikiStore((s) => s.novelConfig)
   const setFileTree = useWikiStore((s) => s.setFileTree)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
+  const llmHealth = assessLlmHealth(llmConfig)
+  const llmBlocked = !llmHealth.canWrite
 
   const [idea, setIdea] = useState("")
   const [title, setTitle] = useState("")
@@ -73,6 +80,7 @@ export function AutonomousIncubatorDialog({
   const [isCancelling, setIsCancelling] = useState(false)
   const [currentStage, setCurrentStage] = useState<string>("")
   const [progressMessage, setProgressMessage] = useState("")
+  const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{ incubation: NovelIncubatorResult; campaign?: CampaignReport } | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
@@ -81,11 +89,25 @@ export function AutonomousIncubatorDialog({
 
   function handleDialogOpenChange(next: boolean) {
     if (!next && (isRunning || isCancelling)) return
+    if (!next) setError(null)
     onOpenChange(next)
   }
 
   async function handleStart() {
     if (!project || !idea.trim() || isRunning || isCancelling || runInFlightRef.current) return
+
+    const health = assessLlmHealth(llmConfig)
+    if (!health.canWrite) {
+      const msg = formatOperationError(
+        t,
+        new Error(
+          health.nextStep ? `${health.label}：${health.nextStep}` : health.label,
+        ),
+      )
+      setError(msg)
+      toast.error(msg)
+      return
+    }
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -93,6 +115,7 @@ export function AutonomousIncubatorDialog({
 
     setIsRunning(true)
     setIsCancelling(false)
+    setError(null)
     setResult(null)
     setCurrentStage("soul-doc")
     setProgressMessage("正在启动全自动孵化引擎...")
@@ -136,7 +159,10 @@ export function AutonomousIncubatorDialog({
       if (controller.signal.aborted) {
         toast.info("全自动孵化已被中止")
       } else {
-        toast.error(`全自动孵化失败：${toErrorMessage(err)}`)
+        const formatted = formatOperationError(t, err)
+        const msg = `${t("novel.incubator.failedPrefix", "全自动孵化失败")}：${formatted}`
+        setError(msg)
+        toast.error(msg)
       }
     } finally {
       runInFlightRef.current = false
@@ -167,6 +193,49 @@ export function AutonomousIncubatorDialog({
 
         {!result ? (
           <div className="flex flex-col gap-4 py-2 overflow-y-auto">
+            {(llmBlocked || error) && (
+              <div
+                role="alert"
+                data-testid="incubator-llm-guard-alert"
+                className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs"
+              >
+                <p className="font-medium text-warning-foreground">
+                  {error ?? llmHealth.label}
+                </p>
+                {llmBlocked && llmHealth.nextStep && !error && (
+                  <p className="text-muted-foreground">{llmHealth.nextStep}</p>
+                )}
+                {llmBlocked && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      data-testid="incubator-configure-llm"
+                      onClick={() => {
+                        handleDialogOpenChange(false)
+                        setActiveView?.("settings")
+                      }}
+                    >
+                      <SettingsIcon className="mr-1 h-3.5 w-3.5" />
+                      {t("novel.incubator.configureLlm", "前往配置模型服务")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      data-testid="incubator-use-acp"
+                      onClick={() => {
+                        handleDialogOpenChange(false)
+                        setActiveView?.("antigravityAcp")
+                      }}
+                    >
+                      {t("novel.incubator.useAntigravityAcp", "使用 Antigravity (ACP)")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
             {/* 核心灵感输入 */}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="incubator-idea" className="text-xs font-semibold">

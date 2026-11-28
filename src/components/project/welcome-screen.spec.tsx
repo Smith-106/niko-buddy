@@ -144,6 +144,20 @@ describe("WelcomeScreen", () => {
     expect(onCreateProject).toHaveBeenCalledTimes(1)
   })
 
+  it("step 2 button invokes onConfigureLlm when provided and falls back to onCreateProject", () => {
+    const onCreateProject = vi.fn()
+    const onConfigureLlm = vi.fn()
+    const { unmount } = renderWelcome({ onCreateProject, onConfigureLlm })
+    fireEvent.click(screen.getByTestId("welcome-configure-llm"))
+    expect(onConfigureLlm).toHaveBeenCalledTimes(1)
+    expect(onCreateProject).not.toHaveBeenCalled()
+    unmount()
+
+    renderWelcome({ onCreateProject })
+    fireEvent.click(screen.getByTestId("welcome-configure-llm"))
+    expect(onCreateProject).toHaveBeenCalledTimes(1)
+  })
+
   it("loads recent projects on mount and renders them", async () => {
     mocks.getRecentProjects.mockResolvedValue(PROJECTS)
     renderWelcome()

@@ -13,12 +13,14 @@ interface WelcomeScreenProps {
   onCreateProject: () => void
   onOpenProject: () => void
   onSelectProject: (project: WikiProject) => void
+  onConfigureLlm?: () => void
 }
 
 export function WelcomeScreen({
   onCreateProject,
   onOpenProject,
   onSelectProject,
+  onConfigureLlm,
 }: WelcomeScreenProps) {
   const { t } = useTranslation()
   const novelMode = useWikiStore((s) => s.novelMode)
@@ -123,7 +125,8 @@ export function WelcomeScreen({
                 <span className="font-medium text-foreground">2.</span>
                 <button
                   type="button"
-                  onClick={onCreateProject}
+                  data-testid="welcome-configure-llm"
+                  onClick={onConfigureLlm ?? onCreateProject}
                   className="text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
                 >
                 {t("welcome.quickStart2", {
