@@ -22,7 +22,10 @@ import { assessLlmHealth } from "@/lib/llm-health"
 interface CreateProjectDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreated: (project: WikiProject) => void
+  onCreated: (
+    project: WikiProject,
+    options?: { landingView?: "antigravityAcp" | "director" | "wiki" },
+  ) => void
   onConfigureLlm?: () => void
 }
 
@@ -55,6 +58,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated, onC
   const defaultTemplateId = novelMode ? "novel-demo" : "general"
   const [selectedTemplateId, setSelectedTemplateId] = useState(defaultTemplateId)
   const templateTouchedRef = useRef(false)
+  const pathTouchedRef = useRef(false)
   const setOutputLanguage = useWikiStore((s) => s.setOutputLanguage)
 
   useEffect(() => {
@@ -76,7 +80,15 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated, onC
 
   // J01-T06 (F-006)：建项步骤指示——让用户知道自己在哪一步、还剩几步。
   // 步骤为逻辑分区（名称→目录→模型服务→创建），非分页；返回/关闭不丢输入（state 保留）。
-  const currentStep = name.trim().length > 0 ? 1 : 0
+  const hasName = name.trim().length > 0
+  const hasPath = path.trim().length > 0
+  const currentStep = !hasName
+    ? 0
+    : !hasPath
+      ? 1
+      : llmHealth.canWrite || creating
+        ? 3
+        : 2
   const STEPS = [
     t("project.stepName", { defaultValue: "名称" }),
     t("project.stepPath", { defaultValue: "目录" }),
@@ -97,7 +109,11 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated, onC
 
   useEffect(() => {
     if (!isOpen) {
-      setPath("")
+      // 用户未手动修改过路径时清空默认目录，便于下次打开刷新默认路径；
+      // 若用户已输入或选择过目录（如前往配置模型后返回），保留草稿输入不丢失。
+      if (!pathTouchedRef.current) {
+        setPath("")
+      }
       return
     }
     if (path.trim()) {
@@ -125,14 +141,17 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated, onC
   async function handleBrowse() {
     try {
       const dir = await pickDirectory()
-      if (dir) setPath(dir)
+      if (dir) {
+        pathTouchedRef.current = true
+        setPath(dir)
+      }
     } catch (err) {
       // 本地化引导 + 原始诊断：目录选择失败不能静默无反馈。
       setError(formatOperationError(t, err))
     }
   }
 
-  async function handleCreate() {
+  async function handleCreate(landingView?: "antigravityAcp") {
     const rawName = name.trim()
     setCreating(true)
     setError("")
@@ -175,15 +194,20 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated, onC
       setOutputLanguage(lang)
       await saveOutputLanguage(lang, project.id)
 
-      onCreated(project)
+      if (landingView) {
+        onCreated(project, { landingView })
+      } else {
+        onCreated(project)
+      }
       onOpenChange(false)
       setName("")
       setPath("")
+      pathTouchedRef.current = false
       templateTouchedRef.current = false
       setSelectedTemplateId(defaultTemplateId)
     } catch (err) {
-      // 本地化引导 + 原始诊断：引导语缺失时诊断不会丢。
-      setError(`${t("project.createFailed", "创建项目失败")}：${String(err)}`)
+      // 本地化引导 + 原始诊断：统一走 formatOperationError，避免 raw String(err) / [object Object]。
+      setError(formatOperationError(t, err))
     } finally {
       setCreating(false)
     }
@@ -197,9 +221,14 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated, onC
           {/* J01-T06：步骤进度指示（逻辑分区，非分页） */}
           <div className="flex items-center gap-1 pt-2 text-xs text-muted-foreground" aria-label={t("project.stepProgress", { defaultValue: "创建步骤" })}>
             {STEPS.map((label, i) => (
-              <span key={`step-${label.slice(0, 24)}-${i}`} className="flex items-center">
+              <span
+                key={`step-${label.slice(0, 24)}-${i}`}
+                className="flex items-center"
+                aria-current={i === currentStep ? "step" : undefined}
+                data-testid={`create-step-${i}`}
+              >
                 <span
-                  className={i <= currentStep + 1
+                  className={i <= currentStep
                     ? "rounded-full bg-primary px-1.5 py-0.5 text-primary-foreground"
                     : "rounded-full bg-muted px-1.5 py-0.5"}
                 >
@@ -237,7 +266,16 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated, onC
             <div className="flex flex-col gap-2">
               <Label htmlFor="path">{t("project.parentDir")}</Label>
               <div className="flex gap-2">
-                <Input id="path" value={path} onChange={(e) => setPath(e.target.value)} placeholder={t("project.parentDirPlaceholder")} className="flex-1" />
+                <Input
+                  id="path"
+                  value={path}
+                  onChange={(e) => {
+                    pathTouchedRef.current = true
+                    setPath(e.target.value)
+                  }}
+                  placeholder={t("project.parentDirPlaceholder")}
+                  className="flex-1"
+                />
                 <Button
                   variant="outline"
                   size="icon"
@@ -297,8 +335,23 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated, onC
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("project.cancel")}</Button>
+            {!llmHealth.canWrite && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={creating}
+                data-testid="create-project-open-acp"
+                onClick={() => {
+                  if (!creating) {
+                    void handleCreate("antigravityAcp")
+                  }
+                }}
+              >
+                {t("project.createAndOpenAcp", "零 Key 创建并打开 Antigravity (ACP)")}
+              </Button>
+            )}
             <Button type="submit" disabled={creating}>{creating ? t("project.creating") : t("project.create")}</Button>
           </DialogFooter>
         </form>

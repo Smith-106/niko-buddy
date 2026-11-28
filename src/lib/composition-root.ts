@@ -152,7 +152,7 @@ export async function initializeApp(): Promise<void> {
  */
 export async function hydrateProjectOnOpen(
   proj: WikiProject,
-  opts?: { fromCreate?: boolean },
+  opts?: { fromCreate?: boolean; landingView?: WikiState["activeView"] },
 ): Promise<void> {
   await resetProjectState()
 
@@ -191,7 +191,8 @@ export async function hydrateProjectOnOpen(
   // 打开已有项目（含欢迎屏最近项目/自动恢复上次项目）一律落 wiki——打开≠创建，
   // 否则打开路径被带到 director，wiki 视图永不出现（e2e boot 链路回归，见 ISS-20260927-001）。
   const landingView: WikiState["activeView"] =
-    opts?.fromCreate && useWikiStore.getState().novelMode ? "director" : "wiki"
+    opts?.landingView ??
+    (opts?.fromCreate && useWikiStore.getState().novelMode ? "director" : "wiki")
   useWikiStore.getState().setActiveView(landingView)
   useWikiStore.getState().bumpDataVersion()
   await saveLastProject(proj)

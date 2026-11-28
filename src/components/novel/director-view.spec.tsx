@@ -259,6 +259,15 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
     expect(screen.getByTestId("director-configure-llm")).toBeInTheDocument()
   })
 
+  it("LLM 未配置未启动态：点击「使用 Antigravity (ACP)」跳转 antigravityAcp", async () => {
+    mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-llm-blocked")).toBeTruthy())
+    expect(screen.queryByTestId("director-start")).toBeNull()
+    fireEvent.click(screen.getByTestId("director-use-antigravity-acp"))
+    expect(mocks.setActiveView).toHaveBeenCalledWith("antigravityAcp")
+  })
+
   it("LLM 未配置点「继续本地写作」→ 建 wiki/chapters/chapter-001（规范 frontmatter）+ 刷新文件树 + 跳写作工作区", async () => {
     mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
     const tree = [{ name: "wiki", path: "C:/proj/book/wiki", is_dir: true }]
@@ -742,5 +751,15 @@ describe("DirectorView statements 缺口补齐（第十五批）", () => {
     expect(advanceMock.fn).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId("director-gap")).not.toBeInTheDocument()
     expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "advanced")
+  })
+
+  it("已启动 + LLM 不可用顶部横幅：点击「使用 Antigravity (ACP)」跳转 antigravityAcp", async () => {
+    mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-llm-blocked-banner")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("director-use-antigravity-acp-banner"))
+    expect(mocks.setActiveView).toHaveBeenCalledWith("antigravityAcp")
   })
 })

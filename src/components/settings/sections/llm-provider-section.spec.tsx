@@ -1399,4 +1399,23 @@ describe("LlmProviderSection Antigravity 合规迁移引导", () => {
     expect(screen.getByTestId("antigravity-migration-clear")).not.toBeDisabled()
     expect(screen.getByTestId("antigravity-migration-requires-project-hint")).toBeInTheDocument()
   })
+
+  it("project 为 null 时展示全局配置作用域说明横幅，且允许直接配置并持久化全局模型", async () => {
+    mocks.state.project = null
+    mocks.state.activePresetId = null
+    render(<LlmProviderSection />)
+
+    const banner = screen.getByTestId("llm-global-config-banner")
+    expect(banner).toBeTruthy()
+    expect(banner.getAttribute("role")).toBe("status")
+    expect(banner.textContent).toMatch(/全局模型服务|noProjectGlobalTitle/)
+
+    // 在无项目状态下仍可直接启用预设并持久化到全局 store 而不崩溃
+    const card = cardByLabel("OpenAI")
+    fireEvent.click(within(card).getByTitle("启用此模型"))
+    expect(mocks.state.providerConfigs["openai-main"]?.enabled).toBe(true)
+    await waitFor(() => {
+      expect(mocks.store.set).toHaveBeenCalledWith("providerConfigs", expect.anything())
+    })
+  })
 })

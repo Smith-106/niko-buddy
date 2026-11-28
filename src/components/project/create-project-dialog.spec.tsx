@@ -528,4 +528,103 @@ describe("CreateProjectDialog", () => {
     await flushAsync()
     expect(mocks.getExecutableDir.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
+
+  it("草稿保留：前往配置模型再返回后保留书名、自定义路径与模板选择", async () => {
+    const onConfigureLlm = vi.fn()
+    const { rerender } = renderDialog(true, onConfigureLlm)
+    await flushAsync()
+
+    fireEvent.change(nameInput(), { target: { value: "DraftSaga" } })
+    fireEvent.change(pathInput(), { target: { value: "E:\\CustomDraftDir" } })
+    fireEvent.click(screen.getByRole("button", { name: /小说演示/ }))
+
+    fireEvent.click(screen.getByRole("button", { name: "project.llmConfigure" }))
+    expect(mocks.onOpenChange).toHaveBeenCalledWith(false)
+    expect(onConfigureLlm).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <CreateProjectDialog
+        open={false}
+        onOpenChange={mocks.onOpenChange}
+        onCreated={mocks.onCreated}
+        onConfigureLlm={onConfigureLlm}
+      />,
+    )
+    await flushAsync()
+
+    rerender(
+      <CreateProjectDialog
+        open={true}
+        onOpenChange={mocks.onOpenChange}
+        onCreated={mocks.onCreated}
+        onConfigureLlm={onConfigureLlm}
+      />,
+    )
+    await flushAsync()
+
+    expect(nameInput().value).toBe("DraftSaga")
+    expect(pathInput().value).toBe("E:\\CustomDraftDir")
+    fireEvent.submit(formOf())
+    await flushAsync()
+    expect(mocks.getTemplate).toHaveBeenLastCalledWith("novel-demo")
+    expect(mocks.createProject).toHaveBeenCalledWith("DraftSaga", "E:/CustomDraftDir")
+  })
+
+  it("步骤指示器精确映射当前激活步（名称→目录→模型服务→创建）", async () => {
+    const { rerender } = renderDialog(true)
+    await flushAsync()
+
+    // step 0 active when name is empty (even with default path prefilled)
+    expect(screen.getByTestId("create-step-0").getAttribute("aria-current")).toBe("step")
+    expect(screen.getByTestId("create-step-1").getAttribute("aria-current")).toBeNull()
+
+    // step 1 active when name filled & path cleared
+    fireEvent.change(nameInput(), { target: { value: "StepBook" } })
+    fireEvent.change(pathInput(), { target: { value: "" } })
+    expect(screen.getByTestId("create-step-1").getAttribute("aria-current")).toBe("step")
+
+    // step 2 active when name & path filled and LLM unconfigured
+    fireEvent.change(pathInput(), { target: { value: "C:\\QM-BOOK" } })
+    expect(screen.getByTestId("create-step-2").getAttribute("aria-current")).toBe("step")
+
+    // step 3 active when LLM becomes usable
+    mocks.wikiState.llmConfig = { provider: "claude-code", apiKey: "", model: "" }
+    rerender(
+      <CreateProjectDialog
+        open={true}
+        onOpenChange={mocks.onOpenChange}
+        onCreated={mocks.onCreated}
+      />,
+    )
+    expect(screen.getByTestId("create-step-3").getAttribute("aria-current")).toBe("step")
+  })
+
+  it("创建失败且抛出非 Error 对象时走 formatOperationError（不输出 [object Object]）", async () => {
+    renderDialog(true)
+    await flushAsync()
+    mocks.createProject.mockRejectedValueOnce({ code: "EACCES", message: "无目录权限" })
+    fireEvent.change(nameInput(), { target: { value: "ObjErrBook" } })
+    fireEvent.submit(formOf())
+    await waitFor(() => {
+      const errNode = screen.getByText(/无目录权限/)
+      expect(errNode).toBeTruthy()
+      expect(errNode.textContent).not.toContain("[object Object]")
+    })
+  })
+
+  it("零 Key 创建并打开 Antigravity (ACP)：未配模型时可见，点击透传 landingView=antigravityAcp", async () => {
+    renderDialog(true)
+    await flushAsync()
+    const acpBtn = screen.getByTestId("create-project-open-acp")
+    expect(acpBtn).toBeTruthy()
+    fireEvent.change(nameInput(), { target: { value: "AcpZeroKeyBook" } })
+    fireEvent.click(acpBtn)
+    await flushAsync()
+
+    expect(mocks.createProject).toHaveBeenCalledWith("AcpZeroKeyBook", "C:/QM-BOOK")
+    expect(mocks.onCreated).toHaveBeenCalledWith(
+      { id: "proj-1", name: "Novel", path: "C:\\books\\novel" },
+      { landingView: "antigravityAcp" },
+    )
+  })
 })

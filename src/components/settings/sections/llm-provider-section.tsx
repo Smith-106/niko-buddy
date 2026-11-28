@@ -158,6 +158,24 @@ export function LlmProviderSection() {
         </p>
       </div>
 
+      {!project && (
+        <div
+          role="status"
+          data-testid="llm-global-config-banner"
+          className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground"
+        >
+          <div className="font-medium text-foreground">
+            {t("settings.sections.llm.noProjectGlobalTitle", "当前未打开项目：正在配置全局模型服务")}
+          </div>
+          <p className="mt-1">
+            {t(
+              "settings.sections.llm.noProjectGlobalDesc",
+              "此处保存的 API Key 与默认模型为全局生效，创建或打开任意小说项目后即可直接使用；如需使用 Antigravity (ACP) 或本机 MCP，请先创建或打开项目。",
+            )}
+          </p>
+        </div>
+      )}
+
       {/* 合规迁移引导：检测到旧版 antigravity-cli 配置时显式提示，不静默失败 */}
       {hasLegacyAntigravityConfig ? (
         <div

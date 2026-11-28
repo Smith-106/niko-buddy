@@ -145,6 +145,7 @@ vi.mock("@/components/project/welcome-screen", () => ({
     onCreateProject: () => void
     onOpenProject: () => void
     onSelectProject: (p: ProjectLike) => void
+    onConfigureLlm?: () => void
   }) => (
     <div>
       <span>welcome-screen</span>
@@ -157,6 +158,11 @@ vi.mock("@/components/project/welcome-screen", () => ({
       <button data-testid="welcome-recent" onClick={() => props.onSelectProject({ id: "recent-1", name: "Recent", path: "/p/recent" })}>
         recent
       </button>
+      {props.onConfigureLlm && (
+        <button data-testid="welcome-configure-llm" onClick={props.onConfigureLlm}>
+          configure-llm-welcome
+        </button>
+      )}
     </div>
   ),
 }))
@@ -165,13 +171,19 @@ vi.mock("@/components/project/create-project-dialog", () => ({
   CreateProjectDialog: (props: {
     open: boolean
     onOpenChange: (open: boolean) => void
-    onCreated: (p: ProjectLike) => void
+    onCreated: (p: ProjectLike, options?: { landingView?: string }) => void
     onConfigureLlm?: () => void
   }) => (
     <div>
       <span>{`dialog-open:${String(props.open)}`}</span>
       <button data-testid="dialog-created" onClick={() => props.onCreated({ id: "new-1", name: "New", path: "/p/new" })}>
         created
+      </button>
+      <button
+        data-testid="dialog-created-acp"
+        onClick={() => props.onCreated({ id: "new-acp", name: "AcpBook", path: "/p/acp" }, { landingView: "antigravityAcp" })}
+      >
+        created-acp
       </button>
       <button data-testid="dialog-close" onClick={() => props.onOpenChange(false)}>
         close
@@ -440,11 +452,15 @@ describe("App 组件树渲染与初始化流程", () => {
     cleanup()
   })
 
-  it("P0-02：无项目欢迎屏下触发 onConfigureLlm → 打开独立模型配置弹窗并可关闭", async () => {
+  it("P0-02：无项目欢迎屏下从建项弹窗触发 onConfigureLlm → 打开独立模型配置弹窗，关闭后自动回到建项弹窗", async () => {
     const { container, cleanup } = renderApp()
     await flushAsync()
 
+    await clickAndFlush(container.querySelector('[data-testid="welcome-create"]'))
+    expect(container.textContent).toContain("dialog-open:true")
     expect(container.querySelector('[data-testid="llm-config-dialog"]')).toBeNull()
+
+    await clickAndFlush(container.querySelector('[data-testid="dialog-close"]'))
     await clickAndFlush(container.querySelector('[data-testid="dialog-configure-llm"]'))
 
     expect(container.querySelector('[data-testid="llm-config-dialog"]')).not.toBeNull()
@@ -454,15 +470,36 @@ describe("App 组件树渲染与初始化流程", () => {
 
     await clickAndFlush(container.querySelector('[data-testid="llm-config-dialog-close"]'))
     expect(container.querySelector('[data-testid="llm-config-dialog"]')).toBeNull()
+    expect(container.textContent).toContain("dialog-open:true")
     cleanup()
   })
 
-  it("有项目分支不传 onConfigureLlm（沿用设置视图）", async () => {
+  it("欢迎页第 2 步直达模型配置：关闭配置弹窗后停留在欢迎页（不误弹建项弹窗）", async () => {
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    await clickAndFlush(container.querySelector('[data-testid="welcome-configure-llm"]'))
+    expect(container.querySelector('[data-testid="llm-config-dialog"]')).not.toBeNull()
+
+    await clickAndFlush(container.querySelector('[data-testid="llm-config-dialog-close"]'))
+    expect(container.querySelector('[data-testid="llm-config-dialog"]')).toBeNull()
+    expect(container.textContent).toContain("dialog-open:false")
+    cleanup()
+  })
+
+  it("有项目分支同样传入 onConfigureLlm 并可打开独立模型配置弹窗", async () => {
     mocks.state.project = DEFAULT_PROJECT
     const { container, cleanup } = renderApp()
     await flushAsync()
 
-    expect(container.querySelector('[data-testid="dialog-configure-llm"]')).toBeNull()
+    const configBtn = container.querySelector('[data-testid="dialog-configure-llm"]')
+    expect(configBtn).not.toBeNull()
+    await clickAndFlush(configBtn)
+    expect(container.querySelector('[data-testid="llm-config-dialog"]')).not.toBeNull()
+
+    await clickAndFlush(container.querySelector('[data-testid="llm-config-dialog-close"]'))
+    expect(container.querySelector('[data-testid="llm-config-dialog"]')).toBeNull()
+    expect(container.textContent).toContain("dialog-open:true")
     cleanup()
   })
 
@@ -473,6 +510,19 @@ describe("App 组件树渲染与初始化流程", () => {
     await clickAndFlush(container.querySelector('[data-testid="welcome-create"]'))
     await clickAndFlush(container.querySelector('[data-testid="dialog-created"]'))
     expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith({ id: "new-1", name: "New", path: "/p/new" }, { fromCreate: true })
+    cleanup()
+  })
+
+  it("创建对话框传 landingView=antigravityAcp 时透传至 hydrateProjectOnOpen", async () => {
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    await clickAndFlush(container.querySelector('[data-testid="welcome-create"]'))
+    await clickAndFlush(container.querySelector('[data-testid="dialog-created-acp"]'))
+    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith(
+      { id: "new-acp", name: "AcpBook", path: "/p/acp" },
+      { fromCreate: true, landingView: "antigravityAcp" },
+    )
     cleanup()
   })
 
