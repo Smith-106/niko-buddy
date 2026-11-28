@@ -46,6 +46,11 @@ export interface BookRules {
   /** 允许偏差白名单：命中禁止项但属于显式豁免的短语。 */
   allowedDeviations: string[]
   fanficMode?: "canon" | "au" | "ooc" | "cp"
+  /** v1.1 可选同人策略扩展（向后兼容 v1.0，缺省按默认策略处理）。 */
+  canonLockNames?: string[]
+  auDeviations?: string[]
+  oocMarkers?: string[]
+  pairing?: [string, string] | null
 }
 
 // ── 64 号实施（63 号共识 §6 P0-3）：同人四模式语义 ──
@@ -68,13 +73,33 @@ export interface FanficPolicy {
   pairing: [string, string] | null
 }
 
+const DEFAULT_OOC_MARKERS = ["(OOC)", "（OOC）", "【OOC】", "(ooc)", "[OOC]"]
+
 export function fanficPolicyFromRules(rules: BookRules): FanficPolicy {
+  const canonLockNames = Array.isArray(rules.canonLockNames)
+    ? rules.canonLockNames.map((s) => s.trim()).filter(Boolean)
+    : []
+  const auDeviations = Array.isArray(rules.auDeviations)
+    ? rules.auDeviations.map((s) => s.trim()).filter(Boolean)
+    : []
+  const customOoc = Array.isArray(rules.oocMarkers)
+    ? rules.oocMarkers.map((s) => s.trim()).filter(Boolean)
+    : []
+  const pairing: [string, string] | null =
+    Array.isArray(rules.pairing)
+    && rules.pairing.length === 2
+    && typeof rules.pairing[0] === "string"
+    && typeof rules.pairing[1] === "string"
+    && rules.pairing[0].trim().length > 0
+    && rules.pairing[1].trim().length > 0
+      ? [rules.pairing[0].trim(), rules.pairing[1].trim()]
+      : null
   return {
     mode: rules.fanficMode ?? "canon",
-    canonLockNames: [],
-    auDeviations: [],
-    oocMarkers: ["(OOC)", "（OOC）", "【OOC】", "(ooc)", "[OOC]"],
-    pairing: null,
+    canonLockNames,
+    auDeviations,
+    oocMarkers: customOoc.length > 0 ? customOoc : [...DEFAULT_OOC_MARKERS],
+    pairing,
   }
 }
 
@@ -121,8 +146,7 @@ export function validateFanficChapter(
   }
 
   if (policy.mode === "cp") {
-    // 未配置配对时不判定（由 fanfic-canon-import 的 merge proposal 提供 pairing）
-    /* v8 ignore next -- 台账 book-rules.ts L126-130：policy.pairing 全仓唯一赋值点是 L77 的 null（类型允许 [string,string] 但无生产写入方），注释亦记「未配置配对时不判定」 */
+    // 未配置配对时不判定（由 fanfic-canon-import 或 BookRules v1.1 pairing 提供）
     if (policy.pairing) {
       const [a, b] = policy.pairing
       const hasA = appearingNames.some((n) => n.includes(a) || a.includes(n))
@@ -298,10 +322,18 @@ export function bookRulesToPromptFragment(rules: BookRules): string {
   return ["## 书籍治理规则（必须遵守）", ...lines.map((l) => `- ${l}`)].join("\n")
 }
 
-// ── 持久化（.novel/book-rules.json 原子 store）──────────────────────
-// 对齐 mechanical-gate.ts:429 与 state-bridge.ts:882 的既有读盘路径，
+// ── 持久化（.novel/book-rules.json 原子 store，单一真源）──────────────
+// 对齐 mechanical-gate.ts 与 state-bridge.ts 的既有读盘路径，
 // 提供单一规范化函数与原子读写接口，零 LLM、Draft-first 治理层。
+import { normalizePath } from "@/lib/path-utils"
 import { createAtomicJsonStore } from "./projection-store"
+
+export const BOOK_RULES_FILE = ".novel/book-rules.json"
+export const BOOK_RULES_SCHEMA_VERSION = "1.1"
+
+export function bookRulesPath(projectPath: string): string {
+  return `${normalizePath(projectPath).replace(/\/+$/, "")}/${BOOK_RULES_FILE}`
+}
 
 const bookRulesStore = createAtomicJsonStore<BookRules | null>("book-rules.json", () => null)
 
@@ -370,6 +402,23 @@ export function normalizeBookRules(raw: unknown): BookRules | null {
     obj.fanficMode === "cp"
   ) {
     rules.fanficMode = obj.fanficMode
+  }
+
+  const canonLockNames = normalizeStringList(obj.canonLockNames)
+  if (canonLockNames.length > 0) rules.canonLockNames = canonLockNames
+  const auDeviations = normalizeStringList(obj.auDeviations)
+  if (auDeviations.length > 0) rules.auDeviations = auDeviations
+  const oocMarkers = normalizeStringList(obj.oocMarkers)
+  if (oocMarkers.length > 0) rules.oocMarkers = oocMarkers
+  if (
+    Array.isArray(obj.pairing) &&
+    obj.pairing.length === 2 &&
+    typeof obj.pairing[0] === "string" &&
+    typeof obj.pairing[1] === "string" &&
+    obj.pairing[0].trim() &&
+    obj.pairing[1].trim()
+  ) {
+    rules.pairing = [obj.pairing[0].trim(), obj.pairing[1].trim()]
   }
 
   return rules

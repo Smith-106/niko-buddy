@@ -30,6 +30,7 @@ import {
   detectSilentStretch,
   extractDeAiChapterBody,
   loadCharacterStates,
+  normalizeBookRules,
   overCorrectionReport,
   overCorrectionToText,
   resolveChapterLengthSpec,
@@ -368,57 +369,6 @@ export function buildPinpointSnippet(text: string, startIndex: number, endIndex:
   const prefix = from > 0 ? "…" : ""
   const suffix = to < text.length ? "…" : ""
   return `${prefix}${raw}${suffix}`
-}
-
-/** 将 JSON 反序列化的 book-rules 对象做防御性规范化；无效返回 EMPTY_BOOK_RULES。 */
-function normalizeBookRules(raw: unknown): BookRules | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
-  const obj = raw as Record<string, unknown>
-  const toStringArray = (v: unknown): string[] =>
-    Array.isArray(v) ? v.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : []
-
-  const rules: BookRules = {
-    version: typeof obj.version === "string" && obj.version.trim() ? obj.version : "1.0",
-    prohibitions: toStringArray(obj.prohibitions),
-    allowedDeviations: toStringArray(obj.allowedDeviations),
-  }
-
-  if (obj.protagonist && typeof obj.protagonist === "object" && !Array.isArray(obj.protagonist)) {
-    const p = obj.protagonist as Record<string, unknown>
-    if (typeof p.name === "string" && p.name.trim()) {
-      rules.protagonist = {
-        name: p.name.trim(),
-        personalityLock: toStringArray(p.personalityLock),
-        behavioralConstraints: toStringArray(p.behavioralConstraints),
-      }
-    }
-  }
-
-  if (obj.genreLock && typeof obj.genreLock === "object" && !Array.isArray(obj.genreLock)) {
-    const g = obj.genreLock as Record<string, unknown>
-    if (typeof g.primary === "string" && g.primary.trim()) {
-      rules.genreLock = {
-        primary: g.primary.trim(),
-        forbidden: toStringArray(g.forbidden),
-      }
-    }
-  }
-
-  if (obj.eraConstraints && typeof obj.eraConstraints === "object" && !Array.isArray(obj.eraConstraints)) {
-    const e = obj.eraConstraints as Record<string, unknown>
-    rules.eraConstraints = {
-      enabled: Boolean(e.enabled),
-      anachronismTerms: toStringArray(e.anachronismTerms),
-      ...(typeof e.period === "string" ? { period: e.period } : {}),
-      ...(typeof e.region === "string" ? { region: e.region } : {}),
-    }
-  }
-
-  if (obj.fanficMode === "canon" || obj.fanficMode === "au" || obj.fanficMode === "ooc" || obj.fanficMode === "cp") {
-    rules.fanficMode = obj.fanficMode
-  }
-
-  return rules
 }
 
 async function loadBookRulesReadOnly(

@@ -1214,4 +1214,22 @@ describe("CanonEditor — 剩余守卫分支（TASK-033）", () => {
     resolveSupersede({ result: { capped: 1, inserted: 1, missing: [] }, max_revision: 8 })
     expect(await screen.findByTestId("correction-saved")).toBeInTheDocument()
   })
+
+  it("进入书籍规则模式时渲染提示或面板且不触发 canon_query_batch，并可返回浏览", async () => {
+    mockCorrectInvoke({ edges: [makeCorrectionEdge()] })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await screen.findByTestId("canon-enter-rules")
+    const callsBeforeRules = invokeMock.mock.calls.filter((c) => c[0] === "canon_query_batch").length
+
+    fireEvent.click(screen.getByTestId("canon-enter-rules"))
+    expect(await screen.findByText("请先打开小说项目后再编辑书籍规则。")).toBeInTheDocument()
+    // 切换至 rules 模式绝不误触发 canon_query_batch
+    const callsAfterRules = invokeMock.mock.calls.filter((c) => c[0] === "canon_query_batch").length
+    expect(callsAfterRules).toBe(callsBeforeRules)
+
+    fireEvent.click(screen.getByTestId("canon-rules-back-browse"))
+    await waitFor(() => {
+      expect(screen.getByTestId("canon-enter-rules")).toBeInTheDocument()
+    })
+  })
 })

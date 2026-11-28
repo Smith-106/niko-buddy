@@ -22,7 +22,9 @@ import { invoke } from "@tauri-apps/api/core"
 import { CanonFactTable } from "./canon-fact-table"
 import { CanonFactsKnownByPanel } from "./canon-facts-known-by-panel"
 import { CanonRevisionViewer } from "./canon-revision-viewer"
+import { BookRulesPanel } from "./book-rules-panel"
 import { buildFilter, parseChapterInput, queryCanonBatch } from "./canon-editor-client"
+import { useWikiStore } from "@/stores/wiki-store"
 import { PaginationControls } from "@/components/ui/pagination"
 import {
   EDGE_KIND_LABELS,
@@ -54,7 +56,7 @@ export type {
   CorrectionValidation,
 } from "./canon-correction"
 
-type EditorMode = "browse" | "correct"
+type EditorMode = "browse" | "correct" | "rules"
 
 
 
@@ -200,6 +202,7 @@ interface SaveOutcome {
 
 export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEditorProps) {
   const { t } = useTranslation()
+  const projectPath = useWikiStore((s) => s.project?.path ?? "")
   // ── 模式 ──
   const [mode, setMode] = useState<EditorMode>("browse")
 
@@ -247,6 +250,11 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
   const safePage = Math.min(page, pageCount)
 
   const reload = useCallback(async () => {
+    if (mode === "rules") {
+      setLoading(false)
+      setError(null)
+      return
+    }
     setLoading(true)
     setError(null)
     // 服务端分页：offset/limit 仅在调用点注入（appliedFilter 不含分页字段），
@@ -266,7 +274,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
         pageEmpty = edges.length === 0
         setBrowseEdges(edges)
         setMaxRevision(response.max_revision)
-      } else {
+      } else if (mode === "correct") {
         // 校正模式需要原始边（含 known_by），直连 canon_query_batch，不走投影剥离。
         const res = await invoke<CanonQueryBatchResponseRaw>("canon_query_batch", {
           projectId,
@@ -481,14 +489,24 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
                 <span className="ml-2 text-sm font-normal text-muted-foreground">浏览</span>
                 <span className="sr-only">Canon</span>
               </h1>
-              <button
-                type="button"
-                className="h-8 rounded-md border bg-background px-3 text-sm transition-colors hover:bg-muted"
-                onClick={enterCorrect}
-                data-testid="canon-enter-correct"
-              >
-                校正
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="h-8 rounded-md border bg-background px-3 text-sm transition-colors hover:bg-muted"
+                  onClick={() => setMode("rules")}
+                  data-testid="canon-enter-rules"
+                >
+                  书籍规则
+                </button>
+                <button
+                  type="button"
+                  className="h-8 rounded-md border bg-background px-3 text-sm transition-colors hover:bg-muted"
+                  onClick={enterCorrect}
+                  data-testid="canon-enter-correct"
+                >
+                  校正
+                </button>
+              </div>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
               <span>下方是本项目的事实列表，可按知晓角色、有效章节、关系类型筛选。浏览不会改动任何数据；点「校正」可修正某条事实的知晓范围与揭晓章节。</span>
@@ -544,6 +562,53 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
             refreshSignal={maxRevision ?? 0}
           />
           <CanonRevisionViewer projectId={projectId} refreshSignal={maxRevision ?? 0} />
+        </div>
+      </div>
+    )
+  }
+
+  // ── 书籍治理规则模式渲染（.novel/book-rules.json 可视化编辑）──
+  if (mode === "rules") {
+    return (
+      <div
+        className={className ?? "h-full overflow-auto bg-background p-6"}
+        data-testid="canon-editor-root"
+      >
+        <div className="w-full min-w-0 space-y-5">
+          <header className="rounded-lg border bg-card p-5 elevation-1">
+            <div className="flex items-center justify-between gap-3">
+              <h1 className="text-xl font-semibold" data-testid="canon-editor-title">
+                设定校正
+                <span className="ml-2 text-sm font-normal text-muted-foreground">书籍规则</span>
+                <span className="sr-only">Canon</span>
+              </h1>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="h-8 rounded-md border bg-background px-3 text-sm transition-colors hover:bg-muted"
+                  onClick={() => setMode("browse")}
+                  data-testid="canon-rules-back-browse"
+                >
+                  返回浏览
+                </button>
+                <button
+                  type="button"
+                  className="h-8 rounded-md border bg-background px-3 text-sm transition-colors hover:bg-muted"
+                  onClick={enterCorrect}
+                  data-testid="canon-enter-correct"
+                >
+                  校正
+                </button>
+              </div>
+            </div>
+          </header>
+          {projectPath ? (
+            <BookRulesPanel projectPath={projectPath} />
+          ) : (
+            <div className="rounded-lg border border-dashed bg-card p-6 text-sm text-muted-foreground">
+              请先打开小说项目后再编辑书籍规则。
+            </div>
+          )}
         </div>
       </div>
     )

@@ -20,7 +20,7 @@ export { applyFileEdits, listScopeFiles, readScopeFileContents } from "./agent-t
 export type { FileEditResult } from "./agent-tools"
 export { shutdownAntiAiTelemetrySink } from "./anti-ai-telemetry-sink"
 export { applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, saveAntiAiTelemetryConsent } from "./anti-ai-telemetry-wiring"
-export { EMPTY_BOOK_RULES, bookRulesToPromptFragment, loadBookRules, normalizeBookRules, saveBookRules, validateAgainstBookRules, validateFanficChapter } from "./book-rules"
+export { BOOK_RULES_FILE, BOOK_RULES_SCHEMA_VERSION, EMPTY_BOOK_RULES, bookRulesPath, bookRulesToPromptFragment, fanficPolicyFromRules, loadBookRules, normalizeBookRules, saveBookRules, validateAgainstBookRules, validateFanficChapter } from "./book-rules"
 export type { BookRules, BookRulesValidation, EraConstraints, FanficMode, FanficPolicy, GenreLock, ProtagonistRule, RuleFinding } from "./book-rules"
 export { runAutonomousDraftCampaign, batchAcceptCampaignDrafts, filterAcceptableChapters } from "./campaign-runner"
 export type { CampaignChapterResult, CampaignRunOptions, CampaignReport, BatchAcceptResult } from "./campaign-runner"
