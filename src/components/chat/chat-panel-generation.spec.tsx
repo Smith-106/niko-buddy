@@ -39,7 +39,7 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     expect(lastFinalize()[0]).toContain("第4章")
   })
 
-  it("单章修改成功：写回 + 备份 + 刷新 + 选中文件 + finalize 完成文案", async () => {
+  it("单章修改成功：Draft-first 写入待审草稿箱 + 不覆写正式章 + 刷新 + 选中文件 + finalize 完成文案", async () => {
     setupEditMode()
     mocks.resolveChatEditTarget.mockReturnValue({
       ok: true as const,
@@ -54,18 +54,22 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     setConversation("conv-1")
     renderPanel()
     await sendText("修改第3章")
-    expect(mocks.backupChapterFile).toHaveBeenCalledWith(
-      expect.objectContaining({ chapterPath: "/p/mybook/wiki/chapters/chapter-003.md", chapterNumber: 3 }),
-    )
-    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("/p/mybook/wiki/chapters/chapter-003.md", "NORMALIZED")
-    expect(mocks.invalidateChapterCache).toHaveBeenCalledWith("/p/mybook")
+    expect(mocks.backupChapterFile).not.toHaveBeenCalled()
+    const draftCalls = mocks.writeFileAtomic.mock.calls.filter(([p]) => String(p).endsWith(".md"))
+    expect(draftCalls).toHaveLength(1)
+    expect(String(draftCalls[0]![0])).toMatch(/^\/p\/mybook\/\.qm-drafts\/draft_.*\.md$/)
+    expect(String(draftCalls[0]![1])).toContain('chapter_name: "chapter-003"')
+    expect(String(draftCalls[0]![1])).toContain("status: draft")
+    expect(String(draftCalls[0]![1])).toContain("source_conversation_id: conv-1")
+    expect(String(draftCalls[0]![1])).toContain("\n\nNORMALIZED")
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalledWith("/p/mybook/wiki/chapters/chapter-003.md", expect.anything())
     expect(mocks.refreshProjectState).toHaveBeenCalledWith("/p/mybook")
     expect(mocks.wikiState.setSelectedFile).toHaveBeenCalledWith("/p/mybook/wiki/chapters/chapter-003.md")
-    expect(lastFinalize()[0]).toContain("已完成第3章修改")
+    expect(lastFinalize()[0]).toContain("已完成第3章修改并存入待审草稿箱")
     await flushAsync()
   })
 
-  it("多章修改成功：逐章写回 + 批量完成文案", async () => {
+  it("多章修改成功：Draft-first 逐章写入待审草稿箱 + 批量完成文案", async () => {
     setupEditMode()
     mocks.resolveChatEditTarget.mockReturnValue({
       ok: true as const,
@@ -90,11 +94,16 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     setConversation("conv-1")
     renderPanel()
     await sendText("批量修改")
-    // 快照（chapter-workspace.json）与章节写回共用 writeFileAtomic：按 .md 后缀过滤章节写回。
+    // 快照（chapter-workspace.json）与草稿写入共用 writeFileAtomic：按 .md 后缀过滤待审草稿写入。
     const chapterCalls = mocks.writeFileAtomic.mock.calls.filter(([p]) => String(p).endsWith(".md"))
-    expect(chapterCalls[0]).toEqual(["/p/mybook/wiki/chapters/chapter-003.md", "NORMALIZED"])
-    expect(chapterCalls[1]).toEqual(["/p/mybook/wiki/chapters/chapter-004.md", "NORMALIZED"])
-    expect(lastFinalize()[0]).toContain("已完成 2 个章节的批量修改")
+    expect(chapterCalls).toHaveLength(2)
+    expect(String(chapterCalls[0]![0])).toMatch(/^\/p\/mybook\/\.qm-drafts\/draft_.*\.md$/)
+    expect(String(chapterCalls[0]![1])).toContain('chapter_name: "chapter-003"')
+    expect(String(chapterCalls[0]![1])).toContain("\n\nNORMALIZED")
+    expect(String(chapterCalls[1]![0])).toMatch(/^\/p\/mybook\/\.qm-drafts\/draft_.*\.md$/)
+    expect(String(chapterCalls[1]![1])).toContain('chapter_name: "chapter-004"')
+    expect(String(chapterCalls[1]![1])).toContain("\n\nNORMALIZED")
+    expect(lastFinalize()[0]).toContain("已完成 2 个章节的批量修改并存入待审草稿箱")
     await flushAsync()
   })
 

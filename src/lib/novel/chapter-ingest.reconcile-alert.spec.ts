@@ -135,8 +135,8 @@ describe("runCanonDualWriteHook — reconcile 告警消费 (55 W1-3)", () => {
     )
     const warnCalls = loggerWarnMock.mock.calls.filter((c) => String(c[1]).includes("ops queued"))
     expect(warnCalls.length).toBe(1)
-    // 2 条正史事实 → 2 条 episode op；消息里的分母是 op 总数，不是事实数以外的占位。
-    expect(String(warnCalls[0]![1])).toBe("Canon dual-write: 2/2 ops queued (non-fatal)")
+    // 2 条正史事实 → 2 条 episode op + 2 条 world_fact supersede op = 共 4 条 op；消息里的分母是 op 总数。
+    expect(String(warnCalls[0]![1])).toBe("Canon dual-write: 2/4 ops queued (non-fatal)")
   })
 
   it("queued=0 → 无积压告警 (反向分支)", async () => {

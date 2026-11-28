@@ -101,6 +101,12 @@ mod imp {
 
         pub fn terminate(&mut self) {}
     }
+
+    impl Drop for ProcessTree {
+        fn drop(&mut self) {
+            self.terminate();
+        }
+    }
 }
 
 pub use imp::ProcessTree;
