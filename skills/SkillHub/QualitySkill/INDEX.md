@@ -5,6 +5,7 @@
 ## 当前 Skill
 
 - `outline-quality-check`：检查题材卡、总纲、卷纲、章纲、人物、设定、伏笔和保存请求是否合格。
+- `craft-self-editing-revision-and-prose-tightening`：自编辑四重镜头、Show vs Tell 清理与 10%–15% 删水精修。
 
 ## 调用时机
 

@@ -92,11 +92,19 @@ describe("getOutlineSkillNames（!definition / outline / review / drafting）", 
   it("outline 阶段 → 技能名非空", () => {
     const names = getOutlineSkillNames("人物小传")
     expect(names).toContain("character-design")
+    expect(getOutlineSkillNames("世界观设定")).toContain("novel-dual-kb-research-and-injection")
+    expect(getOutlineSkillNames("世界观设定")).toContain("craft-worldview-coherence-and-belief-arc")
+    expect(getOutlineSkillNames("力量体系")).toContain("craft-worldview-coherence-and-belief-arc")
+    expect(getOutlineSkillNames("核诡设计")).toContain("craft-mystery-clue-fairplay-and-red-herring")
+    expect(getOutlineSkillNames("开篇设计")).toContain("craft-opening-hook-promise-and-inciting-incident")
+    expect(getOutlineSkillNames("中段结构")).toContain("craft-midbook-midpoint-and-climax-architecture")
+    expect(getOutlineSkillNames("情感张力")).toContain("craft-emotional-tension-and-crisis-escalation")
   })
 
   it("review 阶段 → 技能名非空（stage !== outline 真 + !== review 假）", () => {
     const names = getOutlineSkillNames("大纲质量检查")
     expect(names).toContain("outline-quality-check")
+    expect(names).toContain("craft-self-editing-revision-and-prose-tightening")
   })
 
   it("drafting 阶段 → []（两 !== 皆真）", () => {
@@ -127,10 +135,12 @@ describe("getWritingSkillNames（意图门 + 四路开关）", () => {
   it("短篇开关真 → short；长篇回落（else 臂）", () => {
     const short = getWritingSkillNames("write_chapter", "短篇知乎故事")
     expect(short).toContain("short-form-drafting")
+    expect(short).toContain("craft-scene-sequel-beats-and-pov-discipline")
     expect(short).not.toContain("long-form-drafting")
 
     const long = getWritingSkillNames("write_chapter", "编写章节正文")
     expect(long).toContain("long-form-drafting")
+    expect(long).toContain("craft-scene-sequel-beats-and-pov-discipline")
     expect(long).not.toContain("short-form-drafting")
   })
 

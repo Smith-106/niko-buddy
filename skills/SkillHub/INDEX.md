@@ -18,6 +18,7 @@
 
 - `AI_OUTLINE_OUTPUT_PROTOCOL.md`：AI 大纲对话输出和自动保存协议。
 - `OUTLINE_FOLDER_STORAGE_STANDARD.md`：大纲文件树、默认文件夹、移动和保存规范。
+- `NOVEL_CRAFT_RULES.md`：小说创作引擎核心纪律（WeKnora 三库路由 + P0/P1/P2 六条硬核创作规则）。
 - `ROUTE_MANIFEST.json`：程序可读取的题材路由、默认文件夹和输出类型清单。
 - `ROUTING_MEMORY.md`：给 AI 使用的文字版路由记忆。
 
