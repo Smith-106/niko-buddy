@@ -386,10 +386,7 @@ impl ActiveAcpConnection {
     }
 
     fn live_session_ids(&self) -> HashSet<String> {
-        self.slots
-            .values()
-            .map(|s| s.session_id.clone())
-            .collect()
+        self.slots.values().map(|s| s.session_id.clone()).collect()
     }
 }
 
@@ -1235,10 +1232,7 @@ fn resolve_slot_for_session_in_pool(
     session_id: Option<&str>,
 ) -> Option<AcpRoleSlot> {
     match session_id.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(sid) => slots
-            .values()
-            .find(|s| s.session_id == sid)
-            .map(|s| s.slot),
+        Some(sid) => slots.values().find(|s| s.session_id == sid).map(|s| s.slot),
         None => slots.get(&active_slot).map(|s| s.slot),
     }
 }
@@ -1282,12 +1276,9 @@ fn resolve_live_slot_for_command<'a>(
 ) -> Result<&'a AcpSlotSession, String> {
     if let Some(raw_slot) = requested_slot {
         let target_slot = resolve_acp_slot(Some(raw_slot), active_slot)?;
-        let slot_sess = slots.get(&target_slot).ok_or_else(|| {
-            format!(
-                "ACP slot `{}` has no active session",
-                target_slot.as_str()
-            )
-        })?;
+        let slot_sess = slots
+            .get(&target_slot)
+            .ok_or_else(|| format!("ACP slot `{}` has no active session", target_slot.as_str()))?;
         if slot_sess.session_id != sid {
             return Err(format!(
                 "ACP session `{sid}` does not match slot `{}` active session `{}`",
@@ -1853,8 +1844,8 @@ where
                 }
                 let req_key = rpc_id_key(&id_val);
                 let mut info = parse_permission_request(req_key.clone(), &params);
-                let perm_sid = (!info.session_id.trim().is_empty())
-                    .then_some(info.session_id.trim());
+                let perm_sid =
+                    (!info.session_id.trim().is_empty()).then_some(info.session_id.trim());
                 let resolved_slot = sink.resolve_slot_for_session(perm_sid).await;
                 info.slot = resolved_slot.clone();
                 if !sink.is_epoch_active() {
@@ -4677,7 +4668,10 @@ mod tests {
             SessionScope::Auto,
             SessionScope::Full,
         ] {
-            assert_eq!(AcpRoleSlot::Reviewer.effective_scope(scope), SessionScope::Read);
+            assert_eq!(
+                AcpRoleSlot::Reviewer.effective_scope(scope),
+                SessionScope::Read
+            );
             assert_eq!(AcpRoleSlot::Writer.effective_scope(scope), scope);
             assert_eq!(AcpRoleSlot::Architect.effective_scope(scope), scope);
         }
@@ -4760,10 +4754,12 @@ mod tests {
             plan.mcp_servers[0]["headers"][1],
             json!({ "name": "X-Niko-Profile", "value": "reviewer" })
         );
-        let eff_scope = plan
-            .attached_mcp_binding
-            .as_ref()
-            .map(|b| AcpRoleSlot::Reviewer.effective_scope(b.scope).as_str().to_string());
+        let eff_scope = plan.attached_mcp_binding.as_ref().map(|b| {
+            AcpRoleSlot::Reviewer
+                .effective_scope(b.scope)
+                .as_str()
+                .to_string()
+        });
         assert_eq!(eff_scope.as_deref(), Some("read"));
     }
 
@@ -4838,10 +4834,16 @@ mod tests {
             Some(&binding),
         );
         assert_eq!(snap_writer.active_slot, "writer");
-        assert_eq!(snap_writer.active_session_id.as_deref(), Some("sess-writer"));
+        assert_eq!(
+            snap_writer.active_session_id.as_deref(),
+            Some("sess-writer")
+        );
         assert_eq!(snap_writer.local_mcp_profile.as_deref(), Some("writer-sub"));
         assert!(!snap_writer.in_flight_prompt);
-        assert_eq!(snap_writer.config_options[0]["currentValue"], json!("gemini-2.5-pro"));
+        assert_eq!(
+            snap_writer.config_options[0]["currentValue"],
+            json!("gemini-2.5-pro")
+        );
         assert_eq!(snap_writer.pending_permissions.len(), 1);
         assert_eq!(snap_writer.pending_permissions[0].request_id, "10");
         assert_eq!(snap_writer.slots.len(), 2);
@@ -4909,19 +4911,30 @@ mod tests {
 
         // Strict command slot resolution prevents cross-slot session mismatch.
         assert_eq!(
-            resolve_live_slot_for_command(&slots, AcpRoleSlot::Writer, "sess-reviewer", Some("reviewer"))
-                .unwrap()
-                .slot,
+            resolve_live_slot_for_command(
+                &slots,
+                AcpRoleSlot::Writer,
+                "sess-reviewer",
+                Some("reviewer")
+            )
+            .unwrap()
+            .slot,
             AcpRoleSlot::Reviewer
         );
-        assert!(
-            resolve_live_slot_for_command(&slots, AcpRoleSlot::Writer, "sess-writer", Some("reviewer"))
-                .is_err()
-        );
-        assert!(
-            resolve_live_slot_for_command(&slots, AcpRoleSlot::Writer, "sess-writer", Some("architect"))
-                .is_err()
-        );
+        assert!(resolve_live_slot_for_command(
+            &slots,
+            AcpRoleSlot::Writer,
+            "sess-writer",
+            Some("reviewer")
+        )
+        .is_err());
+        assert!(resolve_live_slot_for_command(
+            &slots,
+            AcpRoleSlot::Writer,
+            "sess-writer",
+            Some("architect")
+        )
+        .is_err());
         assert_eq!(
             resolve_live_slot_for_command(&slots, AcpRoleSlot::Writer, "sess-reviewer", None)
                 .unwrap()
@@ -5045,7 +5058,11 @@ mod tests {
         assert_eq!(
             unmapped
                 .iter()
-                .map(|d| (d.request_id.as_str(), d.session_id.as_str(), d.slot.as_deref()))
+                .map(|d| (
+                    d.request_id.as_str(),
+                    d.session_id.as_str(),
+                    d.slot.as_deref()
+                ))
                 .collect::<Vec<_>>(),
             vec![
                 ("22", "sess-reviewer-1", Some("reviewer")),
@@ -5146,7 +5163,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn demux_loop_routes_config_updates_and_events_with_slot_and_enforces_epoch_and_strict_session_match() {
+    async fn demux_loop_routes_config_updates_and_events_with_slot_and_enforces_epoch_and_strict_session_match(
+    ) {
         struct MultiSlotMockDemuxSink {
             my_epoch: u64,
             conn_epoch: Arc<AtomicU64>,
@@ -5255,7 +5273,10 @@ mod tests {
         // 2) Active multi-slot routing over real duplex demux loop.
         let epoch = Arc::new(AtomicU64::new(1));
         let slots = Arc::new(Mutex::new(HashMap::from([
-            (AcpRoleSlot::Writer, make_slot(AcpRoleSlot::Writer, "sess-writer")),
+            (
+                AcpRoleSlot::Writer,
+                make_slot(AcpRoleSlot::Writer, "sess-writer"),
+            ),
             (
                 AcpRoleSlot::Reviewer,
                 make_slot(AcpRoleSlot::Reviewer, "sess-reviewer"),
@@ -5507,14 +5528,22 @@ mod tests {
     fn slot_reset_guard_blocks_same_slot_allows_parallel_slot_and_recovers_from_poison() {
         let resetting: ResettingSlotsSet = Arc::new(std::sync::Mutex::new(HashSet::new()));
 
-        assert!(!SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Writer));
-        assert!(!SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+        assert!(!SlotResetGuard::is_resetting(
+            &resetting,
+            AcpRoleSlot::Writer
+        ));
+        assert!(!SlotResetGuard::is_resetting(
+            &resetting,
+            AcpRoleSlot::Reviewer
+        ));
 
         // Acquire on Writer marks Writer resetting and blocks concurrent acquire on Writer.
-        let writer_guard =
-            SlotResetGuard::try_acquire(Arc::clone(&resetting), AcpRoleSlot::Writer)
-                .expect("initial writer acquire must succeed");
-        assert!(SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Writer));
+        let writer_guard = SlotResetGuard::try_acquire(Arc::clone(&resetting), AcpRoleSlot::Writer)
+            .expect("initial writer acquire must succeed");
+        assert!(SlotResetGuard::is_resetting(
+            &resetting,
+            AcpRoleSlot::Writer
+        ));
 
         let dup_err = SlotResetGuard::try_acquire(Arc::clone(&resetting), AcpRoleSlot::Writer)
             .err()
@@ -5528,12 +5557,21 @@ mod tests {
         let reviewer_guard =
             SlotResetGuard::try_acquire(Arc::clone(&resetting), AcpRoleSlot::Reviewer)
                 .expect("parallel acquire on another slot must succeed");
-        assert!(SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+        assert!(SlotResetGuard::is_resetting(
+            &resetting,
+            AcpRoleSlot::Reviewer
+        ));
 
         // Dropping Writer releases only Writer while Reviewer remains resetting.
         drop(writer_guard);
-        assert!(!SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Writer));
-        assert!(SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+        assert!(!SlotResetGuard::is_resetting(
+            &resetting,
+            AcpRoleSlot::Writer
+        ));
+        assert!(SlotResetGuard::is_resetting(
+            &resetting,
+            AcpRoleSlot::Reviewer
+        ));
 
         // Intentionally poison the mutex while Reviewer is still held; drop & re-acquire MUST recover.
         let poison_clone = Arc::clone(&resetting);
@@ -5543,17 +5581,28 @@ mod tests {
         })
         .join();
         assert!(resetting.is_poisoned());
-        assert!(SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+        assert!(SlotResetGuard::is_resetting(
+            &resetting,
+            AcpRoleSlot::Reviewer
+        ));
 
         drop(reviewer_guard);
-        assert!(!SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+        assert!(!SlotResetGuard::is_resetting(
+            &resetting,
+            AcpRoleSlot::Reviewer
+        ));
 
         // Re-acquiring Reviewer after poisoned drop MUST succeed and release cleanly on drop.
-        let reacquired =
-            SlotResetGuard::try_acquire(Arc::clone(&resetting), AcpRoleSlot::Reviewer)
-                .expect("re-acquire after poison-safe drop must succeed");
-        assert!(SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+        let reacquired = SlotResetGuard::try_acquire(Arc::clone(&resetting), AcpRoleSlot::Reviewer)
+            .expect("re-acquire after poison-safe drop must succeed");
+        assert!(SlotResetGuard::is_resetting(
+            &resetting,
+            AcpRoleSlot::Reviewer
+        ));
         drop(reacquired);
-        assert!(!SlotResetGuard::is_resetting(&resetting, AcpRoleSlot::Reviewer));
+        assert!(!SlotResetGuard::is_resetting(
+            &resetting,
+            AcpRoleSlot::Reviewer
+        ));
     }
 }

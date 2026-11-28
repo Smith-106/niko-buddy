@@ -4982,9 +4982,9 @@ fn build_director_upsert_world_query(args: &Value) -> Result<StateQuery, ToolErr
     let mut has_action = false;
 
     if let Some(raw_wt) = normalized.get("worldType") {
-        let wt = raw_wt
-            .as_str()
-            .ok_or_else(|| ToolError::invalid_params(format!("{tool}: `worldType` 必须是字符串")))?;
+        let wt = raw_wt.as_str().ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `worldType` 必须是字符串"))
+        })?;
         validate_single_line_str(wt, tool, "worldType", 1, 128)?;
         params.insert("worldType".to_string(), json!(wt.trim()));
         has_action = true;
@@ -5042,21 +5042,16 @@ fn build_director_upsert_world_query(args: &Value) -> Result<StateQuery, ToolErr
                 &["from", "to", "term"],
                 &["from", "to", "term"],
             )?);
-            let from = optional_enum_str(&sub, tool, "from", &PLANNING_WORLD_LAYERS)?
-                .ok_or_else(|| {
-                    ToolError::invalid_params(format!("{tool}: `crossRefs[{idx}].from` 缺失"))
-                })?;
-            let to = optional_enum_str(&sub, tool, "to", &PLANNING_WORLD_LAYERS)?.ok_or_else(
-                || ToolError::invalid_params(format!("{tool}: `crossRefs[{idx}].to` 缺失")),
+            let from = optional_enum_str(&sub, tool, "from", &PLANNING_WORLD_LAYERS)?.ok_or_else(
+                || ToolError::invalid_params(format!("{tool}: `crossRefs[{idx}].from` 缺失")),
             )?;
-            let term = sub
-                .get("term")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    ToolError::invalid_params(format!(
-                        "{tool}: `crossRefs[{idx}].term` 必须是字符串"
-                    ))
+            let to =
+                optional_enum_str(&sub, tool, "to", &PLANNING_WORLD_LAYERS)?.ok_or_else(|| {
+                    ToolError::invalid_params(format!("{tool}: `crossRefs[{idx}].to` 缺失"))
                 })?;
+            let term = sub.get("term").and_then(Value::as_str).ok_or_else(|| {
+                ToolError::invalid_params(format!("{tool}: `crossRefs[{idx}].term` 必须是字符串"))
+            })?;
             validate_single_line_str(term, tool, &format!("crossRefs[{idx}].term"), 1, 256)?;
             clean_refs.push(json!({ "from": from, "to": to, "term": term.trim() }));
         }
@@ -5186,12 +5181,8 @@ fn build_director_commit_phase_query(args: &Value) -> Result<StateQuery, ToolErr
     let mut params = serde_json::Map::new();
 
     if let Some(raw_idea) = normalized.get("idea") {
-        let clean_idea_map = normalize_strict_object_args(
-            raw_idea,
-            tool,
-            &["title", "genre", "coreConflict"],
-            &[],
-        )?;
+        let clean_idea_map =
+            normalize_strict_object_args(raw_idea, tool, &["title", "genre", "coreConflict"], &[])?;
         let clean_idea_val = Value::Object(clean_idea_map);
         let mut idea_out = serde_json::Map::new();
         if let Some(raw_title) = clean_idea_val.get("title") {
@@ -5220,9 +5211,12 @@ fn build_director_commit_phase_query(args: &Value) -> Result<StateQuery, ToolErr
         }
     }
 
-    if let Some(expected_phase) =
-        optional_enum_str(&normalized, tool, "expectedPhase", &PLANNING_DIRECTOR_PHASES)?
-    {
+    if let Some(expected_phase) = optional_enum_str(
+        &normalized,
+        tool,
+        "expectedPhase",
+        &PLANNING_DIRECTOR_PHASES,
+    )? {
         params.insert("expectedPhase".to_string(), json!(expected_phase));
     }
 
@@ -5316,8 +5310,8 @@ fn build_rules_upsert_book_rules_query(args: &Value) -> Result<StateQuery, ToolE
     )?);
 
     let mut params = serde_json::Map::new();
-    let mode = optional_enum_str(&normalized, tool, "mode", &["merge", "replace"])?
-        .unwrap_or("merge");
+    let mode =
+        optional_enum_str(&normalized, tool, "mode", &["merge", "replace"])?.unwrap_or("merge");
     if normalized.get("mode").is_some() {
         params.insert("mode".to_string(), json!(mode));
     }
@@ -5354,12 +5348,9 @@ fn build_rules_upsert_book_rules_query(args: &Value) -> Result<StateQuery, ToolE
             &["name", "personalityLock", "behavioralConstraints"],
             &["name"],
         )?);
-        let name = sub
-            .get("name")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                ToolError::invalid_params(format!("{tool}: `protagonist.name` 必须是字符串"))
-            })?;
+        let name = sub.get("name").and_then(Value::as_str).ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `protagonist.name` 必须是字符串"))
+        })?;
         validate_single_line_str(name, tool, "protagonist.name", 1, 128)?;
         let mut p_out = serde_json::Map::new();
         p_out.insert("name".to_string(), json!(name.trim()));
@@ -5396,24 +5387,15 @@ fn build_rules_upsert_book_rules_query(args: &Value) -> Result<StateQuery, ToolE
             &["primary", "forbidden"],
             &["primary"],
         )?);
-        let primary = sub
-            .get("primary")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                ToolError::invalid_params(format!("{tool}: `genreLock.primary` 必须是字符串"))
-            })?;
+        let primary = sub.get("primary").and_then(Value::as_str).ok_or_else(|| {
+            ToolError::invalid_params(format!("{tool}: `genreLock.primary` 必须是字符串"))
+        })?;
         validate_single_line_str(primary, tool, "genreLock.primary", 1, 128)?;
         let mut g_out = serde_json::Map::new();
         g_out.insert("primary".to_string(), json!(primary.trim()));
         if let Some(forb) = sub.get("forbidden") {
-            let items = validate_planning_string_array(
-                forb,
-                tool,
-                "genreLock.forbidden",
-                100,
-                200,
-                true,
-            )?;
+            let items =
+                validate_planning_string_array(forb, tool, "genreLock.forbidden", 100, 200, true)?;
             g_out.insert("forbidden".to_string(), json!(items));
         }
         params.insert("genreLock".to_string(), Value::Object(g_out));
@@ -5787,14 +5769,8 @@ fn build_foreshadowing_upsert_query(args: &Value) -> Result<StateQuery, ToolErro
         params.insert("resolvedChapter".to_string(), json!(ch));
     }
     if let Some(raw_chars) = normalized.get("relatedCharacters") {
-        let items = validate_planning_string_array(
-            raw_chars,
-            tool,
-            "relatedCharacters",
-            100,
-            128,
-            true,
-        )?;
+        let items =
+            validate_planning_string_array(raw_chars, tool, "relatedCharacters", 100, 128, true)?;
         params.insert("relatedCharacters".to_string(), json!(items));
     }
     if let Some(raw_events) = normalized.get("relatedEvents") {
@@ -5962,14 +5938,8 @@ fn build_subplot_upsert_query(args: &Value) -> Result<StateQuery, ToolError> {
         params.insert("abandoned".to_string(), json!(abandoned));
     }
     if let Some(raw_chars) = normalized.get("relatedCharacters") {
-        let items = validate_planning_string_array(
-            raw_chars,
-            tool,
-            "relatedCharacters",
-            100,
-            128,
-            true,
-        )?;
+        let items =
+            validate_planning_string_array(raw_chars, tool, "relatedCharacters", 100, 128, true)?;
         params.insert("relatedCharacters".to_string(), json!(items));
     }
     if let Some(summary) =
@@ -10557,7 +10527,10 @@ mod tests {
     async fn six_planning_write_tools_enforce_strict_schemas_null_tolerance_and_project_scope() {
         let reg = build_registry();
         assert_eq!(reg.len(), 50, "全量工具注册表应为 50 个");
-        assert!(!reg.names().contains(&"draft.accept"), "绝不允许注册 draft.accept");
+        assert!(
+            !reg.names().contains(&"draft.accept"),
+            "绝不允许注册 draft.accept"
+        );
 
         let new_tools = [
             "director.upsert_world",
@@ -10618,8 +10591,14 @@ mod tests {
             "persistOnBlocked": null
         }))
         .expect("commit with idea valid");
-        assert_eq!(q_commit.params.as_ref().unwrap()["expectedPhase"], json!("idea"));
-        assert_eq!(q_commit.params.as_ref().unwrap()["idea"]["title"], json!("租借之躯"));
+        assert_eq!(
+            q_commit.params.as_ref().unwrap()["expectedPhase"],
+            json!("idea")
+        );
+        assert_eq!(
+            q_commit.params.as_ref().unwrap()["idea"]["title"],
+            json!("租借之躯")
+        );
 
         // 3. rules.upsert_book_rules valid
         let q_rules = build_rules_upsert_book_rules_query(&json!({
@@ -10633,12 +10612,18 @@ mod tests {
         }))
         .expect("rules.upsert_book_rules valid");
         assert_eq!(q_rules.op, "rules-upsert-book-rules");
-        assert_eq!(q_rules.params.as_ref().unwrap()["prohibitions"], json!(["主角死亡"]));
+        assert_eq!(
+            q_rules.params.as_ref().unwrap()["prohibitions"],
+            json!(["主角死亡"])
+        );
 
         // replace mode with no rule fields allowed (resets to empty)
         let q_rules_reset = build_rules_upsert_book_rules_query(&json!({ "mode": "replace" }))
             .expect("replace reset valid");
-        assert_eq!(q_rules_reset.params.as_ref().unwrap()["mode"], json!("replace"));
+        assert_eq!(
+            q_rules_reset.params.as_ref().unwrap()["mode"],
+            json!("replace")
+        );
 
         // 4. compass.update valid
         let q_compass = build_compass_update_query(&json!({
@@ -10650,7 +10635,10 @@ mod tests {
         }))
         .expect("compass.update valid");
         assert_eq!(q_compass.op, "compass-update");
-        assert_eq!(q_compass.params.as_ref().unwrap()["declareFinalVolume"], json!(5));
+        assert_eq!(
+            q_compass.params.as_ref().unwrap()["declareFinalVolume"],
+            json!(5)
+        );
 
         // 5. foreshadowing.upsert valid
         let q_fs = build_foreshadowing_upsert_query(&json!({
@@ -10664,7 +10652,10 @@ mod tests {
         }))
         .expect("foreshadowing.upsert valid");
         assert_eq!(q_fs.op, "foreshadowing-upsert");
-        assert_eq!(q_fs.params.as_ref().unwrap()["advancedChapters"], json!([3, 5]));
+        assert_eq!(
+            q_fs.params.as_ref().unwrap()["advancedChapters"],
+            json!([3, 5])
+        );
 
         // 6. subplot.upsert valid
         let q_sp = build_subplot_upsert_query(&json!({
@@ -10679,25 +10670,49 @@ mod tests {
         }))
         .expect("subplot.upsert valid");
         assert_eq!(q_sp.op, "subplot-upsert");
-        assert_eq!(q_sp.params.as_ref().unwrap()["progressEntry"], json!("第10章发现旧钥匙"));
+        assert_eq!(
+            q_sp.params.as_ref().unwrap()["progressEntry"],
+            json!("第10章发现旧钥匙")
+        );
 
         // Reject invalid payloads across all 6 tools
         let ctx = ToolContext::for_test();
         let bad_cases: [(&dyn McpTool, Value); 14] = [
             (&DirectorUpsertWorldTool, json!({})),
-            (&DirectorUpsertWorldTool, json!({ "layers": { "badLayer": ["x"] } })),
+            (
+                &DirectorUpsertWorldTool,
+                json!({ "layers": { "badLayer": ["x"] } }),
+            ),
             (&DirectorUpsertWorldTool, json!({ "unknown": null })),
-            (&DirectorCommitPhaseTool, json!({ "expectedPhase": "bogus" })),
-            (&DirectorCommitPhaseTool, json!({ "idea": { "title": "   " } })),
+            (
+                &DirectorCommitPhaseTool,
+                json!({ "expectedPhase": "bogus" }),
+            ),
+            (
+                &DirectorCommitPhaseTool,
+                json!({ "idea": { "title": "   " } }),
+            ),
             (&RulesUpsertBookRulesTool, json!({})),
-            (&RulesUpsertBookRulesTool, json!({ "fanficMode": "invalid" })),
-            (&RulesUpsertBookRulesTool, json!({ "protagonist": { "name": null } })),
+            (
+                &RulesUpsertBookRulesTool,
+                json!({ "fanficMode": "invalid" }),
+            ),
+            (
+                &RulesUpsertBookRulesTool,
+                json!({ "protagonist": { "name": null } }),
+            ),
             (&CompassUpdateTool, json!({})),
             (&CompassUpdateTool, json!({ "declareFinalVolume": 0 })),
             (&ForeshadowingUpsertTool, json!({})),
-            (&ForeshadowingUpsertTool, json!({ "id": "../escape", "name": "x" })),
+            (
+                &ForeshadowingUpsertTool,
+                json!({ "id": "../escape", "name": "x" }),
+            ),
             (&SubplotUpsertTool, json!({})),
-            (&SubplotUpsertTool, json!({ "title": "x", "status": "bogus" })),
+            (
+                &SubplotUpsertTool,
+                json!({ "title": "x", "status": "bogus" }),
+            ),
         ];
         for (tool, bad) in bad_cases {
             let err = tool.call(&ctx, &bad).await.unwrap_err();
@@ -10714,8 +10729,15 @@ mod tests {
     async fn wave2_four_readonly_tools_enforce_strict_schemas_null_tolerance_and_read_scope() {
         let reg = build_registry();
         assert_eq!(reg.len(), 50, "全量注册表应为 50 个工具");
-        assert_eq!(reg.privileged_tools().len(), 22, "privileged 工具数必须严格锁定 22");
-        assert!(!reg.names().contains(&"draft.accept"), "绝不允许注册 draft.accept");
+        assert_eq!(
+            reg.privileged_tools().len(),
+            22,
+            "privileged 工具数必须严格锁定 22"
+        );
+        assert!(
+            !reg.names().contains(&"draft.accept"),
+            "绝不允许注册 draft.accept"
+        );
 
         let write_like = crate::mcp_server::contains_write_like_tool(&reg);
         let new_tools = [
@@ -10734,10 +10756,7 @@ mod tests {
                 !reg.privileged_tools().contains(&name),
                 "{name} 不得进入 privileged 列表"
             );
-            assert!(
-                !write_like.contains(&name),
-                "WRITE_HINTS 不得误报 {name}"
-            );
+            assert!(!write_like.contains(&name), "WRITE_HINTS 不得误报 {name}");
         }
 
         for schema in [
@@ -10918,28 +10937,55 @@ mod tests {
             (&SkillsListTool, json!({ "offset": 100_001 })),
             // skills.get
             (&SkillsGetTool, json!({})),
-            (&SkillsGetTool, json!({ "ids": null, "names": null, "stage": null })),
+            (
+                &SkillsGetTool,
+                json!({ "ids": null, "names": null, "stage": null }),
+            ),
             (&SkillsGetTool, json!({ "stage": "review", "extra": null })),
             (&SkillsGetTool, json!({ "ids": [] })),
             (&SkillsGetTool, json!({ "ids": ["   "] })),
             (&SkillsGetTool, json!({ "ids": ["a\nb"] })),
             (&SkillsGetTool, json!({ "ids": too_many_ids })),
-            (&SkillsGetTool, json!({ "stage": "review", "maxCharsPerSkill": 199 })),
-            (&SkillsGetTool, json!({ "stage": "review", "maxCharsPerSkill": 20_001 })),
-            (&SkillsGetTool, json!({ "stage": "review", "maxTotalChars": 499 })),
-            (&SkillsGetTool, json!({ "stage": "review", "maxTotalChars": 30_001 })),
+            (
+                &SkillsGetTool,
+                json!({ "stage": "review", "maxCharsPerSkill": 199 }),
+            ),
+            (
+                &SkillsGetTool,
+                json!({ "stage": "review", "maxCharsPerSkill": 20_001 }),
+            ),
+            (
+                &SkillsGetTool,
+                json!({ "stage": "review", "maxTotalChars": 499 }),
+            ),
+            (
+                &SkillsGetTool,
+                json!({ "stage": "review", "maxTotalChars": 30_001 }),
+            ),
             // canon.facts_known_by
             (&CanonFactsKnownByTool, json!({})),
             (&CanonFactsKnownByTool, json!({ "pov": null })),
             (&CanonFactsKnownByTool, json!({ "pov": "   " })),
             (&CanonFactsKnownByTool, json!({ "pov": "alice\nbob" })),
             (&CanonFactsKnownByTool, json!({ "pov": over_pov })),
-            (&CanonFactsKnownByTool, json!({ "pov": "alice", "atChapter": 0 })),
-            (&CanonFactsKnownByTool, json!({ "pov": "alice", "limit": 201 })),
-            (&CanonFactsKnownByTool, json!({ "pov": "alice", "unknown": null })),
+            (
+                &CanonFactsKnownByTool,
+                json!({ "pov": "alice", "atChapter": 0 }),
+            ),
+            (
+                &CanonFactsKnownByTool,
+                json!({ "pov": "alice", "limit": 201 }),
+            ),
+            (
+                &CanonFactsKnownByTool,
+                json!({ "pov": "alice", "unknown": null }),
+            ),
             // canon.episodes
             (&CanonEpisodesTool, json!({ "chapterNumber": 0 })),
-            (&CanonEpisodesTool, json!({ "chapterNumber": 1, "unknown": null })),
+            (
+                &CanonEpisodesTool,
+                json!({ "chapterNumber": 1, "unknown": null }),
+            ),
         ];
         for (tool, bad) in bad_cases {
             let err = tool.call(&ctx, &bad).await.unwrap_err();
@@ -10997,7 +11043,13 @@ mod tests {
         // Seed real CanonStore with POV-isolated edges + chapter episodes
         let store = CanonStore::open(&project_id).await.expect("open store");
         let make_edge = |id: &str, v: Option<i32>, inv: Option<i32>, povs: &[&str]| {
-            let mut e = CanonEdge::new(id, "hero", "artifact", "knows_location", EdgeKind::WorldFact);
+            let mut e = CanonEdge::new(
+                id,
+                "hero",
+                "artifact",
+                "knows_location",
+                EdgeKind::WorldFact,
+            );
             e.valid_at = v;
             e.invalid_at = inv;
             e.source_chapter = v;
@@ -11164,8 +11216,8 @@ mod tests {
         assert_eq!(ep_r2.episodes.len(), 1);
         assert_eq!(ep_r2.episodes[0].chapter_number, 3);
 
-        let ep_ch4 = parse_canon_episodes_args(&json!({ "chapterNumber": 4 }))
-            .expect("parse episodes ch4");
+        let ep_ch4 =
+            parse_canon_episodes_args(&json!({ "chapterNumber": 4 })).expect("parse episodes ch4");
         let ep_r4 = canon_query_episodes_impl(
             &state,
             project_id.clone(),

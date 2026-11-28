@@ -31,7 +31,7 @@ async function expandChat(page: import("@playwright/test").Page) {
     await chatBtn.click()
   } else {
     await moreBtn.click()
-    await page.getByRole("menu").getByRole("button", { name: "打开会话栏" }).click()
+    await page.getByRole("group", { name: "更多功能" }).getByRole("button", { name: "打开会话栏" }).click()
   }
 }
 

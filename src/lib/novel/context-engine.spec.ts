@@ -277,7 +277,10 @@ vi.mock("./temporal-facts-audit", () => ({
   auditTemporalFactsStatus: hoisted.auditTemporalFactsStatus,
   temporalEmptySoftGapRef: hoisted.temporalEmptySoftGapRef,
 }))
-vi.mock("./projection-status-ledger", () => ({ loadProjectionStatusLedger: hoisted.loadProjectionStatusLedger }))
+vi.mock("./projection-status-ledger", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./projection-status-ledger")>()
+  return { ...actual, loadProjectionStatusLedger: hoisted.loadProjectionStatusLedger }
+})
 vi.mock("./character-aura", () => ({ buildCharacterAuraContext: hoisted.buildCharacterAuraContext }))
 // retrieveDualTrack 缺省抛错桩（见下 mock 注释）；用例按需注入 DualTrackResult。
 const retrieveDualTrackStub = vi.hoisted(() => ({

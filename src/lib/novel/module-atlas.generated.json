@@ -91,7 +91,7 @@
   "specOnly": 177,
   "barrelOnly": 0,
   "edges": 4923,
-  "loc": 329772
+  "loc": 329776
  },
  "modules": [
   {
@@ -5336,7 +5336,7 @@
   {
    "p": "src/components/settings/sections/external-control-section.tsx",
    "s": 16,
-   "l": 1177,
+   "l": 1181,
    "r": true,
    "o": false,
    "x": false,

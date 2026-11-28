@@ -269,6 +269,9 @@ export const MOCK_INIT = `
             throw "[skill_bundle] user confirmation required before importing an untrusted bundle";
           }
           return { ok: true, id: "demo-a", name: "Demo A", version: "2.8.2", trust_level: "untrusted", installed_dir: "C:/mock/user-assets/skill_bundle/demo-a/2.8.2", content_hash: "a".repeat(64), manifest_sha256: "b".repeat(64), file_count: 2, total_bytes: 64, readable_state: ["status.json"], writable_artifacts: [".novel/drafts/"], warnings: ["[skill_bundle] skills are untrusted prompt material"] };
+        case "skill_bundle_list_installed": return [];
+        case "mcp_server_status":
+          return { running: false, port: null, tool_count: 0, tools: [], sessions: [], endpoint: "", scope: "read" };
         case "sync_configure": {
           // 镜像 deny_unknown_fields：密钥形态的字段一律拒（配置只能存引用）。
           const cfg = (args && args.config) || {};

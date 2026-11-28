@@ -1424,7 +1424,7 @@ mod tests {
             );
         }
 
-        let draft_abs = created_root
+        let draft_abs = expected_root
             .join(".novel")
             .join("drafts")
             .join("ch1")
