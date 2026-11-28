@@ -773,7 +773,10 @@ export async function prepareChapterIngest(
   const { readPath, chapterNumber: sourceChapter, bodySha256, contentSha256 } = await bindIngestSource(chapterPath, t)
   await assertUniqueFinalChapterSource(t.pp, readPath, sourceChapter)
   if (signal?.aborted) throw new Error("cancelled")
-  const snapshot = await extractSnapshotWithLLM(chapterNumber, t.body, t.runtimeLlmConfig, signal)
+  const snapshot = await extractSnapshotWithLLM(chapterNumber, t.body, t.runtimeLlmConfig, signal, {
+    projectPath: t.pp,
+    novelConfig: t.novelConfig,
+  })
   if (signal?.aborted) throw new Error("cancelled")
   if (!snapshot || snapshot.chapterNumber !== chapterNumber) throw new Error("extract_failed")
   return { snapshot, source: { readPath, chapterNumber: sourceChapter, bodySha256, contentSha256 } }
@@ -877,7 +880,10 @@ async function ingestChapterInternal(
 
   let extractedSnapshot = prepared?.snapshot
   if (!prepared) try {
-    extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal) ?? undefined
+    extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal, {
+      projectPath: pp,
+      novelConfig,
+    }) ?? undefined
   } catch (err) {
     // R4 共识（qwen+glm）: 流中途取消/超时会抛出（而不是走上面的 signal.aborted 分支），
     // 使取消变成 reject。取消是已建模的 failReason，应如实返回；其它错误继续抛出。
@@ -1604,7 +1610,32 @@ export async function ingestOutline(
   const outputLang = getOutputLanguage()
   const langReminder = buildLanguageReminder(outputLang)
 
-  const systemPrompt = `你是一个专业的小说编辑助手。请从大纲中提取初始设定信息，输出 JSON。${langReminder}`
+  let systemPrompt = `你是一个专业的小说编辑助手。请从大纲中提取初始设定信息，输出 JSON。${langReminder}`
+  const hasExtractExtra = Boolean(novelConfig?.taskPrompts?.extract?.extra?.trim())
+  const hasExtractSkills = Boolean(novelConfig?.taskSkillNames?.extract?.length)
+  if (novelConfig && (hasExtractExtra || hasExtractSkills)) {
+    try {
+      const { resolveTaskExtraPrompt } = await import("./task-customization")
+      const { appendTaskExtraSection } = await import("./deep-chapter-prompts")
+      systemPrompt = appendTaskExtraSection(systemPrompt, resolveTaskExtraPrompt(novelConfig, "extract"))
+      if (hasExtractSkills) {
+        const { resolveRuntimeSkillsForStage } = await import("./runtime-skill-resolver")
+        const resolved = await resolveRuntimeSkillsForStage({
+          projectPath: pp,
+          stage: "extract",
+          novelConfig,
+          windowTokens: runtimeLlmConfig.maxContextSize,
+        })
+        if (resolved.renderedText.trim()) {
+          systemPrompt = `${systemPrompt}\n\n${resolved.renderedText.trim()}`
+        }
+      }
+    } catch (err) {
+      logger.warn("Chapter Ingest", "大纲提取阶段自定义提示词/技能注入失败（已忽略，继续基础提取）", {
+        error: toErrorMessage(err),
+      })
+    }
+  }
 
   const userPrompt = `请从以下大纲中提取初始设定：
 

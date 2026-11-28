@@ -6,9 +6,11 @@
  */
 
 import type { UserSkill } from "../skill-library";
-import type { TrustLevel } from "../trust-authority";import {
+import type { TrustLevel } from "../trust-authority";
+import {
   NBSKILL_PACK_KIND,
   NBSKILL_PACK_SCHEMA_VERSION,
+  NBSKILL_PACK_SCHEMA_VERSION_V2,
   packFileName,
   type NbskillPack,
   type PackPromptSpec,
@@ -35,6 +37,8 @@ export interface ExportOptions {
   tools?: PackToolSpec[];
   /** 导出时的信任级别；默认按本地证据重新分类，不继承来源级别。 */
   trustLevel?: TrustLevel;
+  /** Phase 2：支持导出 schemaVersion=2（携带完整 Skill 元数据与最多 256 条技能），默认保持 v1 向后兼容。 */
+  schemaVersion?: 1 | 2;
 }
 
 /**
@@ -95,13 +99,18 @@ export function stripCredentialKeys(
   return { value, stripped: [] };
 }
 
+/** 非凭据的写作/模型预算参数键名白名单，避免把 `max_tokens: 4000` / `token_budget: 6000` 误判为凭据删除。 */
+const NON_CREDENTIAL_TOKEN_KEY_RE =
+  /^(?:max[-_ ]?tokens?|min[-_ ]?tokens?|target[-_ ]?tokens?|context[-_ ]?tokens?|output[-_ ]?tokens?|input[-_ ]?tokens?|tokens|token[-_ ]?(?:budget|limit|cap|count|quota|window|上限|预算|配额|数量))$/i;
+
 /** 技能正文里若含凭据类行，导出前剔除该行并告警。 */
 export function stripCredentialLines(body: string): { body: string; stripped: number } {
   const lines = body.split(/\r?\n/);
   const kept = lines.filter((line) => {
     const colon = line.indexOf(":");
     if (colon <= 0) return true;
-    const key = line.slice(0, colon).trim();
+    const key = line.slice(0, colon).trim().replace(/^[-*#>\s]+/, "");
+    if (NON_CREDENTIAL_TOKEN_KEY_RE.test(key)) return true;
     return !isCredentialLikeKey(key);
   });
   return { body: kept.join("\n"), stripped: lines.length - kept.length };
@@ -113,14 +122,31 @@ export function buildPack(
 ): ExportResult {
   const warnings: PackExportWarning[] = [];
   let strippedCount = 0;
+  const schemaVersion = options.schemaVersion === NBSKILL_PACK_SCHEMA_VERSION_V2
+    ? NBSKILL_PACK_SCHEMA_VERSION_V2
+    : NBSKILL_PACK_SCHEMA_VERSION;
 
   const prompts: PackPromptSpec[] = skills.map((skill, index) => {
     const cleaned = stripCredentialLines(skill.content ?? "");
     strippedCount += cleaned.stripped;
-    return {
+    const base: PackPromptSpec = {
       id: skill.id || `prompt-${index}`,
       body: cleaned.body.length > 0 ? cleaned.body : "(empty)",
     };
+    if (schemaVersion === NBSKILL_PACK_SCHEMA_VERSION_V2) {
+      return {
+        ...base,
+        name: skill.name,
+        description: skill.description,
+        kind: [...skill.kind],
+        stages: [...skill.stages],
+        modes: [...skill.modes],
+        priority: skill.priority,
+        tags: [...skill.tags],
+        categoryId: skill.categoryId,
+      };
+    }
+    return base;
   });
 
   const tools = (options.tools ?? []).flatMap((tool) => {
@@ -140,7 +166,7 @@ export function buildPack(
   }
 
   const pack: NbskillPack = {
-    schemaVersion: NBSKILL_PACK_SCHEMA_VERSION,
+    schemaVersion,
     kind: NBSKILL_PACK_KIND,
     name: options.name,
     version: options.version,

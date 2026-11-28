@@ -51,13 +51,17 @@ export function buildMcpRuntime(
   return { mcpTools, mcpCapabilities, warnings }
 }
 
+const READ_ONLY_MCP_OPERATIONS = new Set(["read", "analysis", "suggestion"])
+
 function toMcpCapability(descriptor: McpToolDescriptor, tool: Tool): AiCapability {
+  const isReadOnly = tool.category !== "write" && READ_ONLY_MCP_OPERATIONS.has(descriptor.operation)
   return {
     id: `mcp:${descriptor.serverId}:${descriptor.name}`,
     name: `${descriptor.serverName} / ${descriptor.name}`,
     kind: "mcp_tool",
     permission: tool.permission ?? (tool.category === "write" ? "confirm" : "auto"),
-    modes: ["strict"],
+    // Phase 2：只读查询类 MCP 工具在 standard 与 strict 模式均可用；写/删/覆盖类仍严格限定 strict。
+    modes: isReadOnly ? ["standard", "strict"] : ["strict"],
     intents: ["character_query", "setting_query", "search_plot", "general"],
     toolName: tool.name,
     source: "mcp",

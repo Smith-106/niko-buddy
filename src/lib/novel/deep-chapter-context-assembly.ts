@@ -74,7 +74,6 @@ import {
 } from "./stage-output-journal"
 import {
   resolveTaskExtraPrompt,
-  resolveTaskSkillNames,
 } from "./task-customization"
 import { getNovelRoleTemperature } from "./model-resolver"
 import type {
@@ -239,7 +238,40 @@ export async function assembleContext(
       ].join("\n")
     : ""
   const stableCanonPrefix = renderCanonRulesBaseForStablePrefix(contextPack)
-  const outlinePrompt = [baseOutlinePrompt, stableCanonPrefix].filter(Boolean).join("\n\n")
+
+  // Phase 1：经单一权威 runtime-skill-resolver 解析任务自定义技能（按需 linked 水合 + 过滤禁用 + 同名优先级 + 独立预算）。
+  // 放入不可压缩稳定前缀 outlinePrompt，彻底防止 64k 窗口下 fitStagePromptToWindow 尾切裁掉用户技能；
+  // 零配置（taskSkillNames.writing 为空）时直接短路为空串，outlinePrompt/contextPrompt/cachePrefix 逐字节不变。
+  const {
+    resolveRuntimeSkillsForStage,
+    computeEffectiveContextTokenBudget,
+    DEFAULT_TIERED_SECTION_CHAR_BUDGETS,
+  } = await import("./runtime-skill-resolver")
+  const resolvedWritingSkills = await resolveRuntimeSkillsForStage({
+    projectPath: input.projectPath,
+    stage: "writing",
+    novelConfig: input.novelConfig,
+    requestText: input.userRequest,
+    windowTokens: input.llmConfig.maxContextSize,
+    pack: contextPack,
+  })
+  contextPack.runtimeDiagnostics = {
+    ...(input.novelConfig.activeCraftPresetId ? { activeCraftPresetId: input.novelConfig.activeCraftPresetId } : {}),
+    bookRulesActive: Boolean(contextPack.canonRulesBase?.includes("【书籍治理规则】") || contextPack.canonRules?.includes("【书籍治理规则】")),
+    runtimeSkills: {
+      loadedNames: resolvedWritingSkills.skills.map((s) => s.name),
+      missingNames: resolvedWritingSkills.missingNames,
+      truncatedNames: resolvedWritingSkills.truncatedNames,
+      droppedNames: resolvedWritingSkills.droppedNames,
+      usedTokens: resolvedWritingSkills.usedTokens,
+      budgetTokens: resolvedWritingSkills.budgetTokens,
+    },
+  }
+  const outlinePrompt = [
+    baseOutlinePrompt,
+    stableCanonPrefix,
+    resolvedWritingSkills.renderedText,
+  ].filter(Boolean).join("\n\n")
 
   // TASK-003 (ANL-013 S4): pre-generation community-summary generate side.
   let communitySummaryInjection = ""
@@ -272,43 +304,27 @@ export async function assembleContext(
     })
   }
 
-  // 任务自定义技能（task customization）：用户 taskSkillNames.writing 名单 → 技能内容追加段。
-  // 名单为空（默认）时整段不存在，contextPrompt 字节不变；装载失败不阻断生成。
-  let userTaskSkillFragments = ""
-  const userTaskSkillNames = resolveTaskSkillNames(input.novelConfig, "writing")
-  if (userTaskSkillNames.length > 0) {
-    try {
-      const { loadUserSkillConfig } = await import("./user-skill-store")
-      const { resolveAvailableSkillsByNames } = await import("./skill-route-registry")
-      const pool = await loadUserSkillConfig(input.projectPath)
-      const picked = resolveAvailableSkillsByNames(pool.skills, userTaskSkillNames)
-      if (picked.skills.length > 0) {
-        userTaskSkillFragments = [
-          "## 任务自定义技能（用户配置）",
-          ...picked.skills.map((s) => `### ${s.name}\n${s.content}`),
-        ].join("\n\n")
-      }
-    } catch (err) {
-      logger.warn("Deep Chapter", "任务自定义技能装载失败（非阻断）", {
-        error: toErrorMessage(err),
-      })
-    }
-  }
-
-  // 其他上下文可以进行token预算管理，但大纲已被排除；稳定前缀已包含 canonRulesBase 时动态段仅渲染增量
+  // 其他上下文可以进行token预算管理，但大纲与稳定技能段已被纳入 outlinePrompt 保护；
+  // 预算尊重 novelConfig.contextTokenBudget 并按窗口与已用技能预算自适应扣减。
+  const effectiveContextBudget = computeEffectiveContextTokenBudget(
+    input.novelConfig,
+    input.llmConfig,
+    resolvedWritingSkills.usedTokens,
+    32000,
+  )
   const contextPrompt = [
     previousChaptersAnalysis ? `## 前情分析\n\n${previousChaptersAnalysis}` : "",
-    deps.contextPackToPrompt(contextPack, 32000, {
+    deps.contextPackToPrompt(contextPack, effectiveContextBudget, {
       excludeOutline: true,
       ...(stableCanonPrefix ? { excludeCanonRulesBase: true } : {}),
       // U4: default layered recall (L2+L3 first; L0 bodies only on full)
       layeredRecall: "default",
       sectionCharBudget: 4000,
+      sectionCharBudgets: DEFAULT_TIERED_SECTION_CHAR_BUDGETS,
       hardInjectEnabled: input.novelConfig.hardInjectEnabled,
     }),
     communitySummaryInjection ? `## 相关社区摘要\n\n${communitySummaryInjection}` : "",
     skillHookFragments,
-    userTaskSkillFragments,
     input.dismantlingReferenceDirective,
   ].filter(Boolean).join("\n\n")
 

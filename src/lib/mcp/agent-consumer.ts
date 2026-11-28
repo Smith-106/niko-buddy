@@ -10,13 +10,25 @@
  * 与 v3 chat-panel 的 agent pipeline 消费等价：用户配置 MCP server 后，
  * 生成流程的子智能体（大纲多智能体）可实际调用外部工具获取信息并产出结果。
  */
+import { readFile } from "@/commands/fs"
+import { normalizePath } from "@/lib/path-utils"
 import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { buildMcpRuntime } from "./runtime"
 import { RealMcpConnector } from "./real-connector"
-import type { McpConfig } from "./config"
+import { normalizeMcpServerConfig, type McpConfig, type McpServerConfig } from "./config"
 import { toErrorMessage } from "@/lib/utils"
+
+export const PROJECT_MCP_OVERRIDES_FILE = ".niko-buddy/mcp-overrides.json"
+
+export interface ProjectMcpOverrides {
+  version?: 1
+  disabledServerIds?: string[]
+  serverOverrides?: Record<string, Partial<McpServerConfig>>
+  extraServers?: McpServerConfig[]
+}
+
 /** 结构兼容接口：mcp/types.Tool 与 agent/types.Tool 均可传入。 */
 export interface McpToolLike {
   name: string
@@ -28,17 +40,69 @@ export interface McpToolLike {
 export interface McpAgentTools {
   tools: McpToolLike[]
   warnings: string[]
+  /** Phase 2：显式释放本次构建所启动的 RealMcpConnector 子进程，防止进程泄漏。 */
+  dispose: () => Promise<void>
+}
+
+/**
+ * Phase 2：合并全局 MCP 配置与可选项目级覆盖 `.niko-buddy/mcp-overrides.json`。
+ * 无项目路径或覆盖文件不存在时原样返回全局配置（零副作用）。
+ */
+export async function loadEffectiveMcpConfig(
+  globalConfig: McpConfig | null | undefined,
+  projectPath?: string | null,
+): Promise<McpConfig> {
+  const baseServers = [...(globalConfig?.servers ?? [])]
+  if (!projectPath) return { servers: baseServers }
+  try {
+    const filePath = `${normalizePath(projectPath).replace(/\/+$/, "")}/${PROJECT_MCP_OVERRIDES_FILE}`
+    const raw = await readFile(filePath)
+    if (!raw.trim()) return { servers: baseServers }
+    const parsed = JSON.parse(raw) as ProjectMcpOverrides
+    if (!parsed || typeof parsed !== "object") return { servers: baseServers }
+
+    const disabled = new Set(Array.isArray(parsed.disabledServerIds) ? parsed.disabledServerIds : [])
+    const overrides = parsed.serverOverrides && typeof parsed.serverOverrides === "object" ? parsed.serverOverrides : {}
+    const merged: McpServerConfig[] = []
+    const seenIds = new Set<string>()
+
+    for (const server of baseServers) {
+      seenIds.add(server.id)
+      const patch = overrides[server.id]
+      const next = patch
+        ? (normalizeMcpServerConfig({ ...server, ...patch, id: server.id }) ?? server)
+        : server
+      merged.push(disabled.has(server.id) ? { ...next, enabled: false } : next)
+    }
+    if (Array.isArray(parsed.extraServers)) {
+      for (const extra of parsed.extraServers) {
+        const normalized = normalizeMcpServerConfig(extra)
+        if (!normalized) continue
+        if (seenIds.has(normalized.id)) {
+          const idx = merged.findIndex((s) => s.id === normalized.id)
+          if (idx >= 0) merged[idx] = disabled.has(normalized.id) ? { ...normalized, enabled: false } : normalized
+        } else {
+          seenIds.add(normalized.id)
+          merged.push(disabled.has(normalized.id) ? { ...normalized, enabled: false } : normalized)
+        }
+      }
+    }
+    return { servers: merged }
+  } catch {
+    return { servers: baseServers }
+  }
 }
 
 /**
  * 从全局 MCP 配置构建可供 agent 会话消费的 MCP 工具集。
  * 工具声明缺失时返回空集 + 警告（不阻断生成主链）。
+ * 调用方在多智能体会话结束后必须调用 `dispose()` 关闭底层 stdio 子进程。
  */
 export function buildMcpAgentTools(
   mcpConfig: McpConfig | null | undefined,
 ): McpAgentTools {
   if (!mcpConfig || (mcpConfig.servers ?? []).length === 0) {
-    return { tools: [], warnings: [] }
+    return { tools: [], warnings: [], dispose: async () => {} }
   }
   let connector: RealMcpConnector | null = null
   try {
@@ -50,7 +114,11 @@ export function buildMcpAgentTools(
     mcpConfig,
     connector ? connector.caller : undefined,
   )
-  return { tools: (connector ? mcpTools : []) as McpToolLike[], warnings }
+  const dispose = async () => {
+    if (!connector) return
+    await connector.closeAll().catch(() => undefined)
+  }
+  return { tools: (connector ? mcpTools : []) as McpToolLike[], warnings, dispose }
 }
 
 /** 把 MCP 工具集转成模型可见的 JSON 描述。 */

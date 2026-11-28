@@ -127,9 +127,19 @@ export async function loadCanonSourceFacts(
 export async function loadTechniqueBlocks(projectPath?: string): Promise<string> {
   try {
     const registry = compileFromCommittedSnapshot()
-    const blocks = registry.packs
+    const packBlocks = registry.packs
       .flatMap((pack) => pack.promptBlocks)
       .filter((block) => block.injectionPoint === "chapter_task_brief")
+    const universalBlocks = (registry.universalRulePacks ?? [])
+      .map((rulePack) => rulePack.promptBlock)
+      .filter((block) => block.injectionPoint === "chapter_task_brief")
+    const seenIds = new Set<string>()
+    const blocks: TechniquePromptBlock[] = []
+    for (const block of [...packBlocks, ...universalBlocks]) {
+      if (seenIds.has(block.blockId)) continue
+      seenIds.add(block.blockId)
+      blocks.push(block)
+    }
     if (blocks.length === 0) return ""
     // B1 偏好重排（零风险 additive）：读 PreferenceStore + chooseTechniqueIndex 仅重排 blocks 顺序，
     // 不增删块；读失败/空偏好/全部分数 <= 0 降级原序（默认行为不变）。
@@ -138,6 +148,36 @@ export async function loadTechniqueBlocks(projectPath?: string): Promise<string>
   } catch (error) {
     // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
     logDegradation("technique compile failed, skipping injection", error, { sourceFailed: true })
+    return ""
+  }
+}
+
+/**
+ * 读取离线编译产物中的审查维度通用规则块（纯同步、零 IO、永不直连 nmem）。
+ * - 一致性维度（continuity / consistency / canon）注入 `review_consistency`；
+ * - 质量/文风/人物/节奏维度注入 `review_quality`；
+ * - 未指定维度时同时返回两类（按 P0 > P1 > P2 排序）。
+ */
+export function loadReviewUniversalRulesPrompt(dimensionKey?: string): string {
+  try {
+    const registry = compileFromCommittedSnapshot()
+    const universalPacks = registry.universalRulePacks ?? []
+    if (universalPacks.length === 0) return ""
+    const normalizedKey = (dimensionKey ?? "").trim().toLowerCase()
+    const allowedScopes = !normalizedKey
+      ? new Set(["review_consistency", "review_quality"])
+      : normalizedKey === "continuity" || normalizedKey === "consistency" || normalizedKey.includes("canon")
+        ? new Set(["review_consistency"])
+        : new Set(["review_quality"])
+    const priorityRank = (priority: "P0" | "P1" | "P2"): number =>
+      priority === "P0" ? 0 : priority === "P1" ? 1 : 2
+    const matched = universalPacks
+      .filter((pack) => allowedScopes.has(pack.injectionPoint))
+      .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+    if (matched.length === 0) return ""
+    const lines = matched.map((pack) => `- ${pack.promptBlock.title}：${pack.promptBlock.body}`)
+    return `## 编译期通用审查规则\n${lines.join("\n")}`
+  } catch {
     return ""
   }
 }

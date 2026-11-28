@@ -37,8 +37,74 @@ export function McpSection() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [jsonErrors, setJsonErrors] = useState<Record<string, string>>({})
   const [toolJsonDrafts, setToolJsonDrafts] = useState<Record<string, string>>({})
+  const [argsDrafts, setArgsDrafts] = useState<Record<string, string>>({})
+  const [envDrafts, setEnvDrafts] = useState<Record<string, string>>({})
+  const [envErrors, setEnvErrors] = useState<Record<string, string>>({})
   const [testStates, setTestStates] = useState<Record<string, TestState>>({})
   const runtime = useMemo(() => buildMcpRuntime(mcpConfig), [mcpConfig])
+
+  function parseArgsInput(raw: string): string[] | undefined {
+    const trimmed = raw.trim()
+    if (!trimmed) return undefined
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (Array.isArray(parsed)) {
+          return parsed.filter((v): v is string => typeof v === "string" && v.length > 0)
+        }
+      } catch {
+        // 非完整 JSON 数组时退回带引号 token 解析
+      }
+    }
+    const tokens: string[] = []
+    const regex = /"([^"]*)"|'([^']*)'|(\S+)/g
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(trimmed)) !== null) {
+      const value = match[1] ?? match[2] ?? match[3]
+      if (value) tokens.push(value)
+    }
+    return tokens.length > 0 ? tokens : undefined
+  }
+
+  function formatArgsDisplay(args?: string[]): string {
+    if (!args || args.length === 0) return ""
+    return args.some((a) => /\s/.test(a)) ? JSON.stringify(args) : args.join(" ")
+  }
+
+  function updateEnvFromJson(server: McpServerConfig, value: string) {
+    setEnvDrafts((prev) => ({ ...prev, [server.id]: value }))
+    const trimmed = value.trim()
+    if (!trimmed) {
+      setEnvErrors((prev) => {
+        const next = { ...prev }
+        delete next[server.id]
+        return next
+      })
+      updateServer(server.id, { env: undefined })
+      return
+    }
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("环境变量必须是 JSON 对象（键值均为字符串）")
+      }
+      const env: Record<string, string> = {}
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (k.trim() && typeof v === "string") env[k.trim()] = v
+      }
+      setEnvErrors((prev) => {
+        const next = { ...prev }
+        delete next[server.id]
+        return next
+      })
+      updateServer(server.id, { env: Object.keys(env).length > 0 ? env : undefined })
+    } catch (error) {
+      setEnvErrors((prev) => ({
+        ...prev,
+        [server.id]: error instanceof Error ? error.message : t("settings.sections.mcp.invalidJson"),
+      }))
+    }
+  }
 
   async function persist(next: McpConfig) {
     const normalized = normalizeMcpConfig(next)
@@ -317,14 +383,41 @@ export function McpSection() {
                 <Label htmlFor={`${fid}-args`}>{t("settings.sections.mcp.startupArgs")}</Label>
                 <Input
                   id={`${fid}-args`}
-                  value={(server.args ?? []).join(" ")}
+                  value={argsDrafts[server.id] ?? formatArgsDisplay(server.args)}
                   onChange={(event) => {
-                    const args = event.target.value.trim() ? event.target.value.trim().split(/\s+/) : undefined
-                    updateServer(server.id, { args })
+                    const nextVal = event.target.value
+                    setArgsDrafts((prev) => ({ ...prev, [server.id]: nextVal }))
+                    updateServer(server.id, { args: parseArgsInput(nextVal) })
                   }}
                   placeholder={t("settings.sections.mcp.startupArgsHint")}
                 />
-                <p className="text-xs text-muted-foreground">{t("settings.sections.mcp.startupArgsHint")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.sections.mcp.startupArgsHint")}（含空格路径请加引号或使用 ["arg1", "arg2"] 数组格式）
+                </p>
+              </div>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor={`${fid}-cwd`}>工作目录（cwd，可选）</Label>
+                  <Input
+                    id={`${fid}-cwd`}
+                    value={server.cwd ?? ""}
+                    onChange={(event) => updateServer(server.id, { cwd: event.target.value.trim() || undefined })}
+                    placeholder="留空则继承默认工作目录"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`${fid}-env`}>环境变量（env 键值对象，可选）</Label>
+                  <Input
+                    id={`${fid}-env`}
+                    value={envDrafts[server.id] ?? (server.env ? JSON.stringify(server.env) : "")}
+                    onChange={(event) => updateEnvFromJson(server, event.target.value)}
+                    placeholder='例如：{"API_BASE":"http://127.0.0.1:8000"}'
+                  />
+                  {envErrors[server.id] ? (
+                    <p className="text-xs text-destructive">{envErrors[server.id]}</p>
+                  ) : null}
+                </div>
               </div>
 
               <div className="mt-3 flex items-center gap-2">

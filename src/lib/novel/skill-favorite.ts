@@ -1,4 +1,4 @@
-import type { SkillKind, SkillStage, SkillMode, SkillCategory, UserSkill } from "@/lib/novel/skill-library"
+import { DEFAULT_SKILL_PRIORITY, type SkillKind, type SkillStage, type SkillMode, type SkillCategory, type UserSkill } from "@/lib/novel/skill-library"
 import type { DeAiSkill } from "@/lib/novel/de-ai-skill-library"
 import { getStore } from "@/lib/web-store"
 import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
@@ -22,6 +22,10 @@ export interface FavoriteSkillSnapshot {
   category: string
   /** de-ai 技能的 templateId；writing 为空字符串 */
   templateId: string
+  /** Phase 2：收藏快照保留优先级、标签与源分类 ID，避免跨项目复制后丢失元数据。 */
+  priority?: number
+  tags?: string[]
+  categoryId?: string
 }
 
 /**
@@ -69,6 +73,8 @@ export function buildWritingSnapshot(
     modes: skill.modes,
     category: category?.name ?? "",
     templateId: "",
+    ...(skill.priority !== DEFAULT_SKILL_PRIORITY ? { priority: skill.priority } : {}),
+    ...(skill.tags.length > 0 ? { tags: [...skill.tags] } : {}),
   }
 }
 
@@ -166,11 +172,19 @@ export async function saveFavorites(config: FavoriteSkillConfig, projectPath?: s
   const previous = configSaveQueues.get(key) ?? Promise.resolve()
   const next = previous
     .then(() => persistFavorites({ version: 1, favorites: globalFavorites }))
-    .then(() => {
-      if (projectPath && projectFavorites.length > 0) {
+    .then(async () => {
+      if (!projectPath) return undefined
+      if (projectFavorites.length > 0) {
         return persistProjectFavorites(projectPath, { version: 1, favorites: projectFavorites })
       }
-      return undefined
+      // Phase 2：当项目收藏被清空为 0 时，若磁盘上已有旧项目收藏文件则覆写为空数组（防止重启复活）；
+      // 若从未存在过项目收藏文件则不凭空新建空文件。
+      try {
+        await readFile(await join(projectPath, PROJECT_FAVORITES_FILE))
+        return persistProjectFavorites(projectPath, { version: 1, favorites: [] })
+      } catch {
+        return undefined
+      }
     })
     .catch(() => persistFavorites({ version: 1, favorites: globalFavorites }))
   configSaveQueues.set(key, next)

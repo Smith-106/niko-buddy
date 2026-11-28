@@ -52,7 +52,15 @@ describe("Q20 技能沙盒契约：allowed-tools 不得被当作授权", () => {
 
   it("全仓无代码消费 SKILL.md 的 allowed-tools 字段", () => {
     const offenders = sources.filter((file) => {
-      const text = readFileSync(file, "utf8")
+      let text = readFileSync(file, "utf8")
+      // Rust 源文件把单元测试内联在文件尾部的 #[cfg(test)] 块内（如测试清洗逻辑剔除 allowed-tools），
+      // 与跳过 TS *.spec.ts 同口径：只扫生产代码段，跳过 #[cfg(test)] 模块。
+      if (file.endsWith(".rs")) {
+        const cfgTestIdx = text.search(/\n#\[cfg\(test\)\]/)
+        if (cfgTestIdx >= 0) {
+          text = text.slice(0, cfgTestIdx)
+        }
+      }
       // 匹配 allowed-tools / allowedTools / allowed_tools 的读取或解析
       return /allowed[-_]?tools/i.test(text)
     })

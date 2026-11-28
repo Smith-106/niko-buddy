@@ -12,6 +12,8 @@
 import { z } from "zod";
 
 export const NBSKILL_PACK_SCHEMA_VERSION = 1;
+export const NBSKILL_PACK_SCHEMA_VERSION_V2 = 2;
+export const NBSKILL_PACK_SUPPORTED_SCHEMA_VERSIONS = [1, 2] as const;
 export const NBSKILL_PACK_EXTENSION = ".nbskill.json";
 export const NBSKILL_PACK_KIND = "nbskill";
 
@@ -55,19 +57,31 @@ export const packToolSpecSchema = z.object({
 });
 
 export const packPromptSpecSchema = z.object({
-  id: z.string().min(1).max(64),
+  id: z.string().min(1).max(128),
   /** 提示词正文；技能包只承载文本，不承载任何可执行体。 */
-  body: z.string().min(1).max(20000),
+  body: z.string().min(1).max(40000),
+  /** v2 可选元数据（v1 包缺省；全部由 skill-library 归一化消费）。 */
+  name: z.string().min(1).max(128).optional(),
+  description: z.string().max(1000).optional(),
+  kind: z.array(z.string().min(1).max(32)).max(16).optional(),
+  stages: z.array(z.string().min(1).max(32)).max(16).optional(),
+  modes: z.array(z.string().min(1).max(32)).max(8).optional(),
+  priority: z.number().min(1).max(100).optional(),
+  tags: z.array(z.string().min(1).max(64)).max(32).optional(),
+  categoryId: z.string().max(128).optional(),
 });
 
 export const nbskillPackSchema = z.object({
-  schemaVersion: z.literal(NBSKILL_PACK_SCHEMA_VERSION),
+  schemaVersion: z.union([
+    z.literal(NBSKILL_PACK_SCHEMA_VERSION),
+    z.literal(NBSKILL_PACK_SCHEMA_VERSION_V2),
+  ]),
   kind: z.string().optional(),
   name: z.string().min(1).max(64),
   version: z.string().min(1).max(32),
   author: z.string().max(120).default(""),
   tools: z.array(packToolSpecSchema).max(64),
-  prompts: z.array(packPromptSpecSchema).max(64),
+  prompts: z.array(packPromptSpecSchema).max(256),
   trustLevel: z.enum(PACK_TRUST_LEVELS),
 });
 
@@ -109,14 +123,17 @@ export function parseNbskillPack(raw: unknown): PackValidationResult {
   }
 
   const candidate = raw as Record<string, unknown>;
-  if (candidate.schemaVersion !== NBSKILL_PACK_SCHEMA_VERSION) {
+  if (
+    candidate.schemaVersion !== NBSKILL_PACK_SCHEMA_VERSION &&
+    candidate.schemaVersion !== NBSKILL_PACK_SCHEMA_VERSION_V2
+  ) {
     return {
       ok: false,
       issues: [
         {
           code: "schema_version_unsupported",
           at: "schemaVersion",
-          detail: `expected ${NBSKILL_PACK_SCHEMA_VERSION}, got ${String(candidate.schemaVersion)}`,
+          detail: `expected ${NBSKILL_PACK_SUPPORTED_SCHEMA_VERSIONS.join(" or ")}, got ${String(candidate.schemaVersion)}`,
         },
       ],
     };
@@ -135,6 +152,13 @@ export function parseNbskillPack(raw: unknown): PackValidationResult {
   }
 
   const pack = parsed.data;
+  if (pack.schemaVersion === NBSKILL_PACK_SCHEMA_VERSION && pack.prompts.length > 64) {
+    issues.push({
+      code: "schema_invalid",
+      at: "prompts",
+      detail: "v1 pack allows at most 64 prompts; upgrade to schemaVersion 2 for up to 256 prompts",
+    });
+  }
 
   if (!PACK_NAME_PATTERN.test(pack.name)) {
     issues.push({

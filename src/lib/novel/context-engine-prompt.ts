@@ -39,6 +39,8 @@ export interface ContextPackToPromptOptions {
   layeredRecall?: LayeredRecallMode
   /** Soft per-section character budget (after join of array items). */
   sectionCharBudget?: number
+  /** Phase 1: 按字段定制的字符上限（优先生效，未指定字段回退 sectionCharBudget）。 */
+  sectionCharBudgets?: Partial<Record<keyof ContextPack, number>>
 }
 
 interface FieldConfig {
@@ -153,6 +155,14 @@ const FIELD_CONFIGS: FieldConfig[] = [
     fieldKey: "voiceStyleGuide",
     layer: "L3",
     renderIf: (pack) => Boolean(pack.voiceStyleGuide?.trim()),
+  },
+  {
+    // Phase 1: 接入 context-engine-technique-sources 生成的 techniqueBlocks（空值不渲染，零行为回归）
+    titleKey: "novel.contextPack.techniqueBlocks",
+    fallbackTitle: "## 写作技法规则",
+    fieldKey: "techniqueBlocks",
+    layer: "L2",
+    renderIf: (pack) => typeof pack.techniqueBlocks === "string" && pack.techniqueBlocks.trim().length > 0,
   },
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults", layer: "aux" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults", layer: "aux" },
@@ -374,8 +384,25 @@ export function contextPackToPrompt(
       // 所以该段上限 = base(≤2000，走稳定段) + sectionCharBudget。
       if (split.stable) titleSuffix = i18n.t("novel.contextPack.canonRulesTemporalSuffix")
     }
-    let content = config.serialize ? config.serialize(raw, pack, flags) : raw
-    content = applySectionCharBudget(content, options?.sectionCharBudget)
+    const serialized = config.serialize ? config.serialize(raw, pack, flags) : raw
+    const effectiveCap = options?.sectionCharBudgets?.[config.fieldKey] ?? options?.sectionCharBudget
+    const content = applySectionCharBudget(serialized, effectiveCap)
+    if (Array.isArray(pack.gaps) && effectiveCap && effectiveCap > 0) {
+      const beforeLen = Array.isArray(serialized) ? serialized.join("\n").length : (serialized?.length ?? 0)
+      const afterLen = Array.isArray(content) ? content.join("\n").length : (content?.length ?? 0)
+      if (beforeLen > 0 && afterLen < beforeLen) {
+        const ref = `section:${String(config.fieldKey)}`
+        if (!pack.gaps.some((g) => g.ref === ref && g.type === "truncated")) {
+          pack.gaps.push({
+            type: "truncated",
+            ref,
+            reason: "budget_exceeded",
+            originalLength: beforeLen,
+            retainedLength: afterLen,
+          })
+        }
+      }
+    }
     const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content)
     if (!hasContent) continue
     fieldSections.push({ fieldKey: config.fieldKey, title: resolveFieldTitle(config) + titleSuffix, content })

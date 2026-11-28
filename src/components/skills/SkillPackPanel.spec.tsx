@@ -136,7 +136,7 @@ describe("SkillPackPanel", () => {
       fireEvent.click(screen.getByTestId("skillpack-export"))
 
       expect(createSpy).toHaveBeenCalledTimes(1)
-      const expected = serializePack(buildPack(skills, { name: "niko-skills", version: "1.0.0" }))
+      const expected = serializePack(buildPack(skills, { name: "niko-skills", version: "2.0.0", schemaVersion: 2 }))
       await expect(blobs[0].text()).resolves.toBe(expected)
       expect(clickSpy).toHaveBeenCalled()
       expect(revokeSpy).toHaveBeenCalledWith("blob:mock-url")

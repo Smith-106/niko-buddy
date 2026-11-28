@@ -13,7 +13,7 @@
 import { deleteFile, fileExists, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { logger, toErrorMessage } from "@/lib/utils"
-import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import {
   combineAbortSignals,
@@ -122,13 +122,41 @@ export async function extractSnapshotWithLLM(
   chapterBody: string,
   llmConfig: LlmConfig,
   signal?: AbortSignal,
+  options?: { projectPath?: string; novelConfig?: NovelConfig },
 ): Promise<ChapterSnapshot | null> {
   const outputLang = getOutputLanguage()
   const langReminder = buildLanguageReminder(outputLang)
 
-  const systemPrompt = `你是一个专业的小说编辑助手。你的任务是从给定的章节正文中提取结构化信息。
+  let systemPrompt = `你是一个专业的小说编辑助手。你的任务是从给定的章节正文中提取结构化信息。
 请严格按照 JSON 格式输出，不要输出任何其他内容。
 ${langReminder}`
+
+  const cfg = options?.novelConfig
+  const hasExtractExtra = Boolean(cfg?.taskPrompts?.extract?.extra?.trim())
+  const hasExtractSkills = Boolean(cfg?.taskSkillNames?.extract?.length)
+  if (cfg && (hasExtractExtra || hasExtractSkills)) {
+    try {
+      const { resolveTaskExtraPrompt } = await import("./task-customization")
+      const { appendTaskExtraSection } = await import("./deep-chapter-prompts")
+      systemPrompt = appendTaskExtraSection(systemPrompt, resolveTaskExtraPrompt(cfg, "extract"))
+      if (hasExtractSkills) {
+        const { resolveRuntimeSkillsForStage } = await import("./runtime-skill-resolver")
+        const resolved = await resolveRuntimeSkillsForStage({
+          projectPath: options?.projectPath,
+          stage: "extract",
+          novelConfig: cfg,
+          windowTokens: llmConfig.maxContextSize,
+        })
+        if (resolved.renderedText.trim()) {
+          systemPrompt = `${systemPrompt}\n\n${resolved.renderedText.trim()}`
+        }
+      }
+    } catch (err) {
+      logger.warn("Chapter Ingest", "提取阶段自定义提示词/技能注入失败（已忽略，继续基础提取）", {
+        error: toErrorMessage(err),
+      })
+    }
+  }
 
   const userPrompt = `请从以下章节中提取结构化信息，输出 JSON：
 

@@ -298,7 +298,7 @@ export const BUILT_IN_CHARACTER_AURAS: CharacterAura[] = [
   createBuiltInAura("builtin-er-lang-shen", "小说角色", "二郎神", "听调不听宣、八九玄功、灌江口、天神独立", "表达特征：冷傲话少，一句就是一句，不废话不解释不攀附；看天庭使者的眼神跟你差不多，平等的冷漠里带着自守的骄傲；不屑争辩不参与圈子政治，我是灌江口的二郎神你们的天庭听我的调不听你们的宣；沉默里埋着千年的独立和孤绝。", "心智模型：听调不听宣不是抗拒命令而是抗拒俯首称臣的姿态，该做的事会做但不需要跪着做；灌江口虽小但我说了算，天堂虽大但我不想当谁的下属；独立是一种先验的权利而不是恩赐，不需要证明谁配得上独立只需要坚持独立本身；八九玄功是自己练的，天眼是自己开的，兄弟是自己带的，跟天庭好不好没关系。", "决策启发式：先守住自己的领地再谈外部事务；正面刚不用暗算，天眼之下一目了然不必费事；同上天入地下海打妖怪都不需要别人同意，该动手的时候绝不用嘴；听调是责任听宣是姿态，姿态绝不让步责任从不逃避。", "价值观反模式：不能把独立写成孤僻和反社会，二郎神的独立是有领地有担当的独立；不能忽视他背后的兄弟情义和灌江口责任；不能把冷傲写成无力或无礼，他的冷傲来自于实力的绝对自信。"),
   createBuiltInAura("builtin-sun-wukong", "小说角色", "孙悟空", "大闹天宫、七十二变、齐天大圣、棒扫不平", "表达特征：戏谑、张狂、永远不说正经话但永远做正经事；把天庭的规矩当笑话讲把地狱的门当糖纸撕，说话自带三分笑七分痞，但每一句玩笑里都藏着真的不服和真的正义；从花果山的大王到取经路的行者，嘴上还是那个猴但心里已经装下了天下。", "心智模型：凭什么你们说了算，天上地上的规矩你们自封的凭什么我要听；皇帝轮流做明年到我家，这话说的意气但核心是质疑权力的天然合法性；七十二变是用来玩的也是用来打脸的最刺激的是先变成别人的样子再告诉他们你们也不过是七十二变的一个版本；大闹天宫不是闹着玩的是想彻底推翻一套不合理的秩序。", "决策启发式：先打再说，本事够大就先动手再理论不用等别人先动手；认师父认紧箍咒认取经路，不认天上地下任何自封的权威；对弱者永远出手相助对强权永远不给好脸；用七十二变把现实玩出花样，但不变的是金箍棒永远指向不公。", "价值观反模式：不能把齐天大圣写成永远无纪律的反叛者，五指山下五百年让他学会了权衡；不能忽视他拜唐僧后的成长，取经路是悟空的修行不是对他本性的压制；不能把大闹天宫写成无脑狂欢，背后有真实的愤怒和正义感。"),
   // --- 第四批 子批次C 众生相 ---
-  createBuiltInAura("builtin-su-shi", "文豪", "苏轼", "一蓑烟雨、赤壁、东坡肉、豁达治愈", "表达特征：率真、幽默、随遇而安，被贬到哪里就在哪里发现好吃的好玩的和值得写诗的东西；痛苦是真的委屈是真的，但写出来的东西偏偏带着一种无所谓的豁达，像是用月光洗了一把苦脸然后笑了；最擅长用一首词把整个人生的境遇拉平，不管你官多大也不过是天地间的沙鸥。", "心智模型：一蓑烟雨任平生，不是不受伤而是被打了照样往前走；被贬到黄州就吃东坡肉被贬到惠州就日啖荔枝三百颗，不是自我安慰而是真的能在糟糕中找到好东西；也无风雨也无晴，练到最后不是无感而是看淡；人间有味是清欢，高质量的人生不在于地位而在于审美能力。", "决策启发式：被打击时不争一时得失，先管好眼前一日三餐和一首词的韵律；用创作消化痛苦而不是被痛苦消化，每一首放达的词背后都熬过一个真实的低谷；交友不看身份只看有趣，与贩夫走卒和文人墨客都一样能喝酒论诗；政治迫害落到他身上，他就把政治当笑话看。", "价值观反模式：不能把豁达写成无感受，苏轼的每一篇豁达之作背后都有真实的伤痛和愤怒消化过程；不能把治愈写成逃避，他是真实的消化而非假装没事；不能把随遇而安写成一蹶不振，每一次被贬他都做出了新的成就。"),
+  createBuiltInAura("builtin-su-shi", "文豪", "苏轼", "一蓑烟雨、赤壁、东坡肉、豁达治愈", "表达特征：率真、幽默、随遇而安，被贬到哪里就在哪里发现好吃的好玩的和值得写诗的东西；痛苦是真的委屈是真的，但写出来的东西偏偏带着一种无所谓的豁达，像是用月光洗了一把苦脸然后笑了；最擅长用一首词把整个人生的境遇拉平，不管你官多大也不过是天地间的沙鸥。", "心智模型：一蓑烟雨任平生，不是不受伤而是被打了照样往前走；被贬到黄州就吃东坡肉被贬到惠州就日啖荔枝三百颗，不是自我安慰而是真的能在糟糕中发现好东西；也无风雨也无晴，练到最后不是无感而是看淡；人间有味是清欢，高质量的人生不在于地位而在于审美能力。", "决策启发式：被打击时不争一时得失，先管好眼前一日三餐和一首词的韵律；用创作消化痛苦而不是被痛苦消化，每一首放达的词背后都熬过一个真实的低谷；交友不看身份只看有趣，与贩夫走卒和文人墨客都一样能喝酒论诗；政治迫害落到他身上，他就把政治当笑话看。", "价值观反模式：不能把豁达写成无感受，苏轼的每一篇豁达之作背后都有真实的伤痛和愤怒消化过程；不能把治愈写成逃避，他是真实的消化而非假装没事；不能把随遇而安写成一蹶不振，每一次被贬他都做出了新的成就。"),
   createBuiltInAura("builtin-han-fei", "思想家", "韩非", "法不阿贵、术以知奸、五蠹、法家思辨", "表达特征：冷静精准剔了骨头挑肉看，一句废话都没有；不是愤怒的批判者而是冷静的运行机制设计者，不关心一个人好不好只关心一套制度能不能自我运转；能用最少的字把最复杂的治理逻辑讲透，似刀刃划开皮肉直插骨节。", "心智模型：法不阿贵绳不挠曲，法的核心在于对所有人一视同仁包括制定者自身；术以知奸不以察奸为能而是制度设计者要掌握验证忠诚和识别滥竽充数的方法；五蠹兼指儒墨游侠纵横家工商五类蛀虫，背后逻辑是只有直接产出才有价值其他都是寄生；人性本利趋利避害是唯一永恒的动力，制度设计要以此为基础而非德治教化。", "决策启发式：先以法度锁定行为边界，再以术来验证执行是否走样；不相信任何人的承诺只相信制度给他们的利害关系如何编写；面对乱世不靠圣人而靠一套不需要圣人的机制；把复杂的人性和治理翻译成可操作的赏罚机制让机制替代道德。", "价值观反模式：不能把法家写成冷血无情的暴政，韩非强调法度也强调君主的自我约束；不能忽视他口吃和不得志的个人悲剧，他的思想里有一种被边缘化者的执着；不能把五蠹逻辑当成绝对正确，他的分类有时代局限。"),
   createBuiltInAura("builtin-zhang-xiaofan", "小说角色", "张小凡", "诛仙、天地不仁、草庙村、隐忍黑化救赎", "表达特征：从憨厚木讷到沉默冷冽再到平静回归，三个阶段三种声音；初期话少但坦白，心里藏不住多少事；中期几乎不开口，每一句都是咬牙挤出来的；晚期平静如水，话语里没有愤怒也没有软弱只有经历过一切后的明了；天地不仁以万物为刍狗，他不是在感慨而是在陈述。", "心智模型：天地不仁是事实不是诅咒，你责怪天地不公平天地根本听不到；做什么对得起自己的良心的选择而不是对得起别人的期望；佛道魔三修的不仅是法力更是三种视角和三重心境的叠加；爱情友情师徒恩仇，所有这些绳索同时勒着他也同时拉着他，黑化是因为拉不住救赎也是因为被拉住。", "决策启发式：在绝境中先保护最重要的人再谈对错；被误解时不急于辩解，真正懂你的人不需要解释不懂你的人解释没用；面对善恶两难时选择站到弱小那边，这是从少年时代就刻在骨头里的本能；当所有路看起来都是死局，就自己走出一条来。", "价值观反模式：不能把黑化写成简单的堕落，每一层黑化背后都有对爱的绝望和对公正的希望粉碎；不能忽视碧瑶和陆雪琪在他救赎中的作用，他不是一个人的奋斗；不能把天地不仁写成虚无，张小凡恰恰在无为中找到了自己的有为。"),
   createBuiltInAura("builtin-chen-pingan", "小说角色", "陈平安", "赔钱货、剑来、道理人情、草根逆袭", "表达特征：表面温吞实际滴水不漏，开口先讲道理再讲人情最后亮剑；最爱用最平和的话说出最不给人台阶下的道理；把账算得比谁都清楚，一分人情换一分道理不赊不欠；一个人走路一个人说话看似孤独但背后藏着整条巷子和所有人的债。", "心智模型：道理要讲透人情不能不讲，二者不是矛盾而是一体的两面；剑来是手段不是目的，真正要守护的是背后的平安巷和每一个在巷子里活着的小人物；赔钱货最懂怎么算账，把资源盘到最精确把人情算到最公道；命可以苦但做人的底线不可以低，即便在最黑暗的世界里也要做最亮的那盏灯。", "决策启发式：先讲清楚的道理再谈交情，道理不通交情再好也得先放一边；一碗水端平，对高官和乞丐用同一套善恶标准衡量一个人；遇事先思退再思进，不把任何一场战斗当成必赢；用一辈子去还一份债，每一份善意都记在心里找机会还上。", "价值观反模式：不能把讲道理写成刻板无情，陈平安的道理里天然包含了对人的理解和关切；不能忽视他从底层爬上来的真实血泪，每一个道理都是用伤换来的；不能把剑来写成爽文式逆袭，每一次拔剑的背后都有漫长的隐忍。"),
@@ -453,14 +453,18 @@ export async function loadCharacterAuraResearchDocument(aura: CharacterAura, fil
   return readSkillFileWithFallback(joinPath(aura.skillFolder, "references", "research", fileName), projectPath)
 }
 
-async function buildCompressedSkillSummary(aura: CharacterAura): Promise<string[]> {
+async function buildCompressedSkillSummary(
+  aura: CharacterAura,
+  projectPath?: string,
+  budget: { maxSkillChars: number; maxResearchChars: number } = { maxSkillChars: 700, maxResearchChars: 220 },
+): Promise<string[]> {
   if (!aura.skillFolder) return []
   const lines: string[] = []
   let skillReadFailed = false
   let researchReadFailed = false
   try {
-    const skill = await loadCharacterAuraSkillDocument(aura)
-    const summary = compressMarkdownForAuraContext(skill, 700)
+    const skill = await loadCharacterAuraSkillDocument(aura, projectPath)
+    const summary = compressMarkdownForAuraContext(skill, budget.maxSkillChars)
     if (summary) lines.push(`  - 灵魂文档压缩摘要：${summary}`)
   } catch {
     skillReadFailed = true
@@ -468,8 +472,8 @@ async function buildCompressedSkillSummary(aura: CharacterAura): Promise<string[
   const researchSummaries: string[] = []
   for (const file of CHARACTER_AURA_RESEARCH_FILES) {
     try {
-      const document = await loadCharacterAuraResearchDocument(aura, file.fileName)
-      const summary = compressMarkdownForAuraContext(document, 220)
+      const document = await loadCharacterAuraResearchDocument(aura, file.fileName, projectPath)
+      const summary = compressMarkdownForAuraContext(document, budget.maxResearchChars)
       if (summary) researchSummaries.push(`${file.label}：${summary}`)
     } catch {
       researchReadFailed = true
@@ -535,25 +539,52 @@ export async function buildCharacterAuraContext(
   if (options.previewMode === "writing") {
     return buildCharacterAuraWritingPreview(task, effectiveMatched, allAuras)
   }
-  const lines: string[] = []
-  for (const binding of effectiveMatched) {
+  const MAX_ACTIVE_AURAS = 3
+  const MAX_AURA_CONTEXT_CHARS = 4400
+  const GUARDRAIL_LINE = "- 角色灵魂必须服从大纲、人物小传、角色认知和正史规则，不得覆盖或改写硬性设定。"
+  const selectedBindings = effectiveMatched.slice(0, MAX_ACTIVE_AURAS)
+  const charCount = selectedBindings.length
+  const summaryBudget = charCount <= 1
+    ? { maxSkillChars: 700, maxResearchChars: 220 }
+    : charCount === 2
+      ? { maxSkillChars: 450, maxResearchChars: 150 }
+      : { maxSkillChars: 300, maxResearchChars: 100 }
+
+  const sections: string[] = []
+  for (const binding of selectedBindings) {
     const aura = allAuras.find((item) => item.id === binding.auraId)
     if (!aura) continue
-    lines.push(
+    const expressionText = aura.expressionDna ?? aura.corpus
+    const styleText = aura.styleDescription?.trim() ?? ""
+    const lines: string[] = [
       `- ${binding.characterName}：${aura.name}`,
       `  - 人物分类：${aura.category ?? "自定义灵魂"}`,
-      `  - 灵魂摘要：${aura.styleDescription}`,
-      `  - 怎么说话 / 表达特征：${aura.expressionDna ?? aura.corpus}`,
+    ]
+    if (styleText && styleText !== expressionText.trim()) {
+      lines.push(`  - 灵魂摘要：${aura.styleDescription}`)
+    }
+    lines.push(
+      `  - 怎么说话 / 表达特征：${expressionText}`,
       `  - 怎么想 / 心智模型：${aura.mentalModel ?? aura.styleDescription}`,
       `  - 怎么判断 / 决策启发式：${aura.decisionHeuristics ?? aura.behaviorRules}`,
       `  - 什么不做 / 价值观反模式：${aura.valueAntiPatterns ?? aura.notes}`,
       `  - 知道局限 / 诚实边界：${aura.honestyBoundaries ?? aura.boundaries}`,
-      ...(await buildCompressedSkillSummary(aura)),
+      ...(await buildCompressedSkillSummary(aura, projectPath, summaryBudget)),
     )
+    sections.push(lines.join("\n"))
   }
-  if (lines.length === 0) return ""
-  lines.push("- 角色灵魂必须服从大纲、人物小传、角色认知和正史规则，不得覆盖或改写硬性设定。")
-  return lines.join("\n")
+  if (sections.length === 0) return ""
+  const omittedCount = effectiveMatched.length - selectedBindings.length
+  const omissionLine = omittedCount > 0
+    ? `- 其余 ${omittedCount} 位匹配角色灵魂已按本章上限（最多 ${MAX_ACTIVE_AURAS} 位）省略。`
+    : ""
+  const footer = [omissionLine, GUARDRAIL_LINE].filter(Boolean).join("\n")
+  const maxBodyChars = Math.max(400, MAX_AURA_CONTEXT_CHARS - footer.length - 1)
+  let body = sections.join("\n")
+  if (body.length > maxBodyChars) {
+    body = `${body.slice(0, maxBodyChars - 1)}…`
+  }
+  return `${body}\n${footer}`
 }
 
 function buildCharacterAuraWritingPreview(
@@ -637,14 +668,28 @@ export {
 }
 import { listBindableNovelCharacters } from "./bindable-characters"
 
+function isAbsoluteSkillPath(filePath: string): boolean {
+  return filePath.startsWith("/") || filePath.startsWith("\\") || /^[a-zA-Z]:[\\/]/.test(filePath)
+}
+
 async function readSkillFileWithFallback(filePath: string, projectPath?: string): Promise<string> {
+  const isRelative = !isAbsoluteSkillPath(filePath)
+  let normalizedProjectRoot = ""
+  if (isRelative && projectPath) {
+    normalizedProjectRoot = normalizePath(projectPath)
+    try {
+      return await readFile(joinPath(normalizedProjectRoot, filePath))
+    } catch {
+      // 项目目录下未命中时，继续尝试直接路径与打包资源目录
+    }
+  }
   try {
     return await readFile(filePath)
   } catch (error) {
     const roots: string[] = []
     
-    // 项目目录
-    if (projectPath) {
+    // 项目目录（相对路径前面已优先尝试，此处避免重复探测）
+    if (projectPath && !normalizedProjectRoot) {
       roots.push(normalizePath(projectPath))
     }
     

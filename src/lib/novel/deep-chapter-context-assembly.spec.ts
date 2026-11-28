@@ -205,8 +205,8 @@ describe("assembleContext", () => {
     expect(out.customDeAiSkill).toBe("de-ai-skill")
   })
 
-  it("任务自定义技能命中时拼入 contextPrompt", async () => {
-    const skill = { id: "s1", name: "悬念钩子", content: "每章结尾留钩子" } as unknown as UserSkill
+  it("任务自定义技能命中时拼入不可压缩稳定前缀 outlinePrompt 与 cachePrefix（防止 64k 窗口尾切）", async () => {
+    const skill = { id: "s1", name: "悬念钩子", content: "每章结尾留钩子", source: "uploaded", priority: 60 } as unknown as UserSkill
     skillStoreMocks.loadUserSkillConfig.mockResolvedValue({
       version: 1, selectedSkillId: null, disabledSkillIds: [], skills: [skill], categories: [],
     })
@@ -221,8 +221,9 @@ describe("assembleContext", () => {
       "",
       async () => null,
     )
-    expect(out.contextPrompt).toContain("## 任务自定义技能（用户配置）")
-    expect(out.contextPrompt).toContain("### 悬念钩子\n每章结尾留钩子")
+    expect(out.outlinePrompt).toContain("## 任务自定义技能（用户配置）")
+    expect(out.outlinePrompt).toContain("### 悬念钩子\n每章结尾留钩子")
+    expect(out.cachePrefix).toContain("### 悬念钩子\n每章结尾留钩子")
   })
 
   it("任务技能名单命中空集时不拼段（picked 为空）", async () => {
@@ -237,6 +238,7 @@ describe("assembleContext", () => {
       "",
       async () => null,
     )
+    expect(out.outlinePrompt).not.toContain("任务自定义技能")
     expect(out.contextPrompt).not.toContain("任务自定义技能")
   })
 
@@ -253,6 +255,7 @@ describe("assembleContext", () => {
       "",
       async () => null,
     )
+    expect(out.outlinePrompt).not.toContain("任务自定义技能")
     expect(out.contextPrompt).not.toContain("任务自定义技能")
     expect(out.contextPrompt).toContain("CTX正文")
   })

@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ContextPack } from "./context-engine"
+import { contextPackToPrompt } from "./context-engine-prompt"
+import { fitStagePromptToWindow } from "./deep-chapter-prompts"
 import {
+  DEFAULT_TIERED_SECTION_CHAR_BUDGETS,
   computeEffectiveContextTokenBudget,
   resolveRuntimeSkillsForStage,
 } from "./runtime-skill-resolver"
@@ -138,7 +141,7 @@ describe("Phase 1 runtime-skill-resolver & context/de-ai upgrades", () => {
     expect(pack.gaps.some((g) => g.ref === "runtime_skill_linked_fallback:爽点设计")).toBe(true)
   })
 
-  it("预算裁剪：长技能超配额按 token 截断写 gap", async () => {
+  it("预算裁剪与 64k 窗口生存性：长技能超配额按 token 截断写 gap，放入 outlinePrompt 后不被 fitStagePromptToWindow 尾切", async () => {
     const longSkill = makeSkill({
       id: "s-long",
       name: "超长文风法典",
@@ -159,6 +162,17 @@ describe("Phase 1 runtime-skill-resolver & context/de-ai upgrades", () => {
     expect(res.usedTokens).toBeLessThanOrEqual(650)
     expect(res.truncatedNames).toContain("超长文风法典")
     expect(pack.gaps.some((g) => g.type === "truncated" && g.ref === "runtime_skill:超长文风法典")).toBe(true)
+
+    // 验证进入 outlinePrompt 后在 64k 窗口下即便 contextPrompt 极大被尾切，技能本身仍 100% 保留
+    const fit = fitStagePromptToWindow({
+      outlinePrompt: `# 大纲\n主角进入古塔。\n\n${res.renderedText}`,
+      contextPrompt: "冗长动态上下文。".repeat(60000),
+      taskBrief: "写第10章",
+      windowTokens: 64000,
+      reservedOutputTokens: 8000,
+    })
+    expect(fit.contextCompressed).toBe(true)
+    expect(res.renderedText).toContain("### 超长文风法典")
   })
 
   it("computeEffectiveContextTokenBudget 尊重用户 contextTokenBudget 并扣除技能已用 token", () => {
@@ -181,6 +195,43 @@ describe("Phase 1 runtime-skill-resolver & context/de-ai upgrades", () => {
     const parsed = parseFrontmatter("\uFEFF---\ntitle: 测试\n---\n\n正文第一行")
     expect(parsed.frontmatter?.title).toBe("测试")
     expect(parsed.body.trim()).toBe("正文第一行")
+  })
+
+  it("contextPackToPrompt 渲染 techniqueBlocks 并支持分层 sectionCharBudgets 与截断 gap 记录", () => {
+    const pack = {
+      task: "写第1章",
+      chapterGoal: "建立危机",
+      outline: "",
+      recentSummaries: [],
+      previousChapterEnding: "",
+      characterStates: "",
+      soulDoc: "魂".repeat(5200),
+      characterAuras: "",
+      cognitionStates: "",
+      foreshadowingStates: "",
+      timeline: "",
+      relatedSettings: "",
+      canonRules: "",
+      writingStyle: "风".repeat(4000),
+      searchResults: "",
+      graphSearchResults: "",
+      mustDo: "",
+      mustAvoid: "",
+      nextChapterAdvice: "",
+      revisionDirectives: "",
+      techniqueBlocks: "1. 开篇三百字内落锚点冲突。\n2. 用感官细节替代情绪总结。",
+      gaps: [],
+    } as unknown as ContextPack
+
+    const rendered = contextPackToPrompt(pack, undefined, {
+      sectionCharBudget: 4000,
+      sectionCharBudgets: DEFAULT_TIERED_SECTION_CHAR_BUDGETS,
+    })
+    expect(rendered).toContain("写作技法规则")
+    expect(rendered).toContain("开篇三百字内落锚点冲突")
+    // soulDoc 在 6000 分层预算内不截断（>5200），而 writingStyle 在 3200 分层预算处截断并记入 gaps
+    expect(rendered).toContain("魂".repeat(5200))
+    expect(pack.gaps?.some((g) => g.ref === "section:writingStyle" && g.type === "truncated")).toBe(true)
   })
 
   it("De-AI 分级词表支持项目覆盖合并与自定义检测", () => {

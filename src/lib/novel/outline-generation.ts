@@ -878,12 +878,15 @@ export async function generateOutlineFileMultiAgent(
   const { planOutlineSubAgents } = await import("./outline-multi-agent-orchestrator")
   const { runOutlineMultiAgentGeneration } = await import("./outline-multi-agent-adapter")
 
-  // MCP 会话消费：用户配置的 stdio server 工具集注入多智能体生成
+  // MCP 会话消费：合并全局配置与项目级 .niko-buddy/mcp-overrides.json，并在完成后统一 dispose 关闭子进程
   const { useWikiStore } = await import("@/stores/wiki-store")
-  const { buildMcpAgentTools } = await import("@/lib/mcp/agent-consumer")
+  const { buildMcpAgentTools, loadEffectiveMcpConfig } = await import("@/lib/mcp/agent-consumer")
   let mcpTools = undefined as import("@/lib/mcp/agent-consumer").McpToolLike[] | undefined
+  let disposeMcp: (() => Promise<void>) | undefined
   try {
-    const built = await buildMcpAgentTools(useWikiStore.getState().mcpConfig)
+    const effectiveMcpConfig = await loadEffectiveMcpConfig(useWikiStore.getState().mcpConfig, projectPath)
+    const built = await buildMcpAgentTools(effectiveMcpConfig)
+    disposeMcp = built.dispose
     if (built.tools.length > 0) mcpTools = built.tools
   } catch (err) {
     // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变（无 MCP 工具继续生成）。
@@ -891,85 +894,95 @@ export async function generateOutlineFileMultiAgent(
     mcpTools = undefined
   }
 
-  // SkillHub：仅装载已启用技能（严格过滤 disabledSkillIds），并优先响应 novelConfig.taskSkillNames.outline
-  const { loadUserSkillConfig, resolveEnabledWritingSkills } = await import("./user-skill-store")
-  const { resolveTaskSkillNames } = await import("./task-customization")
-  const { resolveSkillReference } = await import("./skill-route-registry")
-  const skillNames: string[] = []
-  let resolvedSkills: import("./skill-library").UserSkill[] = []
   try {
-    const userSkills = await loadUserSkillConfig(projectPath)
-    const enabledSkills = resolveEnabledWritingSkills(userSkills)
-    const configuredOutlineSkills = resolveTaskSkillNames(
-      useWikiStore.getState().novelConfig,
-      "outline",
-    )
-    if (configuredOutlineSkills.length > 0) {
-      const matchedConfigured: import("./skill-library").UserSkill[] = []
-      const seenIds = new Set<string>()
-      for (const ref of configuredOutlineSkills) {
-        const matched =
-          enabledSkills.find((skill) => skill.id === ref || skill.name === ref)
-          ?? resolveSkillReference(enabledSkills, { id: ref })
-          ?? resolveSkillReference(enabledSkills, { name: ref })
-        if (matched && !seenIds.has(matched.id)) {
-          seenIds.add(matched.id)
-          matchedConfigured.push(matched)
-        }
-      }
-      resolvedSkills = matchedConfigured.length > 0 ? matchedConfigured : enabledSkills
-    } else {
-      resolvedSkills = enabledSkills
-    }
-    skillNames.push(...resolvedSkills.map((skill) => skill.id))
-  } catch (err) {
-    // 技能装载失败不阻断大纲生成
-    // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
-    logger.warn("Outline Generation", "skill load failed, continue without skills (non-fatal)", { error: toErrorMessage(err) })
-  }
-  const plan = planOutlineSubAgents({ taskPrompt: prompt, preferredSkillNames: skillNames })
-
-  let contextPack: ContextPack
-  if (projectPath.trim()) {
+    // SkillHub：仅装载已启用技能（严格过滤 disabledSkillIds），并优先响应 novelConfig.taskSkillNames.outline
+    const { loadUserSkillConfig, resolveEnabledWritingSkills } = await import("./user-skill-store")
+    const { resolveTaskSkillNames } = await import("./task-customization")
+    const { resolveSkillReference } = await import("./skill-route-registry")
+    const skillNames: string[] = []
+    let resolvedSkills: import("./skill-library").UserSkill[] = []
     try {
-      contextPack = await buildContextPack(projectPath, prompt, undefined, {
-        llmConfig,
-        novelMode: true,
-      })
+      const userSkills = await loadUserSkillConfig(projectPath)
+      const enabledSkills = resolveEnabledWritingSkills(userSkills)
+      const configuredOutlineSkills = resolveTaskSkillNames(
+        useWikiStore.getState().novelConfig,
+        "outline",
+      )
+      if (configuredOutlineSkills.length > 0) {
+        const matchedConfigured: import("./skill-library").UserSkill[] = []
+        const seenIds = new Set<string>()
+        for (const ref of configuredOutlineSkills) {
+          const matched =
+            enabledSkills.find((skill) => skill.id === ref || skill.name === ref)
+            ?? resolveSkillReference(enabledSkills, { id: ref })
+            ?? resolveSkillReference(enabledSkills, { name: ref })
+          if (matched && !seenIds.has(matched.id)) {
+            seenIds.add(matched.id)
+            matchedConfigured.push(matched)
+          }
+        }
+        resolvedSkills = matchedConfigured.length > 0 ? matchedConfigured : enabledSkills
+      } else {
+        resolvedSkills = enabledSkills
+      }
+      skillNames.push(...resolvedSkills.map((skill) => skill.id))
     } catch (err) {
+      // 技能装载失败不阻断大纲生成
+      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+      logger.warn("Outline Generation", "skill load failed, continue without skills (non-fatal)", { error: toErrorMessage(err) })
+    }
+    const plan = planOutlineSubAgents({ taskPrompt: prompt, preferredSkillNames: skillNames })
+
+    let contextPack: ContextPack
+    if (projectPath.trim()) {
+      try {
+        contextPack = await buildContextPack(projectPath, prompt, undefined, {
+          llmConfig,
+          novelMode: true,
+        })
+      } catch (err) {
+        logger.warn(
+          "Outline Generation",
+          "multi-agent buildContextPack failed, fallback to empty pack (non-fatal)",
+          { error: toErrorMessage(err) },
+        )
+        contextPack = createEmptyOutlineContextPack(prompt)
+      }
+    } else {
       logger.warn(
         "Outline Generation",
-        "multi-agent buildContextPack failed, fallback to empty pack (non-fatal)",
-        { error: toErrorMessage(err) },
+        "multi-agent projectPath is empty, fallback to empty contextPack (non-fatal)",
       )
       contextPack = createEmptyOutlineContextPack(prompt)
     }
-  } else {
-    logger.warn(
-      "Outline Generation",
-      "multi-agent projectPath is empty, fallback to empty contextPack (non-fatal)",
-    )
-    contextPack = createEmptyOutlineContextPack(prompt)
+
+    const result = await runOutlineMultiAgentGeneration({
+      llmConfig,
+      userRequest: prompt,
+      contextPack,
+      plan,
+      signal,
+      mcpTools,
+      resolvedSkills,
+    })
+    const content = result.finalText.trim() || "AI大纲未返回内容。"
+
+    const pp = normalizePath(projectPath)
+    const outlinesDir = `${pp}/wiki/outlines`
+    await createDirectory(outlinesDir)
+    const outlineTitle = shouldUseEnglishOutlineNames() ? "Story Outline" : "总大纲"
+    // 55 号设计 W2-1: 多智能体总大纲路径同样过 body-only 规范化
+    const fullContent = normalizeMarkdownBody(outlinePageMarkdown(outlineTitle, content))
+    const outlinePath = `${outlinesDir}/${getStoryOutlineFileName()}`
+    await writeFile(outlinePath, fullContent)
+    return { outlinePath, content }
+  } finally {
+    if (disposeMcp) {
+      try {
+        await disposeMcp()
+      } catch (err) {
+        logger.warn("OutlineGeneration", "dispose MCP consumer failed", { error: toErrorMessage(err) })
+      }
+    }
   }
-
-  const result = await runOutlineMultiAgentGeneration({
-    llmConfig,
-    userRequest: prompt,
-    contextPack,
-    plan,
-    signal,
-    mcpTools,
-    resolvedSkills,
-  })
-  const content = result.finalText.trim() || "AI大纲未返回内容。"
-
-  const pp = normalizePath(projectPath)
-  const outlinesDir = `${pp}/wiki/outlines`
-  await createDirectory(outlinesDir)
-  const outlineTitle = shouldUseEnglishOutlineNames() ? "Story Outline" : "总大纲"
-  // 55 号设计 W2-1: 多智能体总大纲路径同样过 body-only 规范化
-  const fullContent = normalizeMarkdownBody(outlinePageMarkdown(outlineTitle, content))
-  const outlinePath = `${outlinesDir}/${getStoryOutlineFileName()}`
-  await writeFile(outlinePath, fullContent)
-  return { outlinePath, content }
 }

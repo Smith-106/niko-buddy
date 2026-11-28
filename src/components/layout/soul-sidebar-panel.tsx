@@ -80,7 +80,11 @@ export function SoulSidebarPanel() {
   async function handleBindingAuraChange(binding: CharacterAuraBinding, auraId: string) {
     if (!project || !auraId || auraId === binding.auraId) return
     try {
-      await bindCharacterAura(project.path, { characterName: binding.characterName, auraId })
+      await bindCharacterAura(project.path, {
+        characterName: binding.characterName,
+        auraId,
+        aliases: binding.aliases,
+      })
       await refreshProjectBindings()
       bumpDataVersion()
       /* v8 ignore next */

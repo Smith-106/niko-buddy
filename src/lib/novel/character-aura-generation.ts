@@ -14,6 +14,8 @@
 
 import { createDirectory, writeFileAtomic } from "@/commands/fs"
 import { joinPath, normalizePath } from "@/lib/path-utils"
+import { BUILT_IN_CHARACTER_AURAS } from "./character-aura-builtin"
+import { loadCharacterAuraResearchDocument, loadCharacterAuraSkillDocument } from "./character-aura-context"
 import { loadCharacterAuraStore, saveCharacterAuraStore } from "./character-aura-store"
 import {
   collectCustomAuraWebSearch,
@@ -192,4 +194,100 @@ export async function createCustomCharacterAuraFromGeneratedSkill(
   store.customAuras.push(aura)
   await saveCharacterAuraStore(projectPath, store)
   return aura
+}
+
+/**
+ * Phase 2：零 LLM 一键克隆内置角色灵魂（Fork）为项目内可编辑自定义灵魂。
+ *
+ * - 复用源灵魂的结构化字段、SKILL.md 与 6 份研究文档（缺失文档使用结构化字段兜底生成）；
+ * - `skillFolder` 存储项目相对路径 `.niko-buddy/character-auras/<slug>-perspective`，支持跨设备迁移。
+ */
+export async function forkBuiltInCharacterAura(
+  projectPath: string,
+  sourceAuraOrId: string | CharacterAura,
+  options: { name?: string } = {},
+): Promise<CharacterAura> {
+  const source = typeof sourceAuraOrId === "string"
+    ? BUILT_IN_CHARACTER_AURAS.find((item) => item.id === sourceAuraOrId)
+    : sourceAuraOrId
+  if (!source) {
+    throw new Error(`未找到可克隆的内置角色灵魂：${String(sourceAuraOrId)}`)
+  }
+  const store = await loadCharacterAuraStore(projectPath)
+  const now = Date.now()
+  const id = `custom-fork-${now}-${Math.random().toString(36).slice(2, 8)}`
+  const baseName = options.name?.trim() || `${source.name}（微调版）`
+  const relativeSkillFolder = `.niko-buddy/character-auras/${safeSkillSlug(id, baseName)}-perspective`
+  const absSkillFolder = joinPath(normalizePath(projectPath), relativeSkillFolder)
+
+  let skillDoc = ""
+  try {
+    skillDoc = await loadCharacterAuraSkillDocument(source, projectPath)
+  } catch {
+    skillDoc = ""
+  }
+  if (!skillDoc.trim()) {
+    skillDoc = [
+      `# ${baseName}（基于「${source.name}」克隆微调）`,
+      "",
+      "## 表达特征",
+      source.expressionDna ?? source.styleDescription,
+      "",
+      "## 心智模型",
+      source.mentalModel ?? source.corpus,
+      "",
+      "## 决策启发式",
+      source.decisionHeuristics ?? source.behaviorRules,
+      "",
+      "## 价值观反模式",
+      source.valueAntiPatterns ?? source.notes,
+      "",
+      "## 诚实边界",
+      source.honestyBoundaries ?? source.boundaries,
+      "",
+    ].join("\n")
+  }
+
+  await createDirectory(absSkillFolder)
+  await createDirectory(joinPath(absSkillFolder, "references", "research"))
+  await writeFileAtomic(joinPath(absSkillFolder, "SKILL.md"), skillDoc)
+
+  for (const file of CHARACTER_AURA_RESEARCH_FILES) {
+    let doc = ""
+    try {
+      doc = await loadCharacterAuraResearchDocument(source, file.fileName, projectPath)
+    } catch {
+      doc = ""
+    }
+    await writeFileAtomic(
+      joinPath(absSkillFolder, "references", "research", file.fileName),
+      doc.trim() ? doc : `# ${baseName} - ${file.label}\n\n（克隆自内置灵魂「${source.name}」，可按本作设定继续补充。）\n`,
+    )
+  }
+
+  const forked: CharacterAura = {
+    id,
+    builtIn: false,
+    name: baseName,
+    category: source.category || "自定义灵魂",
+    sourceNote: `克隆自内置灵魂「${source.name}」（零 LLM Fork），可按本作人设自由微调。`,
+    corpus: source.corpus,
+    styleDescription: source.styleDescription,
+    behaviorRules: source.behaviorRules,
+    boundaries: source.boundaries,
+    notes: source.notes,
+    expressionDna: source.expressionDna,
+    mentalModel: source.mentalModel,
+    decisionHeuristics: source.decisionHeuristics,
+    valueAntiPatterns: source.valueAntiPatterns,
+    honestyBoundaries: source.honestyBoundaries,
+    generationPrompt: `Forked from ${source.id}`,
+    webSearchEnabled: false,
+    skillFolder: relativeSkillFolder,
+    createdAt: now,
+    updatedAt: now,
+  }
+  store.customAuras.push(forked)
+  await saveCharacterAuraStore(projectPath, store)
+  return forked
 }

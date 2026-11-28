@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { PencilLine, Plus, Save, Trash2 } from "lucide-react"
+import { Copy, PencilLine, Plus, Save, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -105,12 +105,14 @@ export function AuraDetails({
   badgeLabel,
   onEdit,
   onDelete,
+  onFork,
   actionsDisabled = false,
 }: {
   aura: CharacterAura
   badgeLabel: string
   onEdit?: () => void
   onDelete?: () => void
+  onFork?: () => void
   actionsDisabled?: boolean
 }) {
   const { t } = useTranslation()
@@ -170,6 +172,12 @@ export function AuraDetails({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold min-w-0 break-words">{aura.name}</h2>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {onFork && (
+            <Button variant="outline" size="sm" data-testid="aura-fork-button" onClick={onFork} disabled={actionsDisabled}>
+              <Copy className="mr-2 h-4 w-4 shrink-0" />
+              克隆微调 (Fork)
+            </Button>
+          )}
           {onEdit && (
             <Button variant="outline" size="sm" onClick={onEdit} disabled={actionsDisabled}>
               <PencilLine className="mr-2 h-4 w-4 shrink-0" />

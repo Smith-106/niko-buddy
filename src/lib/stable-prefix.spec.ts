@@ -346,6 +346,7 @@ describe("STABLE_PREFIX_VERSION 与字段序快照绑定", () => {
   const VERSION_FIELD_ORDER: Record<number, readonly string[]> = {
     1: ["skillPrompt", "roleDirective", "chapterOutputRules", "answerRules", "formatHint"],
     2: ["skillPrompt", "roleDirective", "canonRulesBase", "chapterOutputRules", "answerRules", "formatHint"],
+    3: ["skillPrompt", "roleDirective", "canonRulesBase", "runtimeSkills", "chapterOutputRules", "answerRules", "formatHint"],
   }
 
   it("当前版本的字段序必须与快照一致（加字段就要 bump + 补快照）", () => {

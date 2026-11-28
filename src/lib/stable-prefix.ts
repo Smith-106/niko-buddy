@@ -42,7 +42,7 @@ import { estimateTokens } from "@/lib/token-estimator"
  * 见 llm-request-trace.ts 的 LlmRequestCacheTrace）：版本折进哈希，所以同一段文本在不同
  * 版本下哈希必然不同 —— 不需要给 trace 加字段（trace 结构归 TASK-006）。
  */
-export const STABLE_PREFIX_VERSION = 2
+export const STABLE_PREFIX_VERSION = 3
 
 /**
  * 稳定字段白名单 + 渲染顺序（唯一真源）。
@@ -58,6 +58,8 @@ export const STABLE_PREFIX_FIELD_ORDER = [
   // 只有跨章字节一致的内容才能进缓存段——canonRules 含 temporal 增量，
   // 放进来永远不命中；这里放的是去掉增量后的 base。
   "canonRulesBase",
+  // Phase 1：运行时写作技法/任务自定义技能独立槽位（与 P1 反 AI 的 skillPrompt 解耦）。
+  "runtimeSkills",
   "chapterOutputRules",
   "answerRules",
   "formatHint",
@@ -161,23 +163,28 @@ export function buildChatStablePrefixFields(input: {
   skillPrompt: string
   /** G6：世界规则项目级基线（跨章字节一致）→ 进缓存段。 */
   canonRulesBase?: string
+  /** Phase 1：运行时任务自定义技能独立槽位（跨章可复用、与 P1 去 AI 槽位解耦）。 */
+  runtimeSkills?: string
 }): StablePrefixFields {
   return {
     skillPrompt: renderSkillPrompt(input.skillPrompt),
     roleDirective: buildStableRoleDirective(input.novelMode),
     canonRulesBase: input.canonRulesBase ?? "",
+    runtimeSkills: input.runtimeSkills ?? "",
     chapterOutputRules: buildStableChapterOutputRules(input.novelMode),
     answerRules: buildStableAnswerRules(input.novelMode),
     formatHint: STABLE_PREFIX_FORMAT_HINT,
   }
 }
 
-/** chat 主组装点的稳定前缀（默认字段顺序：技能 → 角色 → 章节规则 → 规则 → 格式）。 */
+/** chat 主组装点的稳定前缀（默认字段顺序：技能 → 角色 → 世界基线 → 运行时技能 → 章节规则 → 规则 → 格式）。 */
 export function buildChatStablePrefix(input: {
   novelMode: boolean
   skillPrompt: string
   /** G6：世界规则项目级基线（跨章字节一致）→ 进缓存段。 */
   canonRulesBase?: string
+  /** Phase 1：运行时任务自定义技能独立槽位。 */
+  runtimeSkills?: string
 }): StablePrefix {
   return buildStablePrefix(buildChatStablePrefixFields(input))
 }
@@ -199,6 +206,7 @@ export function buildContinueUnfinishedStablePrefixFields(input: {
     // 所以续写未完成路径的 canonRules 仍整块在动态段（跨章前缀不稳定）。
     // 这是有意的范围裁剪；若要收益需同时改 FIELD_ORDER 与组装点，并补基线。
     canonRulesBase: "",
+    runtimeSkills: "",
     chapterOutputRules: "",
     answerRules: "",
     formatHint: "",
@@ -236,6 +244,16 @@ export const STABLE_PREFIX_TEXT_BASELINE: Readonly<Record<number, Readonly<Recor
   },
   // v2：G6 把 canonRulesBase 加进缓存段（常量文本未变，digest 与 v1 一致）。
   2: {
+    "answerRules:novel": "b9d9710465b9f668b6fe57e29780d2bb9da6d214f12d65d8f29a160ed55c5172",
+    "answerRules:wiki": "c0ac72901ef2246e9e9caf700e567cdf84243fed35ac7a69a2d1cba3e107849b",
+    "chapterOutputRules:novel": "c7e2414f72b4a651d60be40f68b3d6cbcaf63bfd5997a60b901cf5efa045010b",
+    "continueUnfinished:roleDirective": "f36629854f68dc7581d364e38e1004c8446bdeab0cecf03f2b3c0e5eb467c586",
+    "formatHint": "4e6222dfa8393107ca6913007615dd6ebff43fc88d45b4b117d6f67784a4a372",
+    "roleDirective:novel": "922274b404e157d4dbf67e3717d9bf368bfad6fa8c369ccfcac7da962dba1892",
+    "roleDirective:wiki": "9f05a6e733d0e2f64a9300906931a848517ea1e4e24e231d62daad275034e5fb",
+  },
+  // v3：Phase 1 新增 runtimeSkills 独立缓存槽位（常量文本未变，digest 与 v2 一致）。
+  3: {
     "answerRules:novel": "b9d9710465b9f668b6fe57e29780d2bb9da6d214f12d65d8f29a160ed55c5172",
     "answerRules:wiki": "c0ac72901ef2246e9e9caf700e567cdf84243fed35ac7a69a2d1cba3e107849b",
     "chapterOutputRules:novel": "c7e2414f72b4a651d60be40f68b3d6cbcaf63bfd5997a60b901cf5efa045010b",

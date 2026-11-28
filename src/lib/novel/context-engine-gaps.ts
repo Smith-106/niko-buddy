@@ -74,6 +74,7 @@ export const SECTION_PRIORITY_BY_FIELD: Record<string, number> = {
   writingStyle: 17,
   styleExemplars: 17.2,
   voiceStyleGuide: 17.5,
+  techniqueBlocks: 17.6,
   formerFacts: 18,
   worldBlueprint: 19,
   narrativeVisibility: 20,

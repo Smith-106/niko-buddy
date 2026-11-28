@@ -544,10 +544,10 @@ export async function runDeepChapterGeneration(
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
-  // 阶段1：上下文装配
-  const { loadSmartDeAiSkill } = await import("./de-ai-adapter")
+  // 阶段1：上下文装配（Phase 1 统一 De-AI 运行时：优先 de-ai-skills.json → de-ai-skill.txt → 场景 bundle + 分级覆盖）
+  const { loadUnifiedDeAiSkillPrompt } = await import("./de-ai-adapter")
   const ctx1 = await assembleContext(
-    deps, input, callbacks, resumeCheckpoint, signal, previousChaptersAnalysis, loadSmartDeAiSkill,
+    deps, input, callbacks, resumeCheckpoint, signal, previousChaptersAnalysis, loadUnifiedDeAiSkillPrompt,
   )
   const { contextPack, customDeAiSkill, userMemoryStore, outlinePrompt, contextPrompt: rawContextPrompt, cachePrefix } = ctx1
   const contextPackLoadFailed = hasContextPackLoadFailure(contextPack)

@@ -174,6 +174,11 @@ export const useFavoriteSkillStore = create<FavoriteSkillState>((set, get) => ({
         if (config.skills.some((s) => s.name === entry.snapshot.name)) {
           return { ok: false, reason: "duplicate-name" }
         }
+        const matchedCategoryId = entry.snapshot.categoryId && config.categories.some((c) => c.id === entry.snapshot.categoryId)
+          ? entry.snapshot.categoryId
+          : (entry.snapshot.category
+              ? (config.categories.find((c) => c.name === entry.snapshot.category)?.id ?? "")
+              : "")
         const newSkill: UserSkill = {
           id: `skill:${now}`,
           name: entry.snapshot.name,
@@ -183,9 +188,9 @@ export const useFavoriteSkillStore = create<FavoriteSkillState>((set, get) => ({
           stages: entry.snapshot.stages,
           modes: entry.snapshot.modes,
           source: "uploaded",
-          priority: DEFAULT_SKILL_PRIORITY,
-          tags: [],
-          categoryId: "",
+          priority: typeof entry.snapshot.priority === "number" ? entry.snapshot.priority : DEFAULT_SKILL_PRIORITY,
+          tags: Array.isArray(entry.snapshot.tags) ? [...entry.snapshot.tags] : [],
+          categoryId: matchedCategoryId,
         }
         await saveUserSkillConfig(currentProjectPath, {
           ...config,

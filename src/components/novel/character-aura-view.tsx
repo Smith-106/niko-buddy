@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
-import { buildContextPack, contextPackToPrompt, resolveNovelModel, bindCharacterAura, buildCharacterAuraContext, BUILT_IN_CHARACTER_AURAS, createCustomCharacterAuraSkill, deleteCustomCharacterAura, getCharacterAuraBindings, listBindableNovelCharacters, listCharacterAuras, unbindCharacterAura, updateCustomCharacterAura } from "@/lib/novel"
+import { buildContextPack, contextPackToPrompt, resolveNovelModel, bindCharacterAura, buildCharacterAuraContext, BUILT_IN_CHARACTER_AURAS, createCustomCharacterAuraSkill, deleteCustomCharacterAura, forkBuiltInCharacterAura, getCharacterAuraBindings, listBindableNovelCharacters, listCharacterAuras, unbindCharacterAura, updateCustomCharacterAura } from "@/lib/novel"
 import type { CharacterAura, CharacterAuraBinding, CharacterAuraGenerationProgress } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { SoulDocEditor } from "./soul-doc-editor"
@@ -231,6 +231,22 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
       await refreshProjectState(project.path)
       setMessage("自定义灵魂已删除")
     }, "自定义灵魂删除失败，请检查项目文件权限后重试")
+  }
+
+  async function handleForkBuiltInAura(sourceAura: CharacterAura) {
+    /* v8 ignore next */
+    if (!project || blockWhileGenerating()) return
+    await runAction(async () => {
+      const forked = await forkBuiltInCharacterAura(project.path, sourceAura)
+      await refresh()
+      updateSection("custom")
+      updateSelectedId(forked.id)
+      setForm(formFromAura(forked))
+      setMode("edit")
+      setShowCustomEditor(true)
+      await refreshProjectState(project.path)
+      setMessage(`已基于「${sourceAura.name}」零消耗克隆「${forked.name}」，现在可直接微调。`)
+    }, "克隆内置灵魂失败，请检查项目写入权限后重试")
   }
 
   async function handleBind() {
@@ -624,7 +640,12 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               </div>
             )
           ) : selected && selected.builtIn ? (
-            <AuraDetails aura={selected} badgeLabel="内置灵魂" actionsDisabled={isGeneratingCustomAura} />
+            <AuraDetails
+              aura={selected}
+              badgeLabel="内置灵魂"
+              onFork={project ? () => void handleForkBuiltInAura(selected) : undefined}
+              actionsDisabled={isGeneratingCustomAura}
+            />
           ) : null}
         </div>
       </main>

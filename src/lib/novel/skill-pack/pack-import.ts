@@ -14,6 +14,7 @@ import { normalizeUserSkill, type UserSkill } from "../skill-library";
 import { USER_SKILL_CONFIG_FILE, type UserSkillConfig } from "../user-skill-store";
 import { classifyTrustLevel, importEvidence, type TrustLevel } from "../trust-authority";
 import {
+  NBSKILL_PACK_SCHEMA_VERSION_V2,
   parseNbskillPack,
   type PackValidationIssue,
   type NbskillPack,
@@ -79,19 +80,28 @@ export function importNbskillPack(raw: unknown, context: ImportContext): ImportR
       : null;
 
   const now = context.now ?? Date.now();
-  const skills: UserSkill[] = pack.prompts.map((prompt) =>
-    normalizeUserSkill({
+  const isV2 = pack.schemaVersion === NBSKILL_PACK_SCHEMA_VERSION_V2;
+  const toolTags = pack.tools.map((tool) => tool.category);
+  const skills: UserSkill[] = pack.prompts.map((prompt) => {
+    const mergedTags = isV2
+      ? [...new Set([...(prompt.tags ?? []), ...toolTags])]
+      : toolTags;
+    return normalizeUserSkill({
       id: prompt.id,
-      name: `${pack.name} · ${prompt.id}`,
-      description: "",
+      name: isV2 && prompt.name?.trim() ? prompt.name.trim() : `${pack.name} · ${prompt.id}`,
+      description: isV2 ? (prompt.description ?? "") : "",
       content: prompt.body,
+      kind: isV2 && Array.isArray(prompt.kind) ? (prompt.kind as UserSkill["kind"]) : undefined,
+      stages: isV2 && Array.isArray(prompt.stages) ? (prompt.stages as UserSkill["stages"]) : undefined,
+      modes: isV2 && Array.isArray(prompt.modes) ? (prompt.modes as UserSkill["modes"]) : undefined,
+      priority: isV2 && typeof prompt.priority === "number" ? prompt.priority : undefined,
       source: "uploaded",
-      categoryId: context.categoryId,
-      tags: pack.tools.map((tool) => tool.category),
+      categoryId: isV2 && prompt.categoryId ? prompt.categoryId : context.categoryId,
+      tags: mergedTags,
       createdAt: now,
       updatedAt: now,
-    }),
-  );
+    });
+  });
 
   return {
     ok: true,

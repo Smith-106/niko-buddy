@@ -51,6 +51,9 @@ vi.mock("./craft/technique-compiler", async (importOriginal) => {
           ...pack,
           promptBlocks: pack.promptBlocks.filter((b) => b.injectionPoint !== "chapter_task_brief"),
         })),
+        universalRulePacks: (registry.universalRulePacks ?? []).filter(
+          (u) => u.injectionPoint !== "chapter_task_brief",
+        ),
       }
     },
   }
@@ -90,12 +93,15 @@ describe("loadTechniqueBlocks — 快照 → 注入文本", () => {
     expect(load).not.toHaveBeenCalled()
   })
 
-  it("快照有块 → 渲染为 `【标题】正文` 行", async () => {
+  it("快照有块 → 渲染为 `【标题】正文` 行，且合入 universalRulePacks 的 chapter_task_brief 块", async () => {
     vi.spyOn(preferenceStore, "load").mockResolvedValue({})
     const text = await loadTechniqueBlocks("E:/proj")
     expect(text.length).toBeGreaterThan(0)
     // 首行必须是 `【标题】正文` 形式（标题非空且被中文书名号包裹）
     expect(text).toMatch(/^【[^】]+】\S/)
+    // Compiler v2 universalRulePacks 中属于 chapter_task_brief 的规则应被合并注入
+    expect(text).toContain("[P0]")
+    expect(text).toContain("双库分工与离线考据路由契约")
   })
 })
 

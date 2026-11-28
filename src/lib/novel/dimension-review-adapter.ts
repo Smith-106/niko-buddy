@@ -21,6 +21,7 @@ import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { logger, toErrorMessage } from "@/lib/utils"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
+import { loadReviewUniversalRulesPrompt } from "./context-engine-technique-sources"
 import { buildMeasurementFingerprint } from "./measurement-fingerprint"
 import { createLiteraryExperimentProtocol } from "./literary-experiment-protocol"
 import { getNovelRoleTemperature, resolveConsensusModels, resolveNovelModel, resolveOptionalRoleModel } from "./model-resolver"
@@ -569,6 +570,8 @@ export function buildDimensionReviewPrompt(
     skillHookPromptFragments?: readonly string[]
     /** P2-IMP-07: hardInject 渲染门穿参（缺省 undefined → flag 默认 false，零行为变化）。 */
     hardInjectEnabled?: boolean
+    /** Phase 1：可选审查上下文 token 上限（缺省 undefined，零行为变化）。 */
+    contextTokenBudget?: number
   },
 ): string {
   const goldExtra = buildGoldScaleReviewBlock(dimension.key, options?.goldAnchors, options?.goldReadinessHint)
@@ -576,7 +579,7 @@ export function buildDimensionReviewPrompt(
     .map((fragment) => fragment.trim())
     .filter((fragment) => fragment.length > 0 && (!goldExtra || !goldExtra.includes(fragment)))
   const skillHooksExtra = hookFragments.length > 0 ? `\n${hookFragments.join("\n")}` : ""
-  return `${contextPackToPrompt(pack, undefined, { hardInjectEnabled: options?.hardInjectEnabled })}
+  return `${contextPackToPrompt(pack, options?.contextTokenBudget, { hardInjectEnabled: options?.hardInjectEnabled })}
 
 六维独立审查维度：${dimension.label}
 审查目标：${dimension.objective}
@@ -679,6 +682,8 @@ export async function reviewChapterDimension({
   goldAnchors,
   goldReadinessHint,
   skillHookPromptFragments,
+  reviewSkillsPrompt,
+  contextTokenBudget,
 }: {
   llmConfig: LlmConfig
   contextPack: ContextPack
@@ -695,6 +700,10 @@ export async function reviewChapterDimension({
   goldReadinessHint?: string
   /** Track B skill hook fragments (coexist with goldAnchors). */
   skillHookPromptFragments?: readonly string[]
+  /** Phase 1：审查阶段运行时技能提示片段（空串时零行为变化）。 */
+  reviewSkillsPrompt?: string
+  /** Phase 1：可选审查上下文 token 上限（缺省 undefined，零行为变化）。 */
+  contextTokenBudget?: number
 }): Promise<DimensionReviewResult> {
   callbacks.onThinking?.(dimension.key, formatDimensionThinking(dimension, "正在读取上下文..."))
   const analysisPrompt = buildDimensionReviewPrompt(contextPack, chapterContent, dimension, {
@@ -703,6 +712,7 @@ export async function reviewChapterDimension({
     skillHookPromptFragments: skillHookPromptFragments,
     // P2-IMP-07: hardInject 渲染门穿参（缺省 undefined → flag 默认 false，零行为变化）。
     hardInjectEnabled: novelConfig?.hardInjectEnabled,
+    contextTokenBudget,
   })
   const analysis = await runDimensionStage(
     llmConfig,
@@ -711,6 +721,7 @@ export async function reviewChapterDimension({
     callbacks,
     signal,
     novelConfig,
+    reviewSkillsPrompt,
   )
 
   const finalPrompt = [
@@ -722,7 +733,15 @@ export async function reviewChapterDimension({
     "最终 JSON：",
     "只输出最终 JSON 对象，不要输出解释、标题或 markdown。",
   ].join("\n")
-  const finalText = await runDimensionStage(llmConfig, dimension, finalPrompt, callbacks, signal, novelConfig)
+  const finalText = await runDimensionStage(
+    llmConfig,
+    dimension,
+    finalPrompt,
+    callbacks,
+    signal,
+    novelConfig,
+    reviewSkillsPrompt,
+  )
   return parseDimensionReviewResult(dimension, finalText, analysis)
 }
 
@@ -921,6 +940,39 @@ export async function runSixDimensionReview({
     })
   }
 
+  // Phase 1：在六维并行审查前单次解析审查阶段运行时技能，复用到全部维度与共识席位（零配置时短路为空串）
+  let reviewSkillsPrompt = ""
+  let reviewContextTokenBudget: number | undefined
+  try {
+    const {
+      resolveRuntimeSkillsForStage,
+      computeEffectiveContextTokenBudget,
+    } = await import("./runtime-skill-resolver")
+    const resolvedReviewSkills = await resolveRuntimeSkillsForStage({
+      projectPath,
+      stage: "review",
+      novelConfig: injectedNovelConfig,
+      windowTokens: llmConfigResolved.maxContextSize,
+      pack: contextPack,
+    })
+    reviewSkillsPrompt = resolvedReviewSkills.renderedText
+    if (
+      resolvedReviewSkills.usedTokens > 0
+      || (typeof injectedNovelConfig.contextTokenBudget === "number" && injectedNovelConfig.contextTokenBudget > 0)
+    ) {
+      reviewContextTokenBudget = computeEffectiveContextTokenBudget(
+        injectedNovelConfig,
+        llmConfigResolved,
+        resolvedReviewSkills.usedTokens,
+        28000,
+      )
+    }
+  } catch (err) {
+    logger.warn("Dimension Review", "审查阶段运行时技能解析失败（非阻断）", {
+      error: toErrorMessage(err),
+    })
+  }
+
   const results: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {}
   const keys = dimensionKeys ?? SIX_REVIEW_DIMENSION_ORDER
   callbacks.onDimensionProgress?.(keys[0], "六维审查并行启动")
@@ -1004,6 +1056,8 @@ export async function runSixDimensionReview({
             goldAnchors,
             goldReadinessHint,
             skillHookPromptFragments,
+            ...(reviewSkillsPrompt ? { reviewSkillsPrompt } : {}),
+            ...(reviewContextTokenBudget !== undefined ? { contextTokenBudget: reviewContextTokenBudget } : {}),
           })
           callbacks.onDimensionThinking?.(key, outcome.result.thinking)
           const consensusLabel = `consensus:${consensusModels.map((m) => m.model || "unknown").join("+")}`
@@ -1025,6 +1079,8 @@ export async function runSixDimensionReview({
           goldAnchors,
           goldReadinessHint,
           skillHookPromptFragments,
+          ...(reviewSkillsPrompt ? { reviewSkillsPrompt } : {}),
+          ...(reviewContextTokenBudget !== undefined ? { contextTokenBudget: reviewContextTokenBudget } : {}),
           callbacks: {
             onThinking: (dimensionKey, thinking) => {
               callbacks.onDimensionThinking?.(dimensionKey, thinking)
@@ -1072,14 +1128,23 @@ async function runDimensionStage(
   callbacks: DimensionReviewCallbacks,
   signal?: AbortSignal,
   novelConfig?: NovelConfig,
+  reviewSkillsPrompt?: string,
 ): Promise<string> {
+  const universalRulesPrompt = loadReviewUniversalRulesPrompt(dimension.key)
+  const baseSystemText = appendTaskExtraSection(
+    `你是专业网文审稿编辑，当前只负责“${dimension.label}”这一项审查。输出必须使用中文。`,
+    resolveTaskExtraPrompt(novelConfig, "review"),
+  )
+  const baseWithUniversal = universalRulesPrompt
+    ? `${baseSystemText}\n\n${universalRulesPrompt}`
+    : baseSystemText
+  const systemContent = reviewSkillsPrompt?.trim()
+    ? [{ type: "text" as const, text: `${baseWithUniversal}\n\n${reviewSkillsPrompt.trim()}`, cacheControl: true }]
+    : baseWithUniversal
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: appendTaskExtraSection(
-        `你是专业网文审稿编辑，当前只负责“${dimension.label}”这一项审查。输出必须使用中文。`,
-        resolveTaskExtraPrompt(novelConfig, "review"),
-      ),
+      content: systemContent,
     },
     { role: "user", content: userPrompt },
   ]

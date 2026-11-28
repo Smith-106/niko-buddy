@@ -41,7 +41,7 @@ function pack(o: Partial<ContextPack> = {}): ContextPack {
 describe("buildPackReplay (pure derivation)", () => {
   it("null/undefined pack yields empty safe replay", () => {
     expect(buildPackReplay(null)).toEqual({
-      sources: [], gates: [], hasGaps: false, gapNotes: [], usage: null, assemblyExcerpt: "",
+      sources: [], gates: [], hasGaps: false, gapNotes: [], usage: null, assemblyExcerpt: "", runtimeDiagnostics: null,
     })
   })
 
@@ -128,5 +128,35 @@ describe("ContextPackReplayPanel (render + interaction)", () => {
 
     expect(screen.getByTestId("context-pack-replay-panel")).toBeTruthy()
     expect(screen.getByText(/retained 10\/99/)).toBeTruthy()
+  })
+
+  it("runtimeDiagnostics 存在时渲染第四区诊断（预设/书规/去AI来源/运行时技能）", () => {
+    const p = pack({
+      runtimeDiagnostics: {
+        activeCraftPresetId: "satirical-xiuxian",
+        bookRulesActive: true,
+        deAiSource: "de-ai-skills-json",
+        deAiSkillName: "仙侠去味定制",
+        deAiTieredOverrideCount: 3,
+        runtimeSkills: {
+          loadedNames: ["expert-satirical-capitalist-cultivation"],
+          missingNames: ["missing-skill"],
+          truncatedNames: ["long-skill"],
+          droppedNames: ["overflow-skill"],
+          usedTokens: 1200,
+          budgetTokens: 5000,
+        },
+      },
+    })
+    const replay = buildPackReplay(p)
+    expect(replay.runtimeDiagnostics?.activeCraftPresetId).toBe("satirical-xiuxian")
+
+    render(<ContextPackReplayPanel pack={p} />)
+    expect(screen.getByTestId("replay-runtime-diagnostics")).toBeInTheDocument()
+    expect(screen.getByTestId("replay-diag-preset")).toHaveTextContent("satirical-xiuxian")
+    expect(screen.getByTestId("replay-diag-book-rules")).toBeInTheDocument()
+    expect(screen.getByTestId("replay-diag-deai")).toHaveTextContent("de-ai-skills-json")
+    expect(screen.getByTestId("replay-diag-skills")).toHaveTextContent("expert-satirical-capitalist-cultivation")
+    expect(screen.getByTestId("replay-diag-skills")).toHaveTextContent("missing-skill")
   })
 })
