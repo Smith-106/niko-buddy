@@ -10,6 +10,9 @@
 - `faction-system`：势力、组织、门派、家族、公司、阵营。
 - `foreshadowing-suspense`：伏笔、悬念、线索、回收计划。
 - `map-progression`：地图推进、换地图、环境升级。
+- `novel-dual-kb-research-and-injection`：WeKnora 小说三库（技法 `craft` / 人文素材 `lore` / 理工 `tech`）+ LanceDB + Nowledge Mem 精确分流考据与 10% 冰山注入。
+- `craft-mystery-clue-fairplay-and-red-herring`：公平线索、核诡信息分配、有机红鲱鱼与零巧合原则。
+- `craft-worldview-coherence-and-belief-arc`：世界观内在同一性、力量/魔法八问代价律与主角误信演化弧。
 
 ## 核心原则
 
