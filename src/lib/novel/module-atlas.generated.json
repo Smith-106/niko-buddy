@@ -91,7 +91,7 @@
   "specOnly": 177,
   "barrelOnly": 0,
   "edges": 4928,
-  "loc": 330480
+  "loc": 330478
  },
  "modules": [
   {
@@ -5439,12 +5439,13 @@
   {
    "p": "src/components/settings/sections/llm-provider-section.tsx",
    "s": 16,
-   "l": 310,
+   "l": 314,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
+    251,
     256,
     258,
     266,
@@ -5941,14 +5942,13 @@
   {
    "p": "src/components/settings/settings-view.tsx",
    "s": 16,
-   "l": 770,
+   "l": 764,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
     86,
-    251,
     255,
     257,
     259,
