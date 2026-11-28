@@ -289,7 +289,11 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
   const legacyLog: unknown[] = []
 
   const writeCanon: CanonDualWriteDeps["writeCanon"] = async (_pp, payload) => {
-    const ep = (payload as Extract<CanonCanonPayload, { kind: "episode" }>).episode as {
+    if (payload.kind !== "episode") {
+      // v2.35: buildBackfillOps 同时为每条事实物化 world_fact supersede 边；本内存 store 以 episode 主行驱动投影计数
+      return { ok: true, revision: store.factsByKey.size }
+    }
+    const ep = payload.episode as {
       digest?: string
       chapter_number?: number
       source_chapter?: number
@@ -993,12 +997,12 @@ describe("A-05.3 迁移前事实可查询：T30b canon-backfill 回填 → canon
     expect(report.consistent).toBe(true)
     expect(report.factsQueued).toBe(0)
     expect(report.factsWritten).toBe(report.factsTotal)
-    expect(report.factsTotal).toBe(4) // 2+1+1 条事实
+    expect(report.factsTotal).toBe(8) // 4 条事实（2+1+1）× (episode + world_fact supersede) = 8 ops
 
     // 经 T14 canon-graph-client 投影读出口查询（allowlist + 禁句柄外泄守护）
     const facts = projectEdges([...sharedStoreHarness.store.factsByKey.values()])
     for (const f of facts) assertNoHandleLeak(f)
-    expect(facts).toHaveLength(report.factsTotal)
+    expect(facts).toHaveLength(4)
 
     // 迁移前事实逐章可查（A-05.3 验收 seam：auditPreMigrationFacts）
     const audit = auditPreMigrationFacts(facts, [
@@ -1013,7 +1017,7 @@ describe("A-05.3 迁移前事实可查询：T30b canon-backfill 回填 → canon
     const rerunReport = await backfillCanonHistory(deps, PROJECT, {}, T0 + 1)
     expect(rerunReport.factsWritten + rerunReport.factsQueued).toBe(rerunReport.factsTotal)
     const factsAfterRerun = projectEdges([...sharedStoreHarness.store.factsByKey.values()])
-    expect(factsAfterRerun).toHaveLength(report.factsTotal)
+    expect(factsAfterRerun).toHaveLength(4)
 
     recordItem("A-05.3-pre-migration-facts-queryable", {
       queryable: audit.queryable,

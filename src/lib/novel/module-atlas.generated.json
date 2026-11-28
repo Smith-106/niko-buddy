@@ -91,7 +91,7 @@
   "specOnly": 177,
   "barrelOnly": 0,
   "edges": 4923,
-  "loc": 329776
+  "loc": 329777
  },
  "modules": [
   {
@@ -10801,7 +10801,7 @@
   {
    "p": "src/lib/novel/chapter-ingest-utils.ts",
    "s": 8,
-   "l": 263,
+   "l": 264,
    "r": true,
    "o": false,
    "x": false,

@@ -134,10 +134,11 @@ const INLINE_VERB_RE =
  */
 export function parseCanonFactTriple(
   rawFact: string,
-  fallbackSourceId: string,
+  fallbackSourceId?: string | null,
 ): CanonFactTriple {
   const trimmed = rawFact.trim()
-  const safeFallback = fallbackSourceId.trim() || "unknown"
+  const safeFallback =
+    (typeof fallbackSourceId === "string" ? fallbackSourceId.trim() : "") || "unknown"
   if (!trimmed) {
     return { sourceId: safeFallback, predicate: "world_fact", targetId: "" }
   }

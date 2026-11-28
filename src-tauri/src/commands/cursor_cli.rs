@@ -628,9 +628,8 @@ async fn spawn_proxy_process(port: u16) -> Result<Child, String> {
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true);
 
-        return cmd
-            .spawn()
-            .map_err(|e| format!("Failed to start cursor-api-proxy: {e}"));
+        cmd.spawn()
+            .map_err(|e| format!("Failed to start cursor-api-proxy: {e}"))
     }
 
     #[cfg(windows)]
