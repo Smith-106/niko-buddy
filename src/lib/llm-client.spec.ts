@@ -2443,3 +2443,38 @@ describe("llm-client 覆盖增补：请求阶段总预算超时", () => {
     expect(isRequestCancelledError(err)).toBe(false)
   })
 })
+
+describe("TASK-002: getLlmRequestTraceSnapshot 只读快照导出", () => {
+  it("返回当前缓冲的深拷贝，修改返回值不污染内部 trace 状态", async () => {
+    const { getLlmRequestTraceSnapshot, __resetRequestTraceCollectorForTest } = await import("./llm-client")
+    __resetRequestTraceCollectorForTest()
+    setupHttpFetch(
+      (() =>
+        Promise.resolve(
+          streamResponse(sseLines(openAiToken("ok"), openAiUsageWithCache(600, 15, 450))),
+        )) as typeof fetch,
+    )
+    await streamChat(
+      llmConfig(),
+      [
+        { role: "system", content: "稳定系统提示" },
+        { role: "user", content: "hi" },
+      ],
+      makeCallbacks() as never,
+    )
+
+    const snap1 = getLlmRequestTraceSnapshot()
+    expect(snap1.omittedRequestCount).toBe(0)
+    expect(snap1.requests).toHaveLength(1)
+    expect(snap1.requests[0].cacheHit).toBe(true)
+    expect(snap1.requests[0].savedTokens).toBe(450)
+    expect(snap1.requests[0].prefixFingerprint).toMatch(/^[a-f0-9]{64}$/)
+
+    snap1.requests[0].savedTokens = 999_999
+    snap1.requests.pop()
+
+    const snap2 = getLlmRequestTraceSnapshot()
+    expect(snap2.requests).toHaveLength(1)
+    expect(snap2.requests[0].savedTokens).toBe(450)
+  })
+})

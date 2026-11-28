@@ -63,7 +63,9 @@ import {
   buildLlmRequestCacheTrace,
   buildLlmRequestPrefixDescriptor,
   LlmRequestTraceCollector,
+  type LlmRequestTraceSnapshot,
 } from "./llm-request-trace"
+export type { LlmRequestTraceSnapshot } from "./llm-request-trace"
 export {
   __clearContinuityMetricsBufferForTest,
   __clearMetricsBufferForTest,
@@ -254,6 +256,13 @@ const llmRequestTraceCollector = new LlmRequestTraceCollector()
  */
 export function __resetRequestTraceCollectorForTest(): void {
   llmRequestTraceCollector.reset()
+}
+
+/**
+ * 返回进程内请求缓存追踪缓冲的只读深拷贝快照（最多保留最近 32 条）。
+ */
+export function getLlmRequestTraceSnapshot(): LlmRequestTraceSnapshot {
+  return llmRequestTraceCollector.snapshot()
 }
 
 export const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
@@ -633,8 +642,7 @@ async function streamChatHeld(
   let metricsCacheWriteInputTokens = 0
   let metricsFirstResponseAt: number | undefined
 
-  // Prompt 缓存前缀指纹：只有消息里存在 cache_control 断点时才有意义
-  // （buildLlmRequestPrefixDescriptor 内部先扫断点，无断点直接返回 {}，不做哈希）。
+  // Prompt 缓存前缀指纹：优先取显式 cache_control 断点，无断点时对支持缓存的通道提取隐式前缀。
   // 包 try/catch：诊断不能因为哈希失败而拖垮请求。
   let cachePrefix: { prefixFingerprint?: string; prefixEstimatedTokens?: number } = {}
   try {

@@ -1,6 +1,6 @@
 import { estimateChatMessagesTokens } from "@/lib/chat-request-budget"
 import { sha256Text } from "@/lib/context-hub/fingerprint"
-import type { ChatMessage, RequestOverrides } from "@/lib/llm-providers"
+import { resolvePromptCacheStrategy, type ChatMessage, type RequestOverrides } from "@/lib/llm-providers"
 import type { LlmUsage } from "@/lib/llm-usage"
 import type { LlmConfig } from "@/stores/wiki-store"
 
@@ -79,7 +79,7 @@ function resolveLlmRequestApiMode(config: LlmConfig): string {
   return "chat_completions"
 }
 
-interface LlmRequestTraceSnapshot {
+export interface LlmRequestTraceSnapshot {
   requests: LlmRequestCacheTrace[]
   omittedRequestCount: number
 }
@@ -135,12 +135,40 @@ export function serializeLlmRequestPayload(messages: ChatMessage[]): string {
   return JSON.stringify(messages.map(canonicalMessage))
 }
 
+function hasNonEmptyMessageContent(message: ChatMessage): boolean {
+  if (typeof message.content === "string") return message.content.trim().length > 0
+  return message.content.some((block) => (block.type === "text" ? block.text.trim().length > 0 : true))
+}
+
+/**
+ * 当消息未显式标记 `cacheControl` 断点时，为支持自动/隐式前缀缓存的通道
+ * （OpenAI / Google / Azure / MiniMax / Custom 等）提取隐式稳定前缀：
+ *   1. 若存在非空 `system` 消息，取所有非空 `system` 消息；
+ *   2. 否则若存在多条消息（至少有一条前置消息 + 动态尾部），取首条非空消息作为稳定前缀；
+ *   3. 单条非 system 消息（无前置稳定上下文）或 `none` 策略通道返回 null。
+ */
+function extractImplicitPrefixMessages(
+  config: LlmConfig,
+  messages: ChatMessage[],
+): ChatMessage[] | null {
+  if (resolvePromptCacheStrategy(config) === "none") return null
+
+  const systemMessages = messages.filter((m) => m.role === "system" && hasNonEmptyMessageContent(m))
+  if (systemMessages.length > 0) return systemMessages
+
+  if (messages.length >= 2 && hasNonEmptyMessageContent(messages[0])) {
+    return [messages[0]]
+  }
+  return null
+}
+
 export async function buildLlmRequestPrefixDescriptor(
   config: LlmConfig,
   messages: ChatMessage[],
   overrides?: RequestOverrides,
 ): Promise<{ prefixFingerprint?: string; prefixEstimatedTokens?: number }> {
-  const prefixMessages = textBlocksThroughLastBreakpoint(messages)
+  const prefixMessages =
+    textBlocksThroughLastBreakpoint(messages) ?? extractImplicitPrefixMessages(config, messages)
   if (!prefixMessages) return {}
 
   const canonical = JSON.stringify({

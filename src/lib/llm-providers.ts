@@ -71,6 +71,8 @@ export interface RequestOverrides {
   /** Optional tool-calling extensions (port of v3 agent chain). */
   tools?: unknown[]
   toolChoice?: unknown
+  /** Optional OpenAI Prompt Caching routing key (mapped to `prompt_cache_key`). */
+  promptCacheKey?: string
 }
 
 
@@ -276,7 +278,6 @@ function buildOpenAiBody(
   // 避免把 `toolChoice` 当未知字段交给上游（网关静默忽略 → 工具选择策略失效）。
   if (overrides?.toolChoice !== undefined) {
     body.tool_choice = overrides.toolChoice
-    delete body.toolChoice
   }
   return body
 }
@@ -417,12 +418,54 @@ function buildResponsesBody(
     body.reasoning = { effort }
   }
 
+  const promptCacheKey = normalizePromptCacheKey(overrides?.promptCacheKey)
+  if (promptCacheKey && supportsOpenAiPromptCacheKey(config)) {
+    body.prompt_cache_key = promptCacheKey
+  }
+
   return body
 }
 
-function stripWireAgnosticOverrides(overrides?: RequestOverrides): Omit<RequestOverrides, "reasoning"> {
-  const { reasoning: _reasoning, ...rest } = overrides ?? {}
-  return rest
+const OPENAI_CHAT_WIRE_OVERRIDE_KEYS = [
+  "temperature",
+  "top_p",
+  "top_k",
+  "max_tokens",
+  "stop",
+  "tools",
+] as const
+
+/**
+ * 出站白名单清洗：只透传 OpenAI Chat Completions 契约允许的覆盖字段，
+ * 防止 reasoning / jsonSchema / promptCacheKey / toolChoice 及任意内部元数据泄漏到 wire body。
+ */
+function stripWireAgnosticOverrides(overrides?: RequestOverrides): Record<string, unknown> {
+  if (!overrides) return {}
+  const out: Record<string, unknown> = {}
+  for (const key of OPENAI_CHAT_WIRE_OVERRIDE_KEYS) {
+    const value = overrides[key]
+    if (value !== undefined) {
+      out[key] = value
+    }
+  }
+  return out
+}
+
+function normalizePromptCacheKey(value?: string): string | undefined {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+function supportsOpenAiPromptCacheKey(config: LlmConfig): boolean {
+  if (config.provider === "openai") return true
+  if (config.provider !== "custom") return false
+  if (config.apiMode === "anthropic_messages") return false
+  if (isAzureOpenAiEndpoint(config.customEndpoint)) return false
+  if (isDeepSeekEndpoint(config) || isKimiEndpoint(config) || isMuseSparkModel(config.model)) {
+    return false
+  }
+  return true
 }
 
 function effectiveReasoning(config: LlmConfig, overrides?: RequestOverrides): ReasoningConfig {
@@ -516,7 +559,11 @@ function buildOpenAiCompatibleBody(
   overrides?: RequestOverrides,
 ): Record<string, unknown> {
   const reasoning = effectiveReasoning(config, overrides)
-  const body: Record<string, unknown> = buildOpenAiBody(messages, stripWireAgnosticOverrides(overrides))
+  const body: Record<string, unknown> = buildOpenAiBody(messages, overrides)
+  const promptCacheKey = normalizePromptCacheKey(overrides?.promptCacheKey)
+  if (promptCacheKey && supportsOpenAiPromptCacheKey(config)) {
+    body.prompt_cache_key = promptCacheKey
+  }
   adaptOpenAiStrictCompletionBody(config, body)
   adaptKimiBody(config, body)
 
@@ -679,8 +726,8 @@ function mergeAnthropicContent(previous: unknown, next: unknown): unknown {
  * JSON Schema 的一个子集，$schema / $ref / additionalProperties 等关键字
  * 可能被上游以 400 拒绝。两条工具通道共用一个清洗函数，避免行为分叉。
  */
-function toAnthropicTools(tools: unknown[]): unknown[] {
-  const out: unknown[] = []
+function toAnthropicTools(tools: unknown[]): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = []
   for (const raw of tools) {
     const t = raw as { type?: string; function?: { name?: string; description?: string; parameters?: Record<string, unknown> } }
     if (!t?.function?.name) continue
@@ -692,7 +739,60 @@ function toAnthropicTools(tools: unknown[]): unknown[] {
         : { type: "object", properties: {} },
     })
   }
+  if (out.length > 0) {
+    out[out.length - 1] = { ...out[out.length - 1], cache_control: { type: "ephemeral" } }
+  }
   return out
+}
+
+const ANTHROPIC_MAX_CACHE_BREAKPOINTS = 4
+
+/**
+ * Anthropic 硬限制每次请求最多 4 个 `cache_control` 断点（跨 `system` / `tools` / `messages` 累计）。
+ *
+ * 保留优先级（从高到低）：
+ *   1. `system` 前缀块（按从早到晚顺序）；
+ *   2. `tools` 末尾工具断点；
+ *   3. `messages` 历史块（按从早到晚顺序，优先保住稳定前缀断点，裁掉尾部超出预算的断点）。
+ */
+function clampAnthropicCacheBreakpoints(
+  system: string | Array<Record<string, unknown>> | undefined,
+  tools: Array<Record<string, unknown>>,
+  messages: Array<{ role: "user" | "assistant"; content: unknown }>,
+): void {
+  let remaining = ANTHROPIC_MAX_CACHE_BREAKPOINTS
+  const consumeOrStrip = (block: Record<string, unknown>): void => {
+    if (!("cache_control" in block) || block.cache_control === undefined) return
+    if (remaining > 0) {
+      remaining -= 1
+      return
+    }
+    delete block.cache_control
+  }
+
+  if (Array.isArray(system)) {
+    for (const block of system) {
+      if (block && typeof block === "object") {
+        consumeOrStrip(block)
+      }
+    }
+  }
+
+  for (let i = tools.length - 1; i >= 0; i -= 1) {
+    const tool = tools[i]
+    if (tool && typeof tool === "object") {
+      consumeOrStrip(tool)
+    }
+  }
+
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (block && typeof block === "object") {
+        consumeOrStrip(block as Record<string, unknown>)
+      }
+    }
+  }
 }
 
 /**
@@ -823,6 +923,7 @@ function buildAnthropicBody(
   }
 
   const system = toAnthropicSystem(systemMessages)
+  clampAnthropicCacheBreakpoints(system, anthropicTools, conversationMessages)
 
   return {
     messages: conversationMessages,

@@ -83,6 +83,31 @@ export function parseOpenAiToolDelta(line: string): StreamToolCallDelta[] | null
   }
 }
 
+function pickPositiveCachedTokens(usage: {
+  prompt_tokens_details?: { cached_tokens?: number }
+  input_tokens_details?: { cached_tokens?: number }
+  prompt_cache_hit_tokens?: number
+}, order: "chat" | "responses" = "chat"): number | undefined {
+  const candidates =
+    order === "responses"
+      ? [
+          usage.input_tokens_details?.cached_tokens,
+          usage.prompt_tokens_details?.cached_tokens,
+          usage.prompt_cache_hit_tokens,
+        ]
+      : [
+          usage.prompt_tokens_details?.cached_tokens,
+          usage.input_tokens_details?.cached_tokens,
+          usage.prompt_cache_hit_tokens,
+        ]
+  for (const value of candidates) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value
+    }
+  }
+  return undefined
+}
+
 export function extractOpenAiUsage(line: string): StreamUsage | null {
   if (!line.startsWith("data: ")) return null
   const data = line.slice(6).trim()
@@ -91,17 +116,32 @@ export function extractOpenAiUsage(line: string): StreamUsage | null {
     const parsed = JSON.parse(data) as {
       usage?: {
         prompt_tokens?: number
+        input_tokens?: number
         completion_tokens?: number
+        output_tokens?: number
         /** OpenAI 的 prompt_tokens 已包含缓存部分，cached 是子集。 */
         prompt_tokens_details?: { cached_tokens?: number }
+        /** 部分兼容网关返回 input_tokens_details.cached_tokens。 */
+        input_tokens_details?: { cached_tokens?: number }
+        /** DeepSeek 缓存命中字段（hit + miss = prompt_tokens）。 */
+        prompt_cache_hit_tokens?: number
+        prompt_cache_miss_tokens?: number
       }
     }
     if (parsed.usage) {
-      const cached = parsed.usage.prompt_tokens_details?.cached_tokens
+      const u = parsed.usage
+      const cached = pickPositiveCachedTokens(u, "chat")
+      const input =
+        u.prompt_tokens ??
+        u.input_tokens ??
+        (typeof u.prompt_cache_hit_tokens === "number" || typeof u.prompt_cache_miss_tokens === "number"
+          ? (u.prompt_cache_hit_tokens ?? 0) + (u.prompt_cache_miss_tokens ?? 0)
+          : 0)
+      const output = u.completion_tokens ?? u.output_tokens ?? 0
       return {
-        input: parsed.usage.prompt_tokens ?? 0,
-        output: parsed.usage.completion_tokens ?? 0,
-        ...(typeof cached === "number" && cached > 0 ? { cachedInput: cached } : {}),
+        input,
+        output,
+        ...(cached !== undefined ? { cachedInput: cached } : {}),
       }
     }
     return null
@@ -293,16 +333,18 @@ export function extractResponsesUsage(line: string): StreamUsage | null {
           output_tokens?: number
           /** Responses 的 input_tokens 已包含缓存部分，cached 是子集。 */
           input_tokens_details?: { cached_tokens?: number }
+          prompt_tokens_details?: { cached_tokens?: number }
+          prompt_cache_hit_tokens?: number
         }
       }
     }
     if (parsed.type === "response.completed" && parsed.response?.usage) {
       const u = parsed.response.usage
-      const cached = u.input_tokens_details?.cached_tokens
+      const cached = pickPositiveCachedTokens(u, "responses")
       return {
         input: u.input_tokens ?? 0,
         output: u.output_tokens ?? 0,
-        ...(typeof cached === "number" && cached > 0 ? { cachedInput: cached } : {}),
+        ...(cached !== undefined ? { cachedInput: cached } : {}),
       }
     }
     return null

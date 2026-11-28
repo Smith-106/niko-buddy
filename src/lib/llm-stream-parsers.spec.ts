@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { createResponsesToolDeltaParser, parseAnthropicThinkingDelta } from "./llm-stream-parsers"
+import {
+  createResponsesToolDeltaParser,
+  extractOpenAiUsage,
+  extractResponsesUsage,
+  parseAnthropicThinkingDelta,
+} from "./llm-stream-parsers"
 
 /**
  * Anthropic 扩展思考块解析。
@@ -87,5 +92,91 @@ describe("responses 工具增量解析的坏 JSON 兜底", () => {
     const parse = createResponsesToolDeltaParser()
     expect(parse("data: {oops")).toBeNull()
     expect(parse("data: [DONE]")).toBeNull()
+  })
+})
+
+describe("TASK-002: extractOpenAiUsage / extractResponsesUsage 缓存字段回退", () => {
+  const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}`
+
+  it("支持 prompt_tokens_details.cached_tokens", () => {
+    expect(
+      extractOpenAiUsage(
+        sse({ usage: { prompt_tokens: 1000, completion_tokens: 50, prompt_tokens_details: { cached_tokens: 700 } } }),
+      ),
+    ).toEqual({ input: 1000, output: 50, cachedInput: 700 })
+  })
+
+  it("支持 input_tokens_details.cached_tokens 兼容网关字段", () => {
+    expect(
+      extractOpenAiUsage(
+        sse({ usage: { prompt_tokens: 900, completion_tokens: 40, input_tokens_details: { cached_tokens: 600 } } }),
+      ),
+    ).toEqual({ input: 900, output: 40, cachedInput: 600 })
+  })
+
+  it("支持 DeepSeek prompt_cache_hit_tokens（含 prompt_tokens 缺省时由 hit+miss 兜底）", () => {
+    expect(
+      extractOpenAiUsage(
+        sse({
+          usage: {
+            prompt_tokens: 1200,
+            completion_tokens: 80,
+            prompt_cache_hit_tokens: 1024,
+            prompt_cache_miss_tokens: 176,
+          },
+        }),
+      ),
+    ).toEqual({ input: 1200, output: 80, cachedInput: 1024 })
+
+    expect(
+      extractOpenAiUsage(
+        sse({
+          usage: {
+            output_tokens: 30,
+            prompt_cache_hit_tokens: 512,
+            prompt_cache_miss_tokens: 128,
+          },
+        }),
+      ),
+    ).toEqual({ input: 640, output: 30, cachedInput: 512 })
+  })
+
+  it("prompt_tokens_details.cached_tokens 为 0 时可回退正数 prompt_cache_hit_tokens；全 0 时省略 cachedInput", () => {
+    expect(
+      extractOpenAiUsage(
+        sse({
+          usage: {
+            prompt_tokens: 500,
+            completion_tokens: 10,
+            prompt_tokens_details: { cached_tokens: 0 },
+            prompt_cache_hit_tokens: 256,
+          },
+        }),
+      ),
+    ).toEqual({ input: 500, output: 10, cachedInput: 256 })
+
+    expect(
+      extractOpenAiUsage(
+        sse({
+          usage: {
+            prompt_tokens: 500,
+            completion_tokens: 10,
+            prompt_tokens_details: { cached_tokens: 0 },
+            prompt_cache_hit_tokens: 0,
+          },
+        }),
+      ),
+    ).toEqual({ input: 500, output: 10 })
+  })
+
+  it("extractResponsesUsage 也支持 prompt_cache_hit_tokens 兜底", () => {
+    expect(
+      extractResponsesUsage(
+        sse({
+          type: "response.completed",
+          response: { usage: { input_tokens: 800, output_tokens: 20, prompt_cache_hit_tokens: 500 } },
+        }),
+      ),
+    ).toEqual({ input: 800, output: 20, cachedInput: 500 })
   })
 })
