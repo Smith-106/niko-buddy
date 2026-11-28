@@ -62,6 +62,7 @@ Long-form fiction workspace managed by **Niko Buddy** (not a code repo). Stay in
 - **Gate Priority**: `Consistency(P0) > Anti-AI(P1) > Quality(P2)` (Quality never overrides P0).
 - **Zero-LLM Loop**: `workflow.next` -> `context.prepare_write` (`prepareId`+`page`) + `rules.get(compact:true)` + `skills.list`/`skills.get` + `canon.facts_known_by`/`canon.episodes` + `foreshadowing.list`/`character.read`/`outline.read`/`style.exemplars`/`chapter.search`/`audit.longform_health` -> model -> `chapter.write`/`draft.patch` -> `draft.diff` + `gate.check_mechanical` -> `draft.record_review`.
 - **Planning Writes** (`architect`/`writer-sub`): `director.upsert_world`, `director.commit_phase`, `rules.upsert_book_rules`, `compass.update`, `foreshadowing.upsert`, `subplot.upsert`, `outline.write`, `character.upsert`.
+- **WeKnora & Craft**: `craft|lore|tech` KBs (10% Iceberg); single POV, Beat flips, fair clues.
 
 ## Skills (`skills/*/SKILL.md`)
 - `nb-book-architect` - World, rules, outlines, characters
