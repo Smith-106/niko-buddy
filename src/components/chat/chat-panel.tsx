@@ -19,6 +19,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { chapterMarkdownHasBody, resolveChapterLengthSpec, resolveChapterTitle, routeTask, detectLastGeneratedChapterNumber, findChapterFileByNumber, invalidateChapterCache, resolveTargetChapterNumberForChat, injectDeAiDirective, acceptDraftAndIngest, detectGoldenThreeChapterRequest, isChatEditRequest, detectGeneratedTargetChapterNumber, commitAcceptedDeepChapterDraft, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, loadNovelSessionStatus, subscribeStatusJson, buildManagedChapterDocument, readManagedChapterForWrite, getManagedDraftAdoptionGate, requireManagedDeepChapterDraft, rerunMainControlGates } from "@/lib/novel"
 import { formatMemoryIngest } from "@/lib/novel"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import { activeRustStreamIds } from "@/lib/claude-cli-transport"
 import { executeIngestWrites } from "@/lib/ingest"
 import { normalizePath } from "@/lib/path-utils"
@@ -774,7 +775,15 @@ export function ChatPanel() {
             },
           },
           controller.signal,
-          { reasoning: resolveUserVisibleReasoning(effectiveChatLlmConfig.reasoning) },
+          {
+            reasoning: resolveUserVisibleReasoning(effectiveChatLlmConfig.reasoning),
+            promptCacheKey: buildPromptCacheKey({
+              projectId: project?.id,
+              projectPath: project?.path,
+              scope: "chat",
+              conversationId: capturedConvId,
+            }),
+          },
         )
         if (controller.signal.aborted) {
           cleanupCancelled()

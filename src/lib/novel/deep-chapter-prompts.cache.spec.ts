@@ -4,6 +4,7 @@ import {
   buildDeepChapterDraftPrompt,
   buildDeepChapterExpansionPrompt,
   buildDeepChapterFinalPolishPrompt,
+  buildDeepChapterLengthRewritePrompt,
   buildDeepChapterRevisionPrompt,
 } from "./deep-chapter-prompts"
 import type { NovelReviewResult } from "./review-adapter"
@@ -36,6 +37,7 @@ const stages: Record<string, string> = {
   expansion: buildDeepChapterExpansionPrompt(outline, contextPrompt, "写作任务书", "过短正文", "生成第3章", 3),
   revision: buildDeepChapterRevisionPrompt(outline, contextPrompt, "写作任务书", "初稿正文", reviewResults, "生成第3章", 3),
   polish: buildDeepChapterFinalPolishPrompt(outline, contextPrompt, "写作任务书", "当前正文", "生成第3章", 3),
+  lengthRewrite: buildDeepChapterLengthRewritePrompt(contextPrompt, "写作任务书", "过长正文", "生成第3章", 3, undefined, { outline }),
 }
 const stageList = Object.values(stages)
 // buildStableContextPrefix(outline, contextPrompt) 的输出：[outline,"上下文：",contextPrompt].join("\n")

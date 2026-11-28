@@ -18,6 +18,7 @@ import type { QualityToolDeps } from "@/lib/agent/tools/score-chapter"
 import type { RunChapterWorkflowFallbackContext, RunDeepChapterGeneration } from "@/lib/agent/tools/run-chapter-workflow"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import type { StageJournalRuntime } from "./stage-output-journal"
 import { recordModuleHit } from "./module-heat"
 import {
@@ -496,6 +497,13 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
   config.maxRounds = options.maxRounds ?? 8
   config.taskGoal = goal
   config.requiredToolsOnce = requiredToolsOnce
+  config.requestOverrides = {
+    ...config.requestOverrides,
+    promptCacheKey: buildPromptCacheKey({
+      projectPath: options.projectPath,
+      scope: "main_control",
+    }),
+  }
 
   // RV-02：把结构化兜底上下文（章号 + 已确认计划）接到已注册的 run_chapter_workflow 上。
   //

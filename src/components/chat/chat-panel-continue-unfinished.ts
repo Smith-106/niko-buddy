@@ -25,6 +25,7 @@ import {
 } from "@/lib/chat/resume"
 import { createDeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import { streamChat } from "@/lib/llm-client"
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import {
   buildContinueUnfinishedStablePrefix,
   composeStableSystemBlocks,
@@ -461,7 +462,15 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
         },
       },
       controller.signal,
-      { reasoning: resolveUserVisibleReasoning(writingConfig.reasoning) },
+      {
+        reasoning: resolveUserVisibleReasoning(writingConfig.reasoning),
+        promptCacheKey: buildPromptCacheKey({
+          projectId: project?.id,
+          projectPath: project?.path,
+          scope: "chat",
+          conversationId: convId,
+        }),
+      },
     )
 
     if (!streamSessionGuardRef.current.isActive(convId, sessionId)) return

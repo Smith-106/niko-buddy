@@ -1,4 +1,5 @@
 import { streamChat, extractJsonArraySpan, type StreamCallbacks } from "@/lib/llm-client"
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
@@ -749,6 +750,7 @@ ${langReminder}`
         0,
         i,
         reviewStageTimeoutMs,
+        buildPromptCacheKey({ projectPath, scope: "review_chapter", chapterNumber }),
       )
 
       // ISS-20260711-001: parse now happens inside runReviewStage (with retry),
@@ -847,6 +849,7 @@ async function runReviewStage(
   retryCount = 0,
   chunkIndex = 0,
   stageTimeoutMs: number = REVIEW_STAGE_TIMEOUT_DEFAULT_MS,
+  promptCacheKey?: string,
 ): Promise<unknown[]> {
   publishReviewStageThinking(stageThinking, callbacks, stageTitle, "正在分析...")
   const messages: ChatMessage[] = [
@@ -918,6 +921,7 @@ async function runReviewStage(
       {
         temperature: getNovelRoleTemperature("canon_audit"),
         reasoning: { mode: reasoningMode },
+        ...(promptCacheKey ? { promptCacheKey } : {}),
       },
     )
     clearTimeout(timeoutId)
@@ -944,7 +948,7 @@ async function runReviewStage(
       })
       publishReviewStageThinking(stageThinking, callbacks, stageTitle, "网络波动，正在重试...")
       await new Promise(resolve => setTimeout(resolve, 2000))
-      return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1, chunkIndex, stageTimeoutMs)
+      return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1, chunkIndex, stageTimeoutMs, promptCacheKey)
     }
     throw err
   }

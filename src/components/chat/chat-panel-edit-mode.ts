@@ -18,6 +18,7 @@ import { getFileStem } from "@/lib/path-utils"
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { streamChat } from "@/lib/llm-client"
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import type { MessageReference } from "@/stores/chat-store"
@@ -171,7 +172,14 @@ export async function runChatEditMode(ctx: ChatEditModeContext): Promise<void> {
         },
       },
       controller.signal,
-      { reasoning: resolveUserVisibleReasoning(effectiveChatLlmConfig.reasoning) },
+      {
+        reasoning: resolveUserVisibleReasoning(effectiveChatLlmConfig.reasoning),
+        promptCacheKey: buildPromptCacheKey({
+          projectPath: pp,
+          scope: "chat_edit",
+          conversationId: capturedConvId,
+        }),
+      },
     )
 
     // R2-U01: 流结束后强验未中止且会话仍活跃，已中止绝不写回正式章。

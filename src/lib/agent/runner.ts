@@ -41,6 +41,85 @@ export class ModelDoesNotSupportToolsError extends Error {
   }
 }
 
+const MAX_READ_TOOL_CONCURRENCY = 4
+
+function injectTaskContractIntoFirstUser(messages: AgentMessage[], taskContract: string): void {
+  const firstUserIndex = messages.findIndex((message) => message.role === "user")
+  if (firstUserIndex < 0) {
+    messages.push({ role: "user", content: taskContract })
+    return
+  }
+  const firstUser = messages[firstUserIndex]!
+  const prefixText = `${taskContract}\n\n`
+  if (typeof firstUser.content === "string") {
+    messages[firstUserIndex] = {
+      ...firstUser,
+      content: firstUser.content ? `${prefixText}${firstUser.content}` : taskContract,
+    }
+    return
+  }
+  messages[firstUserIndex] = {
+    ...firstUser,
+    content: [{ type: "text", text: prefixText }, ...firstUser.content],
+  }
+}
+
+function attachTailBreakpoint(message: AgentMessage): AgentMessage | null {
+  if (typeof message.content === "string") {
+    if (!message.content && message.role !== "tool") return null
+    return {
+      ...message,
+      content: [{ type: "text", text: message.content, cacheControl: true }],
+    }
+  }
+  const lastTextIndex = (() => {
+    for (let i = message.content.length - 1; i >= 0; i -= 1) {
+      if (message.content[i]?.type === "text") return i
+    }
+    return -1
+  })()
+  if (lastTextIndex < 0) return null
+  const block = message.content[lastTextIndex]
+  if (!block || block.type !== "text") return null
+  const cloned = message.content.slice()
+  cloned[lastTextIndex] = { ...block, cacheControl: true }
+  return { ...message, content: cloned }
+}
+
+function applyRollingTailCacheBreakpoint(messages: AgentMessage[], round: number): ChatMessage[] {
+  if (round < 1) return messages as ChatMessage[]
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const candidate = messages[i]
+    if (!candidate || candidate.role === "system") continue
+    const patched = attachTailBreakpoint(candidate)
+    if (!patched) continue
+    const copy = messages.slice()
+    copy[i] = patched
+    return copy as ChatMessage[]
+  }
+  return messages as ChatMessage[]
+}
+
+async function runWithConcurrencyLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const workerCount = Math.min(Math.max(1, limit), items.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const current = nextIndex
+        nextIndex += 1
+        results[current] = await worker(items[current]!, current)
+      }
+    }),
+  )
+  return results
+}
+
 /**
  * 必调工具 nudge 的预算上限（RVF-02）。
  *
@@ -138,11 +217,8 @@ export class AgentRunner {
         observedToolCalls: [],
       }
     }
-    const contractInsertIndex = workingMessages.findIndex((message) => message.role !== "system")
-    workingMessages.splice(contractInsertIndex < 0 ? workingMessages.length : contractInsertIndex, 0, {
-      role: "system",
-      content: taskContract,
-    })
+    // Wave 1.2: 任务契约下沉到首条 user 消息，保持 static system 前缀逐字节稳定。
+    injectTaskContractIntoFirstUser(workingMessages, taskContract)
     const evidenceLedger = new ToolEvidenceLedger(config.toolResultContextLimit ?? DEFAULT_TOOL_RESULT_CONTEXT_LIMIT)
     let taskBreakpoint: TaskBreakpoint | null = projectPath
       ? createTaskBreakpoint({
@@ -385,9 +461,11 @@ export class AgentRunner {
           )
         }
         workingMessages.splice(0, workingMessages.length, ...compacted)
+        // Wave 1.2: 多轮工具调用在发送副本上挂滚动尾断点（BP4），不污染 workingMessages 历史状态。
+        const messagesForWire = applyRollingTailCacheBreakpoint(workingMessages, round)
         await streamChat(
           config.llmConfig,
-          workingMessages as ChatMessage[],
+          messagesForWire,
           streamCallbacks,
           signal,
           requestOverrides,
@@ -589,24 +667,23 @@ export class AgentRunner {
       })
       workingMessages.push(assistantMsg)
 
-      // Execute each tool call
-      let deliveredFinalContent = ""
-      for (const tc of toolCalls) {
+      // Execute tool calls: 连续只读且免确认非终结工具并发调度（并发度 <= 4），
+      // 其余工具与边界保持严格串行 barrier，结果按原始调用顺序提交。
+      const saveToolProgress = async (toolName: string) => {
+        if (!taskBreakpoint) return
+        const usedTools = taskBreakpoint.usedTools.includes(toolName)
+          ? taskBreakpoint.usedTools
+          : [...taskBreakpoint.usedTools, toolName]
+        taskBreakpoint = updateBreakpointStage(
+          { ...taskBreakpoint, usedTools },
+          `agent_round_${round + 1}`,
+          `tool:${toolName}`,
+        )
+        await persistTaskBreakpoint()
+      }
+
+      const preparedCalls = toolCalls.map((tc) => {
         const toolName = tc.function.name
-
-        const saveToolProgress = async () => {
-          if (!taskBreakpoint) return
-          const usedTools = taskBreakpoint.usedTools.includes(toolName)
-            ? taskBreakpoint.usedTools
-            : [...taskBreakpoint.usedTools, toolName]
-          taskBreakpoint = updateBreakpointStage(
-            { ...taskBreakpoint, usedTools },
-            `agent_round_${round + 1}`,
-            `tool:${toolName}`,
-          )
-          await persistTaskBreakpoint()
-        }
-
         let params: Record<string, unknown> = {}
         let argumentError = ""
         try {
@@ -619,38 +696,89 @@ export class AgentRunner {
         } catch (error) {
           argumentError = `工具参数不是合法 JSON：${toErrorMessage(error)}`
         }
-        const executed = argumentError
-          ? rejectAgentToolCall(
-              { id: tc.id ?? "", name: toolName },
-              `错误: ${argumentError}`,
-              callbacks,
-            )
-          : await executeAgentTool(
-              { id: tc.id ?? "", name: toolName, arguments: params } satisfies ToolCall,
-              registry,
-              { ...callbacks },
-              signal,
-            )
-        record.toolCalls.push(executed.record)
-        await saveToolProgress()
         const registeredTool = registry.get(toolName)
-        if (isRequiredToolExecutionFulfilled(registeredTool, executed)) {
-          satisfiedRequiredTools.add(toolName)
+        const parallelSafeRead = Boolean(
+          !argumentError
+          && registeredTool
+          && registeredTool.category === "read"
+          && registeredTool.permission !== "confirm"
+          && !registeredTool.finalizesRun,
+        )
+        return { tc, toolName, params, argumentError, registeredTool, parallelSafeRead }
+      })
+
+      let deliveredFinalContent = ""
+      const commitExecuted = async (
+        item: (typeof preparedCalls)[number],
+        executed: Awaited<ReturnType<typeof executeAgentTool>>,
+      ) => {
+        record.toolCalls.push(executed.record)
+        await saveToolProgress(item.toolName)
+        if (isRequiredToolExecutionFulfilled(item.registeredTool, executed)) {
+          satisfiedRequiredTools.add(item.toolName)
           refreshRequiredToolDiagnostics()
         }
         if (
-          executed.record.status === "done" &&
-          executed.finalContent?.trim() &&
-          registeredTool?.finalizesRun
+          executed.record.status === "done"
+          && executed.finalContent?.trim()
+          && item.registeredTool?.finalizesRun
         ) {
           deliveredFinalContent = executed.finalContent.trim()
         }
         workingMessages.push({
           role: "tool",
-          content: evidenceLedger.format(toolName, params, executed.responseText),
-          tool_call_id: tc.id,
-          name: toolName,
+          content: evidenceLedger.format(item.toolName, item.params, executed.responseText),
+          tool_call_id: item.tc.id,
+          name: item.toolName,
         })
+      }
+
+      for (let i = 0; i < preparedCalls.length;) {
+        const head = preparedCalls[i]!
+        if (!head.parallelSafeRead) {
+          const executed = head.argumentError
+            ? rejectAgentToolCall(
+                { id: head.tc.id ?? "", name: head.toolName },
+                `错误: ${head.argumentError}`,
+                callbacks,
+              )
+            : await executeAgentTool(
+                { id: head.tc.id ?? "", name: head.toolName, arguments: head.params } satisfies ToolCall,
+                registry,
+                { ...callbacks },
+                signal,
+              )
+          await commitExecuted(head, executed)
+          i += 1
+          continue
+        }
+
+        let end = i + 1
+        while (end < preparedCalls.length && preparedCalls[end]!.parallelSafeRead) {
+          end += 1
+        }
+        const batch = preparedCalls.slice(i, end)
+        const executedBatch = batch.length === 1
+          ? [
+              await executeAgentTool(
+                { id: batch[0]!.tc.id ?? "", name: batch[0]!.toolName, arguments: batch[0]!.params } satisfies ToolCall,
+                registry,
+                { ...callbacks },
+                signal,
+              ),
+            ]
+          : await runWithConcurrencyLimit(batch, MAX_READ_TOOL_CONCURRENCY, (item) =>
+              executeAgentTool(
+                { id: item.tc.id ?? "", name: item.toolName, arguments: item.params } satisfies ToolCall,
+                registry,
+                { ...callbacks },
+                signal,
+              ),
+            )
+        for (let k = 0; k < batch.length; k += 1) {
+          await commitExecuted(batch[k]!, executedBatch[k]!)
+        }
+        i = end
       }
 
       // 终结型工具已把终稿交付给用户，再让模型复述一遍只会拖时间并可能改坏正文。

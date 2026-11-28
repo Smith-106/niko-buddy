@@ -2,6 +2,7 @@ import { createDirectory, fileExists, listDirectory, readFile, writeFile } from 
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "@/lib/llm-client"
 import { getOutputLanguage } from "@/lib/output-language"
 import { getFileName, getUniqueOutlinePath, normalizePath } from "@/lib/path-utils"
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import { refreshProjectState } from "@/lib/project-refresh"
 import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
@@ -275,19 +276,26 @@ async function streamOutlineSectionContent(
   config: OutlineSectionGenerationConfig,
   userRequest: string,
   signal?: AbortSignal,
+  promptCacheKey?: string,
 ): Promise<string> {
   let content = ""
   let streamError: Error | null = null
 
-  await streamChat(llmConfig, [{ role: "user", content: buildSectionRefinementPrompt(context, config, userRequest) }], {
-    onToken: (token) => {
-      content += token
+  await streamChat(
+    llmConfig,
+    [{ role: "user", content: buildSectionRefinementPrompt(context, config, userRequest) }],
+    {
+      onToken: (token) => {
+        content += token
+      },
+      onDone: () => {},
+      onError: (err) => {
+        streamError = err
+      },
     },
-    onDone: () => {},
-    onError: (err) => {
-      streamError = err
-    },
-  }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
+    combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)),
+    promptCacheKey ? { promptCacheKey } : undefined,
+  )
 
   if (streamError) throw streamError
   return content.trim()
@@ -365,7 +373,14 @@ export async function generateOutlineRefinementSectionFile(
 
   const outlinesDir = `${pp}/wiki/outlines`
   await createDirectory(outlinesDir)
-  const sectionContent = await streamOutlineSectionContent(llmConfig, context, config, userRequest, signal)
+  const sectionContent = await streamOutlineSectionContent(
+    llmConfig,
+    context,
+    config,
+    userRequest,
+    signal,
+    buildPromptCacheKey({ projectPath: pp, scope: "outline_refine" }),
+  )
   const outlinePath = await writeOutlineSectionFile(pp, outlinesDir, config, sectionContent, writeOptions)
   if (!outlinePath) {
     throw new Error(i18n.t("novel.outlineGenerator.refineEmpty"))
@@ -397,7 +412,14 @@ export async function generateOutlineRefinementFiles(
     if (signal?.aborted) {
       throw new Error("细化生成已取消")
     }
-    const sectionContent = await streamOutlineSectionContent(llmConfig, context, config, userRequest, signal)
+    const sectionContent = await streamOutlineSectionContent(
+      llmConfig,
+      context,
+      config,
+      userRequest,
+      signal,
+      buildPromptCacheKey({ projectPath: pp, scope: "outline_refine" }),
+    )
     sections[config.key] = sectionContent
     const outlinePath = await writeOutlineSectionFile(pp, outlinesDir, config, sectionContent, writeOptions)
     if (!outlinePath) continue
@@ -432,6 +454,7 @@ export async function generateOutlineFile(
 
   const messages: ChatMessage[] = [{ role: "user", content: prompt }]
 
+  const pp = normalizePath(projectPath)
   await streamChat(llmConfig, messages, {
     onToken: (token) => {
       content += token
@@ -440,13 +463,13 @@ export async function generateOutlineFile(
     onError: (err) => {
       streamError = err
     },
-  }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
+  }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)), {
+    promptCacheKey: buildPromptCacheKey({ projectPath: pp, scope: "outline_generate" }),
+  })
 
   if (streamError) {
     throw streamError
   }
-
-  const pp = normalizePath(projectPath)
   const outlinesDir = `${pp}/wiki/outlines`
   await createDirectory(outlinesDir)
   const outlineTitle = shouldUseEnglishOutlineNames() ? "Story Outline" : "总大纲"

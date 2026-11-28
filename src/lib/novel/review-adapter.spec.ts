@@ -1973,6 +1973,7 @@ describe("B1 零 LLM 机械降级与只读预检契约", () => {
     expect(streamChatMock.mock.calls[0]?.[4]).toEqual({
       temperature: 0.15,
       reasoning: { mode: "medium" },
+      promptCacheKey: expect.stringMatching(/^niko:review_chapter:ch8:/),
     })
   })
 })

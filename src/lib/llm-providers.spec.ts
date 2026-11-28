@@ -1610,4 +1610,55 @@ describe("TASK-002: Anthropic tool breakpoint、<=4 裁剪与 OpenAI prompt_cach
     }).buildBody([{ role: "user", content: "hi" }], { promptCacheKey: "k1" }) as Record<string, unknown>
     expect(anthropicBody).not.toHaveProperty("prompt_cache_key")
   })
+
+  it("Wave 1.2: Anthropic tool_result 断点发出 cache_control 且受 <=4 上限约束，OpenAI 退回纯文本", () => {
+    const messages: import("./llm-providers").ChatMessage[] = [
+      {
+        role: "system",
+        content: [
+          { type: "text", text: "S1", cacheControl: true },
+          { type: "text", text: "MID" },
+          { type: "text", text: "S2", cacheControl: true },
+        ],
+      },
+      { role: "user", content: "写第一章" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "tc1", type: "function", function: { name: "read_chapter", arguments: "{}" } }],
+      },
+      {
+        role: "tool",
+        tool_call_id: "tc1",
+        name: "read_chapter",
+        content: [{ type: "text", text: "第1章内容", cacheControl: true }],
+      },
+    ]
+    const tools = [{ type: "function", function: { name: "read_chapter", description: "read", parameters: {} } }]
+    const body = getProviderConfig({ ...customConfig(), provider: "anthropic" }).buildBody(messages, { tools }) as {
+      system: Array<Record<string, unknown>>
+      tools: Array<Record<string, unknown>>
+      messages: Array<{ role: string; content: Array<Record<string, unknown>> }>
+    }
+    // 2 个 system（被 MID 隔开）+ 1 个 tool + 1 个 tool_result = 4 个断点（<=4 全部保留）
+    expect(body.system[0].cache_control).toEqual({ type: "ephemeral" })
+    expect(body.system[1]).not.toHaveProperty("cache_control")
+    expect(body.system[2].cache_control).toEqual({ type: "ephemeral" })
+    expect(body.tools[0].cache_control).toEqual({ type: "ephemeral" })
+    expect(body.messages[2].content[0].type).toBe("tool_result")
+    expect(body.messages[2].content[0].cache_control).toEqual({ type: "ephemeral" })
+
+    const openAiBody = getProviderConfig(customConfig({ provider: "openai", model: "gpt-4o" })).buildBody(messages) as {
+      messages: Array<{ role: string; content: unknown }>
+    }
+    expect(openAiBody.messages[3].role).toBe("tool")
+    expect(openAiBody.messages[3].content).toBe("第1章内容")
+
+    const responsesBody = getProviderConfig(
+      customConfig({ provider: "custom", model: "gpt-4o", apiMode: "responses" }),
+    ).buildBody(messages) as {
+      input: Array<{ type?: string; output?: string }>
+    }
+    expect(responsesBody.input.find((item) => item.type === "function_call_output")?.output).toBe("第1章内容")
+  })
 })

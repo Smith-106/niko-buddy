@@ -51,6 +51,7 @@ export interface DimensionConsensusOptions {
   reviewSkillsPrompt?: string
   /** Phase 1：审查上下文 token 上限（缺省时零行为变化）。 */
   contextTokenBudget?: number
+  promptCacheKey?: string
 }
 
 const DEBATE_SYSTEM_PROMPT =
@@ -83,6 +84,7 @@ async function debateCall(
   signal: AbortSignal | undefined,
   novelConfig: NovelConfig | undefined,
   roleKey: NovelRoleTemperatureKey,
+  promptCacheKey?: string,
 ): Promise<string> {
   if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const messages: ChatMessage[] = [
@@ -112,6 +114,7 @@ async function debateCall(
     {
       temperature: getNovelRoleTemperature(roleKey),
       reasoning: { mode: (novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" },
+      ...(promptCacheKey ? { promptCacheKey } : {}),
     },
   )
   if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
@@ -143,6 +146,7 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
     skillHookPromptFragments,
     reviewSkillsPrompt,
     contextTokenBudget,
+    promptCacheKey,
   } = options
   if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const usable = models.filter((m) => hasUsableLlm(m))
@@ -167,6 +171,7 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
         skillHookPromptFragments,
         reviewSkillsPrompt,
         contextTokenBudget,
+        ...(promptCacheKey ? { promptCacheKey } : {}),
       }),
     ),
   )
@@ -193,7 +198,7 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
             contextTokenBudget,
           })
           const debatePrompt = basePrompt + buildDebateSection(ballots, seat, canonDigest)
-          const text = await debateCall(llmConfig, debatePrompt, signal, novelConfig, roleKey)
+          const text = await debateCall(llmConfig, debatePrompt, signal, novelConfig, roleKey, promptCacheKey)
           const parsed = parseDimensionReviewResult(dimension, text, `${dimension.label}辩论轮${round + 1}`)
           return { anonymousId: seat, score: parsed.score, status: parsed.status, summary: parsed.summary, issues: parsed.issues }
         } catch (err) {

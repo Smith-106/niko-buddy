@@ -1,5 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, isRequestCancelledError, setMetricsFilePath, setMetricsTraceId, flushMetrics, setContinuityMetricsFilePath, flushContinuityMetrics, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import { logger, setLogTraceId, toErrorMessage } from "@/lib/utils"
 import { resolveTaskExtraPrompt } from "./task-customization"
 import { getNovelRoleTemperature, resolveOptionalRoleModel } from "./model-resolver"
@@ -1281,7 +1282,15 @@ async function finalPolishChapter(
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段6：简单审查与去AI味", partial)),
-    { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("polish") },
+    {
+      max_tokens: lengthSpec.maxOutputTokens,
+      temperature: getNovelRoleTemperature("polish"),
+      promptCacheKey: buildPromptCacheKey({
+        projectPath: input.projectPath,
+        scope: "deep_chapter",
+        chapterNumber: input.chapterNumber,
+      }),
+    },
     cachePrefix,
     onPartial,
     undefined,

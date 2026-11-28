@@ -815,10 +815,13 @@ function toAnthropicToolInput(rawArgs: string): Record<string, unknown> {
  * Anthropic 要求 tool_result 放在 **user** 回合里，且用 tool_use_id 关联。
  */
 function toAnthropicToolResultBlock(message: ChatMessage): Record<string, unknown> {
+  const hasCacheControl =
+    Array.isArray(message.content) && message.content.some((b) => b.type === "text" && b.cacheControl)
   return {
     type: "tool_result",
     tool_use_id: message.tool_call_id ?? "",
     content: typeof message.content === "string" ? message.content : flattenAnthropicSystem(message.content),
+    ...(hasCacheControl ? { cache_control: { type: "ephemeral" } } : {}),
   }
 }
 
