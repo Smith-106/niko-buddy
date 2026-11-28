@@ -336,6 +336,7 @@
     "llmConfigure": "立即配置",
     "llmSkipHint": "可暂不配置 API Key——内置直连 API 写作暂不可用，但建项后仍可通过左侧「Antigravity 面板 (ACP)」使用官方 Antigravity 订阅直接写作，或稍后在「设置 → LLM 提供商」配置 API Key。",
     "llmAntigravityHint": "零 API Key 方案：已有 Google Antigravity 订阅？建项后可直接在左侧「Antigravity 面板 (ACP)」连接本地 agy acp 写作，无需填写 API Key。",
+    "createAndOpenAcp": "零 Key 创建并打开 Antigravity (ACP)",
     "stepName": "名称",
     "stepPath": "目录",
     "stepLlm": "模型服务",
@@ -931,6 +932,8 @@
         "saveFailed": "模型配置保存失败：{{message}}",
         "defaultLlmModel": "默认模型",
         "defaultLlmModelHint": "AI 会话提取记忆、提取角色等后台任务默认使用的模型。留空则使用 AI 会话当前选中的模型。",
+        "noProjectGlobalTitle": "当前未打开项目：正在配置全局模型服务",
+        "noProjectGlobalDesc": "此处保存的 API Key 与默认模型为全局生效，创建或打开任意小说项目后即可直接使用；如需使用 Antigravity (ACP) 或本机 MCP，请先创建或打开项目。",
         "pleaseSelectModel": "请先选择模型",
         "loadingModels": "拉取中...",
         "savedBadge": "已保存",
@@ -1550,15 +1553,15 @@
         "antigravityCopyWarnStopped": "已复制配置片段，但外部控制服务当前未启动。请先开启上方「允许外部控制」开关后再在 Antigravity 中连接。",
         "antigravityCopyWarnStoppedAndMasked": "已复制配置片段，但外部控制服务未启动且 Bearer Token 尚未展开（含占位符 <YOUR_BEARER_TOKEN>）。请先开启服务并点击「显示」后再复制。",
         "antigravityProfileLabel": "MCP 工具档位（serverUrl profile）",
-        "antigravityProfileFullLegacy": "默认完整兼容（40 个工具 · 不附带 ?profile）",
-        "antigravityProfileWriterSub": "推荐：主笔精简档（26 个工具 · ?profile=writer-sub）",
-        "antigravityProfileReviewer": "责编只读档（21 个工具 · ?profile=reviewer）",
-        "antigravityProfileArchitect": "策划大纲档（18 个工具 · ?profile=architect）",
+        "antigravityProfileFullLegacy": "完整兼容档（50 个工具 · 不附带 ?profile）",
+        "antigravityProfileWriterSub": "推荐：主笔精简档（36 个工具 · ?profile=writer-sub）",
+        "antigravityProfileReviewer": "责编只读档（25 个工具 · ?profile=reviewer）",
+        "antigravityProfileArchitect": "策划大纲档（28 个工具 · ?profile=architect）",
         "antigravityProfileToolCount": "{{count}} 个工具",
-        "antigravityProfileDescFullLegacy": "完整兼容档：开放全部 40 个已注册工具（含内部 API 管线、零 LLM 原子只读与诊断工具：workflow.next、foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search、draft.diff、audit.longform_health，以及 draft.patch / draft.record_review）。",
-        "antigravityProfileDescWriterSub": "主笔精简档（推荐）：零内部 API 管线、严格 Draft-first，开放 26 个工具——包含 workflow.next、context.prepare_write、foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search、draft.diff、audit.longform_health，以及草稿区写入工具 chapter.write、draft.patch、draft.record_review、outline.write、character.upsert。",
-        "antigravityProfileDescReviewer": "责编只读档：严格零写入（21 个只读工具），支持独立上下文复核——包含 workflow.next、draft.list、draft.read、draft.diff、audit.longform_health、gate.check_mechanical、context.prepare_write、foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search；仅输出结构化审稿结论，由 writer-sub 落盘。",
-        "antigravityProfileDescArchitect": "策划大纲档：聚焦开书建档与卷章规划（18 个工具）——包含 workflow.next、director.check、audit.longform_health、context.prepare_write、foreshadowing.list、character.read、outline.read、chapter.search 及规划写入工具 outline.write、character.upsert（不含正文写入与草稿比对/修审）。",
+        "antigravityProfileDescFullLegacy": "完整兼容档：开放全部 50 个已注册工具（含内部 API 管线、零 LLM 原子只读与诊断工具：workflow.next、foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search、draft.diff、audit.longform_health、skills.list、skills.get、canon.facts_known_by、canon.episodes，以及 draft.patch / draft.record_review 与规划写入）。",
+        "antigravityProfileDescWriterSub": "主笔精简档（推荐）：零内部 API 管线、严格 Draft-first，开放 36 个工具——包含 workflow.next、context.prepare_write、foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search、draft.diff、audit.longform_health、skills.list、skills.get、canon.facts_known_by、canon.episodes，以及草稿区写入工具 chapter.write、draft.patch、draft.record_review、outline.write、character.upsert 与零 LLM 规划写入工具。",
+        "antigravityProfileDescReviewer": "责编只读档：严格零写入（25 个只读工具），支持独立上下文复核——包含 workflow.next、draft.list、draft.read、draft.diff、audit.longform_health、gate.check_mechanical、context.prepare_write、foreshadowing.list、character.read、outline.read、style.exemplars、chapter.search、skills.list、skills.get、canon.facts_known_by、canon.episodes；仅输出结构化审稿结论，由 writer-sub 落盘。",
+        "antigravityProfileDescArchitect": "策划大纲档：聚焦开书建档与卷章规划（28 个工具）——包含 workflow.next、director.check、audit.longform_health、context.prepare_write、foreshadowing.list、character.read、outline.read、chapter.search、skills.list、skills.get、canon.facts_known_by、canon.episodes 及规划写入工具 outline.write、character.upsert、director.upsert_world、director.commit_phase、rules.upsert_book_rules、compass.update、foreshadowing.upsert、subplot.upsert（不含正文写入与草稿比对/修审）。",
         "writerPluginTitle": "写作 Agent 声明式插件（项目同步 / 全局禁用版）",
         "writerPluginStateSynced": "本项目已同步",
         "writerPluginStateNeedsUpdate": "本项目需更新",
@@ -1629,6 +1632,20 @@
       "emptyUrl": "代理已开启但地址为空，本次未生效。请填写代理地址，或关闭代理。",
       "notApplied": "代理未生效：{{summary}}",
       "applyFailed": "代理设置应用失败（重启后仍会生效）：{{error}}"
+    },
+    "llmCacheStats": {
+      "title": "Prompt 缓存命中诊断",
+      "description": "统计当前会话内已收到用量回传的 LLM 请求前缀缓存命中情况。",
+      "refresh": "刷新",
+      "empty": "暂无缓存命中采样数据，发送对话或写作请求后将在此显示。",
+      "hitRate": "命中率",
+      "hitsRatio": "{{hits}} / {{requests}} 次命中",
+      "savedTokens": "节省输入",
+      "savedPct": "占总输入 {{pct}}%",
+      "totalInput": "累计输入",
+      "byProvider": "按通道明细",
+      "providerSummary": "{{hits}}/{{requests}} 命中 · {{hitRate}}% · 省 {{saved}} tokens",
+      "omitted": "缓冲上限 32 条，已滚动淘汰 {{count}} 条较早记录。"
     }
   },
   "preview": {
@@ -1973,6 +1990,11 @@
     "daysAgo": "{{count}} 天前"
   },
   "novel": {
+    "incubator": {
+      "failedPrefix": "全自动孵化失败",
+      "configureLlm": "前往配置模型服务",
+      "useAntigravityAcp": "使用 Antigravity (ACP)"
+    },
     "nav": {
       "wiki": "章节库",
       "sources": "大纲",
@@ -4232,6 +4254,7 @@
     "llmBlockedBanner": "AI 开书与章节生成受限，本地写作仍可用",
     "localWrite": "继续本地写作",
     "configureLlm": "立即配置模型",
+    "useAntigravityAcp": "使用 Antigravity (ACP)",
     "blueprintEmpty": "未检测到项目实体——世界骨架暂为空。请先写作或建立角色/地点/组织等实体后再生成。",
     "blueprintDone": "已根据实体生成世界骨架草稿。",
     "statusIdle": "待推进",
@@ -5323,10 +5346,10 @@
       "label": "写作角色 / MCP 档位",
       "activeBadge": "当前会话档位：{{profile}}",
       "pendingHint": "已切换为 {{selected}}（当前会话仍运行 {{active}}），新建或重建会话后生效。",
-      "writer-sub": "主笔精简档 (writer-sub · 26 工具 · 推荐)",
-      "reviewer": "责编只读档 (reviewer · 21 工具)",
-      "architect": "策划大纲档 (architect · 18 工具)",
-      "full-legacy": "完整兼容档 (full-legacy · 40 工具)"
+      "writer-sub": "主笔精简档 (writer-sub · 36 工具 · 推荐)",
+      "reviewer": "责编只读档 (reviewer · 25 工具)",
+      "architect": "策划大纲档 (architect · 28 工具)",
+      "full-legacy": "完整兼容档 (full-legacy · 50 工具)"
     },
     "memoryMode": {
       "title": "长期记忆摄取模式",
