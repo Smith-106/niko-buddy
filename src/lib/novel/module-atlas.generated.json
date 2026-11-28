@@ -91,7 +91,7 @@
   "specOnly": 177,
   "barrelOnly": 0,
   "edges": 4929,
-  "loc": 330483
+  "loc": 330539
  },
  "modules": [
   {
@@ -16292,7 +16292,7 @@
   {
    "p": "src/lib/novel/skill-hub-seed.ts",
    "s": 13,
-   "l": 149,
+   "l": 150,
    "r": true,
    "o": false,
    "x": false,
@@ -16378,7 +16378,7 @@
   {
    "p": "src/lib/novel/skill-route-registry.ts",
    "s": 13,
-   "l": 349,
+   "l": 404,
    "r": true,
    "o": false,
    "x": false,

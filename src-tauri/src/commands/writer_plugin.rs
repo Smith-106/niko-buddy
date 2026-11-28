@@ -55,10 +55,10 @@ const DISABLE_GLOBAL_COMMAND: &str = "agy plugin disable niko-buddy-writer";
 
 const RULES_AGENTS_MD: &str = r#"# Niko Buddy Writing Workspace Rules
 
-Long-form fiction workspace managed by **Niko Buddy** (not a code repo). Stay inside narrative planning, drafting, editing, and review.
+Novel workspace managed by **Niko Buddy** (not a code repo). Stay inside narrative planning, drafting, editing, review.
 
 ## Boundaries
-- **Draft-first**: Draft via `chapter.write`, patch via `draft.patch` (`expectedSha256` from `draft.read`, `HARD_FUSE_LIMIT=5`), record via `draft.record_review` (`pending -> ready`, NEVER accepts; human accepts in UI). Never overwrite formal chapters/memory.
+- **Draft-first**: `chapter.write`, `draft.patch` (`expectedSha256` via `draft.read`, `HARD_FUSE_LIMIT=5`), `draft.record_review` (`pending->ready`, NEVER accepts; UI accept only). Never overwrite formal chapters/memory.
 - **Gate Priority**: `Consistency(P0) > Anti-AI(P1) > Quality(P2)` (Quality never overrides P0).
 - **Zero-LLM Loop**: `workflow.next` -> `context.prepare_write` (`prepareId`+`page`) + `rules.get(compact:true)` + `skills.list`/`skills.get` + `canon.facts_known_by`/`canon.episodes` + `foreshadowing.list`/`character.read`/`outline.read`/`style.exemplars`/`chapter.search`/`audit.longform_health` -> model -> `chapter.write`/`draft.patch` -> `draft.diff` + `gate.check_mechanical` -> `draft.record_review`.
 - **Planning Writes** (`architect`/`writer-sub`): `director.upsert_world`, `director.commit_phase`, `rules.upsert_book_rules`, `compass.update`, `foreshadowing.upsert`, `subplot.upsert`, `outline.write`, `character.upsert`.

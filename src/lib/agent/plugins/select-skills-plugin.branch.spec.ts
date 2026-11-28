@@ -122,7 +122,11 @@ describe("SelectSkillsPlugin 分支增补", () => {
       "基础去AI味",
     ])
     const missingNames = Array.isArray(result.missingSkillNames) ? result.missingSkillNames : []
-    expect(missingNames).toEqual(["long-form-drafting"])
+    expect(missingNames).toEqual([
+      "long-form-drafting",
+      "craft-cinematic-blocking-and-sensory-immersion",
+      "craft-scene-sequel-beats-and-pov-discipline",
+    ])
   })
 
   it("大纲路由名命中但无可用技能时回退到形状选择", async () => {
