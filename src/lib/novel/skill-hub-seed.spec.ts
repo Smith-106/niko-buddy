@@ -101,7 +101,7 @@ describe("SkillHub seed / frontmatter 防御分支", () => {
     }))
     try {
       const mod = await import("./skill-hub-seed")
-      // 防御链：?? { frontmatter: null } 右侧 → !frontmatter 真分支 → 75 个文件全被过滤
+      // 防御链：?? { frontmatter: null } 右侧 → !frontmatter 真分支 → 99 个文件全被过滤
       expect(mod.DEFAULT_SKILL_HUB_SKILLS).toEqual([])
     } finally {
       v.doUnmock("@/lib/frontmatter")
@@ -110,7 +110,7 @@ describe("SkillHub seed / frontmatter 防御分支", () => {
     }
   })
 
-  it("单个文件缺 name 时仅该文件被过滤，其余 74 条保留", async () => {
+  it("单个文件缺 name 时仅该文件被过滤，其余 98 条保留", async () => {
     const { vi: v } = await import("vitest")
     v.resetModules()
     let calls = 0
@@ -145,7 +145,7 @@ describe("SkillHub seed / frontmatter 防御分支", () => {
     }
   })
 
-  it("单个文件缺 description 时仅该文件被过滤，其余 74 条保留", async () => {
+  it("单个文件缺 description 时仅该文件被过滤，其余 98 条保留", async () => {
     const { vi: v } = await import("vitest")
     v.resetModules()
     let calls = 0
