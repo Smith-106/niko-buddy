@@ -11,6 +11,7 @@ import {
 import {
   normalizePath,
 } from "@/lib/path-utils"
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import {
   formatStageThinking,
 } from "./chapter-utils"
@@ -536,7 +537,14 @@ export async function generateTaskBrief(
         deps,
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
-        { temperature: getNovelRoleTemperature("planner") },
+        {
+          temperature: getNovelRoleTemperature("planner"),
+          promptCacheKey: buildPromptCacheKey({
+            projectPath: input.projectPath,
+            scope: "deep_chapter",
+            chapterNumber: input.chapterNumber,
+          }),
+        },
         stageBudget.cachePrefix,
         undefined,
         undefined,
@@ -579,7 +587,14 @@ export async function generateTaskBrief(
           deps,
           signal,
           (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
-          { temperature: getNovelRoleTemperature("planner") },
+          {
+            temperature: getNovelRoleTemperature("planner"),
+            promptCacheKey: buildPromptCacheKey({
+              projectPath: input.projectPath,
+              scope: "deep_chapter",
+              chapterNumber: input.chapterNumber,
+            }),
+          },
           stageBudget.cachePrefix,
           undefined,
           undefined,
@@ -650,7 +665,14 @@ export async function generateTaskBrief(
         deps,
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段2.5：任务书纠偏", partial)),
-        { temperature: getNovelRoleTemperature("planner") },
+        {
+          temperature: getNovelRoleTemperature("planner"),
+          promptCacheKey: buildPromptCacheKey({
+            projectPath: input.projectPath,
+            scope: "deep_chapter",
+            chapterNumber: input.chapterNumber,
+          }),
+        },
         stageBudget.cachePrefix,
         undefined,
         undefined,
@@ -774,7 +796,15 @@ export async function generateDraft(
       deps,
       signal,
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文初稿", partial)),
-      { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("writing") },
+      {
+        max_tokens: lengthSpec.maxOutputTokens,
+        temperature: getNovelRoleTemperature("writing"),
+        promptCacheKey: buildPromptCacheKey({
+          projectPath: input.projectPath,
+          scope: "deep_chapter",
+          chapterNumber: input.chapterNumber,
+        }),
+      },
       stageCachePrefix,
       notePartial,
       // CORR-107: 初稿完整成功（无 partial-preserve）时清除早期 partial（first-wins + 成功清除；
@@ -804,7 +834,15 @@ export async function generateDraft(
         deps,
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文扩写补足", partial)),
-        { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("writing") },
+        {
+          max_tokens: lengthSpec.maxOutputTokens,
+          temperature: getNovelRoleTemperature("writing"),
+          promptCacheKey: buildPromptCacheKey({
+            projectPath: input.projectPath,
+            scope: "deep_chapter",
+            chapterNumber: input.chapterNumber,
+          }),
+        },
         stageCachePrefix,
         notePartial,
         clearPartial,
@@ -842,7 +880,15 @@ export async function generateDraft(
       deps,
       signal,
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段3.5：草稿纠偏", partial)),
-      { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("writing") },
+      {
+        max_tokens: lengthSpec.maxOutputTokens,
+        temperature: getNovelRoleTemperature("writing"),
+        promptCacheKey: buildPromptCacheKey({
+          projectPath: input.projectPath,
+          scope: "deep_chapter",
+          chapterNumber: input.chapterNumber,
+        }),
+      },
       stageCachePrefix,
       notePartial,
       // CORR-107: 纠偏重写完整成功时清除早期 partial（同上；兜底 fallback/空回退不调 clear）。
@@ -871,7 +917,15 @@ export async function generateDraft(
         deps,
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文扩写补足", partial)),
-        { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("writing") },
+        {
+          max_tokens: lengthSpec.maxOutputTokens,
+          temperature: getNovelRoleTemperature("writing"),
+          promptCacheKey: buildPromptCacheKey({
+            projectPath: input.projectPath,
+            scope: "deep_chapter",
+            chapterNumber: input.chapterNumber,
+          }),
+        },
         stageCachePrefix,
         notePartial,
         clearPartial,

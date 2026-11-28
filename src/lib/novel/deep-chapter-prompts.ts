@@ -664,13 +664,15 @@ export function buildDeepChapterLengthRewritePrompt(
   userRequest: string,
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
-  options?: { autoGenerateChapterTitle?: boolean },
+  options?: { autoGenerateChapterTitle?: boolean; outline?: string },
   extraInstructions?: string,
 ): string {
   // 与其它阶段同一开关名：真值只能来自 `novelConfig.autoGenerateChapterTitle`，
   // 不在这里默认成 true（旧缺口 RV-001：恒真 = 用户关不掉）。
   const autoTitle = options?.autoGenerateChapterTitle !== false
   return appendTaskExtraSection([
+    buildStableContextPrefix(options?.outline ?? "", contextPrompt),
+    "",
     "你是小说正文轻量整理助手。",
     "请基于阶段3正文草稿做必要整理，在不影响剧情主线、人物行动、关键冲突和结尾钩子的前提下，酌情删减明显重复、循环输出和无效解释。",
     "",
@@ -693,9 +695,6 @@ export function buildDeepChapterLengthRewritePrompt(
     "",
     "当前过长正文：",
     currentContent,
-    "",
-    "上下文：",
-    contextPrompt,
   ].join("\n"), extraInstructions)
 }
 

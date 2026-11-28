@@ -761,8 +761,9 @@ describe("runner 覆盖增补：错误类型与任务目标回退", () => {
     expect(texts).toEqual(["终稿A"])
     expect(doneCount()).toBe(1)
     expect(errors).toEqual([])
-    // 任务契约是首条 system，且目标取自 user 文本（messageContentText 字符串分支）
-    expect(sentMessages[0][0].role).toBe("system")
+    // Wave 1.2: 无 system 传入时，任务契约下沉进首条 user 消息，不污染 system 前缀
+    expect(sentMessages[0][0].role).toBe("user")
+    expect(String(sentMessages[0][0].content)).toContain("## 任务契约")
     expect(String(sentMessages[0][0].content)).toContain("请写摘要")
   })
 
@@ -783,10 +784,12 @@ describe("runner 覆盖增补：错误类型与任务目标回退", () => {
     )
     expect(record.finalText).toBe("ok")
     expect(errors).toEqual([])
-    expect(String(sentMessages[0][0].content)).toContain("第一章")
+    expect(sentMessages[0][0].role).toBe("user")
+    expect(Array.isArray(sentMessages[0][0].content)).toBe(true)
+    expect(JSON.stringify(sentMessages[0][0].content)).toContain("第一章")
   })
 
-  it("无 taskGoal 且无 user 消息 → 任务目标回退为未命名任务，契约追加到末尾", async () => {
+  it("无 taskGoal 且无 user 消息 → 任务目标回退为未命名任务，契约追加为末尾 user 消息", async () => {
     const sentMessages = scriptStream([{ text: "ok" }])
     const { record, errors } = await runAgent(
       createConfig([], { taskGoal: undefined }),
@@ -795,9 +798,10 @@ describe("runner 覆盖增补：错误类型与任务目标回退", () => {
     )
     expect(record.finalText).toBe("ok")
     expect(errors).toEqual([])
-    // 全部是 system → 契约追加到末尾
+    // 只有一条静态 system 时，任务契约追加到末尾 user 消息
     expect(sentMessages[0]).toHaveLength(2)
-    expect(sentMessages[0][1].role).toBe("system")
+    expect(sentMessages[0][0].role).toBe("system")
+    expect(sentMessages[0][1].role).toBe("user")
     expect(String(sentMessages[0][1].content)).toContain("未命名任务")
   })
 })
@@ -1741,10 +1745,12 @@ describe("runner 覆盖增补：工具通道关闭与 nudge 形态", () => {
     expect(errors[0]).toBeInstanceOf(RequiredToolsNotCalledError)
     // 首轮 Once 实现不经过 scriptStream 的快照，只有第 2 轮请求被记录
     const systems = sentMessages[0].filter((message) => message.role === "system")
-    expect(systems).toHaveLength(3)
-    // 首条是任务契约（字符串），中间是原数组 system（保持数组），末条是 nudge
-    expect(Array.isArray(systems[1].content)).toBe(true)
-    expect(String(systems[2].content)).toContain(NUDGE_MARKER)
+    expect(systems).toHaveLength(2)
+    // 首条是原数组 system（保持数组），末条是 nudge；任务契约已下沉到 user 消息
+    expect(Array.isArray(systems[0].content)).toBe(true)
+    expect(String(systems[1].content)).toContain(NUDGE_MARKER)
+    const users = sentMessages[0].filter((message) => message.role === "user")
+    expect(JSON.stringify(users[0]?.content)).toContain("## 任务契约")
   })
 })
 
@@ -2178,5 +2184,158 @@ describe("TASK-003：virtual 工具不进入 wire tools", () => {
     const firstRequest = (mocks.streamChat.mock.calls[0][4] ?? {}) as Record<string, unknown>
     expect(firstRequest).not.toHaveProperty("tools")
     expect(firstRequest).not.toHaveProperty("toolChoice")
+  })
+})
+
+describe("Wave 1.2: 静态 system 稳定、滚动尾断点 BP4 与只读工具并发调度", () => {
+  it("不同 taskGoal 运行间 system 消息逐字节一致，taskContract 下沉到首条 user", async () => {
+    const sent1 = scriptStream([{ text: "ok1" }])
+    await runAgent(
+      createConfig([], { taskGoal: "写第1章冲突" }),
+      [],
+      [{ role: "system", content: "STATIC_SYS" }, { role: "user", content: "开始" }],
+    )
+    mocks.streamChat.mockReset()
+    const sent2 = scriptStream([{ text: "ok2" }])
+    await runAgent(
+      createConfig([], { taskGoal: "写第2章反转" }),
+      [],
+      [{ role: "system", content: "STATIC_SYS" }, { role: "user", content: "开始" }],
+    )
+    expect(sent1[0][0]).toEqual(sent2[0][0])
+    expect(sent1[0][0]).toEqual({ role: "system", content: "STATIC_SYS" })
+    expect(String(sent1[0][1].content)).toContain("写第1章冲突")
+    expect(String(sent2[0][1].content)).toContain("写第2章反转")
+  })
+
+  it("多轮工具调用：round=0 无尾断点，round>=1 仅在末尾非 system 消息挂 cacheControl 且不污染前序历史", async () => {
+    const sentMessages = scriptStream([
+      { toolCalls: [toolCallDelta("read_chapter", { chapter: 1 }, "c1")] },
+      { toolCalls: [toolCallDelta("read_chapter", { chapter: 2 }, "c2")] },
+      { text: "完成" },
+    ])
+    const readTool: Tool = {
+      name: "read_chapter",
+      description: "读章",
+      category: "read",
+      parameters: {},
+      execute: async (p) => `第${String(p.chapter)}章正文`,
+    }
+    const { errors } = await runAgent(
+      createConfig([readTool], { taskGoal: "连读两章", requestOverrides: { promptCacheKey: "pk-test" } }),
+      [readTool],
+      [{ role: "system", content: "STATIC_SYS" }, { role: "user", content: "请读取" }],
+    )
+    expect(errors).toEqual([])
+    expect(sentMessages).toHaveLength(3)
+    // round 0：纯字符串 user，无 cacheControl
+    expect(typeof sentMessages[0][1].content).toBe("string")
+    // round 1：仅尾部 tool(c1) 带 cacheControl: true
+    const r1Last = sentMessages[1][sentMessages[1].length - 1]
+    expect(r1Last.role).toBe("tool")
+    expect(Array.isArray(r1Last.content)).toBe(true)
+    expect((r1Last.content as Array<{ cacheControl?: boolean }>)[0]?.cacheControl).toBe(true)
+    // round 2：c1 恢复为纯文本不占断点，仅末尾 tool(c2) 带 cacheControl: true
+    const r2Tools = sentMessages[2].filter((m) => m.role === "tool")
+    expect(r2Tools).toHaveLength(2)
+    expect(typeof r2Tools[0].content).toBe("string")
+    expect((r2Tools[1].content as Array<{ cacheControl?: boolean }>)[0]?.cacheControl).toBe(true)
+    expect((mocks.streamChat.mock.calls[0][4] as { promptCacheKey?: string }).promptCacheKey).toBe("pk-test")
+  })
+
+  it("连续只读免确认工具并发度<=4 且按原序提交，混合写/需确认/终结/坏JSON工具严格守 barrier", async () => {
+    const sentMessages = scriptStream([
+      {
+        toolCalls: [
+          { index: 0, id: "r1", name: "read_slow", arguments: JSON.stringify({ id: 1 }) },
+          { index: 1, id: "r2", name: "read_fast", arguments: JSON.stringify({ id: 2 }) },
+          { index: 2, id: "r3", name: "read_fast", arguments: JSON.stringify({ id: 3 }) },
+          { index: 3, id: "r4", name: "read_fast", arguments: JSON.stringify({ id: 4 }) },
+          { index: 4, id: "r5", name: "read_fast", arguments: JSON.stringify({ id: 5 }) },
+          { index: 5, id: "w1", name: "write_draft", arguments: JSON.stringify({ id: 6 }) },
+          { index: 6, id: "c1", name: "read_confirm", arguments: JSON.stringify({ id: 7 }) },
+          { index: 7, id: "bad", name: "read_fast", arguments: "{not-json" },
+          { index: 8, id: "r6", name: "read_fast", arguments: JSON.stringify({ id: 8 }) },
+          { index: 9, id: "r7", name: "read_fast", arguments: JSON.stringify({ id: 9 }) },
+        ],
+      },
+      { text: "汇总结束" },
+    ])
+    let activeReads = 0
+    let maxActiveReads = 0
+    const timeline: string[] = []
+    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    const readSlow: Tool = {
+      name: "read_slow",
+      description: "慢读",
+      category: "read",
+      permission: "auto",
+      parameters: {},
+      execute: async (p) => {
+        activeReads += 1
+        maxActiveReads = Math.max(maxActiveReads, activeReads)
+        timeline.push(`start:r${String(p.id)}`)
+        await delay(25)
+        timeline.push(`end:r${String(p.id)}`)
+        activeReads -= 1
+        return `ok-${String(p.id)}`
+      },
+    }
+    const readFast: Tool = {
+      name: "read_fast",
+      description: "快读",
+      category: "read",
+      permission: "auto",
+      parameters: {},
+      execute: async (p) => {
+        activeReads += 1
+        maxActiveReads = Math.max(maxActiveReads, activeReads)
+        timeline.push(`start:r${String(p.id)}`)
+        await delay(8)
+        timeline.push(`end:r${String(p.id)}`)
+        activeReads -= 1
+        return `ok-${String(p.id)}`
+      },
+    }
+    const writeDraft: Tool = {
+      name: "write_draft",
+      description: "写草稿",
+      category: "write",
+      permission: "auto",
+      parameters: {},
+      execute: async () => {
+        expect(activeReads).toBe(0)
+        timeline.push("run:write")
+        return "written"
+      },
+    }
+    const readConfirm: Tool = {
+      name: "read_confirm",
+      description: "需确认读",
+      category: "read",
+      permission: "confirm",
+      parameters: {},
+      execute: async () => {
+        timeline.push("run:confirm")
+        return "confirmed"
+      },
+    }
+    const tools = [readSlow, readFast, writeDraft, readConfirm]
+    const { record, errors } = await runAgent(
+      createConfig(tools, { taskGoal: "并发读取并写入" }),
+      tools,
+    )
+    expect(errors).toEqual([])
+    expect(maxActiveReads).toBeGreaterThanOrEqual(2)
+    expect(maxActiveReads).toBeLessThanOrEqual(4)
+    expect(record.toolCalls.map((tc) => tc.id)).toEqual(["r1", "r2", "r3", "r4", "r5", "w1", "c1", "bad", "r6", "r7"])
+    expect(record.toolCalls[7]?.status).toBe("error")
+    // barrier：w1 一定在 r1..r5 全部结束后执行，r6/r7 一定在 confirm 之后执行
+    const writeIdx = timeline.indexOf("run:write")
+    expect(timeline.indexOf("end:r1")).toBeLessThan(writeIdx)
+    expect(timeline.indexOf("end:r5")).toBeLessThan(writeIdx)
+    expect(timeline.indexOf("run:confirm")).toBeLessThan(timeline.indexOf("start:r8"))
+    const toolMsgs = sentMessages[1].filter((m) => m.role === "tool")
+    expect(toolMsgs.map((m) => m.tool_call_id)).toEqual(["r1", "r2", "r3", "r4", "r5", "w1", "c1", "bad", "r6", "r7"])
   })
 })

@@ -4,6 +4,7 @@
  * 从 deep-chapter-generation.ts 抽出（P1 巨文件拆分，swarm ts-bloat-20261017 裁决）。
  * 含：MAX_GATE_RETRY 转人工、情绪熔断、平台期早退、六维评审、契约写后核对。
  */
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import {
   extractAuthorFingerprint,
 } from "./adversarial/author-fingerprint"
@@ -627,7 +628,15 @@ export async function runReviewAndRepair(
       deps,
       signal,
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段5：自动返修", partial)),
-      { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("polish") },
+      {
+        max_tokens: lengthSpec.maxOutputTokens,
+        temperature: getNovelRoleTemperature("polish"),
+        promptCacheKey: buildPromptCacheKey({
+          projectPath: input.projectPath,
+          scope: "deep_chapter",
+          chapterNumber: input.chapterNumber,
+        }),
+      },
       cachePrefix,
       notePartial,
       undefined,
@@ -910,7 +919,15 @@ export async function runReviewAndRepair(
         deps,
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段5.7：Track B 文学抛光", partial)),
-        { max_tokens: lengthSpec.maxOutputTokens, temperature: getNovelRoleTemperature("polish") },
+        {
+          max_tokens: lengthSpec.maxOutputTokens,
+          temperature: getNovelRoleTemperature("polish"),
+          promptCacheKey: buildPromptCacheKey({
+            projectPath: input.projectPath,
+            scope: "deep_chapter",
+            chapterNumber: input.chapterNumber,
+          }),
+        },
         cachePrefix,
         notePartial,
         undefined,

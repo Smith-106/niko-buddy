@@ -1,5 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import { formatStageThinking, ensureString } from "./chapter-utils"
 import { resolveTaskExtraPrompt } from "./task-customization"
 import { appendTaskExtraSection } from "./deep-chapter-prompts"
@@ -100,6 +101,7 @@ export async function runDeepOutlineGeneration(
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：大纲任务书", partial)),
+    input.projectPath,
   )
   callbacks.onThinking?.(formatStageThinking("阶段2：大纲任务书", taskBrief))
 
@@ -109,6 +111,7 @@ export async function runDeepOutlineGeneration(
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：大纲草稿", partial)),
+    input.projectPath,
   )
   callbacks.onThinking?.(formatStageThinking("阶段3：大纲草稿", [
     draftContent,
@@ -122,6 +125,7 @@ export async function runDeepOutlineGeneration(
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段4：大纲自检", partial)),
+    input.projectPath,
   )
   callbacks.onThinking?.(formatStageThinking("阶段4：大纲自检", selfCheck))
   callbacks.onThinking?.(formatStageThinking("阶段5：完成", "采用自检后的大纲草稿作为最终输出。"))
@@ -141,6 +145,7 @@ async function collectModelText(
   deps: DeepOutlineGenerationDeps,
   signal?: AbortSignal,
   onUpdate?: (content: string) => void,
+  projectPath?: string,
 ): Promise<string> {
   let content = ""
   let streamError: Error | null = null
@@ -165,7 +170,10 @@ async function collectModelText(
       },
     },
     combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)),
-    { reasoning: config.reasoning },
+    {
+      reasoning: config.reasoning,
+      promptCacheKey: buildPromptCacheKey({ projectPath, scope: "deep_outline" }),
+    },
   )
 
   // Final flush so the caller's last onUpdate reflects the full content, not a

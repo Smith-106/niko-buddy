@@ -17,6 +17,7 @@
  */
 import { streamChat, combineAbortSignals, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
+import { buildPromptCacheKey } from "@/lib/prompt-cache-key"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { logger, toErrorMessage } from "@/lib/utils"
@@ -684,6 +685,7 @@ export async function reviewChapterDimension({
   skillHookPromptFragments,
   reviewSkillsPrompt,
   contextTokenBudget,
+  promptCacheKey,
 }: {
   llmConfig: LlmConfig
   contextPack: ContextPack
@@ -704,6 +706,7 @@ export async function reviewChapterDimension({
   reviewSkillsPrompt?: string
   /** Phase 1：可选审查上下文 token 上限（缺省 undefined，零行为变化）。 */
   contextTokenBudget?: number
+  promptCacheKey?: string
 }): Promise<DimensionReviewResult> {
   callbacks.onThinking?.(dimension.key, formatDimensionThinking(dimension, "正在读取上下文..."))
   const analysisPrompt = buildDimensionReviewPrompt(contextPack, chapterContent, dimension, {
@@ -722,6 +725,7 @@ export async function reviewChapterDimension({
     signal,
     novelConfig,
     reviewSkillsPrompt,
+    promptCacheKey,
   )
 
   const finalPrompt = [
@@ -741,6 +745,7 @@ export async function reviewChapterDimension({
     signal,
     novelConfig,
     reviewSkillsPrompt,
+    promptCacheKey,
   )
   return parseDimensionReviewResult(dimension, finalText, analysis)
 }
@@ -973,6 +978,11 @@ export async function runSixDimensionReview({
     })
   }
 
+  const reviewCacheKey = buildPromptCacheKey({
+    projectPath,
+    scope: "review_6dim",
+    chapterNumber,
+  })
   const results: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {}
   const keys = dimensionKeys ?? SIX_REVIEW_DIMENSION_ORDER
   callbacks.onDimensionProgress?.(keys[0], "六维审查并行启动")
@@ -1058,6 +1068,7 @@ export async function runSixDimensionReview({
             skillHookPromptFragments,
             ...(reviewSkillsPrompt ? { reviewSkillsPrompt } : {}),
             ...(reviewContextTokenBudget !== undefined ? { contextTokenBudget: reviewContextTokenBudget } : {}),
+            promptCacheKey: reviewCacheKey,
           })
           callbacks.onDimensionThinking?.(key, outcome.result.thinking)
           const consensusLabel = `consensus:${consensusModels.map((m) => m.model || "unknown").join("+")}`
@@ -1081,6 +1092,7 @@ export async function runSixDimensionReview({
           skillHookPromptFragments,
           ...(reviewSkillsPrompt ? { reviewSkillsPrompt } : {}),
           ...(reviewContextTokenBudget !== undefined ? { contextTokenBudget: reviewContextTokenBudget } : {}),
+          promptCacheKey: reviewCacheKey,
           callbacks: {
             onThinking: (dimensionKey, thinking) => {
               callbacks.onDimensionThinking?.(dimensionKey, thinking)
@@ -1129,6 +1141,7 @@ async function runDimensionStage(
   signal?: AbortSignal,
   novelConfig?: NovelConfig,
   reviewSkillsPrompt?: string,
+  promptCacheKey?: string,
 ): Promise<string> {
   const universalRulesPrompt = loadReviewUniversalRulesPrompt(dimension.key)
   const baseSystemText = appendTaskExtraSection(
@@ -1181,6 +1194,7 @@ async function runDimensionStage(
     {
       temperature: getNovelRoleTemperature(roleKey),
       reasoning: { mode: (novelConfig ?? useWikiStore.getState().novelConfig).reviewReasoningEffort ?? "high" },
+      ...(promptCacheKey ? { promptCacheKey } : {}),
     },
   )
   // R2-W04：流式回调上报错误时必须显式抛出，禁止用截断残片继续解析或掩盖真实流错。

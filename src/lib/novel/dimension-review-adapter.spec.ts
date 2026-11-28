@@ -2175,6 +2175,7 @@ describe("R2-W09 & R2-REV-004: continuity 机械短路严重度分级 / CED 真�
       expect(call[4]).toEqual({
         temperature: 0.15,
         reasoning: { mode: "low" },
+        promptCacheKey: expect.stringMatching(/^niko:review_6dim:ch8:/),
       })
     }
     mocks.resolveNovelModelMock.mockImplementation((cfg: LlmConfig) => cfg)
