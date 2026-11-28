@@ -55,7 +55,7 @@ export async function persistNovelConfigPatch(
   const next = { ...input.prev, ...input.patch }
   input.apply(input.patch)
   try {
-    await saveNovelConfig(next, input.projectId, input.projectPath)
+    await saveNovelConfig(next, input.projectId, input.projectPath, { strictFileWrite: true })
   } catch (err) {
     const rollback: Partial<NovelConfig> = {}
     for (const key of Object.keys(input.patch) as (keyof NovelConfig)[]) {

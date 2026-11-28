@@ -31,13 +31,13 @@
 // ============================================================================
 
 /** 快照版本号：每次全量重编译 +1（蓝图 §8 P3 风险行）。 */
-export const NMEM_SNAPSHOT_VERSION = 1
+export const NMEM_SNAPSHOT_VERSION = 5
 
 /** 快照采集时点（nmem /health 探活通过时刻，UTC ISO 8601）。 */
-export const NMEM_SNAPSHOT_CAPTURED_AT = "2026-08-21T15:30:23Z"
+export const NMEM_SNAPSHOT_CAPTURED_AT = "2026-11-27T12:40:00.000Z"
 
-/** 采集时 nmem server 版本（/health → version 字段实测值）。 */
-export const NMEM_SERVER_VERSION = "0.10.67"
+/** 采集时 nmem server 版本（/health 或 /openapi.json → version 字段实测值）。 */
+export const NMEM_SERVER_VERSION = "0.10.124"
 
 /** 采集空间 id（nmem space `space` = 写作技巧语料）。 */
 export const NMEM_SPACE_ID = "space"
@@ -80,6 +80,21 @@ export interface NmemSnapshotSkill {
   readonly stage: string
 }
 
+/** Phase 3 v5：通用 nmem space 写作规则快照条目（13 条全流派硬/软规则）。 */
+export interface NmemSnapshotUniversalRule {
+  readonly ruleId: string
+  readonly title: string
+  readonly priority: "P0" | "P1" | "P2"
+  readonly injectionScope:
+    | "protagonist_brief"
+    | "chapter_task_brief"
+    | "opening_audit"
+    | "ending_guard"
+    | "review_quality"
+    | "review_consistency"
+  readonly summary: string
+}
+
 /** 编译期快照整体形态。 */
 export interface NmemSnapshot {
   readonly snapshotVersion: number
@@ -88,6 +103,8 @@ export interface NmemSnapshot {
   readonly spaceId: string
   readonly memories: readonly NmemSnapshotMemory[]
   readonly skills: readonly NmemSnapshotSkill[]
+  /** v5 新增：13 条通用 space 规则（可选以保持旧快照构造器向后兼容）。 */
+  readonly universalRules?: readonly NmemSnapshotUniversalRule[]
 }
 
 // ============================================================================
@@ -218,9 +235,221 @@ export const NMEM_SNAPSHOT: NmemSnapshot = {
     {
       skillId: "skill_f8e81e050000",
       title: "shape-characters-and-environments-with-significant-details",
-      version: 1,
-      contentHash: "219c319a3b1b79038b3f288d28f24cf1e35996ddc91aa525db0d43ef8416091e",
+      version: 4,
+      contentHash: "ece939b443d40d8590ec8fd4c0d5aaa09fc8a275c33c83f80df27459232dd04d",
       stage: "active",
+    },
+    {
+      skillId: "skill_34b8da3fc971",
+      title: "novel-continuity-p0-gate-audit",
+      version: 2,
+      contentHash: "08cc5f45193b4560f004dad3c0875f277cd8bc6849ab8a8e1b69d9f58a29f822",
+      stage: "active",
+    },
+    {
+      skillId: "skill_6bfdc4f3b916",
+      title: "novel-thrill-loop-delay-pacing",
+      version: 2,
+      contentHash: "3d33310cf9d6022bc27b82efd81521f9152e112ce167050005a29a4023d79307",
+      stage: "active",
+    },
+    {
+      skillId: "skill_1f395eb26e7e",
+      title: "novel-ghost-wound-and-wish-motive-chain",
+      version: 2,
+      contentHash: "43b8b11ead00b293e05200197fa8a87682b3de55223a300c3849518e054091d0",
+      stage: "active",
+    },
+    {
+      skillId: "skill_c115a9cef595",
+      title: "novel-finale-three-precepts-audit",
+      version: 2,
+      contentHash: "364afa296b4b45ff4c33bd360270a41f54f102b80163c48f3727a247c2ba4037",
+      stage: "active",
+    },
+    {
+      skillId: "skill_ad222a51ebdc",
+      title: "novel-dual-kb-research-and-injection",
+      version: 2,
+      contentHash: "a6322b89c17c35f9ffd2921394a046613a3e110958b97ca51516dc1804b5465e",
+      stage: "active",
+    },
+    {
+      skillId: "skill_05a7cc9d09d6",
+      title: "detect-ai-flavor-nine-signals",
+      version: 2,
+      contentHash: "6bdd6a0f6466be8dc3d4cdba69779f870d1979ea28b9a590a3905692a9ded30e",
+      stage: "active",
+    },
+    {
+      skillId: "skill_303834196af4",
+      title: "aigc-platform-compliance-kit",
+      version: 2,
+      contentHash: "62096ad6f1d5d6cf2f79272ee9c7fa63326b6feee465352a5c1243c2b3912f73",
+      stage: "active",
+    },
+    {
+      skillId: "skill_c071a8e8fe12",
+      title: "novel-craft-school-and-expert-selector",
+      version: 2,
+      contentHash: "038127547818d9c094369de6f8a3af55d1454082cea43db24db8729c87375d92",
+      stage: "active",
+    },
+    {
+      skillId: "skill_76e61c2db391",
+      title: "character-ensemble-ecology-and-chemistry",
+      version: 2,
+      contentHash: "a5a3efcb32905809c3632d4522275d8f80e23d7c6eec5ce4aa83346b1c72f6b4",
+      stage: "active",
+    },
+    {
+      skillId: "skill_adcd68a9ac71",
+      title: "character-antagonist-mirror-and-pressure",
+      version: 2,
+      contentHash: "d42efa48d6773647308ca417052dce5e167becad8078dd32c04b00ca8ad8e230",
+      stage: "active",
+    },
+    {
+      skillId: "skill_b5213cc9196f",
+      title: "character-voice-fingerprint-and-micro-actions",
+      version: 2,
+      contentHash: "57022872c0c6618a57288f5e497d341345cd5a6f033445b2be55c761e3060b12",
+      stage: "active",
+    },
+    {
+      skillId: "skill_bfda7587df41",
+      title: "craft-power-economy-and-map-escalation",
+      version: 2,
+      contentHash: "05920093193232f13c003888d3275a4410564ae9ddc3ec926264f2b6ba6bbaaf",
+      stage: "active",
+    },
+    {
+      skillId: "skill_9dab6cee6365",
+      title: "craft-cinematic-blocking-and-sensory-immersion",
+      version: 2,
+      contentHash: "b438b112c3793907e3c12066dc4bffb1477565741c4df77681009b77e421c2a7",
+      stage: "active",
+    },
+    {
+      skillId: "skill_190e3a5dce09",
+      title: "character-graceful-exit-and-legacy-arc",
+      version: 2,
+      contentHash: "b9ca3b34a2e64c4ac7ee5c36a5a9c61544805d1a60baa0405efc04b91ebd38e1",
+      stage: "active",
+    },
+    {
+      skillId: "skill_4da20cc16b68",
+      title: "craft-faction-politics-and-conspiracy",
+      version: 2,
+      contentHash: "fe002aaa8aa0a1dcec1c39209f62386864c6785134e7802d0ea76e4dc5993310",
+      stage: "active",
+    },
+    {
+      skillId: "skill_af91619243bd",
+      title: "craft-combat-tactics-and-terrain-chess",
+      version: 2,
+      contentHash: "40e5348a05a20ac79416b5bffb7993a3162f8d480f65efc10a5e56713600ca46",
+      stage: "active",
+    },
+    {
+      skillId: "skill_ca3125a66185",
+      title: "craft-dialogue-sparring-and-status-play",
+      version: 2,
+      contentHash: "920540e664d91f4a3d9f4fb3e39f942971e81f6e0da16a5b3ebe70b904bca8e7",
+      stage: "active",
+    },
+  ],
+  universalRules: [
+    {
+      ruleId: "novel-continuity-p0-hard-gate",
+      title: "P0 正典与时空连续性硬门禁",
+      priority: "P0",
+      injectionScope: "review_consistency",
+      summary: "一致性优先于反 AI 与文采；已死/退场角色、物品归属、时间线与境界不可无因果回跳。",
+    },
+    {
+      ruleId: "novel-information-asymmetry-and-pov-gate",
+      title: "POV 信息差与防全知泄密门禁",
+      priority: "P0",
+      injectionScope: "review_consistency",
+      summary: "当前视角人物只能基于已知情报决策，严禁未揭晓真相泄漏进主角内心独白或行动。",
+    },
+    {
+      ruleId: "novel-kb-routing-contract",
+      title: "双库分工与离线考据路由契约",
+      priority: "P0",
+      injectionScope: "chapter_task_brief",
+      summary: "过程库 .novel 管事实账本，资料库 QM/wiki 管世界观与参考切片；运行时永不直连外部记忆库。",
+    },
+    {
+      ruleId: "ai-prose-review-15",
+      title: "去 AI 味 15 项正文审稿基线",
+      priority: "P1",
+      injectionScope: "review_quality",
+      summary: "压制总结腔、翻译腔、空洞副词堆砌与模板过渡句，用具体动作与感官锚点替代抽象评价。",
+    },
+    {
+      ruleId: "novel-craft-school-adaptive-routing",
+      title: "写作流派与专家自适应路由规则",
+      priority: "P2",
+      injectionScope: "chapter_task_brief",
+      summary: "按题材选主副专家，互斥流派不混装，防止民俗恐怖与脱力轻喜剧串味打架。",
+    },
+    {
+      ruleId: "novel-power-system-cost-and-ecology",
+      title: "力量体系代价、经济账与地图升级守恒",
+      priority: "P2",
+      injectionScope: "chapter_task_brief",
+      summary: "任何超凡能力与资源获取须对应可审计代价、稀缺约束与社会生态后果。",
+    },
+    {
+      ruleId: "novel-thrill-pacing-delay-curve",
+      title: "爽点循环与延宕比节奏红线",
+      priority: "P2",
+      injectionScope: "chapter_task_brief",
+      summary: "压抑蓄力延宕比受控且主角保持主动筹谋，激烈冲突后穿插舒缓张弛交替。",
+    },
+    {
+      ruleId: "novel-opening-redline-finale-precepts",
+      title: "开篇禁忌与结局三戒守卫",
+      priority: "P2",
+      injectionScope: "ending_guard",
+      summary: "开篇规避风景无冲突与信息过载；终局严守主角在场、掌控与直面最终选择三戒。",
+    },
+    {
+      ruleId: "novel-dialogue-status-and-subtext-turn",
+      title: "对话地位博弈与潜台词转折",
+      priority: "P2",
+      injectionScope: "chapter_task_brief",
+      summary: "核心对白须包含立场试探、信息隐瞒或权势位移，避免直白说明式台词。",
+    },
+    {
+      ruleId: "novel-combat-cost-and-information-win",
+      title: "战斗地形视野与伤痛成本约束",
+      priority: "P2",
+      injectionScope: "chapter_task_brief",
+      summary: "胜负由地形、视野、预案与信息差决定，禁止零伤痛数值对波与凭空爆种。",
+    },
+    {
+      ruleId: "novel-cinematic-show-dont-tell-gate",
+      title: "电影感场面调度与感官展示门禁",
+      priority: "P2",
+      injectionScope: "review_quality",
+      summary: "优先具体物理动作、非视觉感官与显著细节，景物连写受控，拒绝抽象情绪标签。",
+    },
+    {
+      ruleId: "novel-character-voice-and-flaw-consistency",
+      title: "人物声纹指纹与缺陷驱动一致性",
+      priority: "P2",
+      injectionScope: "protagonist_brief",
+      summary: "角色语言节律、口癖、微动作与核心缺陷必须跨章稳定，防止全员同一 AI 腔。",
+    },
+    {
+      ruleId: "novel-emotional-curve-and-antimelodrama",
+      title: "情绪蓄力曲线与反煽情留白规则",
+      priority: "P2",
+      injectionScope: "review_quality",
+      summary: "高光宣泄前须铺具象锚点与阻力代价，关键退场与情感转折压低音量留白。",
     },
   ],
 }
@@ -299,6 +528,21 @@ export function validateNmemSnapshot(snapshot: NmemSnapshot): NmemSnapshotValida
     }
     if (skill.contentHash.length === 0) violations.push({ path: `${at}.contentHash`, message: "contentHash 不得为空" })
   })
+
+  if (snapshot.universalRules !== undefined) {
+    const seenRuleIds = new Set<string>()
+    snapshot.universalRules.forEach((rule, i) => {
+      const at = `universalRules[${i}]`
+      if (!rule.ruleId.trim()) {
+        violations.push({ path: `${at}.ruleId`, message: "ruleId 不得为空" })
+      } else if (seenRuleIds.has(rule.ruleId)) {
+        violations.push({ path: `${at}.ruleId`, message: `ruleId 重复：${rule.ruleId}` })
+      }
+      seenRuleIds.add(rule.ruleId)
+      if (!rule.title.trim()) violations.push({ path: `${at}.title`, message: "title 不得为空" })
+      if (!rule.summary.trim()) violations.push({ path: `${at}.summary`, message: "summary 不得为空" })
+    })
+  }
 
   return { ok: violations.length === 0, violations }
 }

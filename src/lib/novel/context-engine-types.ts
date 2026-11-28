@@ -222,6 +222,27 @@ export interface ContextPack {
    * additive 独立段；零命中 → undefined（字节级不变）。消费方按需读取 pack.kbReferences。
    */
   kbReferences?: import("./search-adapter").KbReferenceEntry[]
+  /**
+   * Phase 1-3 可观测性快照（纯只读诊断，不渲染进 prompt，供 ContextPackReplayPanel 透出）。
+   */
+  runtimeDiagnostics?: ContextPackRuntimeDiagnostics
+}
+
+/** Phase 1-3 运行时定制诊断快照（只读，供回放面板核查）。 */
+export interface ContextPackRuntimeDiagnostics {
+  activeCraftPresetId?: string
+  bookRulesActive?: boolean
+  deAiSource?: "de-ai-skills-json" | "de-ai-skill-txt" | "scene-bundle" | "builtin"
+  deAiSkillName?: string
+  deAiTieredOverrideCount?: number
+  runtimeSkills?: {
+    loadedNames: string[]
+    missingNames: string[]
+    truncatedNames: string[]
+    droppedNames: string[]
+    usedTokens: number
+    budgetTokens: number
+  }
 }
 
 /** T25: 三源计时探针槽位（毫秒）。 */

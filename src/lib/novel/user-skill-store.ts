@@ -190,17 +190,53 @@ function isFileByPath(path: string): boolean {
   return lower.endsWith(".md") || lower.endsWith(".txt") || lower.endsWith(".json")
 }
 
-export async function loadLinkedSkillContent(skill: UserSkill): Promise<string> {
+const MAX_LINKED_DOCS_CHARS = 16000
+export const USER_ASSET_ROOT_TOKEN = "${USER_ASSET_ROOT}"
+export const PROJECT_ROOT_TOKEN = "${PROJECT_ROOT}"
+
+export interface LoadLinkedSkillOptions {
+  projectPath?: string
+  userAssetRoot?: string
+}
+
+async function resolveLinkedSkillPath(rawPath: string, options?: LoadLinkedSkillOptions): Promise<string> {
+  let resolved = rawPath.trim()
+  if (resolved.includes(PROJECT_ROOT_TOKEN) && options?.projectPath) {
+    resolved = resolved.split(PROJECT_ROOT_TOKEN).join(options.projectPath.replace(/[\\/]+$/, ""))
+  }
+  if (resolved.includes(USER_ASSET_ROOT_TOKEN)) {
+    let assetRoot = options?.userAssetRoot?.replace(/[\\/]+$/, "")
+    if (!assetRoot) {
+      try {
+        const { appDataDir } = await import("@tauri-apps/api/path")
+        const base = await appDataDir()
+        assetRoot = await join(base, ".niko-buddy", "user-assets")
+      } catch {
+        assetRoot = ""
+      }
+    }
+    if (assetRoot) {
+      resolved = resolved.split(USER_ASSET_ROOT_TOKEN).join(assetRoot.replace(/[\\/]+$/, ""))
+    }
+  }
+  return resolved
+}
+
+export async function loadLinkedSkillContent(
+  skill: UserSkill,
+  options?: LoadLinkedSkillOptions,
+): Promise<string> {
   if (skill.source !== "linked" || !skill.linkedPath) {
     return skill.content
   }
 
-  const linkedPath = skill.linkedPath
+  const linkedPath = await resolveLinkedSkillPath(skill.linkedPath, options)
   const isFile = isFileByPath(linkedPath)
 
   try {
     if (isFile) {
-      return await readFile(linkedPath)
+      const fileText = await readFile(linkedPath)
+      return fileText.trim() ? fileText : (skill.contentCache ?? "")
     }
 
     const skillMdPath = await join(linkedPath, "SKILL.md")
@@ -212,11 +248,20 @@ export async function loadLinkedSkillContent(skill: UserSkill): Promise<string> 
       const mdFiles = files.filter((f) => f.name.toLowerCase().endsWith(".md") && !f.is_dir)
       if (mdFiles.length > 0) {
         const docContents: string[] = []
+        let totalDocChars = 0
         for (const file of mdFiles) {
+          if (totalDocChars >= MAX_LINKED_DOCS_CHARS) break
           const filePath = await join(docsPath, file.name)
           try {
             const docContent = await readFile(filePath)
-            docContents.push(docContent)
+            const remaining = MAX_LINKED_DOCS_CHARS - totalDocChars
+            if (docContent.length > remaining) {
+              docContents.push(`${docContent.slice(0, remaining)}\n…（附加文档已按 ${MAX_LINKED_DOCS_CHARS} 字上限截断）`)
+              totalDocChars = MAX_LINKED_DOCS_CHARS
+            } else {
+              docContents.push(docContent)
+              totalDocChars += docContent.length
+            }
           } catch {
             logger.warn("user-skill-store", "user-skill-store: 读取附加文档/技能目录失败跳过（吞错已标记）")
           }
@@ -229,9 +274,69 @@ export async function loadLinkedSkillContent(skill: UserSkill): Promise<string> 
       logger.warn("user-skill-store", "user-skill-store: 读取附加文档/技能目录失败跳过（吞错已标记）")
     }
 
-    return content
+    return content.trim() ? content : (skill.contentCache ?? "")
   } catch {
-    return ""
+    return skill.contentCache ?? ""
+  }
+}
+
+/**
+ * Phase 2：按 id 做 upsert 合并技能列表（解决重复导入时 first-wins 丢弃新版本的问题）。
+ */
+export function upsertWritingSkills(
+  config: UserSkillConfig,
+  incomingSkills: readonly UserSkill[],
+): UserSkillConfig {
+  if (incomingSkills.length === 0) return config
+  const incomingById = new Map<string, UserSkill>()
+  for (const item of incomingSkills) {
+    incomingById.set(item.id, item)
+  }
+  const mergedSkills = config.skills.map((existing) => {
+    const replacement = incomingById.get(existing.id)
+    if (!replacement) return existing
+    incomingById.delete(existing.id)
+    return replacement
+  })
+  for (const fresh of incomingById.values()) {
+    mergedSkills.push(fresh)
+  }
+  return normalizeUserSkillConfig({
+    ...config,
+    skills: mergedSkills,
+  })
+}
+
+/**
+ * Phase 2：将 linked / built-in 技能一键复制为独立可编辑的 uploaded 技能。
+ */
+export function cloneSkillAsEditable(
+  config: UserSkillConfig,
+  skillId: string,
+  resolvedContent: string,
+  now = Date.now(),
+): { config: UserSkillConfig; cloned: UserSkill | null } {
+  const source = config.skills.find((s) => s.id === skillId)
+  const content = (resolvedContent || source?.content || source?.contentCache || "").trim()
+  if (!source || !content) return { config, cloned: null }
+  const cloned = normalizeUserSkill({
+    ...source,
+    id: `skill:${now}`,
+    name: `${source.name}（可编辑副本）`,
+    content,
+    source: "uploaded",
+    linkedPath: undefined,
+    contentCache: undefined,
+    createdAt: now,
+    updatedAt: now,
+  })
+  return {
+    cloned,
+    config: normalizeUserSkillConfig({
+      ...config,
+      selectedSkillId: cloned.id,
+      skills: [cloned, ...config.skills],
+    }),
   }
 }
 

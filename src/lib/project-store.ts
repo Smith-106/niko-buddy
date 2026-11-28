@@ -14,7 +14,7 @@ import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 // `await import("@/lib/project-store")` from UI, so routing it through the
 // @/lib/novel barrel would pull the whole 145-module surface into that path.
 import { assertInvariantsNotDisabled, pickInvariantOverrides } from "@/lib/novel/kb-governance"
-import { readFile, writeFile, fileExists } from "@/commands/fs"
+import { createDirectory, readFile, writeFile, writeFileAtomic, fileExists } from "@/commands/fs"
 import { encryptApiKeysInObject, decryptApiKeysInObject, countApiKeyStatus } from "@/lib/crypto"
 // F12：TTL sanitize 真源收敛到 stage-output-journal（与全局 setter 同一谓词，消灭双链不对称）。
 import { sanitizeJournalTtlMs } from "@/lib/novel/stage-output-journal"
@@ -499,18 +499,31 @@ function novelConfigFilePath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${NOVEL_CONFIG_FILE}`
 }
 
-export async function saveNovelConfig(config: NovelConfig, projectId?: string, projectPath?: string): Promise<void> {
+export async function saveNovelConfig(
+  config: NovelConfig,
+  projectId?: string,
+  projectPath?: string,
+  options?: { strictFileWrite?: boolean },
+): Promise<void> {
   const store = await getStore()
   if (projectId) {
     const existing = (await store.get<Record<string, NovelConfig>>(PROJECT_NOVEL_CONFIG_KEY)) ?? {}
     await store.set(PROJECT_NOVEL_CONFIG_KEY, { ...existing, [projectId]: config })
   }
-  await store.set(NOVEL_CONFIG_KEY, config)
+  // Phase 3：仅在全局级保存（无 projectId 且无 projectPath）时写入全局 NOVEL_CONFIG_KEY，
+  // 防止单项目配置（如 taskSkillNames/activeCraftPresetId）反向污染其他新开项目。
+  if (!projectId && !projectPath) {
+    await store.set(NOVEL_CONFIG_KEY, config)
+  }
   if (projectPath) {
     try {
-      await writeFile(novelConfigFilePath(projectPath), JSON.stringify(config, null, 2))
-    } catch {
-      // non-critical
+      await createDirectory(`${normalizePath(projectPath)}/.niko-buddy`).catch(() => undefined)
+      await writeFileAtomic(novelConfigFilePath(projectPath), JSON.stringify(config, null, 2))
+    } catch (err) {
+      if (options?.strictFileWrite) {
+        throw err
+      }
+      // 兼容缺省调用：非严格模式允许文件写失败时保留 store 持久化
     }
   }
 }
@@ -836,6 +849,13 @@ function normalizeNovelConfig(
     dialoguePunctuationStyle: config.dialoguePunctuationStyle ?? DEFAULT_NOVEL_CONFIG.dialoguePunctuationStyle,
     paragraphIndent: config.paragraphIndent ?? DEFAULT_NOVEL_CONFIG.paragraphIndent,
     quoteConvention: config.quoteConvention ?? DEFAULT_NOVEL_CONFIG.quoteConvention,
+    // Phase 3：保留单阶段审稿超时覆盖与当前激活工艺预设 ID（避免 normalize 静默丢弃扩展键）。
+    ...(typeof config.reviewStageTimeoutMs === "number" && Number.isFinite(config.reviewStageTimeoutMs) && config.reviewStageTimeoutMs > 0
+      ? { reviewStageTimeoutMs: Math.floor(config.reviewStageTimeoutMs) }
+      : {}),
+    ...(typeof config.activeCraftPresetId === "string" && config.activeCraftPresetId.trim()
+      ? { activeCraftPresetId: config.activeCraftPresetId.trim() }
+      : {}),
   }
 }
 

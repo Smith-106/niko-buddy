@@ -49,6 +49,7 @@ describe("persistNovelConfigPatch", () => {
     expect(saveNovelConfigMock.mock.calls[0][0]).toMatchObject({ chapterTargetChars: 4000 })
     expect(saveNovelConfigMock.mock.calls[0][1]).toBe("p1")
     expect(saveNovelConfigMock.mock.calls[0][2]).toBe("/tmp/p1")
+    expect(saveNovelConfigMock.mock.calls[0][3]).toEqual({ strictFileWrite: true })
     expect(next.chapterTargetChars).toBe(4000)
     expect(next.reviewModel).toBe(prev.reviewModel)
   })

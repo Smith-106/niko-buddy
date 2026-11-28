@@ -278,7 +278,26 @@ export function createDeAiDualPassHook(options: {
       try {
         const { runDeAiDualPass, formatDualPassSummary, formatDualPassPromptFragment } =
           await import("./de-ai-dual-pass")
-        const report = runDeAiDualPass(text)
+        let tieredTable: readonly import("./de-ai-tiered-table").TieredDeAiEntry[] | undefined
+        if (ctx.projectPath) {
+          try {
+            const { loadEffectiveTieredDeAiTable } = await import("./de-ai-tiered-table")
+            const { table, overrides } = await loadEffectiveTieredDeAiTable(ctx.projectPath)
+            const hasOverride = Boolean(
+              overrides && (
+                overrides.customEntries.length > 0
+                || overrides.disabledTerms.length > 0
+                || Object.keys(overrides.tierOverrides).length > 0
+              ),
+            )
+            if (hasOverride) {
+              tieredTable = table
+            }
+          } catch {
+            // 读取项目分级表覆盖失败时静默退回默认表
+          }
+        }
+        const report = tieredTable ? runDeAiDualPass(text, { tieredTable }) : runDeAiDualPass(text)
         ctx.bag.notes.push(formatDualPassSummary(report))
         const fragment = formatDualPassPromptFragment(report).trim()
         if (fragment) {

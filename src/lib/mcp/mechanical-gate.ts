@@ -21,6 +21,7 @@ import { normalizePath } from "@/lib/path-utils"
 import {
   AntiAiCandidatePool,
   EMPTY_BOOK_RULES,
+  TIERED_DEAI_TABLE,
   buildDecisionGates,
   cavityPatternPenalty,
   characterActionsToText,
@@ -30,7 +31,9 @@ import {
   detectSilentStretch,
   extractDeAiChapterBody,
   loadCharacterStates,
+  mergeTieredDeAiTable,
   normalizeBookRules,
+  normalizeDeAiTieredOverrides,
   overCorrectionReport,
   overCorrectionToText,
   resolveChapterLengthSpec,
@@ -52,6 +55,7 @@ import {
   type SlopHit,
   type SlopReport,
   type StatisticalFactorReport,
+  type TieredDeAiEntry,
 } from "@/lib/novel"
 import {
   createDefaultStore,
@@ -387,6 +391,26 @@ async function loadBookRulesReadOnly(
   }
 }
 
+async function loadTieredDeAiTableReadOnly(
+  projectPath: string,
+  readFileText: (path: string) => Promise<string>,
+): Promise<readonly TieredDeAiEntry[] | undefined> {
+  const root = normalizePath(projectPath).replace(/\/+$/, "")
+  const overridesPath = `${root}/.niko-buddy/de-ai-tiered-overrides.json`
+  try {
+    const raw = await readFileText(overridesPath)
+    if (!raw.trim()) return undefined
+    const overrides = normalizeDeAiTieredOverrides(JSON.parse(raw))
+    const hasOverride =
+      overrides.customEntries.length > 0
+      || overrides.disabledTerms.length > 0
+      || Object.keys(overrides.tierOverrides).length > 0
+    return hasOverride ? mergeTieredDeAiTable(TIERED_DEAI_TABLE, overrides) : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function countLiteralOccurrences(text: string, term: string): number {
   if (!term) return 0
   let count = 0
@@ -547,7 +571,7 @@ export async function runMechanicalGateForMcp(
       : undefined
 
   // 并发执行所有只读 I/O（零磁盘写）
-  const [continuityResults, bookRulesLoad, characterNames, userMemoryStore, statReport] =
+  const [continuityResults, bookRulesLoad, characterNames, userMemoryStore, statReport, tieredDeAiTable] =
     await Promise.all([
       deps.runContinuityPreflight(input.projectPath, chapterNumber, {
         chapterText: body,
@@ -560,6 +584,7 @@ export async function runMechanicalGateForMcp(
         : deps.loadCharacterNames(input.projectPath),
       deps.loadUserMemory(input.projectPath),
       deps.analyzeStatisticalFactors(body),
+      loadTieredDeAiTableReadOnly(input.projectPath, deps.readFileText),
     ])
 
   // ── P0：确定性连续性 + 书籍治理规则（BookRules）────────────────────────────
@@ -623,7 +648,9 @@ export async function runMechanicalGateForMcp(
 
   // 2) Pinpoint 静态定位命中（含 1-based 行列号 + 偏移 + 上下文片段）
   const detailLevel: MechanicalGateDetailLevel = input.detailLevel === "compact" ? "compact" : "full"
-  const deAiDetection = runDeAiDetection(body)
+  const deAiDetection = tieredDeAiTable
+    ? runDeAiDetection(body, { tieredTable: tieredDeAiTable })
+    : runDeAiDetection(body)
   const lineStarts = buildLineStartOffsets(body)
   const pinpointTotalCount = deAiDetection.hits.length
   const pinpointCap = detailLevel === "compact" ? COMPACT_MAX_PINPOINT_HITS : MAX_PINPOINT_HITS

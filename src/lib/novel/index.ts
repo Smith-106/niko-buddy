@@ -69,6 +69,7 @@ export type { ChatEditTarget, ParsedChapterEditFile } from "./chat-edit-mode"
 export type { DataSourceCategory, RouteSource } from "./classification"
 export { buildContextPack, clearTemporalFactsCache, contextPackToPrompt, trimContextPack, computeIrrelevantRatio, searchRelevantContent, searchRelevantContentUnified, runVectorSearchForContext, searchGraphRelevantContent } from "./context-engine"
 export type { BuildContextOptions, ContextPack, ContextPackToPromptOptions, TrimResult } from "./context-engine"
+export type { ContextPackRuntimeDiagnostics } from "./context-engine-types"
 export { dismissFinding } from "./continuity-overrides-store"
 export { buildCoverBrief, coverBriefToPrompt, validateCoverBrief } from "./cover-brief"
 export type { BookCoverMeta } from "./cover-brief"
@@ -84,7 +85,11 @@ export {
   buildQmQuaiSystemPrompt,
   injectDeAiDirective,
   loadSmartDeAiSkill,
+  loadUnifiedDeAiSkillPrompt,
+  resolveUnifiedDeAiRuntime,
   runDeAiDetection,
+  runProjectDeAiDetection,
+  runProjectDeAiDualPass,
   parseDeAiEditPlan,
   parseDeAiEditPlanChecked,
   applyDeAiSpanEdits,
@@ -99,6 +104,7 @@ export type {
   DeAiSpanApplyResult,
   DeAiEditPlanParseResult,
   DeAiEditError,
+  UnifiedDeAiRuntimeResult,
 } from "./de-ai-adapter"
 export { acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch } from "./de-ai-batch"
 export type { DeAiBatchOptions, DeAiBatchProgress, DeAiBatchSummary } from "./de-ai-batch"
@@ -106,8 +112,58 @@ export { CHINESE_NOVEL_DE_AI_RULES, DE_AI_CATEGORIES, DE_AI_SEVERITIES, DE_AI_ST
 export type { DeAiCategory, DeAiSeverity, DeAiStructuredRule, GenreBaseline, WebNovelGenre } from "./de-ai-rules"
 export { BUILT_IN_DE_AI_SKILLS, createBlankProjectDeAiSkill, deAiSkillToUserSkill, deleteProjectDeAiSkill, getAllDeAiSkills, isDeAiSkillConfigCorruptError, loadDeAiSkillConfig, normalizeDeAiSkillConfig, recreateDeAiSkillConfig, resetBuiltInDeAiSkill, resolveAvailableDeAiSkills, resolveEffectiveDeAiSkill, restoreDeAiSkillConfigFromBackup, saveDeAiSkillConfig, setDeAiSkillEnabled, setDefaultDeAiSkill, updateDeAiSkill } from "./de-ai-skill-library"
 export type { DeAiSkill, DeAiSkillConfig } from "./de-ai-skill-library"
-export { TIERED_DEAI_TABLE, computeTieredDeAiStats } from "./de-ai-tiered-table"
-export type { TieredDeAiEntry, TieredDeAiTier } from "./de-ai-tiered-table"
+export {
+  DE_AI_TIERED_OVERRIDES_FILE,
+  TIERED_DEAI_TABLE,
+  buildTieredDeAiOverrideDirective,
+  computeTieredDeAiStats,
+  createEmptyDeAiTieredOverrides,
+  detectTieredDeAi,
+  loadDeAiTieredOverrides,
+  loadEffectiveTieredDeAiTable,
+  mergeTieredDeAiTable,
+  normalizeDeAiTieredOverrides,
+  saveDeAiTieredOverrides,
+} from "./de-ai-tiered-table"
+export type { DeAiTieredOverrides, TieredDeAiCategory, TieredDeAiEntry, TieredDeAiHit, TieredDeAiTier } from "./de-ai-tiered-table"
+export {
+  DEFAULT_TIERED_SECTION_CHAR_BUDGETS,
+  computeEffectiveContextTokenBudget,
+  computeRuntimeSkillBudgetTokens,
+  mapRuntimeStageToTaskKey,
+  resolveRuntimeSkillsForStage,
+} from "./runtime-skill-resolver"
+export type {
+  ExplicitSkillRef,
+  ResolveRuntimeSkillsInput,
+  ResolveRuntimeSkillsResult,
+  RuntimeSkillStage,
+} from "./runtime-skill-resolver"
+export {
+  BUILT_IN_CRAFT_PRESETS,
+  CUSTOM_CRAFT_PRESETS_FILE,
+  NOVEL_CONFIG_RELATIVE_FILE,
+  PRESET_BACKUPS_DIR,
+  PRESET_JOURNAL_FILE,
+  applyCraftPresetToProject,
+  computeMissingPresetSkills,
+  findCraftPresetById,
+  loadCraftPresetJournal,
+  loadCustomCraftPresets,
+  mergeFencedPresetHint,
+  parseCustomCraftPresetsJson,
+  rollbackLastCraftPreset,
+  saveCustomCraftPresets,
+  stripFencedPresetHint,
+} from "./craft-preset-applier"
+export type {
+  ApplyCraftPresetOptions,
+  ApplyCraftPresetResult,
+  CraftPresetDefinition,
+  CraftPresetJournalEntry,
+  CraftPresetJournalFile,
+  RollbackCraftPresetResult,
+} from "./craft-preset-applier"
 export { DEFAULT_DEEP_CHAPTER_DEPS, runDeepChapterGeneration } from "./deep-chapter-generation"
 export type { DeepChapterDecisionGateKey, DeepChapterGateVerdict, DeepChapterDecisionGates, DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResult, DeepChapterGenerationResumeCheckpoint } from "./deep-chapter-generation"
 export { resolveChapterLengthSpec } from "./deep-chapter-prompts"
@@ -449,8 +505,37 @@ export type { TranslationLlmPort, TranslationProgress } from "./translation-work
 export { applyTaskSkillOverride, isTaskPromptKey, resolveTaskExtraPrompt, resolveTaskSkillNames } from "./task-customization"
 export type { TaskSkillOverrideResult } from "./task-customization"
 export { DEFAULT_BUILTIN_WRITING_SKILLS, getBuiltinSkillIds } from "./skill-seed"
-export { USER_SKILL_CONFIG_FILE, WRITING_SKILL_KIND_OPTIONS, WRITING_SKILL_MODE_OPTIONS, WRITING_SKILL_STAGE_OPTIONS, createBlankWritingSkill, createSkillCategory, deleteSkillCategory, deleteWritingSkill, ensureBuiltinSkills, exportSkillToJson, importSkillFromJson, importWritingSkill, loadAllLinkedSkillsContent, loadLinkedSkillContent, loadUserSkillConfig, moveSkillToCategory, normalizeUserSkillConfig, renameSkillCategory, reorderSkillCategories, resolveEnabledWritingSkills, saveUserSkillConfig, setWritingSkillEnabled, touchSkillUsage, updateWritingSkill } from "./user-skill-store"
-export type { UserSkillConfig } from "./user-skill-store"
+export {
+  PROJECT_ROOT_TOKEN,
+  USER_ASSET_ROOT_TOKEN,
+  USER_SKILL_CONFIG_FILE,
+  WRITING_SKILL_KIND_OPTIONS,
+  WRITING_SKILL_MODE_OPTIONS,
+  WRITING_SKILL_STAGE_OPTIONS,
+  cloneSkillAsEditable,
+  createBlankWritingSkill,
+  createSkillCategory,
+  deleteSkillCategory,
+  deleteWritingSkill,
+  ensureBuiltinSkills,
+  exportSkillToJson,
+  importSkillFromJson,
+  importWritingSkill,
+  loadAllLinkedSkillsContent,
+  loadLinkedSkillContent,
+  loadUserSkillConfig,
+  moveSkillToCategory,
+  normalizeUserSkillConfig,
+  renameSkillCategory,
+  reorderSkillCategories,
+  resolveEnabledWritingSkills,
+  saveUserSkillConfig,
+  setWritingSkillEnabled,
+  touchSkillUsage,
+  updateWritingSkill,
+  upsertWritingSkills,
+} from "./user-skill-store"
+export type { LoadLinkedSkillOptions, UserSkillConfig } from "./user-skill-store"
 export { buildSignedWebhookRequest, dispatchNotify, verifyWebhookSignature } from "./webhook-notifier"
 export type { NotifyEvent, NotifyEventType } from "./webhook-notifier"
 export { getEnabledWritingStyle, loadWritingStyleStore, setEnabledWritingStyle, upsertWritingStylePreset } from "./writing-style-store"
