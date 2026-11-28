@@ -179,9 +179,11 @@ export class AgentRunner {
 
     const missingRequiredTools = () => missingRequiredToolsOnce({
       requiredToolsOnce: requiredTools,
-      availableToolNames: config.tools.map((tool) => tool.name),
+      availableToolNames: config.tools
+        .filter((tool) => tool.category !== "virtual")
+        .map((tool) => tool.name),
       calledToolNames: satisfiedRequiredTools,
-      toolsEnabled: config.tools.length > 0,
+      toolsEnabled: config.tools.some((tool) => tool.category !== "virtual"),
     })
 
     const attemptRequiredToolFallback = async (): Promise<"success" | "error" | "unavailable"> => {
@@ -348,7 +350,8 @@ export class AgentRunner {
       }
 
       const toolsAllowed = isFunctionCallingEnabled(config.llmConfig) && config.tools.length > 0
-      let openaiTools = toolsAllowed ? toOpenAITools(config.tools) : undefined
+      const wireTools = toolsAllowed ? toOpenAITools(config.tools) : []
+      let openaiTools = wireTools.length > 0 ? wireTools : undefined
       let attemptedToolsFallback = false
       const buildRequestOverrides = (baseOverrides = config.requestOverrides) =>
         openaiTools
@@ -482,7 +485,11 @@ export class AgentRunner {
       ) {
         const parsed = parseTextToolCalls(
           roundText,
-          new Set(config.tools.map((tool) => tool.name)),
+          new Set(
+            config.tools
+              .filter((tool) => tool.category !== "virtual")
+              .map((tool) => tool.name),
+          ),
         )
         if (parsed.toolCalls.length > 0) {
           toolCalls = parsed.toolCalls
@@ -493,7 +500,9 @@ export class AgentRunner {
       if (toolCalls.length === 0) {
         const missingRequired = missingRequiredToolsOnce({
           requiredToolsOnce: requiredTools,
-          availableToolNames: config.tools.map((tool) => tool.name),
+          availableToolNames: config.tools
+            .filter((tool) => tool.category !== "virtual")
+            .map((tool) => tool.name),
           calledToolNames: satisfiedRequiredTools,
           toolsEnabled: Boolean(openaiTools),
         })

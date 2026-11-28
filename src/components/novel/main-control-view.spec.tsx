@@ -1809,4 +1809,32 @@ describe("TASK-008：主控顶部自治启动条（Campaign + Incubator）与 4 
   })
 })
 
+describe("TASK-003：MainControlView 通过 intentToolMask 委托主控派生固定意图掩码", () => {
+  it("向 runMainControlAgent 传递 intentToolMask: true 且不直接传递 enabledToolNames（避免越界深层导入）", async () => {
+    runMainControlAgent.mockResolvedValue({
+      ok: true,
+      finalText: "完成",
+      roundsUsed: 1,
+      steps: [],
+      drafts: [],
+    })
+
+    render(<MainControlView />)
+
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "审稿第 3 章" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(runMainControlAgent).toHaveBeenCalledTimes(1))
+    const call1 = runMainControlAgent.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(call1).toEqual(expect.objectContaining({ intentToolMask: true }))
+    expect(call1).not.toHaveProperty("enabledToolNames")
+
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "写第 5 章" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(runMainControlAgent).toHaveBeenCalledTimes(2))
+    const call2 = runMainControlAgent.mock.calls[1]?.[0] as Record<string, unknown>
+    expect(call2).toEqual(expect.objectContaining({ intentToolMask: true }))
+    expect(call2).not.toHaveProperty("enabledToolNames")
+  })
+})
+
 

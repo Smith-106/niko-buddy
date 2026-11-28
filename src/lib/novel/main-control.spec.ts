@@ -7,10 +7,14 @@ import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { listDirectory, readFile } from "@/commands/fs"
 import * as mainControl from "./main-control"
 import {
+  DISALLOWED_MAIN_CONTROL_TOOLS,
   MAIN_CONTROL_SYSTEM_PROMPT,
+  MAIN_CONTROL_TOOL_MASKS,
   MAIN_CONTROL_TOOLS,
+  classifyMainControlIntent,
   loadOutlineConversations,
   parseDraftReceipts,
+  resolveMainControlToolMask,
   resolveWikiPath,
   runMainControlAgent,
 } from "./main-control"
@@ -994,5 +998,108 @@ describe("TASK-005：技能预加载、apply_skill 空参列表与系统提示�
     }
     expect(MAIN_CONTROL_SYSTEM_PROMPT).toContain("草稿区")
     expect(MAIN_CONTROL_SYSTEM_PROMPT).toContain("严禁直写正式记忆")
+  })
+})
+
+describe("TASK-003：3 档固定主控工具掩码与 write_memory 严格排除", () => {
+  it("DISALLOWED_MAIN_CONTROL_TOOLS 与 3 个固定掩码均严格排除 write_memory/route_task/trim_context", () => {
+    expect(DISALLOWED_MAIN_CONTROL_TOOLS).toContain("write_memory")
+    expect(DISALLOWED_MAIN_CONTROL_TOOLS).toContain("route_task")
+    expect(DISALLOWED_MAIN_CONTROL_TOOLS).toContain("trim_context")
+
+    for (const profile of ["read_plan", "write_edit", "full"] as const) {
+      const mask = resolveMainControlToolMask(profile)
+      expect(mask).toBe(MAIN_CONTROL_TOOL_MASKS[profile])
+      for (const forbidden of DISALLOWED_MAIN_CONTROL_TOOLS) {
+        expect(mask).not.toContain(forbidden)
+      }
+      // 稳定字典序保证相同档位跨轮逐字节一致
+      const sorted = [...mask].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      expect([...mask]).toEqual(sorted)
+    }
+
+    expect(MAIN_CONTROL_TOOL_MASKS.read_plan).toContain("read_chapter")
+    expect(MAIN_CONTROL_TOOL_MASKS.read_plan).toContain("write_outline_node")
+    expect(MAIN_CONTROL_TOOL_MASKS.read_plan).not.toContain("write_chapter")
+    expect(MAIN_CONTROL_TOOL_MASKS.read_plan).not.toContain("run_chapter_workflow")
+
+    expect(MAIN_CONTROL_TOOL_MASKS.write_edit).toContain("write_chapter")
+    expect(MAIN_CONTROL_TOOL_MASKS.write_edit).toContain("run_chapter_workflow")
+    expect(MAIN_CONTROL_TOOL_MASKS.write_edit).not.toContain("write_outline_node")
+
+    expect(MAIN_CONTROL_TOOL_MASKS.full).toContain("write_chapter")
+    expect(MAIN_CONTROL_TOOL_MASKS.full).toContain("write_outline_node")
+    expect(MAIN_CONTROL_TOOL_MASKS.full).toContain("run_chapter_workflow")
+  })
+
+  it("同档位不同目标生成逐字节一致的 enabledToolNames 切片并正确收窄主控注册表", async () => {
+    const maskA = resolveMainControlToolMask(classifyMainControlIntent("审稿第 3 章"))
+    const maskB = resolveMainControlToolMask(classifyMainControlIntent("生成大纲"))
+    expect(JSON.stringify(maskA)).toBe(JSON.stringify(maskB))
+
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "审稿第 3 章",
+      llmConfig: LLM,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: vi.fn(async () => ({ ok: true })) as never,
+      quality: { scoreChapter: async () => ({ thrill: 8 }), reviseChapter: async (c) => c },
+      enabledToolNames: maskA,
+      deps: { runner: fakeRunner([]), registry },
+    })
+
+    const names = registry.list().map((tool) => tool.name)
+    expect(names).toContain("read_chapter")
+    expect(names).toContain("score_chapter")
+    expect(names).toContain("write_outline_node")
+    expect(names).not.toContain("write_chapter")
+    expect(names).not.toContain("run_chapter_workflow")
+    expect(names).not.toContain("write_memory")
+  })
+
+  it("intentToolMask: true 按 goal 自动派生 read_plan / write_edit / full，显式 enabledToolNames 优先且永不含 write_memory", async () => {
+    const deepRunner = vi.fn(async () => ({ ok: true })) as never
+    const qualityDeps = { scoreChapter: async () => ({ thrill: 8 }), reviseChapter: async (c: string) => c }
+
+    const runAndCollect = async (extra: Record<string, unknown>) => {
+      const registry = new ToolRegistry()
+      await runMainControlAgent({
+        projectPath: "/proj",
+        wikiPath: "/proj/wiki",
+        goal: "审稿第 3 章",
+        llmConfig: LLM,
+        aiWorkflowMode: "standard",
+        runDeepChapterGeneration: deepRunner,
+        quality: qualityDeps,
+        deps: { runner: fakeRunner([]), registry },
+        ...extra,
+      } as never)
+      return registry.list().map((t) => t.name).sort()
+    }
+
+    // 1. 读审类 goal -> read_plan
+    const readNames = await runAndCollect({ goal: "审稿第 3 章", intentToolMask: true })
+    expect(readNames).toEqual([...MAIN_CONTROL_TOOL_MASKS.read_plan].sort())
+    expect(readNames).not.toContain("write_memory")
+
+    // 2. 写作类 goal -> write_edit
+    const writeNames = await runAndCollect({ goal: "写第 5 章", intentToolMask: true })
+    expect(writeNames).toEqual([...MAIN_CONTROL_TOOL_MASKS.write_edit].sort())
+    expect(writeNames).not.toContain("write_memory")
+
+    // 3. 通用 goal -> full
+    const fullNames = await runAndCollect({ goal: "任意自由目标", intentToolMask: true })
+    expect(fullNames).toEqual([...MAIN_CONTROL_TOOL_MASKS.full].sort())
+    expect(fullNames).not.toContain("write_memory")
+
+    // 4. 显式 enabledToolNames 优先于 intentToolMask（且仍屏蔽 write_memory）
+    const overrideNames = await runAndCollect({
+      goal: "写第 5 章",
+      intentToolMask: true,
+      enabledToolNames: ["read_chapter", "write_memory"],
+    })
+    expect(overrideNames).toEqual(["read_chapter"])
   })
 })

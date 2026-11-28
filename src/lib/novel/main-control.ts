@@ -20,8 +20,12 @@ import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { StageJournalRuntime } from "./stage-output-journal"
 import { recordModuleHit } from "./module-heat"
-import { routeTask } from "./task-router"
-import type { NovelTaskIntent } from "./task-router"
+import {
+  classifyMainControlIntent,
+  routeTask,
+  type MainControlToolMaskProfile,
+  type NovelTaskIntent,
+} from "./task-router"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { toErrorMessage } from "@/lib/utils"
 import { loadDeAiSkillConfig, type DeAiSkillConfig } from "./de-ai-skill-library"
@@ -66,6 +70,74 @@ export const MAIN_CONTROL_TOOLS = [
   "write_outline_node",
   ...MAIN_CONTROL_MCP_TOOL_NAMES,
 ] as const
+
+/** 主控严格禁止的工具（即使调用方传进白名单也不放行）。 */
+export const DISALLOWED_MAIN_CONTROL_TOOLS = [
+  "write_memory",
+  "route_task",
+  "trim_context",
+] as const
+
+const DISALLOWED_MAIN_CONTROL_TOOL_SET = new Set<string>(DISALLOWED_MAIN_CONTROL_TOOLS)
+
+const MAIN_CONTROL_READ_BASE_TOOLS = [
+  "read_chapter",
+  "list_chapters",
+  "search_chapters",
+  "read_memory",
+  "list_memories",
+  "read_deduction",
+  "list_deductions",
+  "read_outline",
+  "list_outlines",
+  "read_outline_history",
+  "load_context",
+  ...MAIN_CONTROL_MCP_TOOL_NAMES,
+] as const
+
+function buildSortedToolMask(names: readonly string[]): readonly string[] {
+  const unique = new Set<string>()
+  for (const name of names) {
+    if (!DISALLOWED_MAIN_CONTROL_TOOL_SET.has(name)) {
+      unique.add(name)
+    }
+  }
+  return Object.freeze(
+    Array.from(unique).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+  )
+}
+
+/**
+ * 3 个固定且按 ASCII 字典序排列的主控意图工具掩码档位。
+ * 同一档位跨轮返回逐字节一致的工具名切片，避免动态工具集合抖动打穿 Provider Prompt Cache。
+ */
+export const MAIN_CONTROL_TOOL_MASKS: Readonly<Record<MainControlToolMaskProfile, readonly string[]>> =
+  Object.freeze({
+    read_plan: buildSortedToolMask([
+      ...MAIN_CONTROL_READ_BASE_TOOLS,
+      "apply_skill",
+      "write_outline_node",
+      "score_chapter",
+    ]),
+    write_edit: buildSortedToolMask([
+      ...MAIN_CONTROL_READ_BASE_TOOLS,
+      "apply_skill",
+      "write_chapter",
+      ...MAIN_CONTROL_QUALITY_TOOLS,
+      ...MAIN_CONTROL_DEEP_TOOLS,
+    ]),
+    full: buildSortedToolMask([
+      ...MAIN_CONTROL_TOOLS,
+      ...MAIN_CONTROL_QUALITY_TOOLS,
+      ...MAIN_CONTROL_DEEP_TOOLS,
+    ]),
+  })
+
+export { classifyMainControlIntent, type MainControlToolMaskProfile }
+
+export function resolveMainControlToolMask(profile: MainControlToolMaskProfile): readonly string[] {
+  return MAIN_CONTROL_TOOL_MASKS[profile] ?? MAIN_CONTROL_TOOL_MASKS.full
+}
 
 export const MAIN_CONTROL_SYSTEM_PROMPT = `你是 Niko Buddy 的主控 Agent（阶段 1：只读 + 草稿）。
 
@@ -127,6 +199,8 @@ export interface RunMainControlOptions {
   modelId?: string
   /** 可选：本次运行只用其中列出的工具（交集于允许集合；未注入依赖的工具自动剔除）。 */
   enabledToolNames?: readonly string[]
+  /** 为 true 且未显式传 enabledToolNames 时，按 goal 与 gateIntent 派生固定意图工具掩码。 */
+  intentToolMask?: boolean
   /** 注入后额外注册 score_chapter / revise_chapter，让 Agent 自己迭代到目标分。 */
   quality?: QualityToolDeps
   /** 注入后额外注册 run_chapter_workflow（深章流水线；正文仍不落盘）。 */
@@ -318,10 +392,17 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
   const runner = options.deps?.runner ?? new AgentRunner()
   const deepTools = options.runDeepChapterGeneration ? [...MAIN_CONTROL_DEEP_TOOLS] : []
   const qualityTools = options.quality ? [...MAIN_CONTROL_QUALITY_TOOLS] : []
-  const allowed = new Set<string>([...MAIN_CONTROL_TOOLS, ...qualityTools, ...deepTools])
+  const allowed = new Set<string>(
+    [...MAIN_CONTROL_TOOLS, ...qualityTools, ...deepTools].filter(
+      (name) => !DISALLOWED_MAIN_CONTROL_TOOL_SET.has(name),
+    ),
+  )
   // 可选收窄（不扩大）：调用方点名要用的工具子集，未注册的依赖工具自动剔除，
   // 因此 Draft-first 边界不会被这个参数放宽。目标写入体较小时能显著降低上下文压力。
-  const requested = options.enabledToolNames?.filter((name) => allowed.has(name))
+  const derivedMask = !options.enabledToolNames && options.intentToolMask
+    ? resolveMainControlToolMask(classifyMainControlIntent(options.goal, { explicitIntent: options.gateIntent }))
+    : undefined
+  const requested = (options.enabledToolNames ?? derivedMask)?.filter((name) => allowed.has(name))
   const enabledToolNames = requested && requested.length > 0 ? requested : [...allowed]
   /**
    * RV-02：必调兜底的**结构化**来源。

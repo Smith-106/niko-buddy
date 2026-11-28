@@ -593,6 +593,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           ? { chapter: planChapterNumber, source: planRecord.source, savedAt: planRecord.savedAt }
           : null,
       )
+      const gateIntent = goalSource === "chapter-draft-handoff" ? "write_chapter" : undefined
       const out = await runMainControlAgent({
         projectPath,
         wikiPath,
@@ -601,6 +602,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         quality,
         runDeepChapterGeneration,
         aiWorkflowMode: resolveAiWorkflowMode(aiWorkflowMode),
+        intentToolMask: true,
         stageJournal,
         signal: controller.signal,
         onStep: (step) => setSteps((prev) => upsertStep(prev, step)),
@@ -618,7 +620,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         //   本面板也只给中性标识（见 planBlueprintNotice）。
         // - getFallbackParams：拿不到就省略对应键（章号只从结构化来源解析，不猜）；
         //   计划与 getPlanBlueprint 同源（同一份闭包值），有才带。
-        gateIntent: goalSource === "chapter-draft-handoff" ? "write_chapter" : undefined,
+        gateIntent,
         novelMode,
         planExecuteActive: false,
         getPlanBlueprint: () => planBlueprint,
