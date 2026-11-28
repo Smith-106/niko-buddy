@@ -83,6 +83,7 @@ function getSkillRouteCategory(path: string, name: string): string {
     if (name.includes("world-rules")) return SKILL_ROUTE_CATEGORY_IDS.worldbuilding
     if (name.includes("faction")) return SKILL_ROUTE_CATEGORY_IDS.faction
     if (name.includes("foreshadowing")) return SKILL_ROUTE_CATEGORY_IDS.foreshadowing
+    if (name.includes("power")) return SKILL_ROUTE_CATEGORY_IDS.setting
     if (name.includes("map")) return SKILL_ROUTE_CATEGORY_IDS.map
     return SKILL_ROUTE_CATEGORY_IDS.setting
   }
@@ -105,7 +106,7 @@ function getSkillShape(path: string): {
     return { kind: ["knowledge", "planning"], stages: ["planning"], priority: 18 }
   }
   if (folder === "QualitySkill") {
-    return { kind: ["planning", "output"], stages: ["planning", "output"], priority: 16 }
+    return { kind: ["planning", "review", "output"], stages: ["planning", "review", "output"], priority: 16 }
   }
   if (folder === "ZhengwenSkill") {
     return { kind: ["style", "output"], stages: ["drafting", "output"], priority: 28 }

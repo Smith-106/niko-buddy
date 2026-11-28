@@ -10,6 +10,8 @@
 6. `outline-supporting-cast`：按主角缺口配置配角。
 7. `worldbuilding-outline-last`：最后补世界观。
 8. `outline-final-assembler`：合并为完整大纲，并检查黄金三章准备度。
+9. `craft-opening-hook-promise-and-inciting-incident`：开篇契约、LOCK 冲突建模与三重死亡赌注设计。
+10. `craft-midbook-midpoint-and-climax-architecture`：中段防塌陷五板斧、TRDs 转折与高潮危机兑现架构。
 
 ## 依赖关系
 

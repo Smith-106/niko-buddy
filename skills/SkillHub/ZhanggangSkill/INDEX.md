@@ -14,6 +14,7 @@
 6. `chapter-visual-detail`：补环境、动作、信息暗线细节，让章节有画面。
 7. `chapter-foreshadow-hook`：回收旧伏笔、预埋新伏笔、设置结尾强钩子。
 8. `chapter-outline-assembler`：合并为可写作的完整章纲。
+9. `craft-emotional-tension-and-crisis-escalation`：受压抑情感信号、共情杠杆与危机阶梯升级。
 
 ## 依赖关系
 

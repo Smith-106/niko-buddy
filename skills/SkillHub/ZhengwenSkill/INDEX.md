@@ -5,5 +5,6 @@
 - `dialogue-emotion`：对话、潜台词、情绪外化。
 - `combat-action`：战斗、动作、打斗流程、力量展示。
 - `anti-ai-polish`：去 AI 味、删模板句、保留剧情和情绪烈度。
+- `craft-scene-sequel-beats-and-pov-discipline`：场景行动-反应节拍（Beat）、Scene-Sequel 呼吸节奏、悬崖挂壁与单视角防游离纪律。
 
 

@@ -92,11 +92,33 @@ describe("getOutlineSkillNames（!definition / outline / review / drafting）", 
   it("outline 阶段 → 技能名非空", () => {
     const names = getOutlineSkillNames("人物小传")
     expect(names).toContain("character-design")
+    expect(names).toContain("character-ensemble-ecology-and-chemistry")
+    expect(names).toContain("character-antagonist-mirror-and-pressure")
+    expect(names).toContain("character-graceful-exit-and-legacy-arc")
+    expect(getOutlineSkillNames("势力设定")).toContain("craft-faction-politics-and-conspiracy")
+    expect(getOutlineSkillNames("流派配装")).toContain("novel-craft-school-and-expert-selector")
+    expect(getOutlineSkillNames("力量体系")).toContain("craft-power-economy-and-map-escalation")
+    expect(getOutlineSkillNames("力量体系")).toContain("craft-worldview-coherence-and-belief-arc")
+    expect(getOutlineSkillNames("世界观设定")).toContain("craft-worldview-coherence-and-belief-arc")
+    expect(getOutlineSkillNames("伏笔计划")).toContain("craft-mystery-clue-fairplay-and-red-herring")
+    expect(getOutlineSkillNames("故事大纲")).toContain("craft-opening-hook-promise-and-inciting-incident")
+    expect(getOutlineSkillNames("故事大纲")).toContain("craft-midbook-midpoint-and-climax-architecture")
+    expect(getOutlineSkillNames("中段结构")).toContain("craft-midbook-midpoint-and-climax-architecture")
+    expect(getOutlineSkillNames("中点反转")).toContain("craft-midbook-midpoint-and-climax-architecture")
+    expect(getOutlineSkillNames("情感张力")).toContain("craft-emotional-tension-and-crisis-escalation")
+    expect(getOutlineSkillNames("自编辑")).toContain("craft-self-editing-revision-and-prose-tightening")
+    expect(findSkillRouteByAlias("战斗场景")?.supportingSkills).toContain("craft-combat-tactics-and-terrain-chess")
+    expect(findSkillRouteByAlias("对话场景")?.supportingSkills).toContain("craft-dialogue-sparring-and-status-play")
+    expect(findSkillRouteByAlias("对话场景")?.supportingSkills).toContain("craft-emotional-tension-and-crisis-escalation")
+    expect(findSkillRouteByAlias("二稿改稿")?.supportingSkills).toContain("craft-self-editing-revision-and-prose-tightening")
   })
 
   it("review 阶段 → 技能名非空（stage !== outline 真 + !== review 假）", () => {
     const names = getOutlineSkillNames("大纲质量检查")
     expect(names).toContain("outline-quality-check")
+    expect(names).toContain("novel-continuity-p0-gate-audit")
+    expect(names).toContain("novel-finale-three-precepts-audit")
+    expect(getOutlineSkillNames("P0门禁检查")).toContain("novel-continuity-p0-gate-audit")
   })
 
   it("drafting 阶段 → []（两 !== 皆真）", () => {
@@ -127,10 +149,12 @@ describe("getWritingSkillNames（意图门 + 四路开关）", () => {
   it("短篇开关真 → short；长篇回落（else 臂）", () => {
     const short = getWritingSkillNames("write_chapter", "短篇知乎故事")
     expect(short).toContain("short-form-drafting")
+    expect(short).toContain("craft-scene-sequel-beats-and-pov-discipline")
     expect(short).not.toContain("long-form-drafting")
 
     const long = getWritingSkillNames("write_chapter", "编写章节正文")
     expect(long).toContain("long-form-drafting")
+    expect(long).toContain("craft-scene-sequel-beats-and-pov-discipline")
     expect(long).not.toContain("short-form-drafting")
   })
 

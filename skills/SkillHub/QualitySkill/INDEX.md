@@ -5,6 +5,10 @@
 ## 当前 Skill
 
 - `outline-quality-check`：检查题材卡、总纲、卷纲、章纲、人物、设定、伏笔和保存请求是否合格。
+- `novel-continuity-p0-gate-audit`：正典与时空连续性 P0 硬门控审计。
+- `novel-finale-three-precepts-audit`：终局三戒（主角在场/掌控/抉择）审计。
+- `aigc-platform-compliance-kit`：AIGC 平台标注与发布合规检查。
+- `craft-self-editing-revision-and-prose-tightening`：自编辑四重镜头、Show vs Tell 清理与 10%–15% 删水精修。
 
 ## 调用时机
 
