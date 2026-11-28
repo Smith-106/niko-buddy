@@ -650,3 +650,42 @@ function intentToLabel(intent: NovelTaskIntent): string {
   /* v8 ignore next */
   return labels[intent] || "未知"
 }
+
+export type MainControlToolMaskProfile = "read_plan" | "write_edit" | "full"
+
+export interface ClassifyMainControlIntentOptions {
+  explicitIntent?: NovelTaskIntent
+}
+
+const READ_PLAN_INTENTS = new Set<NovelTaskIntent>([
+  "review_chapter",
+  "lint_chapter",
+  "generate_outline",
+  "search_plot",
+  "extract_memory",
+  "character_query",
+  "foreshadowing_query",
+  "timeline_query",
+  "setting_query",
+])
+
+const WRITE_EDIT_INTENTS = new Set<NovelTaskIntent>([
+  "write_chapter",
+  "continue_chapter",
+  "rewrite_chapter",
+  "polish_chapter",
+])
+
+/**
+ * 将主控任务归类为 3 个固定工具掩码档位之一（read_plan / write_edit / full），
+ * 确保相同档位下发送到 LLM 的工具前缀逐字节稳定，最大化 Prompt Cache 复用。
+ */
+export function classifyMainControlIntent(
+  goal: string,
+  options?: ClassifyMainControlIntentOptions,
+): MainControlToolMaskProfile {
+  const intent = options?.explicitIntent ?? routeTask(goal).intent
+  if (WRITE_EDIT_INTENTS.has(intent)) return "write_edit"
+  if (READ_PLAN_INTENTS.has(intent)) return "read_plan"
+  return "full"
+}

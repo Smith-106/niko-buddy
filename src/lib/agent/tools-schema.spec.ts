@@ -21,3 +21,32 @@ describe("toOpenAITools enum 参数", () => {
     expect(tools[0]?.function.parameters.required).toEqual(["mode"])
   })
 })
+
+describe("toOpenAITools virtual 工具过滤", () => {
+  it("过滤 category === virtual 的虚拟工具，仅保留模型可调用工具", () => {
+    const tools = toOpenAITools([
+      {
+        name: "load_context",
+        description: "虚拟工具",
+        category: "virtual",
+        parameters: {},
+        execute: async () => "ok",
+      },
+      {
+        name: "route_task",
+        description: "虚拟工具",
+        category: "virtual",
+        parameters: {},
+        execute: async () => "ok",
+      },
+      {
+        name: "read_chapter",
+        description: "读取章节",
+        category: "read",
+        parameters: { name: { type: "string", description: "章节名", required: true } },
+        execute: async () => "ok",
+      },
+    ])
+    expect(tools.map((tool) => tool.function.name)).toEqual(["read_chapter"])
+  })
+})

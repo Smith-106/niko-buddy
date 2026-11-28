@@ -25,7 +25,9 @@ function convertParameter(param: ToolParameter): Record<string, unknown> {
 }
 
 export function toOpenAITools(tools: Tool[]): OpenAIFunctionDef[] {
-  return tools.map((tool) => {
+  return tools
+    .filter((tool) => tool.category !== "virtual")
+    .map((tool) => {
     const properties: Record<string, unknown> = {}
     const required: string[] = []
     for (const [key, param] of Object.entries(tool.parameters)) {

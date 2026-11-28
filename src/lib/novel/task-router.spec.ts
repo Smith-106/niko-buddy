@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { routeTask, buildTaskDirective } from "./task-router"
+import { routeTask, buildTaskDirective, classifyMainControlIntent } from "./task-router"
 
 describe("routeTask chapter generation", () => {
   it("routes continue-next-chapter requests into chapter generation flow", () => {
@@ -367,5 +367,26 @@ describe("RVF-06 章节号取号：标题里的「首章」二字不得劫持目
     expect(routeTask("写开篇").chapterNumber).toBe(1)
     expect(routeTask("写开篇，不要写第二章").chapterNumber).toBe(1)
     expect(routeTask("写开篇，不要写第三章").chapterNumber).toBe(1)
+  })
+})
+
+describe("classifyMainControlIntent 主控固定掩码归档", () => {
+  it("将查询/审稿/连贯性检查/大纲规划归入 read_plan 档位", () => {
+    expect(classifyMainControlIntent("审稿第 3 章")).toBe("read_plan")
+    expect(classifyMainControlIntent("检查第 3 章的时间线错误")).toBe("read_plan")
+    expect(classifyMainControlIntent("生成大纲")).toBe("read_plan")
+    expect(classifyMainControlIntent("林夜现在在哪")).toBe("read_plan")
+  })
+
+  it("将写章/续写/改写/润色归入 write_edit 档位", () => {
+    expect(classifyMainControlIntent("写第 5 章")).toBe("write_edit")
+    expect(classifyMainControlIntent("继续写第 5 章")).toBe("write_edit")
+    expect(classifyMainControlIntent("改写第 5 章")).toBe("write_edit")
+    expect(classifyMainControlIntent("润色第 5 章")).toBe("write_edit")
+  })
+
+  it("一般自由目标归入 full 档位，explicitIntent 可显式覆写为 write_edit", () => {
+    expect(classifyMainControlIntent("随便聊聊今天的灵感")).toBe("full")
+    expect(classifyMainControlIntent("自由描述目标", { explicitIntent: "write_chapter" })).toBe("write_edit")
   })
 })

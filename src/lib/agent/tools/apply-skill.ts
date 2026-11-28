@@ -21,16 +21,16 @@ export function createApplySkillTool(
       ...deAiSkills,
     ]
   }
-  const availableNames = [...new Set(getAvailableSkills().map((skill) => skill.name))].sort()
-  const availableNamesText = availableNames.length > 0
-    ? `本轮可用名称：${availableNames.join("、")}。`
-    : "本轮没有已加载的 Skill。"
   return {
     name: "apply_skill",
-    description: `应用写作 Skill。仅支持 Skill ID、完整名称或受控 UI 别名，不支持模糊子串；省略参数时列出当前可用 Skill。${availableNamesText}`,
+    description:
+      "应用写作 Skill。仅支持 Skill ID、完整名称或受控 UI 别名，不支持模糊子串；省略参数时列出当前可用 Skill。",
     category: "action",
     parameters: {
-      skillName: { type: "string", description: `Skill 完整名称或受控 UI 别名（与 skillId 均留空时返回可用列表）。${availableNamesText}` },
+      skillName: {
+        type: "string",
+        description: "Skill 完整名称或受控 UI 别名（与 skillId 均留空时返回可用列表）。",
+      },
       skillId: { type: "string", description: "Skill ID，可选，与 skillName 二选一" },
     },
     execute: async (params) => {

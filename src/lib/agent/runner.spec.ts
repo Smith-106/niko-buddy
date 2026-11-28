@@ -2128,3 +2128,55 @@ describe("runner 覆盖增补：协作者非终态契约的兜底结算", () => 
     }
   })
 })
+
+describe("TASK-003：virtual 工具不进入 wire tools", () => {
+  it("虚拟工具与真实工具混装时，streamChat 请求仅携带非 virtual 工具定义", async () => {
+    scriptStream([{ text: "已完成" }])
+    const virtualTool: Tool = {
+      name: "load_context",
+      description: "虚拟工具",
+      category: "virtual",
+      parameters: {},
+      execute: async () => "ok",
+    }
+    const readTool: Tool = {
+      name: "read_chapter",
+      description: "读取章节",
+      category: "read",
+      parameters: {},
+      execute: async () => "正文",
+    }
+
+    const { errors, doneCount } = await runAgent(
+      createConfig([virtualTool, readTool], { taskGoal: "读章节" }),
+      [virtualTool, readTool],
+    )
+    expect(errors).toEqual([])
+    expect(doneCount()).toBe(1)
+    const firstRequest = (mocks.streamChat.mock.calls[0][4] ?? {}) as {
+      tools?: Array<{ function: { name: string } }>
+    }
+    expect(firstRequest.tools?.map((t) => t.function.name)).toEqual(["read_chapter"])
+  })
+
+  it("仅含 virtual 工具时，streamChat 请求不附带 tools 或 toolChoice", async () => {
+    scriptStream([{ text: "纯文本回复" }])
+    const virtualTool: Tool = {
+      name: "load_context",
+      description: "虚拟工具",
+      category: "virtual",
+      parameters: {},
+      execute: async () => "ok",
+    }
+
+    const { errors, doneCount } = await runAgent(
+      createConfig([virtualTool], { taskGoal: "纯回复" }),
+      [virtualTool],
+    )
+    expect(errors).toEqual([])
+    expect(doneCount()).toBe(1)
+    const firstRequest = (mocks.streamChat.mock.calls[0][4] ?? {}) as Record<string, unknown>
+    expect(firstRequest).not.toHaveProperty("tools")
+    expect(firstRequest).not.toHaveProperty("toolChoice")
+  })
+})
