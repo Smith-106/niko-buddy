@@ -1,8 +1,12 @@
 // Copyright (c) 2024 Niko-hub contributors. MIT License.
 import {
+  DEFAULT_TIERED_SECTION_CHAR_BUDGETS,
   buildGoldenThreeChapterDirective,
   buildQmQuaiSystemPrompt,
   buildTaskDirective,
+  computeEffectiveContextTokenBudget,
+  resolveRuntimeSkillsForStage,
+  resolveUnifiedDeAiRuntime,
   type GoldenThreeChapterRequest,
   type TaskRouteResult,
 } from "@/lib/novel"
@@ -91,12 +95,41 @@ export async function assembleChatContext(
   let queryRefs: { title: string; path: string }[] = []
   let langReminder: string | undefined
 
-const shouldUseQmQuaiSkill = effectiveTaskRoute != null && (
-  effectiveTaskRoute.intent === "write_chapter" ||
-  effectiveTaskRoute.intent === "continue_chapter" ||
-  effectiveTaskRoute.intent === "rewrite_chapter"
-)
-const qmQuaiSystemPrompt = shouldUseQmQuaiSkill ? buildQmQuaiSystemPrompt() : ""
+  const shouldUseQmQuaiSkill = effectiveTaskRoute != null && (
+    effectiveTaskRoute.intent === "write_chapter" ||
+    effectiveTaskRoute.intent === "continue_chapter" ||
+    effectiveTaskRoute.intent === "rewrite_chapter"
+  )
+  let qmQuaiSystemPrompt = ""
+  let deAiDiag: {
+    source: "de-ai-skills-json" | "de-ai-skill-txt" | "scene-bundle" | "builtin"
+    skillName?: string
+    overrideCount: number
+  } | undefined
+  if (shouldUseQmQuaiSkill) {
+    if (project) {
+      const unifiedDeAi = await resolveUnifiedDeAiRuntime({
+        projectPath: project.path,
+        userRequest: text,
+      }).catch(() => null)
+      if (signal?.aborted) return ABORTED_RESULT
+      qmQuaiSystemPrompt = buildQmQuaiSystemPrompt(unifiedDeAi?.skillPrompt ?? undefined)
+      if (unifiedDeAi) {
+        const ov = unifiedDeAi.tieredOverrides
+        const overrideCount = ov
+          ? Object.keys(ov.tierOverrides).length + ov.customEntries.length + ov.disabledTerms.length
+          : 0
+        deAiDiag = {
+          source: unifiedDeAi.source,
+          ...(unifiedDeAi.skillName ? { skillName: unifiedDeAi.skillName } : {}),
+          overrideCount,
+        }
+      }
+    } else {
+      qmQuaiSystemPrompt = buildQmQuaiSystemPrompt()
+      deAiDiag = { source: "builtin", overrideCount: 0 }
+    }
+  }
 // Pure greetings ("hi", "你好", "嗨") don't warrant running the whole
 // retrieval pipeline — it's slow, costs context, and drags in random
 // wiki pages the user clearly didn't ask about. Short-circuit with a
@@ -263,6 +296,8 @@ if (project && greetingOnly) {
   let novelContextPreamble = ""
   // G6：世界规则的项目级基线，进稳定缓存段（跨章字节一致才可能命中）。
   let stableCanonRulesBase = ""
+  // Phase 1：运行时任务自定义技能独立槽位（跨章可复用、与 P1 去 AI 解耦）。
+  let stableRuntimeSkills = ""
   if (novelMode && project && effectiveTaskRoute) {
     try {
       const taskDirective = buildTaskDirective(effectiveTaskRoute)
@@ -343,12 +378,50 @@ if (project && greetingOnly) {
           }
         }
       }
-      const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
+      // Phase 1：解析当前 Chat 任务配置的运行时技能（零配置时零 IO 返回空串），独立进入稳定前缀 runtimeSkills 槽位
+      const resolvedChatSkills = await resolveRuntimeSkillsForStage({
+        projectPath: pp,
+        stage: "chat",
+        novelConfig,
+        taskIntent: effectiveTaskRoute?.intent,
+        requestText: text,
+        windowTokens: llmConfig.maxContextSize,
+        pack: contextPack,
+      })
+      if (signal?.aborted) return ABORTED_RESULT
+      stableRuntimeSkills = resolvedChatSkills.renderedText
+      // Phase 1-3 回放诊断透出：把运行时技能、De-AI 来源、书规和激活预设写入 replay 快照
+      const runtimeDiagnostics = {
+        ...(novelConfig.activeCraftPresetId ? { activeCraftPresetId: novelConfig.activeCraftPresetId } : {}),
+        bookRulesActive: Boolean(contextPack.canonRulesBase?.includes("【书籍治理规则】") || contextPack.canonRules?.includes("【书籍治理规则】")),
+        ...(deAiDiag
+          ? {
+              deAiSource: deAiDiag.source,
+              ...(deAiDiag.skillName ? { deAiSkillName: deAiDiag.skillName } : {}),
+              deAiTieredOverrideCount: deAiDiag.overrideCount,
+            }
+          : {}),
+        runtimeSkills: {
+          loadedNames: resolvedChatSkills.skills.map((s) => s.name),
+          missingNames: resolvedChatSkills.missingNames,
+          truncatedNames: resolvedChatSkills.truncatedNames,
+          droppedNames: resolvedChatSkills.droppedNames,
+          usedTokens: resolvedChatSkills.usedTokens,
+          budgetTokens: resolvedChatSkills.budgetTokens,
+        },
+      }
+      contextPack.runtimeDiagnostics = runtimeDiagnostics
+      setReplayContextPack({ ...contextPack, runtimeDiagnostics })
+
+      const budget = resolvedChatSkills.usedTokens > 0
+        ? computeEffectiveContextTokenBudget(novelConfig, llmConfig, resolvedChatSkills.usedTokens)
+        : (novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined)
       // G6：base 进稳定缓存段，动态段只放 temporal 增量（否则跨章前缀不一致，永不命中）。
       stableCanonRulesBase = renderCanonRulesBaseForStablePrefix(contextPack)
       novelContextPreamble = contextPackToPrompt(contextPack, budget, {
         layeredRecall: "default",
         sectionCharBudget: 4000,
+        sectionCharBudgets: DEFAULT_TIERED_SECTION_CHAR_BUDGETS,
         hardInjectEnabled: novelConfig.hardInjectEnabled,
         excludeCanonRulesBase: stableCanonRulesBase.length > 0,
       })
@@ -368,13 +441,14 @@ if (project && greetingOnly) {
   }
   if (signal?.aborted) return ABORTED_RESULT
 
-  // 稳定前缀（G4a）：技能、角色定位、章节输出规则、规则、Markdown 格式要求。
+  // 稳定前缀（G4a / Phase 1 v3）：技能、角色定位、世界基线、运行时技能、章节输出规则、规则、Markdown 格式要求。
   // 字段白名单、版本号、哈希全部在 @/lib/stable-prefix —— 这里只提供字段值，
   // 不再自己拼数组：拼法一旦分散，动态内容就可能漏进 cacheControl 段。
   const stablePrefix = buildChatStablePrefix({
     novelMode,
     skillPrompt: qmQuaiSystemPrompt,
     canonRulesBase: stableCanonRulesBase,
+    runtimeSkills: stableRuntimeSkills,
   })
 
   // 动态部分：资料库目标、索引、页面、上下文包、语言规则。

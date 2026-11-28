@@ -57,6 +57,7 @@ export { DRAFT_FILENAME_SUFFIX, DRAFT_FILENAME_SUFFIXES, detectLastGeneratedChap
 export type { ResolveTargetChapterNumberForChatInput } from "./chapter-utils"
 export { appendChapterWorkspaceSnapshot } from "./chapter-workspace"
 export { BUILT_IN_CHARACTER_AURAS, CHARACTER_AURA_RESEARCH_FILES, bindCharacterAura, buildCharacterAuraContext, createCustomCharacterAuraSkill, deleteCustomCharacterAura, getCharacterAuraBindings, listBindableNovelCharacters, listCharacterAuras, loadCharacterAuraResearchDocument, loadCharacterAuraSkillDocument, unbindCharacterAura, updateCustomCharacterAura } from "./character-aura"
+export { forkBuiltInCharacterAura } from "./character-aura-generation"
 export type { CharacterAuraGenerationProgress, CharacterAuraResearchFileName } from "./character-aura"
 export type { CharacterAura, CharacterAuraBinding, CharacterAuraInput, CharacterAuraStore } from "./character-aura-types"
 export { normalizeCharacterText, toPinyin, toSimplified } from "./character-aura-utils"
@@ -68,6 +69,7 @@ export { isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEdit
 export type { ChatEditTarget, ParsedChapterEditFile } from "./chat-edit-mode"
 export type { DataSourceCategory, RouteSource } from "./classification"
 export { buildContextPack, clearTemporalFactsCache, contextPackToPrompt, trimContextPack, computeIrrelevantRatio, searchRelevantContent, searchRelevantContentUnified, runVectorSearchForContext, searchGraphRelevantContent } from "./context-engine"
+export { loadReviewUniversalRulesPrompt } from "./context-engine-technique-sources"
 export type { BuildContextOptions, ContextPack, ContextPackToPromptOptions, TrimResult } from "./context-engine"
 export type { ContextPackRuntimeDiagnostics } from "./context-engine-types"
 export { dismissFinding } from "./continuity-overrides-store"
@@ -536,6 +538,22 @@ export {
   upsertWritingSkills,
 } from "./user-skill-store"
 export type { LoadLinkedSkillOptions, UserSkillConfig } from "./user-skill-store"
+export {
+  USER_ASSET_REF_FILE,
+  USER_ASSET_REF_SCHEMA_VERSION,
+  USER_ASSET_ROOT,
+  assertReferenceOnlyAssets,
+  findExecutableAssets,
+  hasExecutableExtension as hasUserAssetExecutableExtension,
+  hasUserAssetRef,
+  isProjectLocalAssetPath,
+  loadUserAssetRefs,
+  normalizeUserAssetRef,
+  saveUserAssetRefs,
+  upsertUserAssetRef,
+  userAssetRefsPath,
+} from "./user-asset-domain"
+export type { UserAssetKind, UserAssetRef, UserAssetRefFile, UserAssetTrustLevel } from "./user-asset-domain"
 export { buildSignedWebhookRequest, dispatchNotify, verifyWebhookSignature } from "./webhook-notifier"
 export type { NotifyEvent, NotifyEventType } from "./webhook-notifier"
 export { getEnabledWritingStyle, loadWritingStyleStore, setEnabledWritingStyle, upsertWritingStylePreset } from "./writing-style-store"
@@ -840,6 +858,8 @@ export {
   NBSKILL_PACK_EXTENSION,
   NBSKILL_PACK_KIND,
   NBSKILL_PACK_SCHEMA_VERSION,
+  NBSKILL_PACK_SCHEMA_VERSION_V2,
+  NBSKILL_PACK_SUPPORTED_SCHEMA_VERSIONS,
   PACK_NAME_PATTERN,
   PACK_TOOL_CATEGORIES,
   PACK_TOOL_NAME_PATTERN,

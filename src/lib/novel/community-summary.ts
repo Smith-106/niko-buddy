@@ -158,7 +158,10 @@ export async function generateCommunitySummaries(
         if (!members?.length) return
         await semaphore.acquire()
         try {
-          const summary = await generateSingleCommunitySummary(community, members, summaryLlmConfig)
+          const summary = await generateSingleCommunitySummary(community, members, summaryLlmConfig, undefined, {
+            projectPath: pp,
+            novelConfig,
+          })
           return {
             communityId: community.id,
             summary,
@@ -218,6 +221,7 @@ export async function generateSingleCommunitySummary(
   llmConfig: LlmConfig,
   /** ISS-20260724-004 (ROOT-C): optional caller signal for cascade-cancel */
   signal?: AbortSignal,
+  options?: { projectPath?: string; novelConfig?: NovelConfig },
 ): Promise<string> {
   // 收集成员节点内容（前 500 字/节点，最多 10 个节点）
   const topMembers = members
@@ -242,7 +246,7 @@ export async function generateSingleCommunitySummary(
     return `社区 ${community.id}：包含 ${community.nodeCount} 个节点（${community.topNodes.join("、")}），但无法读取节点内容。`
   }
 
-  const systemPrompt = `你是一位小说编辑助手，擅长分析角色阵营、关系网络和故事结构。请根据给定的图谱社区成员信息，生成一段 200-400 字的叙事摘要，描述这个社区的核心主题、阵营特征、关键关系和重要事件。
+  let systemPrompt = `你是一位小说编辑助手，擅长分析角色阵营、关系网络和故事结构。请根据给定的图谱社区成员信息，生成一段 200-400 字的叙事摘要，描述这个社区的核心主题、阵营特征、关键关系和重要事件。
 
 要求：
 1. 用流畅的叙事语言，不要用列表
@@ -250,6 +254,33 @@ export async function generateSingleCommunitySummary(
 3. 提及关键成员及其关系
 4. 涵盖重要事件和冲突
 5. 200-400 字，不要超过 400 字`
+
+  const cfg = options?.novelConfig
+  const hasSummaryExtra = Boolean(cfg?.taskPrompts?.summary?.extra?.trim())
+  const hasSummarySkills = Boolean(cfg?.taskSkillNames?.summary?.length)
+  if (cfg && (hasSummaryExtra || hasSummarySkills)) {
+    try {
+      const { resolveTaskExtraPrompt } = await import("./task-customization")
+      const { appendTaskExtraSection } = await import("./deep-chapter-prompts")
+      systemPrompt = appendTaskExtraSection(systemPrompt, resolveTaskExtraPrompt(cfg, "summary"))
+      if (hasSummarySkills) {
+        const { resolveRuntimeSkillsForStage } = await import("./runtime-skill-resolver")
+        const resolved = await resolveRuntimeSkillsForStage({
+          projectPath: options?.projectPath,
+          stage: "summary",
+          novelConfig: cfg,
+          windowTokens: llmConfig.maxContextSize,
+        })
+        if (resolved.renderedText.trim()) {
+          systemPrompt = `${systemPrompt}\n\n${resolved.renderedText.trim()}`
+        }
+      }
+    } catch (err) {
+      logger.warn("CommunitySummary", "摘要阶段自定义提示词/技能注入失败（已忽略，继续基础摘要）", {
+        error: toErrorMessage(err),
+      })
+    }
+  }
 
   const userPrompt = `社区 ID: ${community.id}
 社区规模: ${community.nodeCount} 个节点
@@ -502,7 +533,10 @@ export async function generateCommunitySummariesForChapter(
         const members = nodesByCommunity.get(community.id) ?? []
         if (members.length === 0) continue
         try {
-          summary = await generateSingleCommunitySummary(community, members, summaryLlmConfig)
+          summary = await generateSingleCommunitySummary(community, members, summaryLlmConfig, undefined, {
+            projectPath: pp,
+            novelConfig: novelConfigResolved,
+          })
           communitySummaryCache.set(cacheKey, summary)
         } catch (err) {
           // Non-blocking: skip this community, keep others.

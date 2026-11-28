@@ -97,6 +97,7 @@ describe("纵切面 IPC 语义契约（vertical slice）", () => {
     const acpSig = rust.get("antigravity_acp_prompt")
     expect(acpSig, "antigravity_acp_prompt 无签名").toBeTruthy()
     expect(acpSig!.params).toMatch(/session_id|sessionId/)
+    expect(rust.has("antigravity_cli_spawn")).toBe(false)
   })
 
   it("文件写命令存在原子写变体（write_file_atomic → 半写状态安全）", () => {

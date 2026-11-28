@@ -25,7 +25,7 @@
  *
  * MIT License — independently implemented.
  */
-import type { ContextPack } from "@/lib/novel"
+import type { ContextPack, ContextPackRuntimeDiagnostics } from "@/lib/novel"
 import type { ContextUsage } from "@/lib/context-usage"
 import { FileText } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -33,7 +33,15 @@ import { useTranslation } from "react-i18next"
 export type GateStatus = "PASS" | "WARN"
 export interface GateVerdict { key: "consistency" | "anti_ai"; label: string; status: GateStatus; reason: string }
 export interface RetrievalSourceEntry { key: string; label: string; selected: boolean; excerpt: string }
-interface PackReplay { sources: RetrievalSourceEntry[]; gates: GateVerdict[]; hasGaps: boolean; gapNotes: string[]; usage: ContextUsage | null; assemblyExcerpt: string }
+interface PackReplay {
+  sources: RetrievalSourceEntry[]
+  gates: GateVerdict[]
+  hasGaps: boolean
+  gapNotes: string[]
+  usage: ContextUsage | null
+  assemblyExcerpt: string
+  runtimeDiagnostics: ContextPackRuntimeDiagnostics | null
+}
 
 const SOURCE_DEFS: { key: string; label: string; scalar: boolean }[] = [
   { key: "searchResults", label: "全文检索", scalar: true },
@@ -58,7 +66,7 @@ function clipPreview(text: string, max = 160): string {
 
 export function buildPackReplay(pack: ContextPack | undefined | null): PackReplay {
   if (!pack) {
-    return { sources: [], gates: [], hasGaps: false, gapNotes: [], usage: null, assemblyExcerpt: "" }
+    return { sources: [], gates: [], hasGaps: false, gapNotes: [], usage: null, assemblyExcerpt: "", runtimeDiagnostics: null }
   }
   const sources: RetrievalSourceEntry[] = SOURCE_DEFS.map(({ key, label, scalar }) => {
     const raw = ((pack as unknown as Record<string, unknown>))[key]
@@ -109,7 +117,15 @@ export function buildPackReplay(pack: ContextPack | undefined | null): PackRepla
 
   const gates: GateVerdict[] = [consistencyGate, antiAiGate]
   const assemblyExcerpt = buildAssemblyExcerpt(pack)
-  return { sources, gates, hasGaps, gapNotes, usage: pack.contextUsage ?? null, assemblyExcerpt }
+  return {
+    sources,
+    gates,
+    hasGaps,
+    gapNotes,
+    usage: pack.contextUsage ?? null,
+    assemblyExcerpt,
+    runtimeDiagnostics: pack.runtimeDiagnostics ?? null,
+  }
 }
 
 function buildAssemblyExcerpt(pack: ContextPack): string {
@@ -224,6 +240,79 @@ export function ContextPackReplayPanel({ pack, title = "这次写作用了哪些
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+          {replay.runtimeDiagnostics && (
+            <div
+              data-testid="replay-runtime-diagnostics"
+              className="space-y-2 rounded-md border bg-muted/20 p-3 text-xs"
+            >
+              <ZoneTitle>
+                {t("novel.replay.zoneRuntimeDiagnostics", { defaultValue: "④ 运行时定制诊断（技能 / 去AI / 书规 / 预设）" })}
+              </ZoneTitle>
+              <div className="flex flex-wrap gap-1.5 text-muted-foreground">
+                {replay.runtimeDiagnostics.activeCraftPresetId ? (
+                  <span className="rounded bg-primary/10 px-2 py-0.5 text-primary" data-testid="replay-diag-preset">
+                    {t("novel.replay.diagPreset", {
+                      id: replay.runtimeDiagnostics.activeCraftPresetId,
+                      defaultValue: "工艺预设：{{id}}",
+                    })}
+                  </span>
+                ) : null}
+                {typeof replay.runtimeDiagnostics.bookRulesActive === "boolean" ? (
+                  <span className="rounded bg-muted px-2 py-0.5" data-testid="replay-diag-book-rules">
+                    {replay.runtimeDiagnostics.bookRulesActive
+                      ? t("novel.replay.diagBookRulesActive", { defaultValue: "书规：已注入" })
+                      : t("novel.replay.diagBookRulesInactive", { defaultValue: "书规：未启用" })}
+                  </span>
+                ) : null}
+                {replay.runtimeDiagnostics.deAiSource ? (
+                  <span className="rounded bg-muted px-2 py-0.5" data-testid="replay-diag-deai">
+                    {t("novel.replay.diagDeAi", {
+                      source: replay.runtimeDiagnostics.deAiSkillName
+                        ? `${replay.runtimeDiagnostics.deAiSource} (${replay.runtimeDiagnostics.deAiSkillName})`
+                        : replay.runtimeDiagnostics.deAiSource,
+                      overrides: replay.runtimeDiagnostics.deAiTieredOverrideCount ?? 0,
+                      defaultValue: "去AI源：{{source}} · 分级覆盖 {{overrides}} 项",
+                    })}
+                  </span>
+                ) : null}
+              </div>
+              {replay.runtimeDiagnostics.runtimeSkills ? (
+                <div className="space-y-1 text-muted-foreground" data-testid="replay-diag-skills">
+                  <div>
+                    {t("novel.replay.diagSkillBudget", {
+                      used: replay.runtimeDiagnostics.runtimeSkills.usedTokens,
+                      budget: replay.runtimeDiagnostics.runtimeSkills.budgetTokens,
+                      defaultValue: "运行时技能占用：{{used}} / {{budget}} tokens",
+                    })}
+                  </div>
+                  {replay.runtimeDiagnostics.runtimeSkills.loadedNames.length > 0 ? (
+                    <div className="break-words">
+                      <strong className="text-foreground">{t("novel.replay.diagSkillLoaded", { defaultValue: "已注入：" })}</strong>
+                      {replay.runtimeDiagnostics.runtimeSkills.loadedNames.join(", ")}
+                    </div>
+                  ) : null}
+                  {replay.runtimeDiagnostics.runtimeSkills.missingNames.length > 0 ? (
+                    <div className="break-words text-warning-foreground">
+                      <strong>{t("novel.replay.diagSkillMissing", { defaultValue: "未找到：" })}</strong>
+                      {replay.runtimeDiagnostics.runtimeSkills.missingNames.join(", ")}
+                    </div>
+                  ) : null}
+                  {replay.runtimeDiagnostics.runtimeSkills.truncatedNames.length > 0 ? (
+                    <div className="break-words text-warning-foreground">
+                      <strong>{t("novel.replay.diagSkillTruncated", { defaultValue: "已截断：" })}</strong>
+                      {replay.runtimeDiagnostics.runtimeSkills.truncatedNames.join(", ")}
+                    </div>
+                  ) : null}
+                  {replay.runtimeDiagnostics.runtimeSkills.droppedNames.length > 0 ? (
+                    <div className="break-words text-destructive">
+                      <strong>{t("novel.replay.diagSkillDropped", { defaultValue: "超预算丢弃：" })}</strong>
+                      {replay.runtimeDiagnostics.runtimeSkills.droppedNames.join(", ")}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )}
         </div>

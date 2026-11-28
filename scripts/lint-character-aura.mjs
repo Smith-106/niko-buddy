@@ -4,7 +4,10 @@ import process from "process"
 
 const ROOT = process.argv[2] || process.cwd()
 const NVWA = resolve(ROOT, "skills", "soulskill")
-const CHARACTER_AURA_PATH = resolve(ROOT, "src", "lib", "novel", "character-aura.ts")
+const CHARACTER_AURA_PATHS = [
+  "src/lib/novel/character-aura.ts",
+  "src/lib/novel/character-aura-builtin.ts",
+]
 
 const CURLY_LEFT = "\u201C"
 const CURLY_RIGHT = "\u201D"
@@ -66,29 +69,33 @@ function walk(dir, cb, depth = 0) {
 console.log("=== 角色灵魂内容校验 ===")
 console.log()
 
-console.log("--- character-aura.ts 弯引号 + 字段英文检查 ---")
-const auraContent = readFileSync(CHARACTER_AURA_PATH, "utf8")
-checkCurlyQuotes(auraContent, "src/lib/novel/character-aura.ts")
+console.log("--- character-aura.ts & character-aura-builtin.ts 弯引号 + 字段英文检查 ---")
+for (const relPath of CHARACTER_AURA_PATHS) {
+  const fullPath = resolve(ROOT, relPath)
+  if (!existsSync(fullPath)) continue
+  const auraContent = readFileSync(fullPath, "utf8")
+  checkCurlyQuotes(auraContent, relPath)
 
-const createBuiltInCalls = auraContent.match(/createBuiltInAura\([\s\S]*?\)\s*,?\s*$/gm) || []
-for (const call of createBuiltInCalls) {
-  const stringArgs = call.match(/"([^"]*)"/g) || []
-  if (stringArgs.length < 8) continue
-  const fields = {
-    name: stringArgs[2].replace(/"/g, ""),
-    corpus: stringArgs[3].replace(/"/g, ""),
-    expressionDna: stringArgs[4].replace(/"/g, ""),
-    mentalModel: stringArgs[5].replace(/"/g, ""),
-    decisionHeuristics: stringArgs[6].replace(/"/g, ""),
-    valueAntiPatterns: stringArgs[7].replace(/"/g, ""),
-  }
-
-  for (const [fieldName, value] of Object.entries(fields)) {
-    if (/[A-Za-z]/.test(value)) {
-      report("src/lib/novel/character-aura.ts", `角色 ${fields.name} 字段 ${fieldName} 包含英文: ${value.slice(0, 60)}`)
+  const createBuiltInCalls = auraContent.match(/createBuiltInAura\([\s\S]*?\)\s*,?\s*$/gm) || []
+  for (const call of createBuiltInCalls) {
+    const stringArgs = call.match(/"([^"]*)"/g) || []
+    if (stringArgs.length < 8) continue
+    const fields = {
+      name: stringArgs[2].replace(/"/g, ""),
+      corpus: stringArgs[3].replace(/"/g, ""),
+      expressionDna: stringArgs[4].replace(/"/g, ""),
+      mentalModel: stringArgs[5].replace(/"/g, ""),
+      decisionHeuristics: stringArgs[6].replace(/"/g, ""),
+      valueAntiPatterns: stringArgs[7].replace(/"/g, ""),
     }
-    if (value.includes(CURLY_LEFT) || value.includes(CURLY_RIGHT)) {
-      report("src/lib/novel/character-aura.ts", `角色 ${fields.name} 字段 ${fieldName} 包含弯引号`)
+
+    for (const [fieldName, value] of Object.entries(fields)) {
+      if (/[A-Za-z]/.test(value)) {
+        report(relPath, `角色 ${fields.name} 字段 ${fieldName} 包含英文: ${value.slice(0, 60)}`)
+      }
+      if (value.includes(CURLY_LEFT) || value.includes(CURLY_RIGHT)) {
+        report(relPath, `角色 ${fields.name} 字段 ${fieldName} 包含弯引号`)
+      }
     }
   }
 }

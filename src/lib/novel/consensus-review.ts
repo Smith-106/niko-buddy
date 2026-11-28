@@ -47,6 +47,10 @@ export interface DimensionConsensusOptions {
   goldReadinessHint?: string
   /** R2-W09 / R2-REV-004：透传 Track B skill hook 软提示片段（首轮 + 辩论轮同步）。 */
   skillHookPromptFragments?: readonly string[]
+  /** Phase 1：审查阶段运行时技能提示片段（空串时零行为变化）。 */
+  reviewSkillsPrompt?: string
+  /** Phase 1：审查上下文 token 上限（缺省时零行为变化）。 */
+  contextTokenBudget?: number
 }
 
 const DEBATE_SYSTEM_PROMPT =
@@ -137,6 +141,8 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
     goldAnchors,
     goldReadinessHint,
     skillHookPromptFragments,
+    reviewSkillsPrompt,
+    contextTokenBudget,
   } = options
   if (signal?.aborted) throw new Error(CONSENSUS_ABORT_MESSAGE)
   const usable = models.filter((m) => hasUsableLlm(m))
@@ -159,6 +165,8 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
         goldAnchors,
         goldReadinessHint,
         skillHookPromptFragments,
+        reviewSkillsPrompt,
+        contextTokenBudget,
       }),
     ),
   )
@@ -182,6 +190,7 @@ export async function runDimensionConsensus(options: DimensionConsensusOptions):
             goldReadinessHint,
             skillHookPromptFragments,
             hardInjectEnabled: novelConfig?.hardInjectEnabled,
+            contextTokenBudget,
           })
           const debatePrompt = basePrompt + buildDebateSection(ballots, seat, canonDigest)
           const text = await debateCall(llmConfig, debatePrompt, signal, novelConfig, roleKey)

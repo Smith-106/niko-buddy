@@ -21,6 +21,8 @@ export interface DeepOutlineGenerationInput {
   historyMessages?: ChatMessage[]
   /** 任务级自定义（task customization）：追加提示词载体；缺省=字节等价。 */
   novelConfig?: NovelConfig
+  /** Phase 1：项目路径，用于按需解析大纲阶段配置技能（缺省或无配置技能时零行为变化）。 */
+  projectPath?: string
 }
 
 export interface DeepOutlineGenerationCallbacks {
@@ -60,6 +62,26 @@ export async function runDeepOutlineGeneration(
   const history = formatRecentHistory(input.historyMessages ?? [])
   // 任务级自定义追加段（task customization）：缺省/空 = prompt 字节不变
   const outlineTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "outline")
+  // Phase 1：接入大纲阶段运行时技能（零配置或无 projectPath 时短路为空，消息数组逐字节不变）
+  let outlineSkillsPrompt = ""
+  if (input.projectPath) {
+    const { resolveRuntimeSkillsForStage } = await import("./runtime-skill-resolver")
+    const resolvedOutlineSkills = await resolveRuntimeSkillsForStage({
+      projectPath: input.projectPath,
+      stage: "outline",
+      novelConfig: input.novelConfig,
+      requestText: safeUserRequest,
+      windowTokens: input.llmConfig.maxContextSize,
+    })
+    outlineSkillsPrompt = resolvedOutlineSkills.renderedText
+  }
+  const buildStageMessages = (userContent: string): ChatMessage[] =>
+    outlineSkillsPrompt
+      ? [
+          { role: "system", content: [{ type: "text", text: outlineSkillsPrompt, cacheControl: true }] },
+          { role: "user", content: userContent },
+        ]
+      : [{ role: "user", content: userContent }]
 
   callbacks.onThinking?.(formatStageThinking(
     "阶段1：大纲上下文分析",
@@ -74,7 +96,7 @@ export async function runDeepOutlineGeneration(
 
   const taskBrief = await collectModelText(
     input.llmConfig,
-    [{ role: "user", content: buildOutlineTaskBriefPrompt(safeContext, history, safeUserRequest, outlineTaskExtra) }],
+    buildStageMessages(buildOutlineTaskBriefPrompt(safeContext, history, safeUserRequest, outlineTaskExtra)),
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：大纲任务书", partial)),
@@ -83,7 +105,7 @@ export async function runDeepOutlineGeneration(
 
   const draftContent = await collectModelText(
     input.llmConfig,
-    [{ role: "user", content: buildOutlineDraftPrompt(safeContext, history, taskBrief, safeUserRequest, outlineTaskExtra) }],
+    buildStageMessages(buildOutlineDraftPrompt(safeContext, history, taskBrief, safeUserRequest, outlineTaskExtra)),
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：大纲草稿", partial)),
@@ -96,7 +118,7 @@ export async function runDeepOutlineGeneration(
 
   const selfCheck = await collectModelText(
     input.llmConfig,
-    [{ role: "user", content: buildOutlineSelfCheckPrompt(safeContext, history, taskBrief, draftContent, safeUserRequest, outlineTaskExtra) }],
+    buildStageMessages(buildOutlineSelfCheckPrompt(safeContext, history, taskBrief, draftContent, safeUserRequest, outlineTaskExtra)),
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段4：大纲自检", partial)),

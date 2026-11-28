@@ -66,35 +66,66 @@ export async function buildCharacterAuraContext(
   if (options.previewMode === "writing") {
     return buildCharacterAuraWritingPreview(task, effectiveMatched, allAuras)
   }
-  const lines: string[] = []
-  for (const binding of effectiveMatched) {
+  const MAX_ACTIVE_AURAS = 3
+  const MAX_AURA_CONTEXT_CHARS = 4400
+  const GUARDRAIL_LINE = "- 角色灵魂必须服从大纲、人物小传、角色认知和正史规则，不得覆盖或改写硬性设定。"
+  const selectedBindings = effectiveMatched.slice(0, MAX_ACTIVE_AURAS)
+  const charCount = selectedBindings.length
+  const summaryBudget = charCount <= 1
+    ? { maxSkillChars: 700, maxResearchChars: 220 }
+    : charCount === 2
+      ? { maxSkillChars: 450, maxResearchChars: 150 }
+      : { maxSkillChars: 300, maxResearchChars: 100 }
+
+  const sections: string[] = []
+  for (const binding of selectedBindings) {
     const aura = allAuras.find((item) => item.id === binding.auraId)
     if (!aura) continue
-    lines.push(
+    const expressionText = aura.expressionDna ?? aura.corpus
+    const styleText = aura.styleDescription?.trim() ?? ""
+    const lines: string[] = [
       `- ${binding.characterName}：${aura.name}`,
       `  - 人物分类：${aura.category ?? "自定义灵魂"}`,
-      `  - 灵魂摘要：${aura.styleDescription}`,
-      `  - 怎么说话 / 表达特征：${aura.expressionDna ?? aura.corpus}`,
+    ]
+    if (styleText && styleText !== expressionText.trim()) {
+      lines.push(`  - 灵魂摘要：${aura.styleDescription}`)
+    }
+    lines.push(
+      `  - 怎么说话 / 表达特征：${expressionText}`,
       `  - 怎么想 / 心智模型：${aura.mentalModel ?? aura.styleDescription}`,
       `  - 怎么判断 / 决策启发式：${aura.decisionHeuristics ?? aura.behaviorRules}`,
       `  - 什么不做 / 价值观反模式：${aura.valueAntiPatterns ?? aura.notes}`,
       `  - 知道局限 / 诚实边界：${aura.honestyBoundaries ?? aura.boundaries}`,
-      ...(await buildCompressedSkillSummary(aura)),
+      ...(await buildCompressedSkillSummary(aura, projectPath, summaryBudget)),
     )
+    sections.push(lines.join("\n"))
   }
-  if (lines.length === 0) return ""
-  lines.push("- 角色灵魂必须服从大纲、人物小传、角色认知和正史规则，不得覆盖或改写硬性设定。")
-  return lines.join("\n")
+  if (sections.length === 0) return ""
+  const omittedCount = effectiveMatched.length - selectedBindings.length
+  const omissionLine = omittedCount > 0
+    ? `- 其余 ${omittedCount} 位匹配角色灵魂已按本章上限（最多 ${MAX_ACTIVE_AURAS} 位）省略。`
+    : ""
+  const footer = [omissionLine, GUARDRAIL_LINE].filter(Boolean).join("\n")
+  const maxBodyChars = Math.max(400, MAX_AURA_CONTEXT_CHARS - footer.length - 1)
+  let body = sections.join("\n")
+  if (body.length > maxBodyChars) {
+    body = `${body.slice(0, maxBodyChars - 1)}…`
+  }
+  return `${body}\n${footer}`
 }
 
-async function buildCompressedSkillSummary(aura: CharacterAura): Promise<string[]> {
+async function buildCompressedSkillSummary(
+  aura: CharacterAura,
+  projectPath?: string,
+  budget: { maxSkillChars: number; maxResearchChars: number } = { maxSkillChars: 700, maxResearchChars: 220 },
+): Promise<string[]> {
   if (!aura.skillFolder) return []
   const lines: string[] = []
   let skillReadFailed = false
   let researchReadFailed = false
   try {
-    const skill = await loadCharacterAuraSkillDocument(aura)
-    const summary = compressMarkdownForAuraContext(skill, 700)
+    const skill = await loadCharacterAuraSkillDocument(aura, projectPath)
+    const summary = compressMarkdownForAuraContext(skill, budget.maxSkillChars)
     if (summary) lines.push(`  - 灵魂文档压缩摘要：${summary}`)
   } catch {
     skillReadFailed = true
@@ -102,8 +133,8 @@ async function buildCompressedSkillSummary(aura: CharacterAura): Promise<string[
   const researchSummaries: string[] = []
   for (const file of CHARACTER_AURA_RESEARCH_FILES) {
     try {
-      const document = await loadCharacterAuraResearchDocument(aura, file.fileName)
-      const summary = compressMarkdownForAuraContext(document, 220)
+      const document = await loadCharacterAuraResearchDocument(aura, file.fileName, projectPath)
+      const summary = compressMarkdownForAuraContext(document, budget.maxResearchChars)
       if (summary) researchSummaries.push(`${file.label}：${summary}`)
     } catch {
       researchReadFailed = true
@@ -129,14 +160,29 @@ export async function loadCharacterAuraResearchDocument(
 }
 
 import { isTauri } from "@/lib/platform"
+function isAbsoluteSkillPath(filePath: string): boolean {
+  return filePath.startsWith("/") || filePath.startsWith("\\") || /^[a-zA-Z]:[\\/]/.test(filePath)
+}
+
 async function readSkillFileWithFallback(filePath: string, projectPath?: string): Promise<string> {
+  const isRelative = !isAbsoluteSkillPath(filePath)
+  let normalizedProjectRoot = ""
+  if (isRelative && projectPath) {
+    const { normalizePath } = await import("./character-aura-utils")
+    normalizedProjectRoot = normalizePath(projectPath)
+    try {
+      return await readFile(joinPath(normalizedProjectRoot, filePath))
+    } catch {
+      // 项目目录下未命中时，继续尝试直接路径与打包资源目录
+    }
+  }
   try {
     return await readFile(filePath)
   } catch (error) {
     const roots: string[] = []
     
-    // 项目目录
-    if (projectPath) {
+    // 项目目录（相对路径前面已优先尝试，此处避免重复探测）
+    if (projectPath && !normalizedProjectRoot) {
       const { normalizePath } = await import("./character-aura-utils")
       roots.push(normalizePath(projectPath))
     }

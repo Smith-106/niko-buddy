@@ -32,8 +32,8 @@ describe("pack-format / 整包校验", () => {
     expect(packFileName("demo-pack")).toBe("demo-pack.nbskill.json");
   });
 
-  it("schemaVersion 非 1 直接拒绝", () => {
-    const result = parseNbskillPack(rawPack({ schemaVersion: 2 }));
+  it("不支持的 schemaVersion 直接拒绝（v1 与 v2 合法，v99 拒绝）", () => {
+    const result = parseNbskillPack(rawPack({ schemaVersion: 99 }));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.issues[0].code).toBe("schema_version_unsupported");

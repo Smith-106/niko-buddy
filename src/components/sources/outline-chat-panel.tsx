@@ -396,6 +396,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             context: outlineContext,
             historyMessages,
             novelConfig,
+            projectPath: project.path,
           },
           {
             onThinking: appendThinkingBlock,
@@ -511,6 +512,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           context,
           historyMessages: chatMessages,
           novelConfig,
+          projectPath: project.path,
         },
         {
           onThinking: appendThinkingBlock,

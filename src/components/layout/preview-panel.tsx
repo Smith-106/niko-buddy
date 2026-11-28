@@ -1536,10 +1536,10 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
 
     if (targetMode === "detect") {
       setDeAiProcessing(false)
-      let runDeAiDetection: typeof import("@/lib/novel/de-ai-adapter").runDeAiDetection
+      let runProjectDeAiDetection: typeof import("@/lib/novel/de-ai-adapter").runProjectDeAiDetection
       let extractDeAiChapterBody: typeof import("@/lib/novel/de-ai-adapter").extractDeAiChapterBody
       try {
-        ;({ runDeAiDetection, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter"))
+        ;({ runProjectDeAiDetection, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter"))
       } catch (err) {
         failDeAi(err)
         return
@@ -1547,7 +1547,14 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       if (isStale() || selectedFileRef.current !== sourceFile) return
       // RV-006: 只看章节正文（frontmatter + 一级标题不计入检测）
       const body = extractDeAiChapterBody(source)
-      const detectResult = runDeAiDetection(body)
+      let detectResult: import("@/lib/novel/de-ai-adapter").DeAiDetectResult
+      try {
+        detectResult = await runProjectDeAiDetection(project?.path ?? null, body)
+      } catch (err) {
+        failDeAi(err)
+        return
+      }
+      if (isStale() || selectedFileRef.current !== sourceFile) return
       setDeAiMode("detect")
       setDeAiSourceContent(body)
       setDeAiCandidateContent(body)
@@ -1569,10 +1576,10 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     let extractDeAiChapterBody: typeof import("@/lib/novel/de-ai-adapter").extractDeAiChapterBody
     let customDeAiSkill: string | null = null
     try {
-      let loadSmartDeAiSkill: typeof import("@/lib/novel/de-ai-adapter").loadSmartDeAiSkill
-      ;({ loadSmartDeAiSkill, buildDeAiEditMessages, parseDeAiEditPlanChecked, applyDeAiSpanEdits, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter"))
+      let loadUnifiedDeAiSkillPrompt: typeof import("@/lib/novel/de-ai-adapter").loadUnifiedDeAiSkillPrompt
+      ;({ loadUnifiedDeAiSkillPrompt, buildDeAiEditMessages, parseDeAiEditPlanChecked, applyDeAiSpanEdits, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter"))
       if (isStale() || selectedFileRef.current !== sourceFile) return
-      customDeAiSkill = await loadSmartDeAiSkill(project?.path ?? null, "去AI味润色", undefined)
+      customDeAiSkill = await loadUnifiedDeAiSkillPrompt(project?.path ?? null, "去AI味润色", undefined)
     } catch (err) {
       failDeAi(err)
       return
@@ -1643,10 +1650,10 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       clearDeAiOutput()
       const sourceFile = selectedFileRef.current
       const generation = deAiGenerationRef.current
-      let runDeAiDetection: typeof import("@/lib/novel/de-ai-adapter").runDeAiDetection
+      let runProjectDeAiDetection: typeof import("@/lib/novel/de-ai-adapter").runProjectDeAiDetection
       let extractDeAiChapterBody: typeof import("@/lib/novel/de-ai-adapter").extractDeAiChapterBody
       try {
-        ;({ runDeAiDetection, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter"))
+        ;({ runProjectDeAiDetection, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter"))
       } catch (err) {
         if (!mountedRef.current || deAiGenerationRef.current !== generation || selectedFileRef.current !== sourceFile) return
         console.error("去AI味处理失败:", toErrorMessage(err))
@@ -1656,15 +1663,26 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       }
       if (!mountedRef.current || deAiGenerationRef.current !== generation || selectedFileRef.current !== sourceFile) return
       const body = extractDeAiChapterBody(deAiSourceContent || fileContent)
+      let detectResult: import("@/lib/novel/de-ai-adapter").DeAiDetectResult
+      try {
+        detectResult = await runProjectDeAiDetection(project?.path ?? null, body)
+      } catch (err) {
+        if (!mountedRef.current || deAiGenerationRef.current !== generation || selectedFileRef.current !== sourceFile) return
+        console.error("去AI味处理失败:", toErrorMessage(err))
+        setSaveStatus(formatDeAiFailedStatus(err))
+        setDeAiProcessing(false)
+        return
+      }
+      if (!mountedRef.current || deAiGenerationRef.current !== generation || selectedFileRef.current !== sourceFile) return
       setDeAiMode("detect")
       setDeAiSourceContent(body)
       setDeAiCandidateContent(body)
-      setDeAiDetectResult(runDeAiDetection(body))
+      setDeAiDetectResult(detectResult)
       return
     }
     // rewrite/edit：由 handleDeAiProcess 统一代际自增 + 清空旧产出
     await handleDeAiProcess(newMode)
-  }, [deAiMode, deAiSourceContent, fileContent, handleDeAiProcess, cancelDeAiStream, clearDeAiOutput, formatDeAiFailedStatus])
+  }, [deAiMode, deAiSourceContent, fileContent, project?.path, handleDeAiProcess, cancelDeAiStream, clearDeAiOutput, formatDeAiFailedStatus])
 
   // Wave 4 (v2.5.0): 批量去AI味 — 一键全书 + 进度 + 结果回填（lib API 纯薄壳）
   const refreshBatchChapters = useCallback(async () => {
@@ -1889,8 +1907,8 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
 
     let customDeAiSkill: string | null = null
     try {
-      const { loadSmartDeAiSkill } = await import("@/lib/novel/de-ai-adapter")
-      customDeAiSkill = await loadSmartDeAiSkill(
+      const { loadUnifiedDeAiSkillPrompt } = await import("@/lib/novel/de-ai-adapter")
+      customDeAiSkill = await loadUnifiedDeAiSkillPrompt(
         project?.path ?? null,
         action === "de-ai" ? "去AI味" : "润色",
         undefined

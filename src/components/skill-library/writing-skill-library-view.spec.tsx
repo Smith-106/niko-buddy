@@ -321,8 +321,8 @@ describe("技能包（.zip）离线导入接线（A-F-002 / B-F-006）", () => {
     const last = bundleDialogProps[bundleDialogProps.length - 1]
     expect(last?.open).toBe(true)
     expect(last?.bundlePath).toBe("D:/tmp/skillpack-a.zip")
-    // 落点根由宿主给出（含 user-assets 段，用户不可在弹窗内改写）
-    expect(last?.destRoot).toBe("C:/project/user-assets")
+    // 落点根由宿主统一给出为用户资产域（含 user-assets 段，用户不可在弹窗内改写）
+    expect(last?.destRoot).toBe(".niko-buddy/user-assets")
     expect(typeof last?.onImported).toBe("function")
     expect(container.querySelector('[data-testid="bundle-dialog-open"]')).not.toBeNull()
 
@@ -759,9 +759,9 @@ describe("WritingSkillLibraryView 分支覆盖补齐（20261105-ralph-coverage-1
     bundleDialogProps.length = 0
     const { container, root } = await renderLibrary()
     expect(container.textContent).toContain("请先打开项目")
-    // SkillBundleImportDialog 始终挂载，project 为空时 destRoot 回退 null
+    // SkillBundleImportDialog 始终挂载，落点根回退用户级资产域（跨项目共享，不落项目库）
     const last = bundleDialogProps[bundleDialogProps.length - 1]
-    expect(last?.destRoot).toBeNull()
+    expect(last?.destRoot).toBe(".niko-buddy/user-assets")
     cleanup(root, container)
   })
 

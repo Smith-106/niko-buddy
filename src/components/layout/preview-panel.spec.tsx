@@ -139,6 +139,7 @@ const mocks = vi.hoisted(() => {
     resolveReviewModel: vi.fn(() => "review-model"),
     buildDeAiRewriteMessages: vi.fn(() => []),
     loadSmartDeAiSkill: vi.fn(async () => null),
+    loadUnifiedDeAiSkillPrompt: vi.fn(async () => null),
     runDeAiBatch: vi.fn<(projectPath: string, options: DeAiBatchOptions) => Promise<DeAiBatchSummary>>(async () => ({
       schemaVersion: "de-ai-batch/1.0",
       batchId: "de-ai-1",
@@ -307,12 +308,28 @@ vi.mock("@/lib/novel/de-ai-adapter", async (importOriginal) => {
       return mocks.loadSmartDeAiSkill
     },
   })
+  Object.defineProperty(mod, "loadUnifiedDeAiSkillPrompt", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      if (mocks.deAiAdapterImportError.value) throw mocks.deAiAdapterImportError.value
+      return mocks.loadUnifiedDeAiSkillPrompt
+    },
+  })
   Object.defineProperty(mod, "runDeAiDetection", {
     enumerable: true,
     configurable: true,
     get() {
       if (mocks.deAiAdapterImportError.value) throw mocks.deAiAdapterImportError.value
       return actual.runDeAiDetection
+    },
+  })
+  Object.defineProperty(mod, "runProjectDeAiDetection", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      if (mocks.deAiAdapterImportError.value) throw mocks.deAiAdapterImportError.value
+      return actual.runProjectDeAiDetection
     },
   })
   return mod
@@ -1430,7 +1447,7 @@ describe("PreviewPanel 一键排版与去AI味", () => {
     fireEvent.click(screen.getByText("去AI味"))
     await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
     expect(mocks.buildDeAiRewriteMessages).toHaveBeenCalled()
-    expect(mocks.loadSmartDeAiSkill).toHaveBeenCalled()
+    expect(mocks.loadUnifiedDeAiSkillPrompt).toHaveBeenCalled()
     cleanup()
   })
 
@@ -1565,7 +1582,7 @@ describe("PreviewPanel 一键排版与去AI味", () => {
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByText("去AI味"))
     await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
-    expect(mocks.loadSmartDeAiSkill).toHaveBeenCalledWith(null, "去AI味润色", undefined)
+    expect(mocks.loadUnifiedDeAiSkillPrompt).toHaveBeenCalledWith(null, "去AI味润色", undefined)
     cleanup()
   })
 
@@ -3084,7 +3101,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     cleanup()
   })
 
-  it("project null + 选区变换 → loadSmartDeAiSkill(null, 润色)", async () => {
+  it("project null + 选区变换 → loadUnifiedDeAiSkillPrompt(null, 润色)", async () => {
     mocks.state.project = null
     mocks.state.selectedFile = CHAPTER_PATH
     mocks.state.fileContent = CHAPTER_MD
@@ -3097,7 +3114,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByTestId("editor-selection-polish"))
     await waitFor(() => expect(screen.getByTestId("tt-dialog").dataset.open).toBe("true"))
-    expect(mocks.loadSmartDeAiSkill).toHaveBeenCalledWith(null, "润色", undefined)
+    expect(mocks.loadUnifiedDeAiSkillPrompt).toHaveBeenCalledWith(null, "润色", undefined)
     cleanup()
   })
 

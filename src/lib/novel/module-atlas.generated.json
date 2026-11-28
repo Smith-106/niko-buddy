@@ -85,13 +85,13 @@
  ],
  "stats": {
   "modules": 1216,
-  "reachable": 998,
-  "unwired": 218,
-  "orphan": 180,
-  "specOnly": 177,
+  "reachable": 999,
+  "unwired": 217,
+  "orphan": 179,
+  "specOnly": 176,
   "barrelOnly": 0,
-  "edges": 4968,
-  "loc": 334347
+  "edges": 4987,
+  "loc": 335542
  },
  "modules": [
   {
@@ -550,7 +550,7 @@
   {
    "p": "src/components/chat/chat-panel-context-assembly.ts",
    "s": 16,
-   "l": 455,
+   "l": 529,
    "r": true,
    "o": false,
    "x": false,
@@ -1992,7 +1992,7 @@
   {
    "p": "src/components/layout/preview-panel.tsx",
    "s": 16,
-   "l": 2257,
+   "l": 2275,
    "r": true,
    "o": false,
    "x": false,
@@ -2162,7 +2162,7 @@
   {
    "p": "src/components/layout/soul-sidebar-panel.tsx",
    "s": 16,
-   "l": 263,
+   "l": 267,
    "r": true,
    "o": false,
    "x": false,
@@ -2999,7 +2999,7 @@
   {
    "p": "src/components/novel/character-aura-panels.tsx",
    "s": 16,
-   "l": 456,
+   "l": 464,
    "r": true,
    "o": false,
    "x": false,
@@ -3022,7 +3022,7 @@
   {
    "p": "src/components/novel/character-aura-view.tsx",
    "s": 16,
-   "l": 637,
+   "l": 658,
    "r": true,
    "o": false,
    "x": false,
@@ -3121,7 +3121,7 @@
   {
    "p": "src/components/novel/context-pack-replay-panel.tsx",
    "s": 16,
-   "l": 242,
+   "l": 331,
    "r": true,
    "o": false,
    "x": false,
@@ -5541,7 +5541,7 @@
   {
    "p": "src/components/settings/sections/mcp-section.tsx",
    "s": 16,
-   "l": 384,
+   "l": 477,
    "r": true,
    "o": false,
    "x": false,
@@ -6196,7 +6196,7 @@
   {
    "p": "src/components/skill-library/writing-skill-library-view.tsx",
    "s": 16,
-   "l": 618,
+   "l": 775,
    "r": true,
    "o": false,
    "x": false,
@@ -6208,10 +6208,12 @@
     304,
     305,
     306,
+    447,
     790,
     1214
    ],
    "e": [
+    "@tauri-apps/api",
     "@tauri-apps/plugin-dialog",
     "react",
     "react-i18next"
@@ -6278,7 +6280,7 @@
   {
    "p": "src/components/skills/SkillPackPanel.tsx",
    "s": 16,
-   "l": 586,
+   "l": 651,
    "r": true,
    "o": false,
    "x": false,
@@ -6318,7 +6320,7 @@
   {
    "p": "src/components/sources/outline-chat-panel.tsx",
    "s": 16,
-   "l": 710,
+   "l": 712,
    "r": true,
    "o": false,
    "x": false,
@@ -9009,17 +9011,19 @@
   {
    "p": "src/lib/mcp/agent-consumer.ts",
    "s": 18,
-   "l": 194,
+   "l": 262,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
+    4,
     471,
     477,
     489,
     496,
     498,
+    1050,
     1184,
     1214
    ]
@@ -9182,7 +9186,7 @@
   {
    "p": "src/lib/mcp/runtime.ts",
    "s": 18,
-   "l": 66,
+   "l": 70,
    "r": true,
    "o": false,
    "x": false,
@@ -10678,7 +10682,7 @@
   {
    "p": "src/lib/novel/chapter-ingest-extraction.ts",
    "s": 8,
-   "l": 680,
+   "l": 708,
    "r": true,
    "o": false,
    "x": false,
@@ -10698,11 +10702,14 @@
     622,
     623,
     667,
+    715,
     772,
     786,
     838,
     895,
+    936,
     964,
+    1008,
     1015,
     1048,
     1050,
@@ -10883,7 +10890,7 @@
   {
    "p": "src/lib/novel/chapter-ingest.ts",
    "s": 8,
-   "l": 1729,
+   "l": 1760,
    "r": true,
    "o": false,
    "x": false,
@@ -10915,6 +10922,7 @@
     638,
     647,
     667,
+    715,
     748,
     749,
     776,
@@ -10925,10 +10933,12 @@
     895,
     898,
     916,
+    936,
     964,
     965,
     966,
     1005,
+    1008,
     1048,
     1050,
     1184,
@@ -11124,10 +11134,10 @@
   {
    "p": "src/lib/novel/character-aura-context.ts",
    "s": 3,
-   "l": 268,
-   "r": false,
-   "o": true,
-   "x": true,
+   "l": 314,
+   "r": true,
+   "o": false,
+   "x": false,
    "b": false,
    "i": [
     4,
@@ -11165,13 +11175,15 @@
   {
    "p": "src/lib/novel/character-aura-generation.ts",
    "s": 3,
-   "l": 196,
+   "l": 294,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
     4,
+    625,
+    626,
     627,
     629,
     630,
@@ -11262,7 +11274,7 @@
   {
    "p": "src/lib/novel/character-aura.ts",
    "s": 3,
-   "l": 1877,
+   "l": 1922,
    "r": true,
    "o": false,
    "x": false,
@@ -11467,7 +11479,7 @@
   {
    "p": "src/lib/novel/community-summary.ts",
    "s": 18,
-   "l": 542,
+   "l": 576,
    "r": true,
    "o": false,
    "x": false,
@@ -11477,7 +11489,10 @@
     435,
     471,
     477,
+    715,
     826,
+    936,
+    1008,
     1050,
     1184,
     1191,
@@ -11550,7 +11565,7 @@
   {
    "p": "src/lib/novel/consensus-review.ts",
    "s": 10,
-   "l": 208,
+   "l": 217,
    "r": true,
    "o": false,
    "x": false,
@@ -11673,7 +11688,7 @@
   {
    "p": "src/lib/novel/context-engine-gaps.ts",
    "s": 5,
-   "l": 330,
+   "l": 331,
    "r": true,
    "o": false,
    "x": false,
@@ -11722,7 +11737,7 @@
   {
    "p": "src/lib/novel/context-engine-prompt.ts",
    "s": 5,
-   "l": 472,
+   "l": 499,
    "r": true,
    "o": false,
    "x": false,
@@ -11740,7 +11755,7 @@
   {
    "p": "src/lib/novel/context-engine-technique-sources.ts",
    "s": 5,
-   "l": 199,
+   "l": 239,
    "r": true,
    "o": false,
    "x": false,
@@ -12453,7 +12468,7 @@
   {
    "p": "src/lib/novel/deep-chapter-context-assembly.ts",
    "s": 5,
-   "l": 875,
+   "l": 891,
    "r": true,
    "o": false,
    "x": false,
@@ -12474,11 +12489,10 @@
     840,
     841,
     880,
+    936,
     939,
-    960,
     969,
     1008,
-    1026,
     1034,
     1050,
     1180,
@@ -12795,7 +12809,7 @@
   {
    "p": "src/lib/novel/deep-outline-generation.ts",
    "s": 4,
-   "l": 238,
+   "l": 260,
    "r": true,
    "o": false,
    "x": false,
@@ -12804,6 +12818,7 @@
     471,
     622,
     715,
+    936,
     1008,
     1214
    ]
@@ -12901,7 +12916,7 @@
   {
    "p": "src/lib/novel/dimension-review-adapter.ts",
    "s": 10,
-   "l": 1125,
+   "l": 1190,
    "r": true,
    "o": false,
    "x": false,
@@ -12912,6 +12927,7 @@
     477,
     623,
     654,
+    664,
     667,
     715,
     729,
@@ -12923,6 +12939,7 @@
     826,
     841,
     922,
+    936,
     1001,
     1008,
     1184,
@@ -13766,7 +13783,7 @@
   {
    "p": "src/lib/novel/index.ts",
    "s": 18,
-   "l": 1866,
+   "l": 1886,
    "r": true,
    "o": false,
    "x": false,
@@ -13834,6 +13851,7 @@
     622,
     623,
     624,
+    628,
     632,
     633,
     634,
@@ -13854,6 +13872,7 @@
     656,
     661,
     662,
+    664,
     666,
     667,
     670,
@@ -14051,6 +14070,7 @@
     1018,
     1019,
     1020,
+    1025,
     1026,
     1030,
     1033,
@@ -14905,7 +14925,7 @@
   {
    "p": "src/lib/novel/outline-generation.ts",
    "s": 4,
-   "l": 976,
+   "l": 989,
    "r": true,
    "o": false,
    "x": false,
@@ -16368,7 +16388,7 @@
   {
    "p": "src/lib/novel/skill-favorite.ts",
    "s": 13,
-   "l": 194,
+   "l": 208,
    "r": true,
    "o": false,
    "x": false,
@@ -16416,7 +16436,7 @@
   {
    "p": "src/lib/novel/skill-pack/pack-export.ts",
    "s": 11,
-   "l": 170,
+   "l": 196,
    "r": true,
    "o": false,
    "x": false,
@@ -16430,7 +16450,7 @@
   {
    "p": "src/lib/novel/skill-pack/pack-format.ts",
    "s": 13,
-   "l": 188,
+   "l": 212,
    "r": true,
    "o": false,
    "x": false,
@@ -16443,7 +16463,7 @@
   {
    "p": "src/lib/novel/skill-pack/pack-import.ts",
    "s": 13,
-   "l": 117,
+   "l": 127,
    "r": true,
    "o": false,
    "x": false,
@@ -18929,7 +18949,7 @@
   {
    "p": "src/lib/stable-prefix.ts",
    "s": 18,
-   "l": 356,
+   "l": 374,
    "r": true,
    "o": false,
    "x": false,
@@ -19612,7 +19632,7 @@
   {
    "p": "src/stores/favorite-skill-store.ts",
    "s": 17,
-   "l": 225,
+   "l": 230,
    "r": true,
    "o": false,
    "x": false,

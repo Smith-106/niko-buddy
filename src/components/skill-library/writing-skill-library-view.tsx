@@ -1,9 +1,40 @@
 import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { save } from "@tauri-apps/plugin-dialog"
-import { writeFileAtomic } from "@/commands/fs"
-import { deleteWritingSkill, exportSkillToJson, loadLinkedSkillContent, normalizeUserSkillConfig, resolveEnabledWritingSkills, saveUserSkillConfig, setWritingSkillEnabled, updateWritingSkill, WRITING_SKILL_KIND_OPTIONS, WRITING_SKILL_MODE_OPTIONS, WRITING_SKILL_STAGE_OPTIONS, SKILL_KIND_LABELS, SKILL_MODE_LABELS, SKILL_STAGE_LABELS } from "@/lib/novel"
-import type { UserSkillConfig, SkillKind, SkillMode, SkillStage, UserSkill, ImportResult } from "@/lib/novel"
+import { listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { parseFrontmatter } from "@/lib/frontmatter"
+import {
+  USER_ASSET_ROOT,
+  USER_ASSET_ROOT_TOKEN,
+  cloneSkillAsEditable,
+  deleteWritingSkill,
+  exportSkillToJson,
+  loadLinkedSkillContent,
+  loadUserAssetRefs,
+  normalizeUserSkill,
+  resolveEnabledWritingSkills,
+  saveUserAssetRefs,
+  saveUserSkillConfig,
+  setWritingSkillEnabled,
+  updateWritingSkill,
+  upsertUserAssetRef,
+  upsertWritingSkills,
+  WRITING_SKILL_KIND_OPTIONS,
+  WRITING_SKILL_MODE_OPTIONS,
+  WRITING_SKILL_STAGE_OPTIONS,
+  SKILL_KIND_LABELS,
+  SKILL_MODE_LABELS,
+  SKILL_STAGE_LABELS,
+} from "@/lib/novel"
+import type {
+  UserSkillConfig,
+  SkillKind,
+  SkillMode,
+  SkillStage,
+  UserSkill,
+  ImportResult,
+  SkillBundleImportResult,
+} from "@/lib/novel"
 import { hasDraftChanged, toggleValue } from "./writing-skill-helpers"
 import { OptionCheckbox } from "./writing-skill-widgets"
 import { SkillPackPanel } from "@/components/skills/SkillPackPanel"
@@ -35,7 +66,28 @@ export function WritingSkillLibraryView() {
   const [bundlePath, setBundlePath] = useState<string | null>(null)
   const [bundleDialogOpen, setBundleDialogOpen] = useState(false)
   const [bundleRefreshToken, setBundleRefreshToken] = useState(0)
-  const bundleDestRoot = project?.path ? `${project.path.replace(/[\\/]+$/, "")}/user-assets` : null
+  // Phase 2 (DA-01)：技能包本体落在用户资产域（<appData>/.niko-buddy/user-assets），
+  // 绝不落在项目目录内；项目内仅通过 .novel/user-asset-refs.json 与 ${USER_ASSET_ROOT} 引用。
+  const [bundleDestRoot, setBundleDestRoot] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function resolveUserAssetDestRoot() {
+      try {
+        const { appDataDir, join } = await import("@tauri-apps/api/path")
+        const base = await appDataDir()
+        const full = await join(base, ".niko-buddy", "user-assets")
+        if (!cancelled) setBundleDestRoot(full.replace(/[\\/]+$/, ""))
+      } catch {
+        // 非 Tauri / 测试降级：使用用户级相对锚点（不含 .novel/QM/canon 项目库段）
+        if (!cancelled) setBundleDestRoot(USER_ASSET_ROOT)
+      }
+    }
+    void resolveUserAssetDestRoot()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleOpenBundleImport = async () => {
     /* v8 ignore next -- 台账 writing-skill-library-view.tsx L39：唯一入口 skill-bundle-import-open 位于 `{config && project ? (`（L561）之内，无项目不渲染 */
@@ -162,15 +214,109 @@ export function WritingSkillLibraryView() {
 
   async function handlePackImported(result: ImportResult) {
     if (!result.ok || !config) return
-    // 落盘职责在宿主：面板只产出 `UserSkill[]`＋信任级别，归一化与写盘走本视图既有的
-    // `persist`（内部即 `saveUserSkillConfig` + `bumpDataVersion`）；无项目时 `persist`
-    // 自行拒绝，不在此处伪造成功。
-    const merged = normalizeUserSkillConfig({
-      ...config,
-      skills: [...config.skills, ...result.skills],
-    })
+    // Phase 2：按 id 做 upsert，支持同包升级覆写（不再因 first-wins 丢弃新版本）。
+    const merged = upsertWritingSkills(config, result.skills)
     const importedId = result.skills[result.skills.length - 1]?.id ?? selectedSkillId
     await persist(merged, importedId)
+  }
+
+  async function handleBundleImported(result: SkillBundleImportResult) {
+    setBundleRefreshToken((n) => n + 1)
+    if (!result?.ok || !project || !config) return
+
+    const normRoot = (bundleDestRoot ?? "").replace(/\\/g, "/").replace(/\/+$/, "")
+    const normInstalled = result.installed_dir.replace(/\\/g, "/").replace(/\/+$/, "")
+    const relFromRoot = normRoot && normInstalled.startsWith(`${normRoot}/`)
+      ? normInstalled.slice(normRoot.length + 1)
+      : result.id
+    const assetRelPath = `${USER_ASSET_ROOT}/${relFromRoot}`
+
+    // 1. 写入项目侧引用文件 `.novel/user-asset-refs.json`（DA-01 只存引用不落本体）
+    try {
+      const refFile = await loadUserAssetRefs(project.path)
+      const nextAssets = upsertUserAssetRef(refFile.assets, {
+        id: result.id,
+        kind: "skill_bundle",
+        assetPath: assetRelPath,
+        contentHash: result.content_hash,
+        trustLevel: result.trust_level === "reviewed" ? "reviewed" : "untrusted",
+        referencedAt: new Date().toISOString(),
+        origin: `${result.name}@${result.version}`,
+      })
+      await saveUserAssetRefs(project.path, { ...refFile, assets: nextAssets })
+    } catch {
+      // 引用记录失败不阻断技能发现
+    }
+
+    // 2. 自动扫描 `skills/*/SKILL.md`（或根目录 `SKILL.md`）并注册为 linked 技能 + contentCache
+    const discovered: UserSkill[] = []
+    const now = Date.now()
+    const targetCategoryId = draftCategoryId || config.categories[0]?.id || ""
+    const registerFromDir = async (absDir: string, tokenPath: string, slug: string) => {
+      try {
+        const raw = await readFile(`${absDir}/SKILL.md`)
+        if (!raw.trim()) return
+        const { frontmatter, body } = parseFrontmatter(raw)
+        const name = typeof frontmatter?.name === "string" && frontmatter.name.trim()
+          ? frontmatter.name.trim()
+          : slug
+        const description = typeof frontmatter?.description === "string" ? frontmatter.description.trim() : ""
+        discovered.push(normalizeUserSkill({
+          id: `bundle:${result.id}:${slug}`,
+          name,
+          description: description || `来自技能包 ${result.name} (${result.version})`,
+          content: "",
+          contentCache: (body.trim() || raw.trim()).slice(0, 12000),
+          source: "linked",
+          linkedPath: tokenPath,
+          categoryId: targetCategoryId,
+          tags: [result.id, "bundle"],
+          createdAt: now,
+          updatedAt: now,
+        }))
+      } catch {
+        // 目录中无 SKILL.md 时跳过
+      }
+    }
+
+    try {
+      const skillsSubDir = `${normInstalled}/skills`
+      const entries = await listDirectory(skillsSubDir)
+      for (const entry of entries) {
+        if (!entry.is_dir || entry.name.startsWith(".")) continue
+        await registerFromDir(
+          `${skillsSubDir}/${entry.name}`,
+          `${USER_ASSET_ROOT_TOKEN}/${relFromRoot}/skills/${entry.name}`,
+          entry.name,
+        )
+      }
+    } catch {
+      // 无 skills/ 子目录时尝试包根 SKILL.md
+    }
+    if (discovered.length === 0) {
+      await registerFromDir(normInstalled, `${USER_ASSET_ROOT_TOKEN}/${relFromRoot}`, result.id)
+    }
+
+    if (discovered.length > 0) {
+      const merged = upsertWritingSkills(config, discovered)
+      await persist(merged, discovered[0].id)
+      setMessage(`已从技能包「${result.name}」自动注册 ${discovered.length} 条可复用技能`)
+    }
+  }
+
+  async function handleCloneAsEditable() {
+    if (!config || !selectedSkill || !project || saving) return
+    if (draftDirty && !confirmDiscardSkillLibraryDraft()) return
+    const resolvedContent = selectedSkill.source === "linked"
+      ? await loadLinkedSkillContent(selectedSkill, { projectPath: project.path, userAssetRoot: bundleDestRoot ?? undefined })
+      : selectedSkill.content
+    const { config: nextConfig, cloned } = cloneSkillAsEditable(config, selectedSkill.id, resolvedContent)
+    if (!cloned) {
+      setMessage("源技能内容为空，无法复制为可编辑技能")
+      return
+    }
+    await persist(nextConfig, cloned.id)
+    setMessage(`已创建可编辑副本「${cloned.name}」`)
   }
 
   async function handleSaveSkill() {
@@ -334,6 +480,17 @@ export function WritingSkillLibraryView() {
                 >
                   导出
                 </button>
+                {(isLinkedSkill || selectedSkill.source === "built-in") ? (
+                  <button
+                    type="button"
+                    data-testid="writing-skill-clone-editable-button"
+                    onClick={() => void handleCloneAsEditable()}
+                    disabled={!project || saving}
+                    className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-60"
+                  >
+                    复制为可编辑技能
+                  </button>
+                ) : null}
                 <button
                   data-testid="writing-skill-delete-button"
                   type="button"
@@ -579,7 +736,7 @@ export function WritingSkillLibraryView() {
               <div className="min-w-0">
                 <div className="text-sm font-medium">{t("skillLibrary.importPack")}</div>
                 <div className="truncate text-xs text-muted-foreground">
-                  导入落点：当前项目资产域（不可在弹窗内改写）
+                  导入落点：用户资产域（跨项目共享，项目内仅保存引用）
                 </div>
               </div>
               <button
@@ -610,7 +767,7 @@ export function WritingSkillLibraryView() {
         bundlePath={bundlePath}
         destRoot={bundleDestRoot}
         onClose={() => setBundleDialogOpen(false)}
-        onImported={() => setBundleRefreshToken((n) => n + 1)}
+        onImported={(res) => void handleBundleImported(res)}
       />
     </div>
   )

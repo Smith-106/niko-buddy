@@ -95,6 +95,8 @@ export function SkillPackPanel({
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [exportScope, setExportScope] = useState<"all" | "custom" | "selected">("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const showDeclarativeSection = installedBundles !== undefined || Boolean(bundleDestRoot);
   const [bundles, setBundles] = useState<SkillBundleInstalledEntry[]>(() =>
@@ -221,14 +223,35 @@ export function SkillPackPanel({
     }
   };
 
+  const skillsToExport = useMemo(() => {
+    if (exportScope === "custom") {
+      return skills.filter((s) => s.source !== "built-in");
+    }
+    if (exportScope === "selected") {
+      return skills.filter((s) => selectedIds.has(s.id));
+    }
+    return skills;
+  }, [skills, exportScope, selectedIds]);
+
   const exportPreview = useMemo(
     () =>
-      buildPack(skills, {
+      buildPack(skillsToExport, {
         name: "niko-skills",
-        version: "1.0.0",
+        version: "2.0.0",
+        schemaVersion: 2,
       }),
-    [skills],
+    [skillsToExport],
   );
+
+  const toggleSkillSelection = (skillId: string) => {
+    setExportScope("selected");
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(skillId)) next.delete(skillId);
+      else next.add(skillId);
+      return next;
+    });
+  };
 
   const badges: { level: TrustLevel; count: number }[] = useMemo(() => {
     const counts = new Map<TrustLevel, number>();
@@ -277,17 +300,19 @@ export function SkillPackPanel({
     const imported = importNbskillPack(parsed, { categoryId });
     setResult(imported);
     if (imported.ok) {
-      // 描述文案在 UI 层生成：lib 不得产出用户可见自然语言。
+      // 描述文案在 UI 层生成：lib 不得产出用户可见自然语言；v2 包若自带描述则优先保留。
       const level = t(TRUST_LABEL_KEY[imported.trustLevel]);
       onImported?.({
         ...imported,
         skills: imported.skills.map((skill) => ({
           ...skill,
-          description: t("skillpack.importedDescription", {
-            name: imported.packName,
-            version: imported.packVersion,
-            level,
-          }),
+          description: skill.description.trim()
+            ? skill.description
+            : t("skillpack.importedDescription", {
+                name: imported.packName,
+                version: imported.packVersion,
+                level,
+              }),
         })),
       });
     }
@@ -312,13 +337,39 @@ export function SkillPackPanel({
         </span>
       </header>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button type="button" data-testid="skillpack-export" onClick={download}>
           {t("skillpack.export")}
         </button>
         <button type="button" data-testid="skillpack-import" onClick={() => inputRef.current?.click()}>
           {t("skillpack.import")}
         </button>
+        <div className="ml-auto flex items-center gap-1 text-xs">
+          <button
+            type="button"
+            data-testid="skillpack-scope-all"
+            className={`rounded border px-2 py-0.5 ${exportScope === "all" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+            onClick={() => setExportScope("all")}
+          >
+            全部 ({skills.length})
+          </button>
+          <button
+            type="button"
+            data-testid="skillpack-scope-custom"
+            className={`rounded border px-2 py-0.5 ${exportScope === "custom" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+            onClick={() => setExportScope("custom")}
+          >
+            仅自定义 ({skills.filter((s) => s.source !== "built-in").length})
+          </button>
+          <button
+            type="button"
+            data-testid="skillpack-scope-selected"
+            className={`rounded border px-2 py-0.5 ${exportScope === "selected" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+            onClick={() => setExportScope("selected")}
+          >
+            已勾选 ({selectedIds.size})
+          </button>
+        </div>
         <input
           ref={inputRef}
           type="file"
@@ -362,11 +413,25 @@ export function SkillPackPanel({
       </div>
 
       <ul className="flex-1 space-y-0.5 overflow-auto text-xs" data-testid="skillpack-skills">
-        {skills.map((skill) => (
-          <li key={skill.id} className="font-mono">
-            {skill.name}
-          </li>
-        ))}
+        {skills.map((skill) => {
+          const checked = exportScope === "all"
+            ? true
+            : exportScope === "custom"
+              ? skill.source !== "built-in"
+              : selectedIds.has(skill.id);
+          return (
+            <li key={skill.id} className="flex items-center gap-1.5 font-mono">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => toggleSkillSelection(skill.id)}
+                aria-label={`选择导出 ${skill.name}`}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              <span>{skill.name}</span>
+            </li>
+          );
+        })}
       </ul>
 
       {result && !result.ok ? (

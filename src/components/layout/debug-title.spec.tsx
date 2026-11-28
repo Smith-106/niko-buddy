@@ -46,6 +46,7 @@ const mocks = vi.hoisted(() => {
     resolveReviewModel: vi.fn(() => "review-model"),
     buildDeAiRewriteMessages: vi.fn(() => []),
     loadSmartDeAiSkill: vi.fn(async () => null),
+    loadUnifiedDeAiSkillPrompt: vi.fn(async () => null),
     startOutlineIngestTask: vi.fn(),
     streamChat: vi.fn(),
     reviewChapter: vi.fn(async () => []),
@@ -124,7 +125,10 @@ vi.mock("@/lib/novel/review-model", async (importOriginal) => {
 vi.mock("@/lib/novel/de-ai-adapter", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/de-ai-adapter")>()
   return {
-    ...actual, buildDeAiRewriteMessages: mocks.buildDeAiRewriteMessages, loadSmartDeAiSkill: mocks.loadSmartDeAiSkill 
+    ...actual,
+    buildDeAiRewriteMessages: mocks.buildDeAiRewriteMessages,
+    loadSmartDeAiSkill: mocks.loadSmartDeAiSkill,
+    loadUnifiedDeAiSkillPrompt: mocks.loadUnifiedDeAiSkillPrompt,
   }
 })
 vi.mock("@/lib/novel/outline-generation", async (importOriginal) => {
