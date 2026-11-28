@@ -129,7 +129,7 @@ export function SkillPackPanel({
     setLoadingBundles(true);
     listInstalledSkillBundles(bundleDestRoot)
       .then((entries) => {
-        if (!cancelled) setBundles(entries);
+        if (!cancelled) setBundles(Array.isArray(entries) ? entries : []);
       })
       .catch(() => {
         if (!cancelled) setBundles([]);

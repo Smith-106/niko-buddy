@@ -47,7 +47,7 @@ const VERTICAL = [
   "open_project", "open_project_folder", "create_project", "create_directory", "list_directory",
   "read_file", "write_file", "write_file_atomic", "file_exists",
   "claude_cli_detect", "codex_cli_detect", "cursor_cli_detect", "antigravity_cli_detect",
-  "claude_cli_spawn", "antigravity_cli_spawn",
+  "claude_cli_spawn", "antigravity_acp_connect", "antigravity_acp_prompt",
   "vault_put_secret", "vault_has_secret", "secret_get",
   "app_lock_state", "app_lock_verify", "get_device_fingerprint_cmd",
   "canon_query", "canon_ingest_episode", "canon_export_project", "canon_restore_project",
@@ -88,13 +88,15 @@ describe("纵切面 IPC 语义契约（vertical slice）", () => {
     expect(bad, `命令返回非 Result<T,String>: ${bad.join("; ")}`).toEqual([])
   })
 
-  it("spawn/detect 类异步命令参数含 stream/会话标识或隔离配置（支持取消/幂等语义）", () => {
-    // claude_cli_spawn/antigravity_cli_spawn 必须带 stream_id 以支持 cancel/kill
-    for (const c of ["claude_cli_spawn", "antigravity_cli_spawn"]) {
-      const sig = rust.get(c)
-      expect(sig, `${c} 无签名`).toBeTruthy()
-      expect(sig!.params).toMatch(/stream_id|streamId/)
-    }
+  it("spawn/ACP 类异步命令参数含 stream/会话标识（支持取消/幂等语义）", () => {
+    // claude_cli_spawn 必须带 stream_id；antigravity_acp_prompt（v2.29.0 起替代非合规 CLI spawn）必须带 session_id
+    const claudeSig = rust.get("claude_cli_spawn")
+    expect(claudeSig, "claude_cli_spawn 无签名").toBeTruthy()
+    expect(claudeSig!.params).toMatch(/stream_id|streamId/)
+
+    const acpSig = rust.get("antigravity_acp_prompt")
+    expect(acpSig, "antigravity_acp_prompt 无签名").toBeTruthy()
+    expect(acpSig!.params).toMatch(/session_id|sessionId/)
   })
 
   it("文件写命令存在原子写变体（write_file_atomic → 半写状态安全）", () => {

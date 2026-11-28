@@ -252,7 +252,10 @@ vi.mock("./temporal-facts-audit", () => ({
   auditTemporalFactsStatus: hoisted.auditTemporalFactsStatus,
   temporalEmptySoftGapRef: hoisted.temporalEmptySoftGapRef,
 }))
-vi.mock("./projection-status-ledger", () => ({ loadProjectionStatusLedger: hoisted.loadProjectionStatusLedger }))
+vi.mock("./projection-status-ledger", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./projection-status-ledger")>()
+  return { ...actual, loadProjectionStatusLedger: hoisted.loadProjectionStatusLedger }
+})
 vi.mock("./character-aura", () => ({ buildCharacterAuraContext: hoisted.buildCharacterAuraContext }))
 vi.mock("./search-adapter", () => ({
   isAuthoritativeGenerationPath: hoisted.isAuthoritativeGenerationPath,

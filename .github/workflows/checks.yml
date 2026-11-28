@@ -200,5 +200,8 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Ensure Linux PDFium resource placeholder for tauri-build
+        run: mkdir -p src-tauri/pdfium && : > src-tauri/pdfium/libpdfium.so
+
       - name: Run cargo clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings

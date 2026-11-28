@@ -1838,11 +1838,13 @@ mod tests {
             json!("http://127.0.0.1:45871/mcp?foo=bar&baz=1&profile=reviewer")
         );
         assert_eq!(
-            preserved["mcpServers"][DUAL_PROFILE_MCP_WRITER_SERVER_NAME]["headers"]["Authorization"],
+            preserved["mcpServers"][DUAL_PROFILE_MCP_WRITER_SERVER_NAME]["headers"]
+                ["Authorization"],
             json!("Bearer tok-abc-123")
         );
         assert_eq!(
-            preserved["mcpServers"][DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME]["headers"]["Authorization"],
+            preserved["mcpServers"][DUAL_PROFILE_MCP_REVIEWER_SERVER_NAME]["headers"]
+                ["Authorization"],
             json!("Bearer tok-abc-123")
         );
 

@@ -182,8 +182,10 @@ export function ExternalControlSection() {
     try {
       const next = await invoke<McpServerStatus>("mcp_server_status")
       if (!mountedRef.current) return
-      setStatus(next)
-      if (next.running) setWantScope(next.scope)
+      if (next && typeof next === "object") {
+        setStatus(next)
+        if (next.running) setWantScope(next.scope)
+      }
       if (!options?.preserveError) setError(null)
     } catch (e) {
       if (!mountedRef.current) return
@@ -196,8 +198,10 @@ export function ExternalControlSection() {
     void invoke<McpServerStatus>("mcp_server_status").then(
       (next) => {
         if (cancelled || !mountedRef.current) return
-        setStatus(next)
-        if (next.running) setWantScope(next.scope)
+        if (next && typeof next === "object") {
+          setStatus(next)
+          if (next.running) setWantScope(next.scope)
+        }
         setError(null)
       },
       (e: unknown) => {
