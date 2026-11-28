@@ -91,7 +91,7 @@
   "specOnly": 177,
   "barrelOnly": 0,
   "edges": 4928,
-  "loc": 330478
+  "loc": 330456
  },
  "modules": [
   {
@@ -16377,7 +16377,7 @@
   {
    "p": "src/lib/novel/skill-route-registry.ts",
    "s": 13,
-   "l": 371,
+   "l": 349,
    "r": true,
    "o": false,
    "x": false,
