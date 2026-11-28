@@ -82,14 +82,27 @@ describe("nmem-snapshot 入仓快照完整性", () => {
     expect(NMEM_SNAPSHOT.spaceId).toBe("space")
   })
 
-  it("收录 8 条 memory + 1 条 skill 且 id 全局唯一", () => {
+  it("收录 8 条 memory + 18 条 skill 且 id 全局唯一", () => {
     expect(NMEM_SNAPSHOT.memories).toHaveLength(8)
-    expect(NMEM_SNAPSHOT.skills).toHaveLength(1)
+    expect(NMEM_SNAPSHOT.skills).toHaveLength(18)
     const ids = NMEM_SNAPSHOT.memories.map((m) => m.memoryId)
     expect(new Set(ids).size).toBe(ids.length)
+    const skillIds = NMEM_SNAPSHOT.skills.map((s) => s.skillId)
+    expect(new Set(skillIds).size).toBe(skillIds.length)
     // 蓝图 §5 点名的两条真源记忆必须在快照中
     expect(ids).toContain("20de3c24-0000-4000-8000-000000000000") // 愿望—动机—行动
     expect(ids).toContain("04644331-0000-4000-8000-000000000000") // 爽点循环/危机延宕/结局三戒
+    // v4 快照含显著细节 v4 + 7 核心引擎技能 + 10 通用大手法/角色/配装技能
+    expect(NMEM_SNAPSHOT.skills[0].skillId).toBe("skill_f8e81e050000")
+    expect(NMEM_SNAPSHOT.skills[0].version).toBe(4)
+    expect(skillIds).toContain("skill_34b8da3fc971") // novel-continuity-p0-gate-audit
+    expect(skillIds).toContain("skill_05a7cc9d09d6") // detect-ai-flavor-nine-signals
+    expect(skillIds).toContain("skill_c071a8e8fe12") // novel-craft-school-and-expert-selector
+    expect(skillIds).toContain("skill_76e61c2db391") // character-ensemble-ecology-and-chemistry
+    expect(skillIds).toContain("skill_190e3a5dce09") // character-graceful-exit-and-legacy-arc
+    expect(skillIds).toContain("skill_4da20cc16b68") // craft-faction-politics-and-conspiracy
+    expect(skillIds).toContain("skill_af91619243bd") // craft-combat-tactics-and-terrain-chess
+    expect(skillIds).toContain("skill_ca3125a66185") // craft-dialogue-sparring-and-status-play
   })
 
   it("validateNmemSnapshot 对入仓快照通过", () => {

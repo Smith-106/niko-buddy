@@ -15,6 +15,11 @@ import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { WritingPreferenceSection } from "./writing-preference-section"
 import { NovelBaseSettingsSection } from "./novel-base-settings-section"
 import { NovelSettingTooltip, NovelSwitchRow } from "./novel-section-panels"
+import {
+  NovelCraftPresetPanel,
+  TaskSkillChipPicker,
+  useProjectAvailableWritingSkills,
+} from "./novel-craft-preset-panel"
 import { NOVEL_GROUP_HEADING_CLASS } from "./novel-section-style"
 import { CommitNumberInput } from "../settings-widgets"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
@@ -49,6 +54,7 @@ export function NovelSection({ draft, setDraft }: Props) {
   })
 
   const ids = useId()
+  const availableWritingSkills = useProjectAvailableWritingSkills(project?.path)
   // 最新草稿：落盘失败回滚时以它为底，只撤销本次 patch 的键
   const latestNovelConfigRef = useRef(draft.novelConfig)
   useEffect(() => {
@@ -527,6 +533,26 @@ export function NovelSection({ draft, setDraft }: Props) {
         ) : null}
       </div>
 
+      {/* Phase 3：流派工艺预设（4 文件原子事务 + 围栏提示合并 + 一键回滚） */}
+      <NovelCraftPresetPanel
+        projectPath={project?.path}
+        novelConfig={draft.novelConfig}
+        availableSkills={availableWritingSkills}
+        windowTokens={llmConfig.maxContextSize}
+        onPresetApplied={(nextCfg) => {
+          setDraft("novelConfig", nextCfg)
+          setNovelConfigStore(nextCfg)
+        }}
+        onRollbackApplied={async () => {
+          const { loadNovelConfig } = await import("@/lib/project-store")
+          const reloaded = await loadNovelConfig(project?.id, project?.path)
+          if (reloaded) {
+            setDraft("novelConfig", reloaded)
+            setNovelConfigStore(reloaded)
+          }
+        }}
+      />
+
       {/* 任务提示词与技能（task customization）：默认空=行为与现状一致 */}
       <div className="space-y-3 rounded-lg border p-4">
         <div className="flex items-center gap-1.5">
@@ -549,6 +575,20 @@ export function NovelSection({ draft, setDraft }: Props) {
                   taskSkillNames: {
                     ...draft.novelConfig.taskSkillNames,
                     [key]: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                  },
+                })
+              }
+            />
+            <TaskSkillChipPicker
+              taskKey={key}
+              selectedNames={draft.novelConfig.taskSkillNames?.[key] ?? []}
+              availableSkills={availableWritingSkills}
+              windowTokens={llmConfig.maxContextSize}
+              onChange={(nextNames) =>
+                updateNovelConfig({
+                  taskSkillNames: {
+                    ...draft.novelConfig.taskSkillNames,
+                    [key]: nextNames,
                   },
                 })
               }

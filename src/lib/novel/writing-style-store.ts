@@ -33,7 +33,7 @@ export interface BuildWritingStyleContextOptions {
   samplesCharLimit?: number
 }
 
-const DEFAULT_CONSTITUTION_LIMIT = 800
+const DEFAULT_CONSTITUTION_LIMIT = 1200
 const DEFAULT_SAMPLES_LIMIT = 2500
 
 function storePath(projectPath: string): string {

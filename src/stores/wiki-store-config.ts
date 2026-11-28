@@ -451,6 +451,8 @@ export interface NovelConfig {
   dialoguePunctuationStyle: string
   paragraphIndent: string
   quoteConvention: string
+  /** Phase 3：当前激活的流派工艺预设 ID（由 CraftPresetApplier 原子事务维护）。 */
+  activeCraftPresetId?: string
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {

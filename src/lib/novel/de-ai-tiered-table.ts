@@ -16,6 +16,10 @@
  *   - mechanical-slop-detector.ts TIER1/2/3 词库
  */
 
+import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
+import { join } from "@tauri-apps/api/path"
+import { logger, toErrorMessage } from "@/lib/utils"
+
 /** 3 档分级: 1A 高权重 / 1B 低权重 / 3 弱提示 */
 export type TieredDeAiTier = "1A" | "1B" | "3"
 
@@ -278,11 +282,16 @@ export interface TieredDeAiHit {
   count: number
 }
 
-/** 在文本中检测所有分级表命中 */
-export function detectTieredDeAi(text: string): TieredDeAiHit[] {
+/** 在文本中检测所有分级表命中（可选传入自定义合并表，默认使用内置 112 词表） */
+export function detectTieredDeAi(
+  text: string,
+  tableOverride?: readonly TieredDeAiEntry[],
+): TieredDeAiHit[] {
   if (!text) return []
+  const table = tableOverride ?? TIERED_DEAI_TABLE
   const hits: TieredDeAiHit[] = []
-  for (const entry of TIERED_DEAI_TABLE) {
+  for (const entry of table) {
+    if (!entry.term) continue
     let count = 0
     let idx = text.indexOf(entry.term)
     while (idx !== -1) {
@@ -294,6 +303,177 @@ export function detectTieredDeAi(text: string): TieredDeAiHit[] {
     }
   }
   return hits
+}
+
+export const DE_AI_TIERED_OVERRIDES_FILE = ".niko-buddy/de-ai-tiered-overrides.json"
+
+export interface DeAiTieredOverrides {
+  version: 1
+  updatedAt: number
+  disabledTerms: string[]
+  tierOverrides: Record<string, TieredDeAiTier>
+  customEntries: TieredDeAiEntry[]
+}
+
+const VALID_DE_AI_TIERS = new Set<TieredDeAiTier>(["1A", "1B", "3"])
+
+export function createEmptyDeAiTieredOverrides(now = Date.now()): DeAiTieredOverrides {
+  return {
+    version: 1,
+    updatedAt: now,
+    disabledTerms: [],
+    tierOverrides: {},
+    customEntries: [],
+  }
+}
+
+export function normalizeDeAiTieredOverrides(raw: unknown): DeAiTieredOverrides {
+  const input = raw && typeof raw === "object" ? (raw as Partial<DeAiTieredOverrides>) : {}
+  const disabledTerms = Array.isArray(input.disabledTerms)
+    ? [...new Set(input.disabledTerms.filter((t): t is string => typeof t === "string" && t.trim().length > 0).map((t) => t.trim()))]
+    : []
+  const tierOverrides: Record<string, TieredDeAiTier> = {}
+  if (input.tierOverrides && typeof input.tierOverrides === "object") {
+    for (const [term, tier] of Object.entries(input.tierOverrides)) {
+      const cleanTerm = term.trim()
+      if (cleanTerm && VALID_DE_AI_TIERS.has(tier as TieredDeAiTier)) {
+        tierOverrides[cleanTerm] = tier as TieredDeAiTier
+      }
+    }
+  }
+  const customEntries: TieredDeAiEntry[] = []
+  const seenCustom = new Set<string>()
+  if (Array.isArray(input.customEntries)) {
+    for (const item of input.customEntries) {
+      if (!item || typeof item !== "object") continue
+      const term = typeof item.term === "string" ? item.term.trim() : ""
+      if (!term || seenCustom.has(term)) continue
+      const tier = VALID_DE_AI_TIERS.has(item.tier as TieredDeAiTier) ? (item.tier as TieredDeAiTier) : "1A"
+      const weight = typeof item.weight === "number" && Number.isFinite(item.weight)
+        ? Math.max(0.1, Math.min(1, item.weight))
+        : tier === "1A" ? 0.8 : tier === "1B" ? 0.5 : 0.3
+      seenCustom.add(term)
+      customEntries.push({
+        term,
+        tier,
+        category: (typeof item.category === "string" && item.category.trim()
+          ? item.category.trim()
+          : "套话") as TieredDeAiCategory,
+        weight,
+        suggestion: typeof item.suggestion === "string" && item.suggestion.trim()
+          ? item.suggestion.trim()
+          : "建议删改或替换为具体细节",
+      })
+    }
+  }
+  return {
+    version: 1,
+    updatedAt: typeof input.updatedAt === "number" && Number.isFinite(input.updatedAt) ? input.updatedAt : 0,
+    disabledTerms,
+    tierOverrides,
+    customEntries,
+  }
+}
+
+export function mergeTieredDeAiTable(
+  baseTable: readonly TieredDeAiEntry[],
+  overrides: DeAiTieredOverrides | null | undefined,
+): TieredDeAiEntry[] {
+  if (!overrides) return [...baseTable]
+  const disabled = new Set(overrides.disabledTerms)
+  const merged: TieredDeAiEntry[] = []
+  const seen = new Set<string>()
+  for (const entry of baseTable) {
+    if (disabled.has(entry.term)) continue
+    const overrideTier = overrides.tierOverrides[entry.term]
+    const nextEntry: TieredDeAiEntry = overrideTier
+      ? {
+          ...entry,
+          tier: overrideTier,
+          weight: overrideTier === "1A" ? Math.max(entry.weight, 0.8) : overrideTier === "1B" ? 0.5 : 0.3,
+        }
+      : entry
+    merged.push(nextEntry)
+    seen.add(entry.term)
+  }
+  for (const custom of overrides.customEntries) {
+    if (!custom.term || disabled.has(custom.term)) continue
+    const overrideTier = overrides.tierOverrides[custom.term]
+    const nextCustom: TieredDeAiEntry = overrideTier ? { ...custom, tier: overrideTier } : custom
+    if (seen.has(custom.term)) {
+      const idx = merged.findIndex((e) => e.term === custom.term)
+      if (idx >= 0) merged[idx] = nextCustom
+    } else {
+      merged.push(nextCustom)
+      seen.add(custom.term)
+    }
+  }
+  return merged
+}
+
+export async function loadDeAiTieredOverrides(projectPath: string | null | undefined): Promise<DeAiTieredOverrides | null> {
+  if (!projectPath) return null
+  try {
+    const filePath = await join(projectPath, DE_AI_TIERED_OVERRIDES_FILE)
+    const raw = await readFile(filePath)
+    if (!raw.trim()) return null
+    return normalizeDeAiTieredOverrides(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+export async function saveDeAiTieredOverrides(
+  projectPath: string,
+  overrides: DeAiTieredOverrides,
+): Promise<DeAiTieredOverrides> {
+  const normalized = normalizeDeAiTieredOverrides({ ...overrides, updatedAt: Date.now() })
+  const dirPath = await join(projectPath, ".niko-buddy")
+  try {
+    await createDirectory(dirPath)
+  } catch {
+    // 目录已存在时忽略
+  }
+  const filePath = await join(projectPath, DE_AI_TIERED_OVERRIDES_FILE)
+  await writeFileAtomic(filePath, JSON.stringify(normalized, null, 2))
+  return normalized
+}
+
+export async function loadEffectiveTieredDeAiTable(
+  projectPath: string | null | undefined,
+): Promise<{ table: TieredDeAiEntry[]; overrides: DeAiTieredOverrides | null }> {
+  try {
+    const overrides = await loadDeAiTieredOverrides(projectPath)
+    return {
+      table: mergeTieredDeAiTable(TIERED_DEAI_TABLE, overrides),
+      overrides,
+    }
+  } catch (error) {
+    logger.warn("de-ai-tiered-table", `加载分级词表覆盖失败，回退默认表: ${toErrorMessage(error)}`)
+    return { table: [...TIERED_DEAI_TABLE], overrides: null }
+  }
+}
+
+export function buildTieredDeAiOverrideDirective(overrides: DeAiTieredOverrides | null | undefined): string {
+  if (!overrides) return ""
+  const disabled = new Set(overrides.disabledTerms)
+  const highTerms: string[] = []
+  for (const [term, tier] of Object.entries(overrides.tierOverrides)) {
+    if (tier === "1A" && !disabled.has(term)) highTerms.push(term)
+  }
+  for (const entry of overrides.customEntries) {
+    if (entry.tier === "1A" && !disabled.has(entry.term) && !highTerms.includes(entry.term)) {
+      highTerms.push(entry.term)
+    }
+  }
+  const lines: string[] = []
+  if (highTerms.length > 0) {
+    lines.push(`- 项目自定义 1A 必避 AI 词：${highTerms.slice(0, 30).join("、")}`)
+  }
+  if (overrides.disabledTerms.length > 0) {
+    lines.push(`- 项目豁免词（无需强行改写）：${overrides.disabledTerms.slice(0, 20).join("、")}`)
+  }
+  return lines.length > 0 ? `\n\n## 项目自定义去 AI 分级词覆盖\n${lines.join("\n")}` : ""
 }
 
 /** 按 tier 过滤检测结果 */

@@ -351,7 +351,7 @@ export function buildStructuredDeAiRules(genre?: string, minSeverity: DeAiSeveri
 // 保持「信号非证据」立场 (误报率 >60%)，1B 低权重仅轻提示不升压为硬门控。
 // ============================================================================
 
-import { detectTieredDeAi, filterTieredDeAiHitsByTier, type TieredDeAiHit } from "./de-ai-tiered-table"
+import { detectTieredDeAi, filterTieredDeAiHitsByTier, type TieredDeAiEntry, type TieredDeAiHit } from "./de-ai-tiered-table"
 
 /** 两遍检测结果 */
 export interface DualPassResult {
@@ -417,9 +417,12 @@ function simulateRewrite(text: string, hits: TieredDeAiHit[]): { rewrittenText: 
  * 保持「信号非证据」立场: 1A 高权重仅提供强信号, 不阻断;
  * 1B 低权重仅轻提示, 不升级为 Anti-AI(P1) 硬门控。
  */
-export function runDeAiDualPass(text: string): DualPassResult {
+export function runDeAiDualPass(
+  text: string,
+  options?: { tieredTable?: readonly TieredDeAiEntry[] },
+): DualPassResult {
   // ── Pass 1: Detect ──
-  const hits = detectTieredDeAi(text ?? "")
+  const hits = detectTieredDeAi(text ?? "", options?.tieredTable)
   const highHits = filterTieredDeAiHitsByTier(hits, "1A")
   const lowHits = filterTieredDeAiHitsByTier(hits, "1B")
   const weakHits = filterTieredDeAiHitsByTier(hits, "3")
@@ -433,7 +436,7 @@ export function runDeAiDualPass(text: string): DualPassResult {
   const { rewrittenText, suggestions } = simulateRewrite(text ?? "", hits)
 
   // ── Pass 2: Re-detect ──
-  const reHits = detectTieredDeAi(rewrittenText)
+  const reHits = detectTieredDeAi(rewrittenText, options?.tieredTable)
   const residual = reHits.filter((rh) => {
     // 只算 1A 和 1B 的残留, 3 弱提示不标残留
     return rh.entry.tier === "1A" || rh.entry.tier === "1B"

@@ -29,7 +29,7 @@ export interface FrontmatterParseResult {
 }
 
 // Strict, anchored detector. Both fence lines must be on their own line.
-const FM_BLOCK_STRICT_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
+const FM_BLOCK_STRICT_RE = /^\uFEFF?---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
 
 // Unanchored version used when strict matching fails.
 // Handles LLM-generated pages that prepend stray lines before real frontmatter.

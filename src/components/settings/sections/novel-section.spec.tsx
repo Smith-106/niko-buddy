@@ -375,7 +375,7 @@ describe("NovelSection", () => {
     commitValue(input, "50")
     await waitFor(() => expect(currentDraft.novelConfig.recentSummaryWindow).toBe(30))
     expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith({ recentSummaryWindow: 30 })
-    expect(mocks.saveNovelConfig).toHaveBeenCalledWith(currentDraft.novelConfig, "p1", "/p1")
+    expect(mocks.saveNovelConfig).toHaveBeenCalledWith(currentDraft.novelConfig, "p1", "/p1", { strictFileWrite: true })
 
     rerender()
     input = screen.getByDisplayValue("30")
@@ -504,7 +504,7 @@ describe("NovelSection", () => {
     fireEvent.click(btn)
     await waitFor(() => expect(currentDraft.novelConfig.trustFilterEnabled).toBe(true))
     expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith({ trustFilterEnabled: true })
-    expect(mocks.saveNovelConfig).toHaveBeenCalledWith(currentDraft.novelConfig, "p1", "/p1")
+    expect(mocks.saveNovelConfig).toHaveBeenCalledWith(currentDraft.novelConfig, "p1", "/p1", { strictFileWrite: true })
 
     rerender()
     const onBtn = toggleButtonFor("novel.settings.trustFilterEnabled")
@@ -737,7 +737,7 @@ describe("NovelSection", () => {
     const checkbox = within(row).getByRole("checkbox")
     fireEvent.click(checkbox)
     await waitFor(() => {
-      expect(mocks.saveNovelConfig).toHaveBeenCalledWith(currentDraft.novelConfig, undefined, undefined)
+      expect(mocks.saveNovelConfig).toHaveBeenCalledWith(currentDraft.novelConfig, undefined, undefined, { strictFileWrite: true })
     })
   })
 

@@ -48,8 +48,8 @@ import {
 // 编译产物类型（蓝图四件套：canon 字段枚举 / 规则包参数 / 提示词块 / hook 注册表）
 // ============================================================================
 
-/** 编译器版本号：编译逻辑或参数语义变更时升版（与快照版本正交）。 */
-export const TECHNIQUE_COMPILER_VERSION = "1.0.0"
+/** 编译器版本号：v2.0.0 支持 13 条通用 space 规则编译、18 技能全量 sourceSkillIds 溯源与 6 域 InjectionScope 对齐。 */
+export const TECHNIQUE_COMPILER_VERSION = "2.0.0"
 
 /** canon 三表目标（T11 DDL 三表）。 */
 export type CanonTableTarget = "entities" | "edges" | "episodes"
@@ -60,12 +60,14 @@ export interface CanonFieldTarget {
   readonly field: string
 }
 
-/** 提示词块注入点（W12 注入范围含技法块，F-19）。 */
+/** 提示词块注入点（Phase 3 v2：与 craft-rule-registry 的 6 个 InjectionScope 统一对齐）。 */
 export type PromptInjectionPoint =
   | "protagonist_brief" // 主角卡司简报（人物弧光工作台 F-06 输入）
   | "chapter_task_brief" // 章节任务书技法块（deep-chapter-task-brief）
   | "opening_audit" // 开篇钩子审计（A-23.1/A-23.4）
   | "ending_guard" // 终局三戒守卫（F-28）
+  | "review_quality" // 六维审查质量注入（质量维）
+  | "review_consistency" // 六维审查一致性注入（一致性维）
 
 /** 单条提示词块（注入生成端上下文的最小技法指令面）。 */
 export interface TechniquePromptBlock {
@@ -105,6 +107,10 @@ export interface TechniqueRulePack {
   readonly sourceSnapshotVersion: number
   /** 溯源 nmem 记忆 id 列表（全部必须存在于来源快照）。 */
   readonly sourceMemoryIds: readonly string[]
+  /** Phase 3 v2：该包关联覆盖的 nmem snapshot skillId 列表（全量 18 技能可追溯）。 */
+  readonly sourceSkillIds?: readonly string[]
+  /** Phase 3 v2：该包绑定的通用 space 规则 ID 列表。 */
+  readonly universalRuleIds?: readonly string[]
   /** 该包负责回填的 canon 技法字段枚举。 */
   readonly canonFieldTargets: readonly CanonFieldTarget[]
   /** 规则包参数（扁平键值）。 */
@@ -113,13 +119,27 @@ export interface TechniqueRulePack {
   readonly promptBlocks: readonly TechniquePromptBlock[]
 }
 
-/** 编译产物注册表（含 hook 类型注册表聚合）。 */
+/** Phase 3 v2：从快照 universalRules 编译出的通用规则包条目。 */
+export interface UniversalRulePack {
+  readonly ruleId: string
+  readonly title: string
+  readonly priority: "P0" | "P1" | "P2"
+  readonly injectionPoint: PromptInjectionPoint
+  readonly sourceSnapshotVersion: number
+  readonly promptBlock: TechniquePromptBlock
+}
+
+/** 编译产物注册表（含 hook 类型注册表、通用规则包与技能反查索引）。 */
 export interface CompiledTechniqueRegistry {
   readonly compilerVersion: string
   readonly snapshotVersion: number
   readonly packs: readonly TechniqueRulePack[]
   /** 全部已注册钩子型（开端 + 章末，开放注册表）。 */
   readonly hookTypeRegistry: readonly HookTypeEntry[]
+  /** Phase 3 v2：13 条通用 space 规则编译产物（可选以向后兼容既有手写测试夹具）。 */
+  readonly universalRulePacks?: readonly UniversalRulePack[]
+  /** Phase 3 v2：snapshot skillId → 关联 packId[] 索引（18/18 技能全覆盖）。 */
+  readonly skillPackIndex?: Readonly<Record<string, readonly string[]>>
 }
 
 // ============================================================================
@@ -139,11 +159,16 @@ export function compileTechniques(snapshot: NmemSnapshot): CompiledTechniqueRegi
       `compileTechniques: 快照校验失败：${snapshotCheck.violations.map((v) => `${v.path}: ${v.message}`).join("; ")}`,
     )
   }
+  const packs = buildPacks(snapshot)
+  const universalRulePacks = buildUniversalRulePacks(snapshot)
+  const skillPackIndex = buildSkillPackIndex(packs, snapshot)
   return {
     compilerVersion: TECHNIQUE_COMPILER_VERSION,
     snapshotVersion: snapshot.snapshotVersion,
-    packs: buildPacks(snapshot),
+    packs,
     hookTypeRegistry: buildHookTypeRegistry(),
+    universalRulePacks,
+    skillPackIndex,
   }
 }
 
@@ -169,9 +194,80 @@ const MEMORY_BRIDGE = "edgerton-hooked-start-at-inciting-incident"
 const MEMORY_DETAILS = "94a6af29-0000-4000-8000-000000000000"
 const SKILL_DETAILS = "skill_f8e81e050000"
 
+/** Phase 3 v2：9 大规则包与 18 条 snapshot skills / 13 条 universalRules 的声明式映射表。 */
+const PACK_SKILL_BINDINGS: Readonly<Record<string, readonly string[]>> = {
+  "craft.wish-motive-action": ["skill_1f395eb26e7e", "skill_c071a8e8fe12"],
+  "craft.thrill-loop-crisis-delay": ["skill_6bfdc4f3b916", "skill_bfda7587df41", "skill_af91619243bd"],
+  "craft.finale-three-precepts": ["skill_c115a9cef595", "skill_34b8da3fc971", "skill_190e3a5dce09"],
+  "craft.mckee-eight-fundamentals": ["skill_76e61c2db391", "skill_adcd68a9ac71"],
+  "craft.mckee-ghost-wound": ["skill_1f395eb26e7e", "skill_b5213cc9196f"],
+  "craft.chapter-end-hooks-domino": ["skill_4da20cc16b68", "skill_ca3125a66185"],
+  "craft.opening-hook-promise": ["skill_c071a8e8fe12", "skill_05a7cc9d09d6"],
+  "craft.conflict-caliber-bridge": ["skill_ad222a51ebdc", "skill_303834196af4"],
+  "craft.significant-details": ["skill_f8e81e050000", "skill_9dab6cee6365"],
+}
+
+const PACK_UNIVERSAL_RULE_BINDINGS: Readonly<Record<string, readonly string[]>> = {
+  "craft.wish-motive-action": ["novel-character-voice-and-flaw-consistency", "novel-craft-school-adaptive-routing"],
+  "craft.thrill-loop-crisis-delay": ["novel-thrill-pacing-delay-curve", "novel-power-system-cost-and-ecology", "novel-combat-cost-and-information-win"],
+  "craft.finale-three-precepts": ["novel-opening-redline-finale-precepts", "novel-continuity-p0-hard-gate"],
+  "craft.mckee-eight-fundamentals": ["novel-character-voice-and-flaw-consistency", "novel-emotional-curve-and-antimelodrama"],
+  "craft.mckee-ghost-wound": ["novel-character-voice-and-flaw-consistency"],
+  "craft.chapter-end-hooks-domino": ["novel-dialogue-status-and-subtext-turn", "novel-information-asymmetry-and-pov-gate"],
+  "craft.opening-hook-promise": ["novel-opening-redline-finale-precepts", "ai-prose-review-15"],
+  "craft.conflict-caliber-bridge": ["novel-kb-routing-contract", "novel-craft-school-adaptive-routing"],
+  "craft.significant-details": ["novel-cinematic-show-dont-tell-gate", "ai-prose-review-15"],
+}
+
+function buildUniversalRulePacks(snapshot: NmemSnapshot): readonly UniversalRulePack[] {
+  const rules = snapshot.universalRules ?? []
+  return rules.map((rule) => ({
+    ruleId: rule.ruleId,
+    title: rule.title,
+    priority: rule.priority,
+    injectionPoint: rule.injectionScope,
+    sourceSnapshotVersion: snapshot.snapshotVersion,
+    promptBlock: {
+      blockId: `universal.${rule.ruleId}`,
+      title: `[${rule.priority}] ${rule.title}`,
+      body: rule.summary,
+      injectionPoint: rule.injectionScope,
+    },
+  }))
+}
+
+function buildSkillPackIndex(
+  packs: readonly TechniqueRulePack[],
+  snapshot: NmemSnapshot,
+): Readonly<Record<string, readonly string[]>> {
+  const index: Record<string, string[]> = {}
+  for (const skill of snapshot.skills) {
+    index[skill.skillId] = []
+  }
+  for (const pack of packs) {
+    for (const sid of pack.sourceSkillIds ?? []) {
+      if (!index[sid]) index[sid] = []
+      if (!index[sid].includes(pack.packId)) index[sid].push(pack.packId)
+    }
+  }
+  return index
+}
+
 function buildPacks(snapshot: NmemSnapshot): readonly TechniqueRulePack[] {
   const version = snapshot.snapshotVersion
-  return [
+  const detailsSkill = snapshot.skills.find((s) => s.skillId === SKILL_DETAILS)
+  const presentSkillIds = new Set(snapshot.skills.map((s) => s.skillId))
+  const presentRuleIds = new Set((snapshot.universalRules ?? []).map((r) => r.ruleId))
+  const attachBindings = (pack: TechniqueRulePack): TechniqueRulePack => {
+    const sourceSkillIds = (PACK_SKILL_BINDINGS[pack.packId] ?? []).filter((id) => presentSkillIds.has(id))
+    const universalRuleIds = (PACK_UNIVERSAL_RULE_BINDINGS[pack.packId] ?? []).filter((id) => presentRuleIds.has(id))
+    return {
+      ...pack,
+      ...(sourceSkillIds.length > 0 ? { sourceSkillIds } : {}),
+      ...(universalRuleIds.length > 0 ? { universalRuleIds } : {}),
+    }
+  }
+  const basePacks: TechniqueRulePack[] = [
     {
       packId: "craft.wish-motive-action",
       techniqueName: "愿望—动机—行动范式",
@@ -413,8 +509,8 @@ function buildPacks(snapshot: NmemSnapshot): readonly TechniqueRulePack[] {
         max_details_per_subject: 2, // 一两个鲜明细节替代完整生平（少即是多）
         avoid_generic_adjectives: ["漂亮", "帅", "美", "丑"], // 广告词禁用
         skill_id: SKILL_DETAILS,
-        skill_version: 1,
-        skill_content_hash: "219c319a3b1b79038b3f288d28f24cf1e35996ddc91aa525db0d43ef8416091e",
+        skill_version: detailsSkill?.version ?? 4,
+        skill_content_hash: detailsSkill?.contentHash ?? "ece939b443d40d8590ec8fd4c0d5aaa09fc8a275c33c83f80df27459232dd04d",
       },
       promptBlocks: [
         {
@@ -429,6 +525,7 @@ function buildPacks(snapshot: NmemSnapshot): readonly TechniqueRulePack[] {
       ],
     },
   ]
+  return basePacks.map(attachBindings)
 }
 
 // ---------------------------------------------------------------------------

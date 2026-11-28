@@ -4,8 +4,14 @@ import { readFile } from "@/commands/fs"
 import { join, resourceDir } from "@tauri-apps/api/path"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { splitChapterHeading } from "@/lib/chapter-selection"
-import { HUMANIZER_CAVITY_GUARD } from "./de-ai-rules"
-import { detectTieredDeAi } from "./de-ai-tiered-table"
+import { HUMANIZER_CAVITY_GUARD, runDeAiDualPass, type DualPassResult } from "./de-ai-rules"
+import {
+  buildTieredDeAiOverrideDirective,
+  detectTieredDeAi,
+  loadEffectiveTieredDeAiTable,
+  type DeAiTieredOverrides,
+  type TieredDeAiEntry,
+} from "./de-ai-tiered-table"
 import { slopScore, classifySlop } from "./mechanical-slop-detector"
 import {
   parseReviewRewritePlan,
@@ -228,7 +234,10 @@ function matchRegexSpans(text: string, source: string): RegexSpan[] {
  * 会进入分数但不会产出可定位命中项——这是有意取舍：宁可少标注，也不把偏移指向
  * 错位的字符。不在此处重建 normalizer（避免两套归一化漂移）。
  */
-export function runDeAiDetection(text: string): DeAiDetectResult {
+export function runDeAiDetection(
+  text: string,
+  options?: { tieredTable?: readonly TieredDeAiEntry[] },
+): DeAiDetectResult {
   if (!text || !text.trim()) {
     return {
       hits: [],
@@ -251,8 +260,8 @@ export function runDeAiDetection(text: string): DeAiDetectResult {
     suggestion: string
   }> = []
 
-  // 1. Tiered table hits (112 词分级表，字面词条 → indexOf 定位)
-  const tiered = detectTieredDeAi(text)
+  // 1. Tiered table hits (112 词分级表或项目覆盖表，字面词条 → indexOf 定位)
+  const tiered = detectTieredDeAi(text, options?.tieredTable)
   for (const item of tiered) {
     const { entry } = item
     // 空词条守卫：indexOf("") 恒为 0 且 pos 不前进 → 无限 push（RV-007）
@@ -524,17 +533,13 @@ async function tryLoadSkillFromBundle(skillPath: string): Promise<string | null>
 }
 
 /**
- * 智能加载去AI味skill（根据场景自动选择）
- * @param projectPath 项目路径
- * @param userRequest 用户请求文本
- * @param contextPack 上下文包（可选）
- * @returns skill内容，失败返回null（将使用内置规则兜底）
+ * 智能加载去AI味skill（根据场景自动选择，同时返回生效来源标签）
  */
-export async function loadSmartDeAiSkill(
+async function loadSmartDeAiSkillWithSource(
   projectPath: string | null,
   userRequest: string,
-  contextPack?: ContextPack
-): Promise<string | null> {
+  contextPack?: ContextPack,
+): Promise<{ content: string; source: "de-ai-skill-txt" | "scene-bundle" } | null> {
   if (!projectPath) return null
 
   // 1. 最高优先：用户自定义 de-ai-skill.txt
@@ -542,7 +547,7 @@ export async function loadSmartDeAiSkill(
     const customPath = await join(projectPath, "de-ai-skill.txt")
     const customSkill = await readFile(customPath)
     const trimmed = customSkill.trim()
-    if (trimmed) return trimmed
+    if (trimmed) return { content: trimmed, source: "de-ai-skill-txt" }
   } catch {
     // 用户未自定义，继续自动选择
   }
@@ -553,8 +558,147 @@ export async function loadSmartDeAiSkill(
   // 3. 根据场景选择skill
   const skillPath = genreToSkillPath(genre)
   const sceneSkill = await tryLoadSkillFromBundle(skillPath)
-  if (sceneSkill) return sceneSkill
+  if (sceneSkill) return { content: sceneSkill, source: "scene-bundle" }
 
   // 4. 保底：返回null，使用内置规则
   return null
+}
+
+/**
+ * 智能选择并加载去AI味skill（双轨方案：用户自定义覆盖 > 内置场景bundle > 内置规则）
+ * @param projectPath 项目路径
+ * @param userRequest 用户请求文本
+ * @param contextPack 上下文包（可选）
+ * @returns skill内容，失败返回null（将使用内置规则兜底）
+ */
+export async function loadSmartDeAiSkill(
+  projectPath: string | null,
+  userRequest: string,
+  contextPack?: ContextPack
+): Promise<string | null> {
+  const resolved = await loadSmartDeAiSkillWithSource(projectPath, userRequest, contextPack)
+  return resolved?.content ?? null
+}
+
+export interface UnifiedDeAiRuntimeResult {
+  /** 解析出的有效去 AI 技能正文（null 表示使用内置 QM_QUAI_SYSTEM_PROMPT） */
+  skillPrompt: string | null
+  /** 生效来源 */
+  source: "de-ai-skills-json" | "de-ai-skill-txt" | "scene-bundle" | "builtin"
+  /** 选中的 Skill 名称（仅当命中 de-ai-skills.json 时提供） */
+  skillName?: string
+  /** 合并项目覆盖后的有效分级检测表 */
+  tieredTable: TieredDeAiEntry[]
+  /** 原始分级覆盖配置（若存在） */
+  tieredOverrides: DeAiTieredOverrides | null
+}
+
+/**
+ * Phase 1 统一 De-AI 运行时解析器：
+ * 统一 `.niko-buddy/de-ai-skills.json`、`de-ai-skill.txt`、场景 bundle 与 `.niko-buddy/de-ai-tiered-overrides.json`。
+ *
+ * 优先级：
+ * 1. 若 `.niko-buddy/de-ai-skills.json` 存在且用户显式自定义/切换了有效去 AI 技能 → 优先采纳
+ * 2. 否则回退到 `loadSmartDeAiSkill`（`de-ai-skill.txt` → 场景 bundle）
+ * 3. 否则退回内置默认（skillPrompt = null）
+ * 4. 若 `.niko-buddy/de-ai-tiered-overrides.json` 含自定义 1A/豁免项，追加简短分级覆盖段
+ */
+export async function resolveUnifiedDeAiRuntime(params: {
+  projectPath: string | null | undefined
+  userRequest: string
+  contextPack?: ContextPack
+  preferredSkillId?: string | null
+}): Promise<UnifiedDeAiRuntimeResult> {
+  const { projectPath, userRequest, contextPack, preferredSkillId } = params
+  const { table: tieredTable, overrides: tieredOverrides } = await loadEffectiveTieredDeAiTable(projectPath)
+  const overrideDirective = buildTieredDeAiOverrideDirective(tieredOverrides)
+
+  if (!projectPath) {
+    return {
+      skillPrompt: overrideDirective ? `${buildQmQuaiSystemPrompt()}${overrideDirective}` : null,
+      source: "builtin",
+      tieredTable,
+      tieredOverrides,
+    }
+  }
+
+  // 1. 尝试读取项目级 `.niko-buddy/de-ai-skills.json`（仅在文件真实存在且非默认未修改态时优先）
+  try {
+    const libraryPath = await join(projectPath, ".niko-buddy", "de-ai-skills.json")
+    const rawJson = await readFile(libraryPath)
+    if (rawJson.trim()) {
+      const parsed = JSON.parse(rawJson)
+      const {
+        normalizeDeAiSkillConfig,
+        resolveEffectiveDeAiSkill,
+        BUILT_IN_DE_AI_SKILLS,
+      } = await import("./de-ai-skill-library")
+      const config = normalizeDeAiSkillConfig(parsed)
+      const effective = resolveEffectiveDeAiSkill(config, preferredSkillId)
+      const builtinDefault = BUILT_IN_DE_AI_SKILLS[0]
+      if (effective) {
+        const isCustomized =
+          Boolean(preferredSkillId)
+          || effective.source === "project"
+          || (builtinDefault && (effective.id !== builtinDefault.id || effective.content.trim() !== builtinDefault.content.trim()))
+        if (isCustomized && effective.content.trim()) {
+          return {
+            skillPrompt: `${effective.content.trim()}${overrideDirective}`,
+            source: "de-ai-skills-json",
+            skillName: effective.name,
+            tieredTable,
+            tieredOverrides,
+          }
+        }
+      }
+    }
+  } catch {
+    // 配置文件不存在或不可读，回退到 de-ai-skill.txt / 场景 bundle
+  }
+
+  // 2. 回退到既有 `loadSmartDeAiSkill`（`de-ai-skill.txt` → 场景 bundle）
+  const smartSkill = await loadSmartDeAiSkillWithSource(projectPath, userRequest, contextPack)
+  if (smartSkill) {
+    return {
+      skillPrompt: `${smartSkill.content}${overrideDirective}`,
+      source: smartSkill.source,
+      tieredTable,
+      tieredOverrides,
+    }
+  }
+
+  return {
+    skillPrompt: overrideDirective ? `${buildQmQuaiSystemPrompt()}${overrideDirective}` : null,
+    source: "builtin",
+    tieredTable,
+    tieredOverrides,
+  }
+}
+
+/** 适配 `assembleContext` 的 `(projectPath, userRequest, contextPack) => Promise<string | null>` 签名。 */
+export async function loadUnifiedDeAiSkillPrompt(
+  projectPath: string | null,
+  userRequest: string,
+  contextPack?: ContextPack,
+): Promise<string | null> {
+  const resolved = await resolveUnifiedDeAiRuntime({ projectPath, userRequest, contextPack })
+  return resolved.skillPrompt
+}
+
+/** 项目级静态去 AI 检测：自动合入 `.niko-buddy/de-ai-tiered-overrides.json`。 */
+export async function runProjectDeAiDetection(
+  projectPath: string | null | undefined,
+  text: string,
+): Promise<DeAiDetectResult> {
+  const { table } = await loadEffectiveTieredDeAiTable(projectPath)
+  return runDeAiDetection(text, { tieredTable: table })
+}
+
+/** 项目级两遍去 AI 检测：自动合入 `.niko-buddy/de-ai-tiered-overrides.json`。 */
+export async function runProjectDeAiDualPass(
+  projectPath: string | null | undefined,
+  text: string,
+): Promise<DualPassResult> {
+  const { table } = await loadEffectiveTieredDeAiTable(projectPath)
+  return runDeAiDualPass(text, { tieredTable: table })
 }

@@ -72,6 +72,8 @@ const mocks = vi.hoisted(() => {
     clearStore: () => map.clear(),
     readFile: vi.fn(),
     writeFile: vi.fn(),
+    writeFileAtomic: vi.fn(),
+    createDirectory: vi.fn(),
     fileExists: vi.fn(),
     loadNovelProjectMeta: vi.fn(),
     saveNovelProjectMeta: vi.fn(),
@@ -111,6 +113,8 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     ...actual,
       readFile: mocks.readFile,
       writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
+      createDirectory: mocks.createDirectory,
       fileExists: mocks.fileExists,
     
   }
@@ -560,6 +564,8 @@ describe("novel config", () => {
     mocks.readFile.mockRejectedValue(new Error("no file"))
     mocks.fileExists.mockResolvedValue(false)
     mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
+    mocks.createDirectory.mockResolvedValue(undefined)
   })
 
   it("round-trips a full novel config and returns null when absent", async () => {
@@ -778,10 +784,33 @@ describe("novel config", () => {
     mocks.fileExists.mockResolvedValue(true)
     mocks.readFile.mockRejectedValue(new Error("boom"))
     await expect(loadNovelConfig("p1", "C:/p")).resolves.toBeNull()
-    mocks.writeFile.mockRejectedValue(new Error("disk"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("disk"))
     await expect(saveNovelConfig({} as never, "p1", "C:/p")).resolves.toBeUndefined()
+    // strictFileWrite=true 时显式 fail-loud
+    await expect(saveNovelConfig({} as never, "p1", "C:/p", { strictFileWrite: true })).rejects.toThrow("disk")
     // 文件读取失败 → 回落 store（p1 已存 {} → normalize 为默认全量配置，非 null）
     await expect(loadNovelConfig("p1", "C:/p")).resolves.toMatchObject({ contextTokenBudget: expect.any(Number) })
+  })
+
+  it("Phase 3: 项目级 saveNovelConfig 不污染全局配置，并保留 reviewStageTimeoutMs/activeCraftPresetId", async () => {
+    await saveNovelConfig({ searchTopK: 5 } as never)
+    await saveNovelConfig(
+      { searchTopK: 11, reviewStageTimeoutMs: 180000, activeCraftPresetId: "cuttlefish-mystery" } as never,
+      "proj-a",
+      "C:/proj-a",
+    )
+    // 全局配置未被 proj-a 覆盖
+    const globalCfg = await loadNovelConfig()
+    expect(globalCfg?.searchTopK).toBe(5)
+    expect(globalCfg?.activeCraftPresetId).toBeUndefined()
+    // 项目级原子写盘被触发且扩展字段保留
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+      "C:/proj-a/.niko-buddy/novel-config.json",
+      expect.stringContaining("cuttlefish-mystery"),
+    )
+    const projCfg = await loadNovelConfig("proj-a")
+    expect(projCfg?.reviewStageTimeoutMs).toBe(180000)
+    expect(projCfg?.activeCraftPresetId).toBe("cuttlefish-mystery")
   })
 })
 

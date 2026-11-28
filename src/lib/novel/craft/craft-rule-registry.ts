@@ -78,8 +78,25 @@ export interface CraftRuleRegistry {
 // 注册表常量
 // ============================================================================
 
-/** 注册表版本号（与 T27b technique-compiler 版本对齐）。 */
-export const CRAFT_RULE_REGISTRY_VERSION = "1.0.0"
+/** 注册表版本号（与 T27b technique-compiler v2 对齐）。 */
+export const CRAFT_RULE_REGISTRY_VERSION = "2.0.0"
+
+/** Phase 3 v2：13 条通用 space 规则 ID 常量集（与 nmem-snapshot v5 同步）。 */
+export const UNIVERSAL_SPACE_RULE_IDS = {
+  CONTINUITY_P0_HARD_GATE: "novel-continuity-p0-hard-gate",
+  INFO_ASYMMETRY_POV_GATE: "novel-information-asymmetry-and-pov-gate",
+  KB_ROUTING_CONTRACT: "novel-kb-routing-contract",
+  AI_PROSE_REVIEW_15: "ai-prose-review-15",
+  CRAFT_SCHOOL_ROUTING: "novel-craft-school-adaptive-routing",
+  POWER_SYSTEM_COST_ECOLOGY: "novel-power-system-cost-and-ecology",
+  THRILL_PACING_DELAY_CURVE: "novel-thrill-pacing-delay-curve",
+  OPENING_REDLINE_FINALE_PRECEPTS: "novel-opening-redline-finale-precepts",
+  DIALOGUE_STATUS_SUBTEXT: "novel-dialogue-status-and-subtext-turn",
+  COMBAT_COST_INFO_WIN: "novel-combat-cost-and-information-win",
+  CINEMATIC_SHOW_DONT_TELL: "novel-cinematic-show-dont-tell-gate",
+  CHARACTER_VOICE_FLAW: "novel-character-voice-and-flaw-consistency",
+  EMOTIONAL_CURVE_ANTIMELODRAMA: "novel-emotional-curve-and-antimelodrama",
+} as const
 
 // ============================================================================
 // T27b technique-compiler 规则包 id 常量（对齐注册用）
@@ -319,6 +336,11 @@ export function getTechniquePacksByInjectionScope(scope: InjectionScope): readon
   return CRAFT_RULE_REGISTRY.mappings
     .filter((m) => m.injectionScope.includes(scope))
     .map((m) => m.packId)
+}
+
+/** 获取全部 13 条通用 space 规则 ID。 */
+export function getUniversalSpaceRuleIds(): readonly string[] {
+  return Object.values(UNIVERSAL_SPACE_RULE_IDS)
 }
 
 /** 注册表版本号（与 CRAFT_RULE_REGISTRY.metadata.version 等价）。 */

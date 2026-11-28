@@ -35,6 +35,8 @@ export interface UserSkill {
   content: string
   source: "built-in" | "project" | "uploaded" | "linked"
   linkedPath?: string
+  /** Phase 2：linked 技能的本地内容缓存，在外部路径跨设备迁移或短暂缺失时兜底。 */
+  contentCache?: string
   priority: number
   tags: string[]
   categoryId: string
@@ -137,6 +139,10 @@ export function normalizeUserSkill(value: Partial<UserSkill>): UserSkill {
     content: typeof value.content === "string" ? value.content.trim() : "",
     source,
     linkedPath: source === "linked" && typeof value.linkedPath === "string" ? value.linkedPath : undefined,
+    contentCache:
+      source === "linked" && typeof value.contentCache === "string" && value.contentCache.trim()
+        ? value.contentCache.trim()
+        : undefined,
     priority,
     tags,
     categoryId: typeof value.categoryId === "string" ? value.categoryId : "",

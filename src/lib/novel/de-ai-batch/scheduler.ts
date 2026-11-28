@@ -20,7 +20,7 @@ import {
   loadUserMemoryForProject,
 } from "@/lib/user-memory"
 import { extractChapterNumber, findChapterFileByNumber, flattenMdFiles } from "../chapter-utils"
-import { buildDeAiRewriteMessages, BUILTIN_DE_AI_SKILL_VERSION } from "../de-ai-adapter"
+import { buildDeAiRewriteMessages, BUILTIN_DE_AI_SKILL_VERSION, resolveUnifiedDeAiRuntime } from "../de-ai-adapter"
 import { runDeAiDualPass, formatDualPassPromptFragment } from "../de-ai-dual-pass"
 import { classifyIntervention } from "../de-ai-intensity"
 import { lockProtectedSpans, buildPreserveDirective } from "../de-ai-preserve-lock"
@@ -172,7 +172,14 @@ export async function runDeAiBatch(
   const userPrompt = options.userPrompt
     ?? (hasUserDeAiWeights(userMemory) ? buildUserAwareDeAiPrompt(userMemory, genre) : undefined)
   const avoidWords = options.avoidWords ?? getAvoidWords(userMemory)
-  const customSkill = options.customSkill ?? undefined
+  const unifiedDeAi = typeof resolveUnifiedDeAiRuntime === "function"
+    ? await resolveUnifiedDeAiRuntime({
+        projectPath,
+        userRequest: "批量去AI味润色",
+      }).catch(() => null)
+    : null
+  const customSkill = options.customSkill ?? unifiedDeAi?.skillPrompt ?? undefined
+  const tieredTable = unifiedDeAi?.tieredTable
 
   const chapterNumbers = options.chapterNumbers ?? (await listAllChapterNumbers(projectPath))
   if (chapterNumbers.length === 0) {
@@ -255,7 +262,9 @@ export async function runDeAiBatch(
       const content = await readFile(filePath)
       if (!content.trim()) throw new Error("章节内容为空")
 
-      const report = runDeAiDualPass(content)
+      const report = tieredTable
+        ? runDeAiDualPass(content, { tieredTable })
+        : runDeAiDualPass(content)
       const avoidWordsHits = scanAvoidWords(content, avoidWords ?? [])
       const mechanicallyClean = report.pass1.hits.length === 0 && avoidWordsHits.length === 0
       // 跨章回纹签名在跳过章上也注册（保持窗口连续性）
